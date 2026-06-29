@@ -1,0 +1,24 @@
+diff --git a/dist/internal/effect.js b/dist/internal/effect.js
+index 1c7b8e7d48cf3411d0922ea5e37e428ef8f3be4e..f1004bbdd4d20e5a4a455a1cb54de7c6b2b4f113 100644
+--- a/dist/internal/effect.js
++++ b/dist/internal/effect.js
+@@ -374,6 +374,9 @@
+       cb(this._exit);
+       return constVoid;
+     }
++    if (this._observers.length >= 128) {
++      this._observers.shift();
++    }
+     this._observers.push(cb);
+     return () => {
+       const index = this._observers.indexOf(cb);
+@@ -2263,6 +2266,9 @@
+     if (this.isOpen) {
+       return resume(void_);
+     }
++    if (this.waiters.length >= 1024) {
++      this.waiters.shift();
++    }
+     this.waiters.push(resume);
+     return sync(() => {
+       const index = this.waiters.indexOf(resume);

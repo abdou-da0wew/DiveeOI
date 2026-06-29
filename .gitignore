@@ -1,0 +1,11 @@
+.DS_Store
+node_modules
+.env
+.env.local
+.idea
+.vscode
+dist
+ts-dist
+.turbo
+*.bun-build
+tsconfig.tsbuildinfo
