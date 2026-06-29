@@ -9,3 +9,4 @@ ts-dist
 .turbo
 *.bun-build
 tsconfig.tsbuildinfo
+tests/fixtures/generated/
