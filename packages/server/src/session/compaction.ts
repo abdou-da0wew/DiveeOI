@@ -24,7 +24,7 @@ import { SessionMessage } from "@diveeoi/db/session/message"
 import { ProviderV2 } from "@diveeoi/db/provider"
 import { ModelV2 } from "@diveeoi/db/model"
 import { EventV2 } from "@diveeoi/db/event"
-import { buildPrompt } from "@diveeoi/db/session/compaction"
+import { buildPrompt, verifyCompact } from "@diveeoi/db/session/compaction"
 
 export const Event = {
   Compacted: EventV2.define({
@@ -356,6 +356,9 @@ export const layer = Layer.effect(
         { context: [], prompt: undefined },
       )
       const nextPrompt = compacting.prompt ?? buildPrompt({ previousSummary, context: compacting.context })
+      const anchoredPrompt =
+        nextPrompt +
+        "\n\nIMPORTANT: Your summary MUST include the most recent tool calls, their arguments, and their results. If there were any tool calls in the recent conversation, document them in the ## Tool Calls section. Include exact commands, file paths, and error messages."
       const msgs = structuredClone(selected.head)
       yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
       const modelMessages = yield* MessageV2.toModelMessagesEffect(msgs, model, {
@@ -417,7 +420,7 @@ export const layer = Layer.effect(
           ...modelMessages,
           {
             role: "user",
-            content: [{ type: "text", text: nextPrompt }],
+            content: [{ type: "text", text: anchoredPrompt }],
           },
         ],
         model,
@@ -535,6 +538,7 @@ export const layer = Layer.effect(
             parts: [],
           },
         )
+        if (summary) yield* verifyCompact(summary)
         if (flags.experimentalEventSystem) {
           if (summary)
             yield* events.publish(SessionEvent.Compaction.Ended, {

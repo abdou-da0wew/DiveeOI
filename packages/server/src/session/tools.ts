@@ -8,6 +8,9 @@ import { Tool } from "@/tool/tool"
 import { ToolJsonSchema } from "@/tool/json-schema"
 import { ToolRegistry } from "@/tool/registry"
 import { Truncate } from "@/tool/truncate"
+import { toonToolSchema, stripSchemaDescriptions } from "@/tool/toon"
+
+import { Config } from "@/config/config"
 
 import { Plugin } from "@/plugin"
 import type { TaskPromptOps } from "@/tool/task"
@@ -40,6 +43,9 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   const registry = yield* ToolRegistry.Service
   const mcp = yield* MCP.Service
   const truncate = yield* Truncate.Service
+  const configSvc = yield* Config.Service
+  const configInfo = yield* configSvc.get()
+  const isToon = configInfo.tool?.format === "toon"
 
   const context = (args: Record<string, unknown>, options: ToolExecutionOptions): Tool.Context => ({
     sessionID: input.session.id,
@@ -83,9 +89,17 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     const cachedSchema = schemaCache.get(cacheKey)
     const schema = cachedSchema ?? ProviderTransform.schema(input.model, ToolJsonSchema.fromTool(item))
     if (!cachedSchema) schemaCache.set(cacheKey, schema)
+
+    let description = item.description
+    let inputSchema: JSONSchema7 = schema
+    if (isToon) {
+      description = `${toonToolSchema(item.id, description, schema)}\n\n${description}`
+      inputSchema = stripSchemaDescriptions(schema)
+    }
+
     tools[item.id] = tool({
-      description: item.description,
-      inputSchema: jsonSchema(schema),
+      description,
+      inputSchema: jsonSchema(inputSchema),
       execute(args, options) {
         return run.promise(
           Effect.gen(function* () {

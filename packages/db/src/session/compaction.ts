@@ -40,6 +40,12 @@ const SUMMARY_TEMPLATE = `Output exactly the Markdown structure shown inside <te
 ## Critical Context
 - [important technical facts, errors, open questions, or "(none)"]
 
+## Tool Calls
+- [key tool calls made during the session and their outcomes, or "(none)"]
+
+## Recent Messages
+- [most recent user requests and assistant responses, or "(none)"]
+
 ## Relevant Files
 - [file or directory path: why it matters, or "(none)"]
 </template>
@@ -87,6 +93,30 @@ export const serializeToolContent = (content: SessionMessage.ToolStateCompleted[
       item.type === "text" ? item.text : `[Attached ${item.mime}${item.name === undefined ? "" : `: ${item.name}`}]`,
     )
     .join("\n")
+
+const serializeToolCalls = (message: SessionMessage.Message): string | undefined => {
+  if (message.type !== "assistant") return undefined
+  const toolParts = message.content.filter(
+    (part): part is SessionMessage.AssistantTool => part.type === "tool"
+  )
+  if (toolParts.length === 0) return undefined
+  return toolParts
+    .map((part) => {
+      const input = typeof part.state.input === "string" ? part.state.input : JSON.stringify(part.state.input)
+      const truncatedInput = input.length > 500 ? input.slice(0, 500) + "..." : input
+      if (part.state.status === "completed") {
+        const output = part.state.content 
+          ? serializeToolContent(part.state.content).slice(0, 500)
+          : "(no output)"
+        return `- [Tool]: ${part.name}(${truncatedInput}) → ${output}`
+      }
+      if (part.state.status === "error") {
+        return `- [Tool]: ${part.name}(${truncatedInput}) → Error: ${part.state.error.message}`
+      }
+      return `- [Tool]: ${part.name}(${truncatedInput}) → (running)`
+    })
+    .join("\n")
+}
 
 const serialize = (message: SessionMessage.Message) => {
   if (message.type === "user") {
@@ -157,8 +187,27 @@ const select = (
     total = next
     split = index
   }
+  // Truncate head to prevent very old context from consuming too much budget
+  const HEAD_MAX_TOKENS = Math.max(2000, Math.floor(tokens * 0.25))
+
+  let headText = [...conversation.slice(0, split), splitPrefix].filter(Boolean).join("\n\n")
+  let headTokens = Token.estimate(headText)
+  if (headTokens > HEAD_MAX_TOKENS) {
+    const truncatedHead: string[] = []
+    let headTotal = 0
+    for (let i = Math.min(split || 1, conversation.length) - 1; i >= 0; i--) {
+      const item = i < split ? conversation[i] : (splitPrefix || "")
+      if (!item) continue
+      const size = Token.estimate(item)
+      if (headTotal + size > HEAD_MAX_TOKENS) break
+      truncatedHead.unshift(item)
+      headTotal += size
+    }
+    headText = truncatedHead.join("\n\n")
+  }
+
   return {
-    head: [...conversation.slice(0, split), splitPrefix].filter(Boolean).join("\n\n"),
+    head: headText,
     recent: [splitSuffix, ...conversation.slice(split)].filter(Boolean).join("\n\n"),
   }
 }
@@ -171,6 +220,30 @@ export const buildPrompt = (input: { readonly previousSummary?: string; readonly
     SUMMARY_TEMPLATE,
     ...input.context,
   ].join("\n\n")
+
+export const verifyCompact = Effect.fn("SessionCompaction.verifyCompact")(function* (summary: string) {
+  const expectedSections = [
+    "## Goal",
+    "## Progress",
+    "## Key Decisions",
+    "## Next Steps",
+    "## Tool Calls",
+    "## Recent Messages",
+    "## Relevant Files",
+  ]
+  const hasAll = expectedSections.every((section) => summary.includes(section))
+  if (!hasAll) {
+    yield* Effect.logWarning("compaction verification failed: missing sections", {
+      missing: expectedSections.filter((s) => !summary.includes(s)),
+    })
+    return false
+  }
+  if (summary.trim().length < 50) {
+    yield* Effect.logWarning("compaction verification failed: summary too short")
+    return false
+  }
+  return hasAll
+})
 
 export const make = (dependencies: Dependencies) => {
   const config = settings(dependencies.config)
@@ -217,6 +290,7 @@ export const make = (dependencies: Dependencies) => {
       )
     const summary = chunks.join("")
     if (!summarized || failed || !summary.trim()) return false
+    yield* verifyCompact(summary)
     yield* dependencies.events.publish(SessionEvent.Compaction.Ended, {
       sessionID: input.sessionID,
       messageID,
