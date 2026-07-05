@@ -1,10 +1,16 @@
-import { Show, type Component } from "solid-js"
+import { Show, type Component, createMemo } from "solid-js"
+import { Switch } from "@diveeoi/ui/switch"
 import { useLanguage } from "@/context/language"
+import { useServerSync } from "@/context/server-sync"
 import { ServerConnectionForm, ServerConnectionList, useServerManagementController } from "./dialog-select-server"
+import { SettingsList } from "./settings-list"
 
 export const SettingsServers: Component = () => {
   const language = useLanguage()
+  const serverSync = useServerSync()
   const controller = useServerManagementController()
+  const currentCtx7Enabled = createMemo(() => (serverSync().data.config as any)?.builtin?.ctx7?.enabled !== false)
+  const currentContextModeEnabled = createMemo(() => (serverSync().data.config as any)?.builtin?.context_mode?.enabled !== false)
 
   return (
     <div class="flex flex-col h-full overflow-y-auto no-scrollbar px-4 pb-10 sm:px-10 sm:pb-10">
@@ -18,6 +24,37 @@ export const SettingsServers: Component = () => {
                   <h2 class="text-16-medium text-text-strong">{language.t("status.popover.tab.servers")}</h2>
                 </div>
               </div>
+
+              <div class="flex flex-col gap-2 pb-4">
+                <h3 class="text-14-medium text-text-strong px-4">Built-in Tools</h3>
+                <SettingsList>
+                  <div class="flex flex-wrap items-center gap-4 py-3 border-b border-border-weak-base last:border-none sm:flex-nowrap px-4">
+                    <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span class="text-14-medium text-text-strong">ctx7</span>
+                      <span class="text-12-regular text-text-weak">Context retrieval tools (requires Upstash ctx7 API key)</span>
+                    </div>
+                    <div class="flex w-full justify-end sm:w-auto sm:shrink-0">
+                      <Switch
+                        checked={currentCtx7Enabled()}
+                        onChange={(checked) => serverSync().updateConfig({ builtin: { ctx7: { enabled: checked } } } as any)}
+                      />
+                    </div>
+                  </div>
+                  <div class="flex flex-wrap items-center gap-4 py-3 border-b border-border-weak-base last:border-none sm:flex-nowrap px-4">
+                    <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span class="text-14-medium text-text-strong">Context Mode</span>
+                      <span class="text-12-regular text-text-weak">Built-in MCP server for context management</span>
+                    </div>
+                    <div class="flex w-full justify-end sm:w-auto sm:shrink-0">
+                      <Switch
+                        checked={currentContextModeEnabled()}
+                        onChange={(checked) => serverSync().updateConfig({ builtin: { context_mode: { enabled: checked } } } as any)}
+                      />
+                    </div>
+                  </div>
+                </SettingsList>
+              </div>
+
               <ServerConnectionList controller={controller} />
             </>
           }

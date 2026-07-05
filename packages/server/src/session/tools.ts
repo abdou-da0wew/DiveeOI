@@ -8,7 +8,7 @@ import { Tool } from "@/tool/tool"
 import { ToolJsonSchema } from "@/tool/json-schema"
 import { ToolRegistry } from "@/tool/registry"
 import { Truncate } from "@/tool/truncate"
-import { toonToolSchema, stripSchemaDescriptions } from "@/tool/toon"
+import { toonToolSchema, toonToolResult, stripSchemaDescriptions } from "@/tool/toon"
 
 import { Config } from "@/config/config"
 
@@ -119,6 +119,9 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
                 messageID: input.processor.message.id,
               })),
             }
+            if (isToon) {
+              output.output = toonToolResult(item.id, output.output ?? "", output.attachments?.length)
+            }
             yield* plugin.trigger(
               "tool.execute.after",
               { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID, args },
@@ -214,6 +217,9 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
               messageID: input.processor.message.id,
             })),
             content: result.content,
+          }
+          if (isToon) {
+            output.output = toonToolResult(key, output.output ?? "", output.attachments?.length)
           }
           if (opts.abortSignal?.aborted) {
             yield* input.processor.completeToolCall(opts.toolCallId, output)

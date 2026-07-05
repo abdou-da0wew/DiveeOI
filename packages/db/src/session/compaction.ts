@@ -43,6 +43,12 @@ const SUMMARY_TEMPLATE = `Output exactly the Markdown structure shown inside <te
 ## Tool Calls
 - [key tool calls made during the session and their outcomes, or "(none)"]
 
+## User Feedback
+- [user corrections, feedback patterns, expressed preferences, or "(none)"]
+
+## Evolving Rules
+- [patterns, rules, or conventions the user established during this session, or "(none)"]
+
 ## Recent Messages
 - [most recent user requests and assistant responses, or "(none)"]
 
@@ -108,7 +114,9 @@ const serializeToolCalls = (message: SessionMessage.Message): string | undefined
         const output = part.state.content 
           ? serializeToolContent(part.state.content).slice(0, 500)
           : "(no output)"
-        return `- [Tool]: ${part.name}(${truncatedInput}) → ${output}`
+        const title = (part.state as any).title ?? ""
+        const titlePart = title ? ` (${title})` : ""
+        return `- [Tool]: ${part.name}${titlePart}(${truncatedInput}) → ${output}`
       }
       if (part.state.status === "error") {
         return `- [Tool]: ${part.name}(${truncatedInput}) → Error: ${part.state.error.message}`
@@ -129,11 +137,16 @@ const serialize = (message: SessionMessage.Message) => {
         if (part.type === "text") return [`[Assistant]: ${part.text}`]
         if (part.type === "reasoning") return part.text ? [`[Assistant reasoning]: ${part.text}`] : []
         const input = typeof part.state.input === "string" ? part.state.input : JSON.stringify(part.state.input)
-        if (part.state.status === "completed")
+        if (part.state.status === "completed") {
+          const toolId = part.id
+          const title = (part.state as any).title ?? ""
+          const titleSuffix = title ? ` (${title})` : ""
+          const result = truncate(serializeToolContent(part.state.content))
           return [
-            `[Assistant tool call]: ${part.name}(${input})`,
-            `[Tool result]: ${truncate(serializeToolContent(part.state.content))}`,
+            `[Assistant tool call]: ${part.name}(${input}) [id: ${toolId}]`,
+            `[Tool result]${titleSuffix}: ${result}`,
           ]
+        }
         if (part.state.status === "error")
           return [`[Assistant tool call]: ${part.name}(${input})`, `[Tool error]: ${part.state.error.message}`]
         return [`[Assistant tool call]: ${part.name}(${input})`]
@@ -228,6 +241,8 @@ export const verifyCompact = Effect.fn("SessionCompaction.verifyCompact")(functi
     "## Key Decisions",
     "## Next Steps",
     "## Tool Calls",
+    "## User Feedback",
+    "## Evolving Rules",
     "## Recent Messages",
     "## Relevant Files",
   ]
