@@ -16,6 +16,7 @@ import { Shell } from "@diveeoi/db/shell"
 import { ShellID } from "./shell/id"
 
 import * as Truncate from "./truncate"
+import { StreamLimiter } from "./stream-limiter"
 import { Plugin } from "@/plugin"
 import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
@@ -443,6 +444,7 @@ export const ShellTool = Tool.define(
       ctx: Tool.Context,
     ) {
       const limits = yield* trunc.limits()
+      const burstCfg = (yield* config.get()).tool?.burst
       const keep = limits.maxBytes * 2
       let full = ""
       let last = ""
@@ -453,6 +455,13 @@ export const ShellTool = Tool.define(
       let cut = false
       let expired = false
       let aborted = false
+      const limiter = new StreamLimiter({
+        maxBytesPerSecond: burstCfg?.max_bytes_per_second ?? (input.timeout > 30000 ? 2 * 1024 * 1024 : 1024 * 1024),
+        maxBurstBytes: burstCfg?.max_burst_bytes ?? limits.maxBytes * 2,
+        windowMs: burstCfg?.window_ms ?? 1000,
+        strategy: burstCfg?.strategy ?? "truncate",
+        action: burstCfg?.action ?? "truncate",
+      })
 
       const closeSink = Effect.fnUntraced(function* () {
         const stream = sink
@@ -494,6 +503,24 @@ export const ShellTool = Tool.define(
           yield* Effect.forkScoped(
             Stream.runForEach(Stream.decodeText(handle.all), (chunk) => {
               const size = Buffer.byteLength(chunk, "utf-8")
+              const burstAction = limiter.check(size)
+              if (burstAction === "abort") {
+                aborted = true
+                return handle.kill({ forceKillAfter: "1 seconds" }).pipe(
+                  Effect.catch(() => Effect.void),
+                  Effect.andThen(
+                    ctx.metadata({
+                      metadata: {
+                        output: last,
+                        description: input.description,
+                      },
+                    }),
+                  ),
+                )
+              }
+              if (burstAction === "truncate" && !cut) {
+                cut = true
+              }
               list.push({ text: chunk, size })
               used += size
               while (used > keep && list.length > 1) {
@@ -575,6 +602,12 @@ export const ShellTool = Tool.define(
         )
       }
       if (aborted) meta.push("User aborted the command")
+      const stats = limiter.getStats()
+      if (stats.total > 0) {
+        meta.push(
+          `Output rate: ${(stats.rate / 1024).toFixed(1)} KB/s, Total: ${(stats.total / 1024 / 1024).toFixed(1)} MB`,
+        )
+      }
       const raw = list.map((item) => item.text).join("")
       const end = tail(raw, limits.maxLines, limits.maxBytes)
       if (end.cut) cut = true

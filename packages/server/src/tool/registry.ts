@@ -26,6 +26,7 @@ import { Plugin } from "../plugin"
 import { Provider } from "@/provider/provider"
 
 import { WebSearchTool } from "./websearch"
+import { getCtx7Defs } from "@/setup/ctx7"
 
 import * as Truncate from "./truncate"
 
@@ -104,6 +105,10 @@ export const layer = Layer.effect(
     const edit = yield* EditTool
     const greptool = yield* GrepTool
     const agent = yield* Agent.Service
+
+    const ctx7Defs = yield* getCtx7Defs().pipe(
+      Effect.catch(() => Effect.succeed([] as Tool.Def[])),
+    )
 
     const state = yield* InstanceState.make<State>(
       Effect.fn("ToolRegistry.state")(function* (ctx) {
@@ -225,6 +230,7 @@ export const layer = Layer.effect(
             tool.todo,
             tool.search,
             tool.export,
+            ...ctx7Defs,
           ],
           task: tool.task,
           read: tool.read,

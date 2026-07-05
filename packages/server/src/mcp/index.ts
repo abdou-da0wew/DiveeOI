@@ -28,6 +28,7 @@ import { McpAuth } from "./auth"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { EventV2 } from "@diveeoi/db/event"
 import { TuiEvent } from "@/server/tui-event"
+import { resolveContextModeMCP } from "@/setup/context-mode"
 import open from "open"
 import { Cause, Effect, Exit, Layer, Option, Context, Schema } from "effect"
 import { EffectBridge } from "@/effect/bridge"
@@ -458,7 +459,13 @@ export const layer = Layer.effect(
       Effect.fn("MCP.state")(function* () {
         const cfg = yield* cfgSvc.get()
         const bridge = yield* EffectBridge.make()
-        const config = cfg.mcp ?? {}
+        let config = cfg.mcp ?? {}
+
+        const contextModeEntry = resolveContextModeMCP(cfg.builtin?.context_mode)
+        if (contextModeEntry) {
+          config = { [contextModeEntry.name]: contextModeEntry.config, ...config }
+        }
+
         const s: State = {
           config: {},
           status: {},

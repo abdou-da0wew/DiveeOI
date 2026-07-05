@@ -110,6 +110,25 @@ export const Info = Schema.Struct({
   mcp: Schema.optional(
     Schema.Record(Schema.String, Schema.Union([ConfigMCPV1.Info, Schema.Struct({ enabled: Schema.Boolean })])),
   ).annotate({ description: "MCP (Model Context Protocol) server configurations" }),
+  tool: Schema.optional(
+    Schema.Struct({
+      format: Schema.optional(Schema.Literal("json", "toon")).annotate({ description: "Tool schema format (json or toon)" }),
+    }),
+  ).annotate({ description: "Tool configuration" }),
+  builtin: Schema.optional(
+    Schema.Struct({
+      ctx7: Schema.optional(
+        Schema.Struct({
+          enabled: Schema.optional(Schema.Boolean).annotate({ description: "Enable ctx7 tools (default: true, requires ctx7 setup)" }),
+        }),
+      ).annotate({ description: "ctx7 configuration" }),
+      context_mode: Schema.optional(
+        Schema.Struct({
+          enabled: Schema.optional(Schema.Boolean).annotate({ description: "Enable context-mode MCP server (default: true)" }),
+        }),
+      ).annotate({ description: "Context-mode configuration" }),
+    }),
+  ).annotate({ description: "Built-in tool/mcp configurations" }),
   formatter: Schema.optional(ConfigFormatterV1.Info).annotate({
     description:
       "Enable or configure formatters. Omit or set to false to disable, true to enable built-ins, or an object to enable built-ins with overrides.",
