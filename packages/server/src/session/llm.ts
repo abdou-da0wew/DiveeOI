@@ -30,6 +30,8 @@ import { LLMAISDK } from "./llm/ai-sdk"
 import { LLMNativeRuntime } from "./llm/native-runtime"
 import { LLMRequestPrep } from "./llm/request"
 
+const providerAuthCache = new Map<string, Auth.Info | undefined>()
+
 export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
 
 export type StreamInput = {
@@ -92,15 +94,25 @@ const live: Layer.Layer<
         mode: input.agent.mode,
       })
 
+      const t0 = Date.now()
+
+      const providerID = input.model.providerID
+      const authEffect = providerAuthCache.has(providerID)
+        ? Effect.succeed(providerAuthCache.get(providerID))
+        : auth.get(providerID).pipe(
+            Effect.tap((info) => Effect.sync(() => providerAuthCache.set(providerID, info))),
+          )
       const [language, cfg, item, info] = yield* Effect.all(
         [
           provider.getLanguage(input.model),
           config.get(),
-          provider.getProvider(input.model.providerID),
-          auth.get(input.model.providerID),
+          provider.getProvider(providerID),
+          authEffect,
         ],
         { concurrency: "unbounded" },
       )
+
+      const t1 = Date.now()
 
       const isWorkflow = language instanceof GitLabWorkflowLanguageModel
       const prepared = yield* LLMRequestPrep.prepare({
@@ -111,6 +123,8 @@ const live: Layer.Layer<
         flags,
         isWorkflow,
       })
+
+      const t2 = Date.now()
 
       // Wire up toolExecutor for DWS workflow models so that tool calls
       // from the workflow service are executed via opencode's tool system
@@ -240,7 +254,15 @@ const live: Layer.Layer<
         headers: prepared.headers,
         abort: input.abort,
       })
+      const t3 = Date.now()
+
       if (native.type === "supported") {
+        yield* Effect.logInfo("llm timing", {
+          "config.ms": t1 - t0,
+          "prep.ms": t2 - t1,
+          "native.ms": t3 - t2,
+          "llm.runtime": "native",
+        })
         yield* Effect.logInfo("llm runtime selected", {
           "llm.runtime": "native",
           "llm.provider": input.model.providerID,
@@ -251,6 +273,13 @@ const live: Layer.Layer<
           stream: native.stream,
         }
       }
+      yield* Effect.logInfo("llm timing", {
+        "config.ms": t1 - t0,
+        "prep.ms": t2 - t1,
+        "native.ms": t3 - t2,
+        reason: native.reason,
+        "llm.runtime": "ai-sdk",
+      })
       yield* Effect.logInfo("llm runtime selected", {
         "llm.runtime": "ai-sdk",
         "llm.provider": input.model.providerID,

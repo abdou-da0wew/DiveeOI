@@ -2,6 +2,7 @@ import { ButtonV2 } from "@diveeoi/ui/v2/button-v2"
 import { Tag } from "@diveeoi/ui/v2/badge-v2"
 import { Icon as IconV2 } from "@diveeoi/ui/v2/icon"
 import { IconButtonV2 } from "@diveeoi/ui/v2/icon-button-v2"
+import { Switch } from "@diveeoi/ui/v2/switch-v2"
 import { TextInputV2 } from "@diveeoi/ui/v2/text-input-v2"
 import { useDialog } from "@diveeoi/ui/context/dialog"
 import fuzzysort from "fuzzysort"
@@ -11,18 +12,23 @@ import { ServerRowMenu } from "@/components/server/server-row-menu"
 import { ServerHealthIndicator } from "@/components/server/server-row"
 import { useLanguage } from "@/context/language"
 import { ServerConnection, serverName } from "@/context/server"
+import { useServerSync } from "@/context/server-sync"
 import { useServerManagementController } from "../dialog-select-server"
 import { DialogServerV2 } from "./dialog-server-v2"
 import { SettingsListV2 } from "./parts/list"
+import { SettingsRowV2 } from "./parts/row"
 import { isWslServer, useFilteredWslServers, WslAddServerButton, WslServerSettings } from "@/wsl/settings"
 import "./settings-v2.css"
 
 export const SettingsServersV2: Component = () => {
   const dialog = useDialog()
   const language = useLanguage()
+  const serverSync = useServerSync()
   const controller = useServerManagementController()
   const [store, setStore] = createStore({ filter: "" })
   const wslServers = useFilteredWslServers(() => store.filter)
+  const currentCtx7Enabled = createMemo(() => (serverSync().data.config as any)?.builtin?.ctx7?.enabled !== false)
+  const currentContextModeEnabled = createMemo(() => (serverSync().data.config as any)?.builtin?.context_mode?.enabled !== false)
 
   const showSearch = createMemo(
     () => controller.sortedItems().filter((item) => !isWslServer(item)).length + wslServers().length > 1,
@@ -89,6 +95,22 @@ export const SettingsServersV2: Component = () => {
       </div>
 
       <div class="settings-v2-tab-body settings-v2-servers">
+        <h3 class="settings-v2-section-title">Built-in Tools</h3>
+        <SettingsListV2>
+          <SettingsRowV2 title="ctx7" description="Context retrieval tools (requires Upstash ctx7 API key)">
+            <Switch
+              checked={currentCtx7Enabled()}
+              onChange={(checked) => serverSync().updateConfig({ builtin: { ctx7: { enabled: checked } } } as any)}
+            />
+          </SettingsRowV2>
+          <SettingsRowV2 title="Context Mode" description="Built-in MCP server for context management">
+            <Switch
+              checked={currentContextModeEnabled()}
+              onChange={(checked) => serverSync().updateConfig({ builtin: { context_mode: { enabled: checked } } } as any)}
+            />
+          </SettingsRowV2>
+        </SettingsListV2>
+
         <Show
           when={filtered().length > 0 || wslServers().length > 0}
           fallback={

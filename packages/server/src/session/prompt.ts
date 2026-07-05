@@ -1359,6 +1359,13 @@ export const layer = Layer.effect(
             const system = [...env, ...instructions, ...(skills ? [skills] : [])]
             const format = lastUser.format ?? { type: "text" as const }
             if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
+            const isToon = cfg.tool?.format === "toon"
+            if (isToon) {
+              system.push(`When calling tools, format tool call arguments in TOON format:
+Tool: {name}
+  Args:
+    | {key}: {value}`)
+            }
             const result = yield* handle.process({
               user: lastUser,
               agent,
