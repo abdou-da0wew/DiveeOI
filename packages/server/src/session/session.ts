@@ -41,7 +41,7 @@ import type { Provider } from "@/provider/provider"
 import { Permission } from "@/permission"
 import { Global } from "@diveeoi/db/global"
 import { Effect, Layer, Option, Context, Schema, Types } from "effect"
-import { NonNegativeInt, optionalOmitUndefined } from "@diveeoi/db/schema"
+import { AbsolutePath, NonNegativeInt, optionalOmitUndefined } from "@diveeoi/db/schema"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderV2 } from "@diveeoi/db/provider"
 import { ModelV2 } from "@diveeoi/db/model"
@@ -573,6 +573,17 @@ export const layer: Layer.Layer<
         },
       }
       yield* Effect.logInfo("created", result)
+
+      yield* db
+        .insert(ProjectTable)
+        .values({
+          id: ctx.project.id,
+          worktree: AbsolutePath.make(ctx.worktree),
+          sandboxes: [],
+        })
+        .onConflictDoNothing()
+        .run()
+        .pipe(Effect.orDie)
 
       yield* events.publish(SessionV1.Event.Created, { sessionID: result.id, info: result })
 
