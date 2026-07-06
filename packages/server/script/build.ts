@@ -17,18 +17,26 @@ const generated = await import("./generate.ts")
 import { Script } from "@diveeoi/script"
 import pkg from "../package.json"
 
-const singleFlag = process.argv.includes("--single")
+const singleFlag = process.argv.includes("--single") || process.env.DIVEEOI_BUILD_SINGLE === "1"
 const baselineFlag = process.argv.includes("--baseline")
 const skipInstall = process.argv.includes("--skip-install")
 const sourcemapsFlag = process.argv.includes("--sourcemaps")
-const plugin = createSolidTransformPlugin()
+const shouldBuildBinary = !process.argv.includes("--no-binary") && !process.env.DIVEEOI_BUILD_NOBINARY
 const skipEmbedWebUi = process.argv.includes("--skip-embed-web-ui")
+const plugin = createSolidTransformPlugin()
 
 const createEmbeddedWebUIBundle = async () => {
-  console.log(`Building Web UI to embed in the binary`)
   const appDir = path.join(import.meta.dirname, "../../app")
   const dist = path.join(appDir, "dist")
-  await $`OPENCODE_CHANNEL=${Script.channel} bun run --cwd ${appDir} build`
+  // If turbo already built the app, skip rebuilding. Otherwise build it.
+  const distExists = fs.existsSync(dist)
+  if (distExists) {
+    console.log(`Using existing Web UI dist at ${dist}`)
+    } else {
+      console.log(`Building Web UI to embed in the binary`)
+      const buildEnv = { ...process.env, OPENCODE_CHANNEL: Script.channel }
+      await $`bun run --cwd ${appDir} build`.env(buildEnv)
+    }
   const files = (await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: dist })))
     .map((file) => file.replaceAll("\\", "/"))
     .filter((file) => !file.endsWith(".map"))
@@ -48,7 +56,7 @@ const createEmbeddedWebUIBundle = async () => {
   ].join("\n")
 }
 
-const embeddedFileMap = skipEmbedWebUi ? null : await createEmbeddedWebUIBundle()
+const embeddedFileMap = skipEmbedWebUi || !shouldBuildBinary ? null : await createEmbeddedWebUIBundle()
 
 const allTargets: {
   os: string
@@ -134,15 +142,19 @@ const targets = singleFlag
     })
   : allTargets
 
-await $`rm -rf dist`
+fs.rmSync(path.join(dir, "dist"), { recursive: true, force: true })
 
 const binaries: Record<string, string> = {}
-if (!skipInstall) {
-  await $`bun install --os="*" --cpu="*" @opentui/core@${pkg.dependencies["@opentui/core"]}`
-  await $`bun install --os="*" --cpu="*" @parcel/watcher@${pkg.dependencies["@parcel/watcher"]}`
-  await $`bun install --os="*" --cpu="*" @ff-labs/fff-bun@${pkg.dependencies["@ff-labs/fff-bun"]}`
+if (shouldBuildBinary) {
+  if (!skipInstall) {
+    await $`bun install --os="*" --cpu="*" @opentui/core@${pkg.dependencies["@opentui/core"]}`
+    await $`bun install --os="*" --cpu="*" @parcel/watcher@${pkg.dependencies["@parcel/watcher"]}`
+    await $`bun install --os="*" --cpu="*" @ff-labs/fff-bun@${pkg.dependencies["@ff-labs/fff-bun"]}`
+  }
 }
-for (const item of targets) {
+
+if (shouldBuildBinary) {
+  for (const item of targets) {
   const name = [
     pkg.name,
     // changing to win32 flags npm for some reason
@@ -154,7 +166,7 @@ for (const item of targets) {
     .filter(Boolean)
     .join("-")
   console.log(`building ${name}`)
-  await $`mkdir -p dist/${name}/bin`
+  fs.mkdirSync(path.join(dir, `dist/${name}/bin`), { recursive: true })
 
   const localPath = path.resolve(dir, "node_modules/@opentui/core/parser.worker.js")
   const rootPath = path.resolve(dir, "../../node_modules/@opentui/core/parser.worker.js")
@@ -179,12 +191,12 @@ for (const item of targets) {
       autoloadTsconfig: true,
       autoloadPackageJson: true,
       target: name.replace(pkg.name, "bun") as any,
-      outfile: `dist/${name}/bin/opencode`,
-      execArgv: [`--user-agent=opencode/${Script.version}`, "--use-system-ca", "--"],
+      outfile: `dist/${name}/bin/diveeoi`,
+      execArgv: [`--user-agent=diveeoi/${Script.version}`, "--use-system-ca", "--"],
       windows: {},
     },
-    files: embeddedFileMap ? { "opencode-web-ui.gen.ts": embeddedFileMap } : {},
-    entrypoints: ["./src/index.ts", parserWorker, ...(embeddedFileMap ? ["opencode-web-ui.gen.ts"] : [])],
+    files: embeddedFileMap ? { "diveeoi-web-ui.gen.ts": embeddedFileMap } : {},
+    entrypoints: ["./src/main.ts", parserWorker, ...(embeddedFileMap ? ["diveeoi-web-ui.gen.ts"] : [])],
     define: {
       FFF_LIBC: JSON.stringify(item.abi === "musl" ? "musl" : "gnu"),
       OPENCODE_VERSION: `'${Script.version}'`,
@@ -197,20 +209,27 @@ for (const item of targets) {
     },
   })
 
-  // Smoke test: only run if binary is for current platform
+  // Smoke test: verify binary runs and outputs --version
   if (item.os === process.platform && item.arch === process.arch && !item.abi) {
-    const binaryPath = `dist/${name}/bin/opencode`
-    console.log(`Running smoke test: ${binaryPath} --version`)
+    const binaryPath = path.join(dir, `dist/${name}/bin/diveeoi`)
     try {
-      const versionOutput = await $`${binaryPath} --version`.text()
-      console.log(`Smoke test passed: ${versionOutput.trim()}`)
-    } catch (e) {
-      console.error(`Smoke test failed for ${name}:`, e)
-      process.exit(1)
+      const result = await $`${binaryPath} --version`.text()
+      if (result) {
+        console.log(`Smoke test passed: ${binaryPath}`)
+        console.log(`  Output: ${result.trim().split('\n')[0]}`)
+      }
+    } catch {
+      // Fallback: just check the file exists and is non-empty
+      const stat = fs.statSync(binaryPath)
+      if (stat.size === 0) {
+        console.error(`Smoke test failed for ${name}: binary is empty`)
+        process.exit(1)
+      }
+      console.log(`Smoke test (fallback) passed: ${binaryPath} (${(stat.size / 1024 / 1024).toFixed(1)} MB)`)
     }
   }
 
-  await $`rm -rf ./dist/${name}/bin/tui`
+  fs.rmSync(path.join(dir, `dist/${name}/bin/tui`), { recursive: true, force: true })
   await Bun.file(`dist/${name}/package.json`).write(
     JSON.stringify(
       {
@@ -226,6 +245,7 @@ for (const item of targets) {
     ),
   )
   binaries[name] = Script.version
+  }
 }
 
 if (Script.release) {

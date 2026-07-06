@@ -5,7 +5,6 @@ export type ClientOptions = {
 }
 
 export type Event =
-  | EventModelsDevRefreshed
   | EventPluginAdded
   | EventIntegrationUpdated
   | EventCatalogUpdated
@@ -50,13 +49,14 @@ export type Event =
   | EventMessagePartDelta
   | EventSessionDiff
   | EventSessionError
-  | EventInstallationUpdated
-  | EventInstallationUpdateAvailable
-  | EventFileEdited
+  | EventModelsDevRefreshed
+  | EventPermissionAsked
+  | EventPermissionReplied
   | EventPermissionV2Asked
   | EventPermissionV2Replied
   | EventReferenceUpdated
   | EventProjectDirectoriesUpdated
+  | EventFileEdited
   | EventFileWatcherUpdated
   | EventPtyCreated
   | EventPtyUpdated
@@ -66,9 +66,6 @@ export type Event =
   | EventQuestionV2Replied
   | EventQuestionV2Rejected
   | EventTodoUpdated
-  | EventLspUpdated
-  | EventPermissionAsked
-  | EventPermissionReplied
   | EventTuiPromptAppend2
   | EventTuiCommandExecute2
   | EventTuiToastShow2
@@ -83,10 +80,13 @@ export type Event =
   | EventQuestionReplied
   | EventQuestionRejected
   | EventSessionCompacted
+  | EventLspUpdated
   | EventVcsBranchUpdated
   | EventWorkspaceReady
   | EventWorkspaceFailed
   | EventWorkspaceStatus
+  | EventInstallationUpdated
+  | EventInstallationUpdateAvailable
   | EventWorktreeReady
   | EventWorktreeFailed
   | EventServerConnected
@@ -732,13 +732,6 @@ export type GlobalEvent = {
   payload:
     | {
         id: string
-        type: "models-dev.refreshed"
-        properties: {
-          [key: string]: unknown
-        }
-      }
-    | {
-        id: string
         type: "plugin.added"
         properties: {
           id: string
@@ -1245,23 +1238,36 @@ export type GlobalEvent = {
       }
     | {
         id: string
-        type: "installation.updated"
+        type: "models-dev.refreshed"
         properties: {
-          version: string
+          [key: string]: unknown
         }
       }
     | {
         id: string
-        type: "installation.update-available"
+        type: "permission.asked"
         properties: {
-          version: string
+          id: string
+          sessionID: string
+          permission: string
+          patterns: Array<string>
+          metadata: {
+            [key: string]: unknown
+          }
+          always: Array<string>
+          tool?: {
+            messageID: string
+            callID: string
+          }
         }
       }
     | {
         id: string
-        type: "file.edited"
+        type: "permission.replied"
         properties: {
-          file: string
+          sessionID: string
+          requestID: string
+          reply: "once" | "always" | "reject"
         }
       }
     | {
@@ -1300,6 +1306,13 @@ export type GlobalEvent = {
         type: "project.directories.updated"
         properties: {
           projectID: string
+        }
+      }
+    | {
+        id: string
+        type: "file.edited"
+        properties: {
+          file: string
         }
       }
     | {
@@ -1375,40 +1388,6 @@ export type GlobalEvent = {
         properties: {
           sessionID: string
           todos: Array<Todo>
-        }
-      }
-    | {
-        id: string
-        type: "lsp.updated"
-        properties: {
-          [key: string]: unknown
-        }
-      }
-    | {
-        id: string
-        type: "permission.asked"
-        properties: {
-          id: string
-          sessionID: string
-          permission: string
-          patterns: Array<string>
-          metadata: {
-            [key: string]: unknown
-          }
-          always: Array<string>
-          tool?: {
-            messageID: string
-            callID: string
-          }
-        }
-      }
-    | {
-        id: string
-        type: "permission.replied"
-        properties: {
-          sessionID: string
-          requestID: string
-          reply: "once" | "always" | "reject"
         }
       }
     | {
@@ -1568,6 +1547,13 @@ export type GlobalEvent = {
       }
     | {
         id: string
+        type: "lsp.updated"
+        properties: {
+          [key: string]: unknown
+        }
+      }
+    | {
+        id: string
         type: "vcs.branch.updated"
         properties: {
           branch?: string
@@ -1593,6 +1579,20 @@ export type GlobalEvent = {
         properties: {
           workspaceID: string
           status: "connected" | "connecting" | "disconnected" | "error"
+        }
+      }
+    | {
+        id: string
+        type: "installation.updated"
+        properties: {
+          version: string
+        }
+      }
+    | {
+        id: string
+        type: "installation.update-available"
+        properties: {
+          version: string
         }
       }
     | {
@@ -1977,6 +1977,33 @@ export type Config = {
       | {
           enabled: boolean
         }
+  }
+  tool?: {
+    format?: "json"
+    burst?: {
+      /**
+       * Max bytes per second before rate limiting triggers
+       */
+      max_bytes_per_second?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      /**
+       * Max burst bytes before abort
+       */
+      max_burst_bytes?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      /**
+       * Sliding window duration in ms
+       */
+      window_ms?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      strategy?: "truncate"
+      action?: "warn"
+    }
+  }
+  builtin?: {
+    ctx7?: {
+      enabled?: boolean
+    }
+    context_mode?: {
+      enabled?: boolean
+    }
   }
   /**
    * Enable or configure formatters. Omit or set to false to disable, true to enable built-ins, or an object to enable built-ins with overrides.
@@ -4220,14 +4247,6 @@ export type ProjectCopyCopy = {
   directory: string
 }
 
-export type EventModelsDevRefreshed = {
-  id: string
-  type: "models-dev.refreshed"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
 export type EventPluginAdded = {
   id: string
   type: "plugin.added"
@@ -4778,27 +4797,40 @@ export type EventSessionError = {
   }
 }
 
-export type EventInstallationUpdated = {
+export type EventModelsDevRefreshed = {
   id: string
-  type: "installation.updated"
+  type: "models-dev.refreshed"
   properties: {
-    version: string
+    [key: string]: unknown
   }
 }
 
-export type EventInstallationUpdateAvailable = {
+export type EventPermissionAsked = {
   id: string
-  type: "installation.update-available"
+  type: "permission.asked"
   properties: {
-    version: string
+    id: string
+    sessionID: string
+    permission: string
+    patterns: Array<string>
+    metadata: {
+      [key: string]: unknown
+    }
+    always: Array<string>
+    tool?: {
+      messageID: string
+      callID: string
+    }
   }
 }
 
-export type EventFileEdited = {
+export type EventPermissionReplied = {
   id: string
-  type: "file.edited"
+  type: "permission.replied"
   properties: {
-    file: string
+    sessionID: string
+    requestID: string
+    reply: "once" | "always" | "reject"
   }
 }
 
@@ -4841,6 +4873,14 @@ export type EventProjectDirectoriesUpdated = {
   type: "project.directories.updated"
   properties: {
     projectID: string
+  }
+}
+
+export type EventFileEdited = {
+  id: string
+  type: "file.edited"
+  properties: {
+    file: string
   }
 }
 
@@ -4925,43 +4965,6 @@ export type EventTodoUpdated = {
   properties: {
     sessionID: string
     todos: Array<Todo>
-  }
-}
-
-export type EventLspUpdated = {
-  id: string
-  type: "lsp.updated"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
-export type EventPermissionAsked = {
-  id: string
-  type: "permission.asked"
-  properties: {
-    id: string
-    sessionID: string
-    permission: string
-    patterns: Array<string>
-    metadata: {
-      [key: string]: unknown
-    }
-    always: Array<string>
-    tool?: {
-      messageID: string
-      callID: string
-    }
-  }
-}
-
-export type EventPermissionReplied = {
-  id: string
-  type: "permission.replied"
-  properties: {
-    sessionID: string
-    requestID: string
-    reply: "once" | "always" | "reject"
   }
 }
 
@@ -5079,6 +5082,14 @@ export type EventSessionCompacted = {
   }
 }
 
+export type EventLspUpdated = {
+  id: string
+  type: "lsp.updated"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
 export type EventVcsBranchUpdated = {
   id: string
   type: "vcs.branch.updated"
@@ -5109,6 +5120,22 @@ export type EventWorkspaceStatus = {
   properties: {
     workspaceID: string
     status: "connected" | "connecting" | "disconnected" | "error"
+  }
+}
+
+export type EventInstallationUpdated = {
+  id: string
+  type: "installation.updated"
+  properties: {
+    version: string
+  }
+}
+
+export type EventInstallationUpdateAvailable = {
+  id: string
+  type: "installation.update-available"
+  properties: {
+    version: string
   }
 }
 

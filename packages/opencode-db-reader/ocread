@@ -1,0 +1,472 @@
+#!/usr/bin/env python3
+"""
+ocread — Read OpenCode conversation messages from SQLite databases.
+
+Usage:
+  ocred list-dbs                    List available OpenCode DB files
+  ocred list-sessions [--db PATH]   List all sessions/conversations
+  ocred show <session_id> [--db PATH] [--json]  Show full conversation
+  ocred search <query> [--db PATH]  Search across all messages
+  ocred raw <sql> [--db PATH]       Run raw SQL (SELECT only)
+
+By default reads the largest .db file in ~/.local/share/opencode/.
+Uses WAL mode + busy_timeout to avoid locking conflicts with active opencode processes.
+"""
+
+import sqlite3
+import json
+import os
+import sys
+import time
+import glob as glob_mod
+from datetime import datetime, timezone
+
+DB_DIR = os.path.expanduser("~/.local/share/opencode")
+BUSY_TIMEOUT_MS = 5000
+MAX_RETRIES = 3
+
+
+def find_db_files():
+    """Find all .db files in the OpenCode data directory."""
+    pattern = os.path.join(DB_DIR, "*.db")
+    files = sorted(glob_mod.glob(pattern), key=os.path.getsize, reverse=True)
+    return files
+
+
+def pick_db(path=None):
+    """Resolve which DB path to use."""
+    if path:
+        if os.path.isfile(path):
+            return path
+        print(f"error: db not found at '{path}'", file=sys.stderr)
+        sys.exit(1)
+    files = find_db_files()
+    if not files:
+        print(f"error: no .db files found in {DB_DIR}", file=sys.stderr)
+        sys.exit(1)
+    return files[0]
+
+
+def connect(db_path, timeout_ms=BUSY_TIMEOUT_MS):
+    """Connect with WAL-friendly settings and busy timeout."""
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            conn = sqlite3.connect(db_path, timeout=timeout_ms / 1000)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute(f"PRAGMA busy_timeout={timeout_ms}")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            return conn
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e).lower() and attempt < MAX_RETRIES:
+                time.sleep(0.5 * attempt)
+                continue
+            print(f"error: cannot open db ({e})", file=sys.stderr)
+            sys.exit(1)
+
+
+def format_time(ts_ms):
+    """Convert epoch ms to UTC ISO string."""
+    if ts_ms is None:
+        return ""
+    return datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).isoformat()
+
+
+def parse_model(val):
+    """Model can be stored as JSON string or legacy as plain string."""
+    if not val:
+        return "unknown"
+    if isinstance(val, str) and val.startswith("{"):
+        try:
+            return json.loads(val).get("id", val)
+        except json.JSONDecodeError:
+            return val
+    return val
+
+
+# ─── Commands ────────────────────────────────────────────────────────────────
+
+
+def cmd_list_dbs():
+    files = find_db_files()
+    if not files:
+        print("No .db files found.")
+        return
+    print(f"{'Size':>10}  {'Name':<60}  {'#Sessions'}")
+    print("-" * 90)
+    for f in files:
+        try:
+            conn = connect(f)
+            cur = conn.execute("SELECT COUNT(*) FROM session")
+            cnt = cur.fetchone()[0]
+            conn.close()
+        except Exception:
+            cnt = "?"
+        size = os.path.getsize(f)
+        pretty_size = f"{size / 1024 / 1024:.0f}M" if size > 1024 * 1024 else f"{size / 1024:.0f}K"
+        name = os.path.basename(f)
+        print(f"{pretty_size:>10}  {name:<60}  {cnt}")
+
+
+def cmd_list_sessions(db_path, output_json=False):
+    conn = connect(db_path)
+    rows = conn.execute("""
+        SELECT id, project_id, slug, title, model, agent, time_created, time_updated, cost
+        FROM session
+        ORDER BY time_created DESC
+    """).fetchall()
+    conn.close()
+
+    if output_json:
+        out = []
+        for r in rows:
+            out.append({
+                "id": r["id"],
+                "project": r["project_id"],
+                "title": r["title"],
+                "model": parse_model(r["model"]),
+                "agent": r["agent"],
+                "created": format_time(r["time_created"]),
+                "updated": format_time(r["time_updated"]),
+                "cost": r["cost"],
+            })
+        print(json.dumps(out, indent=2))
+        return
+
+    print(f"{'Session ID':<44}  {'Title':<45}  {'Agent':<12}  {'Messages':<9}  {'Created'}")
+    print("-" * 130)
+    for r in rows:
+        sid = r["id"]
+        cur2 = connect(db_path)
+        msg_count = cur2.execute(
+            "SELECT COUNT(*) FROM message WHERE session_id = ?", (sid,)
+        ).fetchone()[0]
+        cur2.close()
+        title = (r["title"][:42] + "..") if len(r["title"]) > 43 else r["title"]
+        agent = r["agent"] or "?"
+        created = format_time(r["time_created"])[:19]
+        print(f"{sid:<44}  {title:<45}  {agent:<12}  {msg_count:<9}  {created}")
+
+
+def cmd_show(db_path, session_id, output_json=False):
+    conn = connect(db_path)
+
+    # Get session info
+    srow = conn.execute(
+        "SELECT * FROM session WHERE id = ?", (session_id,)
+    ).fetchone()
+    if not srow:
+        # Try prefix match for convenience
+        srow = conn.execute(
+            "SELECT * FROM session WHERE id LIKE ?", (session_id + "%",)
+        ).fetchone()
+    if not srow:
+        print(f"error: session '{session_id}' not found", file=sys.stderr)
+        conn.close()
+        sys.exit(1)
+
+    session_data = dict(srow)
+
+    # Get all messages, ordered by creation time
+    messages = conn.execute("""
+        SELECT id, session_id, time_created, time_updated, data
+        FROM message
+        WHERE session_id = ?
+        ORDER BY time_created ASC
+    """, (session_data["id"],)).fetchall()
+
+    # Get parts for all messages in this session
+    msg_ids = [m["id"] for m in messages]
+    parts_by_msg = {}
+    if msg_ids:
+        placeholders = ",".join("?" * len(msg_ids))
+        parts = conn.execute(f"""
+            SELECT message_id, data
+            FROM part
+            WHERE message_id IN ({placeholders})
+            ORDER BY rowid ASC
+        """, msg_ids).fetchall()
+        for p in parts:
+            parts_by_msg.setdefault(p["message_id"], []).append(json.loads(p["data"]))
+
+    # Get session_message events
+    events = conn.execute("""
+        SELECT type, seq, data, time_created
+        FROM session_message
+        WHERE session_id = ?
+        ORDER BY seq ASC
+    """, (session_data["id"],)).fetchall()
+
+    conn.close()
+
+    if output_json:
+        conv = []
+        for m in messages:
+            md = json.loads(m["data"])
+            msg_parts = parts_by_msg.get(m["id"], [])
+            conv.append({
+                "message_id": m["id"],
+                "role": md.get("role", "unknown"),
+                "agent": md.get("agent"),
+                "model": md.get("modelID") or md.get("model", {}).get("id"),
+                "created": format_time(m["time_created"]),
+                "updated": format_time(m["time_updated"]),
+                "tokens": md.get("tokens"),
+                "finish": md.get("finish"),
+                "parts": msg_parts,
+            })
+        out = {
+            "session": {
+                "id": session_data["id"],
+                "project": session_data["project_id"],
+                "title": session_data["title"],
+                "slug": session_data["slug"],
+                "version": session_data["version"],
+                "model": parse_model(session_data["model"]),
+                "agent": session_data["agent"],
+                "created": format_time(session_data["time_created"]),
+                "updated": format_time(session_data["time_updated"]),
+                "cost": session_data["cost"],
+                "tokens_input": session_data["tokens_input"],
+                "tokens_output": session_data["tokens_output"],
+                "tokens_reasoning": session_data["tokens_reasoning"],
+                "tokens_cache_read": session_data["tokens_cache_read"],
+                "tokens_cache_write": session_data["tokens_cache_write"],
+            },
+            "events": [
+                {
+                    "type": json.loads(e["data"]).get("type", e["type"]),
+                    "data": json.loads(e["data"]),
+                }
+                for e in events
+            ],
+            "messages": conv,
+        }
+        print(json.dumps(out, indent=2))
+        return
+
+    # Text output
+    print(f"Session: {session_data['title']}")
+    print(f"  ID:      {session_data['id']}")
+    print(f"  Project: {session_data['project_id']}")
+    print(f"  Model:   {parse_model(session_data['model'])}")
+    print(f"  Agent:   {session_data['agent']}")
+    print(f"  Created: {format_time(session_data['time_created'])}")
+    print(f"  Cost:    {session_data['cost']}")
+    print(f"  Tokens:  {session_data.get('tokens_input',0)}i / {session_data.get('tokens_output',0)}o / {session_data.get('tokens_reasoning',0)}r")
+    print()
+
+    for m in messages:
+        md = json.loads(m["data"])
+        role = md.get("role", "?")
+        agent = md.get("agent", "")
+        model = md.get("modelID") or ""
+        label = f"[{role}]"
+        if agent:
+            label += f" ({agent})"
+        print(f"\n{'='*70}")
+        print(f"  {label}  {format_time(m['time_created'])}")
+        print(f"{'='*70}")
+
+        msg_parts = parts_by_msg.get(m["id"], [])
+        for part in msg_parts:
+            ptype = part.get("type", "?")
+            if ptype == "text":
+                text = part.get("text", "")
+                print(text)
+            elif ptype == "reasoning":
+                text = part.get("text", "")
+                print(f"  ┌─ [reasoning] ─────────────────────")
+                for line in text.split("\n"):
+                    print(f"  │ {line}")
+                print(f"  └────────────────────────────────────")
+            elif ptype == "tool":
+                tool_name = part.get("tool", "?")
+                tool_state = part.get("state", {})
+                status = tool_state.get("status", "?")
+                inp = tool_state.get("input", {})
+                inp_str = json.dumps(inp, ensure_ascii=False)
+                if len(inp_str) > 200:
+                    inp_str = inp_str[:200] + "..."
+                print(f"  ⚙ {tool_name}[{status}]: {inp_str}")
+            elif ptype == "step-start":
+                print(f"  ▶ step")
+            elif ptype == "step-finish":
+                reason = part.get("reason", "?")
+                tokens = part.get("tokens", {})
+                print(f"  ■ finish ({reason}), tokens={tokens.get('total',0)}")
+            elif ptype == "compaction":
+                print(f"  ↺ compaction (message count reduced)")
+            else:
+                print(f"  [{ptype}] {json.dumps(part, ensure_ascii=False)[:200]}")
+    print()
+
+
+def cmd_search(db_path, query, output_json=False):
+    conn = connect(db_path)
+
+    # Search across message data (JSON) and part text
+    like_pattern = f"%{query}%"
+
+    # Search in message JSON data
+    msg_rows = conn.execute("""
+        SELECT m.id, m.session_id, m.data, s.title, m.time_created
+        FROM message m
+        JOIN session s ON s.id = m.session_id
+        WHERE m.data LIKE ?
+        ORDER BY m.time_created DESC
+        LIMIT 50
+    """, (like_pattern,)).fetchall()
+
+    # Search in part text
+    part_rows = conn.execute("""
+        SELECT p.message_id, p.session_id, p.data, s.title, m.time_created, m.data as msg_data
+        FROM part p
+        JOIN session s ON s.id = p.session_id
+        JOIN message m ON m.id = p.message_id
+        WHERE p.data LIKE ?
+        ORDER BY m.time_created DESC
+        LIMIT 50
+    """, (like_pattern,)).fetchall()
+
+    conn.close()
+
+    if output_json:
+        results = []
+        for r in msg_rows:
+            md = json.loads(r["data"])
+            results.append({
+                "type": "message",
+                "message_id": r["id"],
+                "session_id": r["session_id"],
+                "session_title": r["title"],
+                "role": md.get("role"),
+                "created": format_time(r["time_created"]),
+            })
+        seen = set()
+        for r in part_rows:
+            if r["message_id"] in seen:
+                continue
+            seen.add(r["message_id"])
+            md = json.loads(r["msg_data"])
+            pd = json.loads(r["data"])
+            results.append({
+                "type": "part",
+                "message_id": r["message_id"],
+                "session_id": r["session_id"],
+                "session_title": r["title"],
+                "role": md.get("role"),
+                "part_type": pd.get("type"),
+                "snippet": pd.get("text", "")[:300] if pd.get("type") in ("text", "reasoning") else json.dumps(pd)[:200],
+                "created": format_time(r["time_created"]),
+            })
+        results.sort(key=lambda x: x.get("created", ""), reverse=True)
+        print(json.dumps(results[:50], indent=2))
+        return
+
+    print(f"Search results for: {query}\n")
+    if msg_rows:
+        print("--- Matches in message metadata ---")
+        for r in msg_rows:
+            md = json.loads(r["data"])
+            role = md.get("role", "?")
+            print(f"  {r['id']} [{role}] — {r['title']} ({format_time(r['time_created'])[:19]})")
+
+    if part_rows:
+        print("\n--- Matches in message parts ---")
+        seen = set()
+        for r in part_rows:
+            if r["message_id"] in seen:
+                continue
+            seen.add(r["message_id"])
+            pd = json.loads(r["data"])
+            ptype = pd.get("type", "?")
+            snippet = ""
+            if ptype in ("text", "reasoning"):
+                snippet = pd.get("text", "")[:120]
+            title = r["title"]
+            print(f"  {r['message_id']} [{ptype}] — {title}")
+            if snippet:
+                print(f"    {snippet}")
+
+    if not msg_rows and not part_rows:
+        print("  No matches found.")
+
+
+def cmd_raw(db_path, sql):
+    if not sql.strip().upper().startswith("SELECT"):
+        print("error: only SELECT queries allowed", file=sys.stderr)
+        sys.exit(1)
+    conn = connect(db_path)
+    try:
+        rows = conn.execute(sql).fetchall()
+    except Exception as e:
+        print(f"error: {e}", file=sys.stderr)
+        conn.close()
+        sys.exit(1)
+    out = [dict(r) for r in rows]
+    print(json.dumps(out, indent=2, default=str))
+    conn.close()
+
+
+# ─── CLI entry ──────────────────────────────────────────────────────────────
+
+
+def main():
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help", "help"):
+        print(__doc__.strip())
+        return
+
+    cmd = sys.argv[1]
+    args = sys.argv[2:]
+
+    db_path = None
+    output_json = False
+
+    # Parse --db and --json from remaining args
+    filtered = []
+    skip_next = False
+    for i, a in enumerate(args):
+        if skip_next:
+            skip_next = False
+            continue
+        if a == "--db" and i + 1 < len(args):
+            db_path = args[i + 1]
+            skip_next = True
+        elif a == "--json":
+            output_json = True
+        else:
+            filtered.append(a)
+    args = filtered
+
+    if cmd == "list-dbs":
+        cmd_list_dbs()
+        return
+
+    # Resolve db for commands that need it
+    db_path = pick_db(db_path)
+
+    if cmd == "list-sessions":
+        cmd_list_sessions(db_path, output_json)
+    elif cmd == "show":
+        if not args:
+            print("error: missing session_id\n  usage: ocred show <session_id>", file=sys.stderr)
+            sys.exit(1)
+        cmd_show(db_path, args[0], output_json)
+    elif cmd == "search":
+        if not args:
+            print("error: missing query\n  usage: ocred search <query>", file=sys.stderr)
+            sys.exit(1)
+        cmd_search(db_path, " ".join(args), output_json)
+    elif cmd == "raw":
+        if not args:
+            print("error: missing SQL\n  usage: ocred raw \"SELECT ...\"", file=sys.stderr)
+            sys.exit(1)
+        cmd_raw(db_path, " ".join(args))
+    else:
+        print(f"error: unknown command '{cmd}'\n  run 'ocred --help' for usage", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

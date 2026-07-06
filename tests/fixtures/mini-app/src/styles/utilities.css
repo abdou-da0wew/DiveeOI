@@ -1,0 +1,17 @@
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
+.text-small {
+  font-size: 13px;
+  line-height: 150%;
+}
+
+.text-body {
+  font-size: 14px;
+  line-height: 180%;
+}
