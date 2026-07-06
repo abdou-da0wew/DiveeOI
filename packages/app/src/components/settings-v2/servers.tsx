@@ -20,6 +20,13 @@ import { SettingsRowV2 } from "./parts/row"
 import { isWslServer, useFilteredWslServers, WslAddServerButton, WslServerSettings } from "@/wsl/settings"
 import "./settings-v2.css"
 
+type SettingsConfig = Record<string, unknown> & {
+  builtin?: {
+    ctx7?: { enabled?: boolean }
+    context_mode?: { enabled?: boolean }
+  }
+}
+
 export const SettingsServersV2: Component = () => {
   const dialog = useDialog()
   const language = useLanguage()
@@ -27,8 +34,9 @@ export const SettingsServersV2: Component = () => {
   const controller = useServerManagementController()
   const [store, setStore] = createStore({ filter: "" })
   const wslServers = useFilteredWslServers(() => store.filter)
-  const currentCtx7Enabled = createMemo(() => (serverSync().data.config as any)?.builtin?.ctx7?.enabled !== false)
-  const currentContextModeEnabled = createMemo(() => (serverSync().data.config as any)?.builtin?.context_mode?.enabled !== false)
+  const config = createMemo(() => serverSync().data.config as SettingsConfig)
+  const currentCtx7Enabled = createMemo(() => config()?.builtin?.ctx7?.enabled !== false)
+  const currentContextModeEnabled = createMemo(() => config()?.builtin?.context_mode?.enabled !== false)
 
   const showSearch = createMemo(
     () => controller.sortedItems().filter((item) => !isWslServer(item)).length + wslServers().length > 1,
@@ -100,13 +108,13 @@ export const SettingsServersV2: Component = () => {
           <SettingsRowV2 title="ctx7" description="Context retrieval tools (requires Upstash ctx7 API key)">
             <Switch
               checked={currentCtx7Enabled()}
-              onChange={(checked) => serverSync().updateConfig({ builtin: { ctx7: { enabled: checked } } } as any)}
+              onChange={(checked) => serverSync().updateConfig({ builtin: { ctx7: { enabled: checked } } } as Record<string, unknown>)}
             />
           </SettingsRowV2>
           <SettingsRowV2 title="Context Mode" description="Built-in MCP server for context management">
             <Switch
               checked={currentContextModeEnabled()}
-              onChange={(checked) => serverSync().updateConfig({ builtin: { context_mode: { enabled: checked } } } as any)}
+              onChange={(checked) => serverSync().updateConfig({ builtin: { context_mode: { enabled: checked } } } as Record<string, unknown>)}
             />
           </SettingsRowV2>
         </SettingsListV2>

@@ -359,7 +359,8 @@ export const layer = Layer.effect(
       const anchoredPrompt =
         nextPrompt +
         "\n\nIMPORTANT: Your summary MUST include the most recent tool calls, their arguments, and their results. If there were any tool calls in the recent conversation, document them in the ## Tool Calls section. Include exact commands, file paths, and error messages." +
-        "\n\nIMPORTANT: Extract any user corrections, feedback, or preferences expressed during the conversation and add them to the ## User Feedback section. Extract any patterns, rules, or conventions the user established and add them to the ## Evolving Rules section."
+        "\n\nIMPORTANT: Extract any user corrections, feedback, or preferences expressed during the conversation and add them to the ## User Feedback section. Extract any patterns, rules, or conventions the user established and add them to the ## Evolving Rules section." +
+        "\n\nIMPORTANT: Do NOT call any tools, output XML tool call syntax, or include markup like <invoke> or <parameter> in your response. Output plain Markdown text only. No tools are available to you — you are a summarizer, not an executor."
       const msgs = structuredClone(selected.head)
       yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
       const modelMessages = yield* MessageV2.toModelMessagesEffect(msgs, model, {

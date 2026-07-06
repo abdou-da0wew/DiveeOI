@@ -1173,7 +1173,7 @@ export const layer = Layer.effect(
       throw new Error("Impossible")
     })
 
-    const runLoop: (sessionID: SessionID) => Effect.Effect<SessionV1.WithParts> = Effect.fn("SessionPrompt.run")(
+    const runLoop = Effect.fn("SessionPrompt.run")<SessionV1.WithParts>(
       function* (sessionID: SessionID) {
         const ctx = yield* InstanceState.context
         let structured: unknown
@@ -1359,7 +1359,7 @@ export const layer = Layer.effect(
             const system = [...env, ...instructions, ...(skills ? [skills] : [])]
             const format = lastUser.format ?? { type: "text" as const }
             if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
-            const isToon = cfg.tool?.format === "toon"
+            const isToon = (cfg.llm?.format ?? cfg.tool?.format ?? "toon") !== "json"
             if (isToon) {
               system.push(`When calling tools, format tool call arguments in TOON format:
 Tool: {name}

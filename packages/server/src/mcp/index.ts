@@ -455,13 +455,13 @@ export const layer = Layer.effect(
       }
     }
 
+    const initialCfg = yield* cfgSvc.get()
     const state = yield* InstanceState.make<State>(
       Effect.fn("MCP.state")(function* () {
-        const cfg = yield* cfgSvc.get()
         const bridge = yield* EffectBridge.make()
-        let config = cfg.mcp ?? {}
+        let config = initialCfg.mcp ?? {}
 
-        const contextModeEntry = resolveContextModeMCP(cfg.builtin?.context_mode)
+        const contextModeEntry = resolveContextModeMCP(initialCfg.builtin?.context_mode)
         if (contextModeEntry) {
           config = { [contextModeEntry.name]: contextModeEntry.config, ...config }
         }

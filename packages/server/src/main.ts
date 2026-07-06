@@ -1,7 +1,11 @@
 import { Effect } from "effect"
+import { handleCLI } from "./cli/index"
 import { Server } from "./server/server"
 import { DevMonitor } from "./dev/monitor"
 import { checkCtx7Update } from "./setup/ctx7"
+
+const handled = await handleCLI(process.argv.slice(2))
+if (handled) process.exit(0)
 
 const port = parseInt(process.env.PORT || "4097", 10)
 const host = process.env.HOST || "0.0.0.0"

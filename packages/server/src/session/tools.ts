@@ -45,7 +45,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   const truncate = yield* Truncate.Service
   const configSvc = yield* Config.Service
   const configInfo = yield* configSvc.get()
-  const isToon = configInfo.tool?.format === "toon"
+  const isToon = (configInfo.llm?.format ?? configInfo.tool?.format ?? "toon") !== "json"
 
   const context = (args: Record<string, unknown>, options: ToolExecutionOptions): Tool.Context => ({
     sessionID: input.session.id,

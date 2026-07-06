@@ -9,7 +9,8 @@
     "dev:watch": "bun --cwd packages/server dev:watch",
     "dev:web": "bun --cwd packages/app dev",
     "dev:both": "concurrently --names server,app --prefix-colors cyan,green \"bun --cwd packages/server dev:watch\" \"bun --cwd packages/app dev\"",
-    "build": "bun turbo build",
+    "build": "bun scripts/build.ts",
+    "build:nobin": "bun scripts/build.ts --no-binary",
     "typecheck": "bun turbo typecheck",
     "lint": "oxlint",
     "clean": "rm -rf packages/*/dist packages/*/.turbo"

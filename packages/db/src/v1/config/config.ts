@@ -113,8 +113,64 @@ export const Info = Schema.Struct({
   tool: Schema.optional(
     Schema.Struct({
       format: Schema.optional(Schema.Literal("json", "toon")).annotate({ description: "Tool schema format (json or toon)" }),
+      burst: Schema.optional(
+        Schema.Struct({
+          max_bytes_per_second: Schema.optional(Schema.Number).annotate({
+            description: "Max bytes per second before rate limiting triggers",
+          }),
+          max_burst_bytes: Schema.optional(Schema.Number).annotate({ description: "Max burst bytes before abort" }),
+          window_ms: Schema.optional(Schema.Number).annotate({ description: "Sliding window duration in ms" }),
+          strategy: Schema.optional(Schema.Literal("truncate", "buffer", "abort")).annotate({ description: "Rate limiting strategy" }),
+          action: Schema.optional(Schema.Literal("warn", "truncate", "abort")).annotate({ description: "Action when rate exceeded" }),
+        }),
+      ).annotate({ description: "Shell burst rate limiting configuration" }),
     }),
   ).annotate({ description: "Tool configuration" }),
+  llm: Schema.optional(
+    Schema.Struct({
+      format: Schema.optional(Schema.Literal("json", "toon")).annotate({ description: "Tool format for LLM calls (json or toon)" }),
+      burst: Schema.optional(
+        Schema.Struct({
+          max_bytes_per_second: Schema.optional(Schema.Number).annotate({
+            description: "Max bytes per second before rate limiting triggers",
+          }),
+          max_burst_bytes: Schema.optional(Schema.Number).annotate({ description: "Max burst bytes before abort" }),
+          window_ms: Schema.optional(Schema.Number).annotate({ description: "Sliding window duration in ms" }),
+          strategy: Schema.optional(Schema.Literal("truncate", "buffer", "abort")).annotate({ description: "Rate limiting strategy" }),
+          action: Schema.optional(Schema.Literal("warn", "truncate", "abort")).annotate({ description: "Action when rate exceeded" }),
+        }),
+      ).annotate({ description: "LLM shell burst rate limiting" }),
+      tool_output: Schema.optional(
+        Schema.Struct({
+          max_lines: Schema.optional(PositiveInt).annotate({
+            description: "Maximum lines of tool output before truncation",
+          }),
+          max_bytes: Schema.optional(PositiveInt).annotate({
+            description: "Maximum bytes of tool output before truncation",
+          }),
+        }),
+      ).annotate({ description: "Tool output filtering thresholds" }),
+      compaction: Schema.optional(
+        Schema.Struct({
+          auto: Schema.optional(Schema.Boolean).annotate({
+            description: "Enable automatic compaction when context is full",
+          }),
+          prune: Schema.optional(Schema.Boolean).annotate({
+            description: "Enable pruning of old tool outputs",
+          }),
+          tail_turns: Schema.optional(NonNegativeInt).annotate({
+            description: "Number of recent turns to keep verbatim during compaction",
+          }),
+        }),
+      ).annotate({ description: "Context compaction settings" }),
+      max_tool_output: Schema.optional(PositiveInt).annotate({
+        description: "Maximum tool output size in characters before truncation",
+      }),
+      parallel_tool_calls: Schema.optional(Schema.Boolean).annotate({
+        description: "Allow parallel tool calls (default: true)",
+      }),
+    }),
+  ).annotate({ description: "LLM configuration for tool format, burst limiting, output filtering, and compaction" }),
   builtin: Schema.optional(
     Schema.Struct({
       ctx7: Schema.optional(

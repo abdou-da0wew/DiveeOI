@@ -10,6 +10,8 @@ const channel = (() => {
   return "dev"
 })()
 
+const isLowMem = process.env.DIVEEOI_LOW_MEM === "1"
+
 export default defineConfig({
   resolve: {
     alias: {
@@ -29,7 +31,11 @@ export default defineConfig({
   },
   build: {
     target: "esnext",
-    sourcemap: true,
+    sourcemap: !isLowMem,
+    rollupOptions: isLowMem ? {
+      maxParallelFileOps: 2,
+      cache: false,
+    } : undefined,
   },
   worker: {
     format: "es",

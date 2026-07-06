@@ -11,9 +11,17 @@ export interface InstanceState<A, E = never, R = never> {
   readonly cache: ScopedCache.ScopedCache<string, A, E, R>
 }
 
+let warned = false
+
 export const context = Effect.gen(function* () {
   const ctx = yield* InstanceRef
-  if (!ctx) return yield* Effect.die(new Error("InstanceRef not provided"))
+  if (!ctx) {
+    if (!warned) {
+      warned = true
+      yield* Effect.logWarning("InstanceState.context called without InstanceRef")
+    }
+    return { directory: process.cwd(), worktree: process.cwd(), project: { id: "startup" as any, time: { created: 0, updated: 0 }, sandboxes: [] } } as InstanceContext
+  }
   return ctx
 })
 

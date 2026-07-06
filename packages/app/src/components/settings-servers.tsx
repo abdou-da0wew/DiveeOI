@@ -5,12 +5,20 @@ import { useServerSync } from "@/context/server-sync"
 import { ServerConnectionForm, ServerConnectionList, useServerManagementController } from "./dialog-select-server"
 import { SettingsList } from "./settings-list"
 
+type SettingsConfig = Record<string, unknown> & {
+  builtin?: {
+    ctx7?: { enabled?: boolean }
+    context_mode?: { enabled?: boolean }
+  }
+}
+
 export const SettingsServers: Component = () => {
   const language = useLanguage()
   const serverSync = useServerSync()
   const controller = useServerManagementController()
-  const currentCtx7Enabled = createMemo(() => (serverSync().data.config as any)?.builtin?.ctx7?.enabled !== false)
-  const currentContextModeEnabled = createMemo(() => (serverSync().data.config as any)?.builtin?.context_mode?.enabled !== false)
+  const config = createMemo(() => serverSync().data.config as SettingsConfig)
+  const currentCtx7Enabled = createMemo(() => config()?.builtin?.ctx7?.enabled !== false)
+  const currentContextModeEnabled = createMemo(() => config()?.builtin?.context_mode?.enabled !== false)
 
   return (
     <div class="flex flex-col h-full overflow-y-auto no-scrollbar px-4 pb-10 sm:px-10 sm:pb-10">
@@ -36,7 +44,7 @@ export const SettingsServers: Component = () => {
                     <div class="flex w-full justify-end sm:w-auto sm:shrink-0">
                       <Switch
                         checked={currentCtx7Enabled()}
-                        onChange={(checked) => serverSync().updateConfig({ builtin: { ctx7: { enabled: checked } } } as any)}
+                        onChange={(checked) => serverSync().updateConfig({ builtin: { ctx7: { enabled: checked } } } as Record<string, unknown>)}
                       />
                     </div>
                   </div>
@@ -48,7 +56,7 @@ export const SettingsServers: Component = () => {
                     <div class="flex w-full justify-end sm:w-auto sm:shrink-0">
                       <Switch
                         checked={currentContextModeEnabled()}
-                        onChange={(checked) => serverSync().updateConfig({ builtin: { context_mode: { enabled: checked } } } as any)}
+                        onChange={(checked) => serverSync().updateConfig({ builtin: { context_mode: { enabled: checked } } } as Record<string, unknown>)}
                       />
                     </div>
                   </div>

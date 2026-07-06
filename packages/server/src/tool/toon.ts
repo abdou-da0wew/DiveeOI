@@ -165,18 +165,4 @@ export function stripSchemaDescriptions(schema: JSONSchema7): JSONSchema7 {
   return stripped
 }
 
-export function toonCall(toolName: string, args: Record<string, unknown>): string {
-  const lines: string[] = []
-  lines.push(`Tool: ${toolName}`)
-  const entries = Object.entries(args ?? {})
-  if (entries.length > 0) {
-    lines.push(`  Args:`)
-    for (const [key, value] of entries) {
-      const str = typeof value === "string" ? value : JSON.stringify(value)
-      lines.push(`    | ${key}: ${str}`)
-    }
-  }
-  return lines.join("\n")
-}
-
 export * as TOON from "./toon"
