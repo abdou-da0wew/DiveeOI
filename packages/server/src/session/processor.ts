@@ -22,6 +22,7 @@ import type { Provider } from "@/provider/provider"
 import { Question } from "@/question"
 import { errorMessage } from "@/util/error"
 import { isRecord } from "@/util/record"
+import { Tracer } from "@/effect/tracer"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { Database } from "@diveeoi/db/database/database"
 import { SessionEvent } from "@diveeoi/db/session/event"
@@ -915,8 +916,8 @@ export const layer = Layer.effect(
       })
 
       const halt = Effect.fn("SessionProcessor.halt")(function* (e: unknown) {
-        yield* Effect.logError("process", {
-          "session.id": input.sessionID,
+        yield* Tracer.error("session.process.error", {
+          sessionID: input.sessionID,
           messageID: input.assistantMessage.id,
           error: errorMessage(e),
           stack: e instanceof Error ? e.stack : undefined,
@@ -958,8 +959,8 @@ export const layer = Layer.effect(
       })
 
       const process = Effect.fn("SessionProcessor.process")(function* (streamInput: LLM.StreamInput) {
-        yield* Effect.logInfo("process", {
-          "session.id": input.sessionID,
+        yield* Tracer.info("session.process.start", {
+          sessionID: input.sessionID,
           messageID: input.assistantMessage.id,
         })
         ctx.needsCompaction = false

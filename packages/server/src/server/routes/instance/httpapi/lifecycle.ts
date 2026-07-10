@@ -1,6 +1,7 @@
 import { EffectBridge } from "@/effect/bridge"
 import type { InstanceContext } from "@/project/instance-context"
 import { InstanceStore } from "@/project/instance-store"
+import { Tracer } from "@/effect/tracer"
 import { Effect } from "effect"
 import { HttpEffect, HttpMiddleware, HttpServerRequest } from "effect/unstable/http"
 
@@ -50,5 +51,24 @@ export const disposeMiddleware: HttpMiddleware.HttpMiddleware = (effect) =>
     yield* Effect.uninterruptible(marked.bridge.run(marked.store.dispose(marked.ctx))).pipe(
       Effect.catchCause((cause) => Effect.logWarning("instance disposal failed", { cause })),
     )
+    return response
+  })
+
+export const traceMiddleware: HttpMiddleware.HttpMiddleware = (effect) =>
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const traceId = crypto.randomUUID()
+    const method = request.method
+    const url = request.url
+    yield* Effect.logInfo("http.request.start", { method, url, traceId })
+    const t0 = Date.now()
+    const response = yield* effect.pipe(Effect.provideService(Tracer.TraceId, traceId))
+    yield* Effect.logInfo("http.request.end", {
+      method,
+      url,
+      status: response.status,
+      duration_ms: Date.now() - t0,
+      traceId,
+    })
     return response
   })

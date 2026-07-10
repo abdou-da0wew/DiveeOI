@@ -43,6 +43,7 @@ import { Image } from "@/image/image"
 import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
 import { Cause, Effect, Exit, Latch, Layer, Option, Scope, Context, Schema, Types } from "effect"
+import { Tracer } from "@/effect/tracer"
 import { InstanceRef } from "@/effect/instance-ref"
 import { InstanceState } from "@/effect/instance-state"
 import { TaskTool, type TaskPromptOps } from "@/tool/task"
@@ -166,7 +167,6 @@ export const layer = Layer.effect(
     const flags = yield* RuntimeFlags.Service
     const database = yield* Database.Service
     const { db } = database
-    const instanceCtx = yield* InstanceState.context
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
       return {
         cancel: (sessionID: SessionID) => cancel(sessionID),
@@ -176,7 +176,7 @@ export const layer = Layer.effect(
     })
 
     const cancel = Effect.fn("SessionPrompt.cancel")(function* (sessionID: SessionID) {
-      yield* Effect.logInfo("cancel", { "session.id": sessionID })
+      yield* Tracer.info("session.cancel", { sessionID })
       yield* state.cancel(sessionID)
     })
 
@@ -1182,7 +1182,7 @@ export const layer = Layer.effect(
 
         while (true) {
           yield* status.set(sessionID, { type: "busy" })
-          yield* Effect.logInfo("loop", { "session.id": sessionID, step })
+          yield* Tracer.info("session.loop.step", { sessionID, step })
 
           let msgs = yield* MessageV2.filterCompactedEffect(sessionID).pipe(
             Effect.provideService(Database.Service, database),
@@ -1220,7 +1220,7 @@ export const layer = Layer.effect(
                 callID: orphan.callID,
               })
             }
-            yield* Effect.logInfo("exiting loop", { "session.id": sessionID })
+            yield* Tracer.info("session.loop.exit", { sessionID })
             break
           }
 
@@ -1434,13 +1434,20 @@ Tool: {name}
       },
     )
 
+    const ensureInstanceRef = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+      Effect.gen(function* () {
+        const ref = yield* InstanceRef
+        if (ref) return yield* effect
+        return yield* effect.pipe(Effect.provideService(InstanceRef, yield* InstanceState.context))
+      })
+
     const loop: (input: LoopInput) => Effect.Effect<SessionV1.WithParts> = Effect.fn("SessionPrompt.loop")(function* (
       input: LoopInput,
     ) {
       return yield* state.ensureRunning(
         input.sessionID,
         lastAssistant(input.sessionID),
-        runLoop(input.sessionID).pipe(Effect.provideService(InstanceRef, instanceCtx)),
+        ensureInstanceRef(runLoop(input.sessionID)),
       )
     })
 
@@ -1452,8 +1459,8 @@ Tool: {name}
     })
 
     const command = Effect.fn("SessionPrompt.command")(function* (input: CommandInput) {
-      yield* Effect.logInfo("command", {
-        "session.id": input.sessionID,
+      yield* Tracer.info("session.command", {
+        sessionID: input.sessionID,
         command: input.command,
         agent: input.agent,
       })
