@@ -21,6 +21,7 @@ import { EventV2Bridge } from "@/event-v2-bridge"
 import { EventV2 } from "@diveeoi/db/event"
 import { Wildcard } from "@/util/wildcard"
 import { SessionID } from "@/session/schema"
+import { Tracer } from "@/effect/tracer"
 import { Auth } from "@/auth"
 import { EffectBridge } from "@/effect/bridge"
 import { RuntimeFlags } from "@/effect/runtime-flags"
@@ -85,16 +86,14 @@ const live: Layer.Layer<
     const flags = yield* RuntimeFlags.Service
 
     const run = Effect.fn("LLM.run")(function* (input: StreamRequest) {
-      yield* Effect.logInfo("stream", {
+      yield* Tracer.info("llm.stream.start", {
         providerID: input.model.providerID,
         modelID: input.model.id,
-        "session.id": input.sessionID,
+        sessionID: input.sessionID,
         small: (input.small ?? false).toString(),
         agent: input.agent.name,
         mode: input.agent.mode,
       })
-
-      const t0 = Date.now()
 
       const providerID = input.model.providerID
       const authEffect = providerAuthCache.has(providerID)
@@ -112,8 +111,6 @@ const live: Layer.Layer<
         { concurrency: "unbounded" },
       )
 
-      const t1 = Date.now()
-
       const isWorkflow = language instanceof GitLabWorkflowLanguageModel
       const prepared = yield* LLMRequestPrep.prepare({
         ...input,
@@ -123,8 +120,6 @@ const live: Layer.Layer<
         flags,
         isWorkflow,
       })
-
-      const t2 = Date.now()
 
       // Wire up toolExecutor for DWS workflow models so that tool calls
       // from the workflow service are executed via opencode's tool system
@@ -235,62 +230,57 @@ const live: Layer.Layer<
           })
         : undefined
 
-      // Runtime seam: native is attempted first as the primary adapter over
-      // @diveeoi/llm. It either returns a ready LLMEvent stream or a concrete
-      // fallback reason.
-      const native = LLMNativeRuntime.stream({
-        model: input.model,
-        provider: item,
-        auth: info,
-        llmClient,
-        messages: prepared.messages,
-        tools: prepared.tools,
-        toolChoice: input.toolChoice,
-        temperature: prepared.params.temperature,
-        topP: prepared.params.topP,
-        topK: prepared.params.topK,
-        maxOutputTokens: prepared.params.maxOutputTokens,
-        providerOptions: prepared.params.options,
-        headers: prepared.headers,
-        abort: input.abort,
-      })
-      const t3 = Date.now()
-
-      if (native.type === "supported") {
-        yield* Effect.logInfo("llm timing", {
-          "config.ms": t1 - t0,
-          "prep.ms": t2 - t1,
-          "native.ms": t3 - t2,
-          "llm.runtime": "native",
+      // Runtime seam: native is an opt-in adapter over @diveeoi/llm. It
+      // either returns a ready LLMEvent stream or a concrete fallback reason.
+      if (flags.experimentalNativeLlm) {
+        const result = LLMNativeRuntime.stream({
+          model: input.model,
+          provider: item,
+          auth: info,
+          llmClient,
+          messages: prepared.messages,
+          tools: prepared.tools,
+          toolChoice: input.toolChoice,
+          temperature: prepared.params.temperature,
+          topP: prepared.params.topP,
+          topK: prepared.params.topK,
+          maxOutputTokens: prepared.params.maxOutputTokens,
+          providerOptions: prepared.params.options,
+          headers: prepared.headers,
+          abort: input.abort,
         })
-        yield* Effect.logInfo("llm runtime selected", {
-          "llm.runtime": "native",
-          "llm.provider": input.model.providerID,
-          "llm.model": input.model.id,
-        })
-        return {
-          type: "native" as const,
-          stream: native.stream,
+        if (result.type === "supported") {
+          yield* Tracer.info("llm.runtime.selected", {
+            runtime: "native",
+            provider: input.model.providerID,
+            model: input.model.id,
+          })
+          return {
+            type: "native" as const,
+            stream: result.stream,
+          }
         }
+        yield* Tracer.info("llm.runtime.selected", {
+          runtime: "ai-sdk",
+          provider: input.model.providerID,
+          model: input.model.id,
+          nativeUnsupportedReason: result.reason,
+        })
+        yield* Tracer.warn("llm.native.fallback", {
+          providerID: input.model.providerID,
+          modelID: input.model.id,
+          sessionID: input.sessionID,
+          small: (input.small ?? false).toString(),
+          agent: input.agent.name,
+          mode: input.agent.mode,
+          reason: result.reason,
+        })
       }
-      yield* Effect.logInfo("llm timing", {
-        "config.ms": t1 - t0,
-        "prep.ms": t2 - t1,
-        "native.ms": t3 - t2,
-        reason: native.reason,
-        "llm.runtime": "ai-sdk",
-      })
-      yield* Effect.logInfo("llm runtime selected", {
-        "llm.runtime": "ai-sdk",
-        "llm.provider": input.model.providerID,
-        "llm.model": input.model.id,
-        "llm.native_unsupported_reason": native.reason,
-      })
 
-      yield* Effect.logInfo("llm runtime selected", {
-        "llm.runtime": "ai-sdk",
-        "llm.provider": input.model.providerID,
-        "llm.model": input.model.id,
+      yield* Tracer.info("llm.runtime.selected", {
+        runtime: "ai-sdk",
+        provider: input.model.providerID,
+        model: input.model.id,
       })
       // Default runtime path: AI SDK owns provider execution and tool dispatch;
       // LLMAISDK.toLLMEvents below normalizes fullStream parts for the processor.
@@ -299,10 +289,10 @@ const live: Layer.Layer<
         result: streamText({
           onError(error) {
             bridge.fork(
-              Effect.logError("stream error", {
+              Tracer.error("llm.stream.error", {
                 providerID: input.model.providerID,
                 modelID: input.model.id,
-                "session.id": input.sessionID,
+                sessionID: input.sessionID,
                 small: (input.small ?? false).toString(),
                 agent: input.agent.name,
                 mode: input.agent.mode,

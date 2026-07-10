@@ -100,7 +100,7 @@ import { schemaErrorLayer as v2SchemaErrorLayer } from "@diveeoi/api/middleware/
 import { workspaceHandlers } from "./handlers/workspace"
 import { instanceContextLayer } from "./middleware/instance-context"
 import { workspaceRoutingLayer } from "./middleware/workspace-routing"
-import { disposeMiddleware } from "./lifecycle"
+import { disposeMiddleware, traceMiddleware } from "./lifecycle"
 import { memoMap } from "@diveeoi/db/effect/memo-map"
 import { compressionLayer } from "./middleware/compression"
 import { corsVaryFix } from "./middleware/cors-vary"
@@ -293,7 +293,7 @@ export const webHandler = lazy(() =>
   HttpRouter.toWebHandler(routes, {
     disableLogger: true,
     memoMap,
-    middleware: disposeMiddleware,
+    middleware: (effect) => disposeMiddleware(traceMiddleware(effect)),
   }),
 )
 
