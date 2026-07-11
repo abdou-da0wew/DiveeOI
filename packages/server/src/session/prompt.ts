@@ -1173,8 +1173,8 @@ export const layer = Layer.effect(
       throw new Error("Impossible")
     })
 
-    const runLoop = Effect.fn("SessionPrompt.run")<SessionV1.WithParts>(
-      function* (sessionID: SessionID) {
+    const runLoop = Effect.fn("SessionPrompt.run")(
+      function* (sessionID: SessionID): Effect.Effect<SessionV1.WithParts> {
         const ctx = yield* InstanceState.context
         let structured: unknown
         let step = 0
@@ -1435,11 +1435,13 @@ Tool: {name}
     )
 
     const ensureInstanceRef = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
-      Effect.gen(function* () {
-        const ref = yield* InstanceRef
-        if (ref) return yield* effect
-        return yield* effect.pipe(Effect.provideService(InstanceRef, yield* InstanceState.context))
-      })
+      InstanceRef.pipe(
+        Effect.flatMap((ref) =>
+          ref ? effect : InstanceState.context.pipe(
+            Effect.flatMap((ctx) => effect.pipe(Effect.provideService(InstanceRef, ctx))),
+          )
+        ),
+      )
 
     const loop: (input: LoopInput) => Effect.Effect<SessionV1.WithParts> = Effect.fn("SessionPrompt.loop")(function* (
       input: LoopInput,
