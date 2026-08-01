@@ -2,7 +2,7 @@
 // so direct EventV2 consumers can isolate directory/workspace streams.
 import { LayerNode } from "@diveeoi/db/effect/layer-node"
 import { InstanceRef, WorkspaceRef } from "@/effect/instance-ref"
-import { GlobalBus } from "@/bus/global"
+import { GlobalBus, type GlobalEvent as GlobalBusEvent } from "@/bus/global"
 import { EventV2 } from "@diveeoi/db/event"
 import { Location } from "@diveeoi/db/location"
 import { Project } from "@diveeoi/db/project"
@@ -39,31 +39,40 @@ export const layer = Layer.effect(
       Effect.gen(function* () {
         const ctx = yield* InstanceRef
         const workspaceID = (yield* WorkspaceRef) ?? event.location?.workspaceID
-        GlobalBus.emit("event", {
+        const busEvent: GlobalBusEvent = {
           directory: event.location?.directory ?? ctx?.directory,
           project: ctx?.project.id,
           workspace: workspaceID,
           payload: { id: event.id, type: event.type, properties: event.data },
-        })
+        }
+        try {
+          GlobalBus.emit("event", busEvent)
+        } catch (err) {
+          yield* Effect.logWarning("event.bridge.emit_failed", { error: err, type: event.type })
+        }
         const sync = EventV2.registry.get(event.type)?.sync
         if (sync === undefined || event.seq === undefined || event.version === undefined) return
         const aggregateID = (event.data as Record<string, unknown>)[sync.aggregate]
         if (typeof aggregateID !== "string") return
-        GlobalBus.emit("event", {
-          directory: event.location?.directory ?? ctx?.directory,
-          project: ctx?.project.id,
-          workspace: workspaceID,
-          payload: {
-            type: "sync",
-            syncEvent: {
-              id: event.id,
-              type: EventV2.versionedType(event.type, event.version),
-              seq: event.seq,
-              aggregateID,
-              data: event.data,
+        try {
+          GlobalBus.emit("event", {
+            directory: event.location?.directory ?? ctx?.directory,
+            project: ctx?.project.id,
+            workspace: workspaceID,
+            payload: {
+              type: "sync",
+              syncEvent: {
+                id: event.id,
+                type: EventV2.versionedType(event.type, event.version),
+                seq: event.seq,
+                aggregateID,
+                data: event.data,
+              },
             },
-          },
-        })
+          })
+        } catch (err) {
+          yield* Effect.logWarning("event.bridge.sync_emit_failed", { error: err, type: event.type })
+        }
       }),
     )
     yield* Effect.addFinalizer(() => unsubscribe)

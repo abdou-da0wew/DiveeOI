@@ -1,7 +1,9 @@
 import { Database } from "@diveeoi/db/database/database"
 import { EventV2 } from "@diveeoi/db/event"
 import { LocationServiceMap } from "@diveeoi/db/location-layer"
+import { MailService } from "@diveeoi/db/mail/mail"
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http"
+import { JwtAuth } from "./middleware/jwt"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { Layer, Option } from "effect"
 import { Api } from "./api"
@@ -25,6 +27,7 @@ export function createRoutes(password?: string) {
     Layer.provide(LocationServiceMap.layer),
     Layer.provide(Database.defaultLayer),
     Layer.provide(EventV2.defaultLayer),
+    Layer.provide(JwtAuth.defaultLayer),
     Layer.provide(FetchHttpClient.layer),
   )
 }
@@ -32,4 +35,10 @@ export function createRoutes(password?: string) {
 export const routes = createRoutes()
 
 export const webHandler = () =>
-  HttpRouter.toWebHandler(routes.pipe(Layer.provide(HttpServer.layerServices)), { disableLogger: true })
+  HttpRouter.toWebHandler(
+    routes.pipe(
+      Layer.provide(HttpServer.layerServices),
+      Layer.provide(MailService.defaultLayer),
+    ) as Layer.Layer<never, never, never>,
+    { disableLogger: true },
+  )

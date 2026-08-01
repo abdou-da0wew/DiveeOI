@@ -587,6 +587,7 @@ export const dict = {
   "home.empty.title": "No recent projects",
   "home.empty.description": "Get started by opening a local project",
   "home.title": "Home",
+  "home.suggested": "Suggested",
   "home.projects": "Projects",
   "home.project.add": "Add project",
   "home.sessions.search.placeholder": "Search sessions",

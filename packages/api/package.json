@@ -14,7 +14,8 @@
   "dependencies": {
     "@diveeoi/db": "workspace:*",
     "drizzle-orm": "catalog:",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "jose": "^5.9.6"
   },
   "devDependencies": {
     "@tsconfig/bun": "catalog:",

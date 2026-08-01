@@ -1,5 +1,5 @@
 import type { Session } from "@diveeoi/sdk/v2/client"
-import { batch, createEffect, createMemo, For, Match, on, onCleanup, onMount, Show, Switch } from "solid-js"
+import { batch, createEffect, createMemo, createResource, For, Match, on, onCleanup, onMount, Show, Switch } from "solid-js"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { createStore } from "solid-js/store"
 import { useQuery } from "@tanstack/solid-query"
@@ -12,6 +12,7 @@ import { ButtonV2 } from "@diveeoi/ui/v2/button-v2"
 import { Icon as IconV2 } from "@diveeoi/ui/v2/icon"
 import { IconButtonV2 } from "@diveeoi/ui/v2/icon-button-v2"
 import { MenuV2 } from "@diveeoi/ui/v2/menu-v2"
+import { TooltipV2 } from "@diveeoi/ui/v2/tooltip-v2"
 import { getProjectAvatarVariant, useLayout, type LocalProject } from "@/context/layout"
 import { useNavigate } from "@solidjs/router"
 import { base64Encode } from "@diveeoi/db/util/encode"
@@ -44,6 +45,7 @@ import { pathKey } from "@/utils/path-key"
 import { useGlobal } from "@/context/global"
 import { useCommand } from "@/context/command"
 import { useSettings } from "@/context/settings"
+import { classifyOpenProjects, type ClassifiedProject, fullPickerPath } from "@/components/directory-picker-domain"
 import { ServerRowMenu } from "@/components/server/server-row-menu"
 import { ServerHealthIndicator } from "@/components/server/server-row"
 import { type ServerHealth } from "@/utils/server-health"
@@ -470,7 +472,16 @@ function HomeProjectColumn(props: {
       </div>
       <Show
         when={global.servers.list().length > 1}
-        fallback={<HomeProjectList {...props} server={global.servers.list()[0]!} />}
+        fallback={
+          <>
+            <HomeSuggestedProjects
+              server={global.servers.list()[0]!}
+              openNewSession={props.openNewSession}
+              language={props.language}
+            />
+            <HomeProjectList {...props} server={global.servers.list()[0]!} />
+          </>
+        }
       >
         <For each={global.servers.list()}>
           {(item) => {
@@ -492,6 +503,11 @@ function HomeProjectColumn(props: {
                 />
                 <Show when={healthy()}>
                   <div class="mx-3 h-px bg-v2-border-border-base" />
+                  <HomeSuggestedProjects
+                    server={item}
+                    openNewSession={props.openNewSession}
+                    language={props.language}
+                  />
                   <HomeProjectList {...props} server={item} projects={serverCtx.projects.list()} />
                 </Show>
               </div>
@@ -518,6 +534,54 @@ function HomeProjectColumn(props: {
         </button>
       </div>
     </aside>
+  )
+}
+
+function HomeSuggestedProjects(props: {
+  server: ServerConnection.Any
+  openNewSession: (server: ServerConnection.Any, directory: string) => void
+  language: ReturnType<typeof useLanguage>
+}) {
+  const global = useGlobal()
+  const ctx = global.createServerCtx(props.server)
+  const [suggested] = createResource(
+    () => ctx.sync.data.path.home,
+    (homeDir) =>
+      homeDir
+        ? classifyOpenProjects(ctx.sdk.client, homeDir, ctx.projects.list().map((p) => p.worktree)).catch(
+            () => [] as ClassifiedProject[],
+          )
+        : ([] as ClassifiedProject[]),
+    { initialValue: [] as ClassifiedProject[] },
+  )
+
+  return (
+    <Show when={suggested().length > 0}>
+      <div class="flex flex-col gap-1">
+        <div class="px-1.5 text-[11px] font-medium uppercase tracking-wider text-v2-text-text-muted">
+          {props.language.t("home.suggested")}
+        </div>
+        <For each={suggested()}>
+          {(project) => (
+            <TooltipV2
+              value={
+                <span class="text-xs max-w-[60vw] overflow-hidden text-ellipsis whitespace-nowrap">
+                  {fullPickerPath(project.worktree, ctx.sync.data.path.home)}
+                </span>
+              }
+            >
+              <button
+                type="button"
+                class={HOME_PROJECT_NAV_ROW}
+                onClick={() => props.openNewSession(props.server, project.worktree)}
+              >
+                <span class={HOME_PROJECT_NAV_LABEL}>{project.name}</span>
+              </button>
+            </TooltipV2>
+          )}
+        </For>
+      </div>
+    </Show>
   )
 }
 

@@ -147,6 +147,8 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
 
     return {
       ready,
+      get value() { return store },
+      setStore,
       list,
       find,
       visible,

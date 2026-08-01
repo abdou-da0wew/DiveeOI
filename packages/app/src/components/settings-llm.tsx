@@ -12,8 +12,8 @@ export const SettingsLlm: Component = () => {
   const config = createMemo(() => serverSync().data.config)
 
   const formatOptions = createMemo(() => [
-    { value: "toon", label: language.t("settings.llm.row.format.option.toon") },
-    { value: "json", label: language.t("settings.llm.row.format.option.json") },
+    { value: "toon" as const, label: language.t("settings.llm.row.format.option.toon") },
+    { value: "json" as const, label: language.t("settings.llm.row.format.option.json") },
   ])
 
   const currentFormat = createMemo(() => config().llm?.format ?? config().tool?.format ?? "toon")

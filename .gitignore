@@ -1,12 +1,69 @@
-.DS_Store
+# Dependencies
 node_modules
-.env
-.env.local
-.idea
-.vscode
+.pnpm-store
+
+# Build outputs
 dist
 ts-dist
-.turbo
+build
 *.bun-build
+*.wasm
+
+# Turbo
+.turbo
+
+# TypeScript
 tsconfig.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Test artifacts
 tests/fixtures/generated/
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+**/*.stories.tsx
+*.test.js
+*.spec.js
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Temp files
+*.tmp
+*.temp
+.cache
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Memory package test files
+packages/memory/test/
+packages/memory/*.md
+
+# Build artifacts
+packages/*/dist/
+packages/*/build/

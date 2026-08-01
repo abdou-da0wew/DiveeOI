@@ -1,7 +1,7 @@
 export * as Database from "./database"
 
 import { EffectDrizzleSqlite } from "@diveeoi/effect-drizzle-sqlite"
-import { layer as sqliteLayer } from "#sqlite"
+import { layer as sqliteLayer } from "./sqlite.bun"
 import { Context, Effect, Layer } from "effect"
 import { Global } from "../global"
 import { Flag } from "../flag/flag"

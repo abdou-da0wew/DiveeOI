@@ -241,6 +241,8 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
 
     return {
       ready,
+      get value() { return store },
+      setStore,
       respond,
       autoResponds(permission: PermissionRequest, directory?: string) {
         return shouldAutoRespond(permission, directory)

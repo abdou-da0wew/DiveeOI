@@ -11,6 +11,8 @@
     "dev:both": "concurrently --names server,app --prefix-colors cyan,green \"bun --cwd packages/server dev:watch\" \"bun --cwd packages/app dev\"",
     "build": "bun scripts/build.ts",
     "build:nobin": "bun scripts/build.ts --no-binary",
+    "build:current": "bun scripts/build.ts --current",
+    "build:all": "bun scripts/build.ts --all",
     "typecheck": "bun turbo typecheck",
     "lint": "oxlint",
     "clean": "rm -rf packages/*/dist packages/*/.turbo"
@@ -20,9 +22,9 @@
       "packages/*",
       "packages/sdk"
     ],
-    "catalog": {
-      "@effect/opentelemetry": "4.0.0-beta.74",
-      "@effect/platform-node": "4.0.0-beta.74",
+"catalog": {
+    "@effect/opentelemetry": "4.0.0-beta.74",
+    "@effect/platform-node": "4.0.0-beta.74",
       "@effect/sql-sqlite-bun": "4.0.0-beta.74",
       "@types/bun": "1.3.13",
       "@npmcli/arborist": "9.4.0",
@@ -85,6 +87,7 @@
   },
   "devDependencies": {
     "@tsconfig/bun": "catalog:",
+    "@types/bcryptjs": "2.4.6",
     "concurrently": "10.0.3",
     "prettier": "3.6.2",
     "turbo": "2.8.13"

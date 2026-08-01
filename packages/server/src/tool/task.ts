@@ -14,6 +14,7 @@ import { Effect, Exit, Schema, Scope } from "effect"
 import { EffectBridge } from "@/effect/bridge"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Database } from "@diveeoi/db/database/database"
+import { SessionReminder } from "@diveeoi/db/session/reminder"
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): Effect.Effect<void>
@@ -49,6 +50,18 @@ const BaseParameterFields = {
       "This should only be set if you mean to resume a previous task (you can pass a prior task_id and the task will continue the same subagent session as before instead of creating a fresh one)",
   }),
   command: Schema.optional(Schema.String).annotate({ description: "The command that triggered this task" }),
+  reminders: Schema.optional(Schema.Array(Schema.Struct({
+    id: Schema.String,
+    text: Schema.String,
+    createdBy: Schema.String,
+    priority: Schema.String,
+    tags: Schema.Array(Schema.String),
+    done: Schema.Boolean,
+    createdAt: Schema.Number,
+  }))).annotate({
+    description:
+      "Reminders to pass to the subagent. These will be injected into the subagent's system prompt as <reminders> blocks. The subagent should check these before acting.",
+  }),
 }
 
 const BaseParameters = Schema.Struct(BaseParameterFields)

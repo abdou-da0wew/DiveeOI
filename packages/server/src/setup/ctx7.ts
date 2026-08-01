@@ -14,7 +14,7 @@ export const getCtx7Defs = Effect.fn("Setup.Ctx7.defs")(function* () {
 
   if (builtin?.enabled === false) return [] as Tool.Def[]
 
-  const apiKey = builtin?.api_key ?? process.env.UPSTASH_CONTEXT7_API_KEY
+  const apiKey = (builtin as { api_key?: string } | undefined)?.api_key ?? process.env.UPSTASH_CONTEXT7_API_KEY
   if (!apiKey) return [] as Tool.Def[]
 
   const mod: any = yield* Effect.promise(() => import("@upstash/context7-tools-ai-sdk")).pipe(

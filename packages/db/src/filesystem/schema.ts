@@ -5,6 +5,9 @@ export class Entry extends Schema.Class<Entry>("FileSystem.Entry")({
   path: RelativePath,
   type: Schema.Literals(["file", "directory"]),
   mime: Schema.String,
+  size: Schema.optional(Schema.Number),
+  modified: Schema.optional(Schema.Number),
+  mode: Schema.optional(Schema.String),
 }) {}
 
 export const Submatch = Schema.Struct({
@@ -21,3 +24,5 @@ export class Match extends Schema.Class<Match>("FileSystem.Match")({
   text: Schema.String,
   submatches: Schema.Array(Submatch),
 }) {}
+
+export * as FileSystemSchema from "./schema"

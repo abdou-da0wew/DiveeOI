@@ -27,6 +27,7 @@ import { Provider } from "@/provider/provider"
 
 import { WebSearchTool } from "./websearch"
 import { getCtx7Defs } from "@/setup/ctx7"
+import * as MemoryTools from "./memory"
 
 import * as Truncate from "./truncate"
 
@@ -105,6 +106,16 @@ export const layer = Layer.effect(
     const edit = yield* EditTool
     const greptool = yield* GrepTool
     const agent = yield* Agent.Service
+
+    // Memory tools
+    const memoryRetrieve = yield* MemoryTools.MemoryRetrieveTool
+    const memoryCreate = yield* MemoryTools.MemoryCreateTool
+    const memoryUpdate = yield* MemoryTools.MemoryUpdateTool
+    const memoryDelete = yield* MemoryTools.MemoryDeleteTool
+    const memoryLink = yield* MemoryTools.MemoryLinkTool
+    const memoryConsolidate = yield* MemoryTools.MemoryConsolidateTool
+    const memoryStats = yield* MemoryTools.MemoryStatsTool
+    const memoryToggle = yield* MemoryTools.MemoryToggleTool
 
     const ctx7Defs = yield* getCtx7Defs().pipe(
       Effect.catch(() => Effect.succeed([] as Tool.Def[])),
@@ -230,6 +241,15 @@ export const layer = Layer.effect(
             tool.todo,
             tool.search,
             tool.export,
+            // Memory tools
+            memoryRetrieve,
+            memoryCreate,
+            memoryUpdate,
+            memoryDelete,
+            memoryLink,
+            memoryConsolidate,
+            memoryStats,
+            memoryToggle,
             ...ctx7Defs,
           ],
           task: tool.task,

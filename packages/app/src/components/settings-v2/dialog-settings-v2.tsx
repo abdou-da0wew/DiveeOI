@@ -11,7 +11,6 @@ import { SettingsModelsV2 } from "./models"
 import "./settings-v2.css"
 import { SettingsServersV2 } from "./servers"
 import { SettingsLlmV2 } from "./llm"
-
 export const DialogSettings: Component = () => {
   const language = useLanguage()
   const platform = usePlatform()

@@ -15,6 +15,7 @@ import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
 import { SystemPrompt } from "./system"
 import { Instruction } from "./instruction"
+import { SessionMemoryIntegration } from "./memory"
 import { Plugin } from "../plugin"
 import MAX_STEPS from "../session/prompt/max-steps.txt"
 import { ToolRegistry } from "@/tool/registry"
@@ -60,7 +61,6 @@ import { AgentAttachment, FileAttachment, Prompt, Source } from "@diveeoi/db/ses
 import * as DateTime from "effect/DateTime"
 import { eq } from "drizzle-orm"
 import { SessionTable } from "@diveeoi/db/session/sql"
-import { SessionReminders } from "./reminders"
 import { SessionTools } from "./tools"
 import { LLMEvent } from "@diveeoi/llm"
 
@@ -216,66 +216,78 @@ export const layer = Layer.effect(
       return parts
     })
 
-    const title = Effect.fn("SessionPrompt.ensureTitle")(function* (input: {
-      session: Session.Info
-      history: SessionV1.WithParts[]
-      providerID: ProviderV2.ID
-      modelID: ModelV2.ID
+    const titleGenerated = new Set<SessionID>()
+
+    // Simple title generation - called directly from prompt() when first user message arrives
+    const generateTitle = Effect.fn("SessionPrompt.generateTitle")(function* (input: {
+      sessionID: SessionID
+      messageContent: string
     }) {
-      if (input.session.parentID) return
-      if (!Session.isDefaultTitle(input.session.title)) return
+      const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
 
-      const real = (m: SessionV1.WithParts) =>
-        m.info.role === "user" && !m.parts.every((p) => "synthetic" in p && p.synthetic)
-      const idx = input.history.findIndex(real)
-      if (idx === -1) return
-      if (input.history.filter(real).length !== 1) return
+      // Only generate for root sessions with default title
+      if (session.parentID) return
+      if (!Session.isDefaultTitle(session.title)) return
+      if (titleGenerated.has(input.sessionID)) return
 
-      const context = input.history.slice(0, idx + 1)
-      const firstUser = context[idx]
-      if (!firstUser || firstUser.info.role !== "user") return
-      const firstInfo = firstUser.info
-
-      const subtasks = firstUser.parts.filter((p): p is SessionV1.SubtaskPart => p.type === "subtask")
-      const onlySubtasks = subtasks.length > 0 && firstUser.parts.every((p) => p.type === "subtask")
-
-      const ag = yield* agents.get("title")
+      const ag = yield* agents.get("title").pipe(Effect.catchAll(() => Effect.succeed(undefined)))
       if (!ag) return
-      const mdl = ag.model
-        ? yield* provider.getModel(ag.model.providerID, ag.model.modelID)
-        : ((yield* provider.getSmallModel(input.providerID)) ??
-          (yield* provider.getModel(input.providerID, input.modelID)))
-      const msgs = onlySubtasks
-        ? [{ role: "user" as const, content: subtasks.map((p) => p.prompt).join("\n") }]
-        : yield* MessageV2.toModelMessagesEffect(context, mdl)
+
+      // Get model - try small model first, fallback to user's model
+      const mdl = yield* Effect.gen(function* () {
+        const small = yield* provider.getSmallModel(session.model?.providerID ?? ProviderV2.ID.make("openai")).pipe(
+          Effect.catchAll(() => Effect.succeed(undefined)),
+        )
+        if (small) return small
+        if (session.model) {
+          return yield* provider.getModel(session.model.providerID, session.model.modelID).pipe(
+            Effect.catchAll(() => Effect.succeed(undefined)),
+          )
+        }
+        return undefined
+      }).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+
+      if (!mdl) return
+
+      // Generate title via LLM
       const text = yield* llm
         .stream({
           agent: ag,
-          user: firstInfo,
+          user: { id: MessageID.ascending(), role: "user" as const },
           system: [],
           small: true,
           tools: {},
           model: mdl,
-          sessionID: input.session.id,
-          retries: 2,
-          messages: [{ role: "user", content: "Generate a title for this conversation:\n" }, ...msgs],
+          sessionID: input.sessionID,
+          retries: 1,
+          messages: [
+            { role: "user", content: `Generate a title for this conversation:\n\nUser message: ${input.messageContent}` },
+          ],
         })
         .pipe(
           Stream.filter(LLMEvent.is.textDelta),
           Stream.map((e) => e.text),
           Stream.mkString,
-          Effect.orDie,
+          Effect.catchAllCause((cause) =>
+            Effect.succeed("").pipe(
+              Effect.tap(() =>
+                Effect.logError("failed to generate title", { error: Cause.squash(cause) })
+              ),
+            ),
+          ),
         )
+
       const cleaned = text
         .replace(/<think>[\s\S]*?<\/think>\s*/g, "")
         .split("\n")
         .map((line) => line.trim())
         .find((line) => line.length > 0)
+
       if (!cleaned) return
+
       const t = cleaned.length > 100 ? cleaned.substring(0, 97) + "..." : cleaned
-      yield* sessions
-        .setTitle({ sessionID: input.session.id, title: t })
-        .pipe(Effect.catchCause((cause) => Effect.logError("failed to generate title", { error: Cause.squash(cause) })))
+      yield* sessions.setTitle({ sessionID: input.sessionID, title: t })
+      titleGenerated.add(input.sessionID)
     })
 
     const handleSubtask = Effect.fn("SessionPrompt.handleSubtask")(function* (input: {
@@ -1152,6 +1164,22 @@ export const layer = Layer.effect(
       const message = yield* createUserMessage(input)
       yield* sessions.touch(input.sessionID)
 
+      // Generate title for first user message (fire and forget in background)
+      const isRealUserMessage = message.info.role === "user" && !message.parts.every((p) => "synthetic" in p && p.synthetic)
+      if (isRealUserMessage) {
+        // Extract text content from message parts for title generation
+        const textContent = message.parts
+          .filter((p): p is SessionV1.TextPart => p.type === "text")
+          .map((p) => p.text)
+          .join("\n")
+        if (textContent) {
+          yield* generateTitle({ sessionID: input.sessionID, messageContent: textContent }).pipe(
+            Effect.catchAll(() => Effect.void),
+            Effect.forkIn(scope),
+          )
+        }
+      }
+
       const permissions: PermissionV1.Rule[] = []
       for (const [t, enabled] of Object.entries(input.tools ?? {})) {
         permissions.push({ permission: t, action: enabled ? "allow" : "deny", pattern: "*" })
@@ -1174,11 +1202,13 @@ export const layer = Layer.effect(
     })
 
     const runLoop = Effect.fn("SessionPrompt.run")(
-      function* (sessionID: SessionID): Effect.Effect<SessionV1.WithParts> {
+      function* (sessionID: SessionID) {
+
         const ctx = yield* InstanceState.context
         let structured: unknown
         let step = 0
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
+        const memory = yield* SessionMemoryIntegration.Service
 
         while (true) {
           yield* status.set(sessionID, { type: "busy" })
@@ -1221,17 +1251,14 @@ export const layer = Layer.effect(
               })
             }
             yield* Tracer.info("session.loop.exit", { sessionID })
+            // Extract session memory on exit
+            yield* memory.extractSessionMemory(sessionID, msgs as any).pipe(
+              Effect.catchAll((err) => Effect.logError("Session memory extraction failed", { sessionID, error: err }))
+            )
             break
           }
 
           step++
-          if (step === 1)
-            yield* title({
-              session,
-              modelID: lastUser.model.modelID,
-              providerID: lastUser.model.providerID,
-              history: msgs,
-            }).pipe(Effect.ignore, Effect.forkIn(scope))
 
           const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
           const cfg = yield* config.get()
@@ -1251,7 +1278,13 @@ export const layer = Layer.effect(
               auto: task.auto,
               overflow: task.overflow,
             })
-            if (result === "stop") break
+            if (result === "stop") {
+              // Extract session memory on compaction stop
+              yield* memory.extractSessionMemory(sessionID, msgs as any).pipe(
+                Effect.catchAll((err) => Effect.logError("Session memory extraction failed", { sessionID, error: err }))
+              )
+              break
+            }
             continue
           }
 
@@ -1274,12 +1307,6 @@ export const layer = Layer.effect(
           }
           const maxSteps = agent.steps ?? Infinity
           const isLastStep = step >= maxSteps
-          msgs = yield* SessionReminders.apply({ messages: msgs, agent, session }).pipe(
-            Effect.provideService(RuntimeFlags.Service, flags),
-            Effect.provideService(FSUtil.Service, fsys),
-            Effect.provideService(Session.Service, sessions),
-          )
-
           const msg: SessionV1.Assistant = {
             id: MessageID.ascending(),
             parentID: lastUser.id,
@@ -1350,13 +1377,12 @@ export const layer = Layer.effect(
 
             yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
 
-            const [skills, env, instructions, modelMsgs] = yield* Effect.all([
-              sys.skills(agent),
-              sys.environment(model),
+            const [assembly, instructions, modelMsgs] = yield* Effect.all([
+              sys.system(model, agent, msgs, sessionID),
               instruction.system().pipe(Effect.orDie),
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
-            const system = [...env, ...instructions, ...(skills ? [skills] : [])]
+            const system = [...assembly.parts, ...instructions]
             const format = lastUser.format ?? { type: "text" as const }
             if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
             const isToon = (cfg.llm?.format ?? cfg.tool?.format ?? "toon") !== "json"
@@ -1449,7 +1475,7 @@ Tool: {name}
       return yield* state.ensureRunning(
         input.sessionID,
         lastAssistant(input.sessionID),
-        ensureInstanceRef(runLoop(input.sessionID)),
+        ensureInstanceRef(runLoop(input.sessionID)) as Effect.Effect<SessionV1.WithParts>,
       )
     })
 

@@ -115,6 +115,27 @@ export const TodoTable = sqliteTable(
   ],
 )
 
+export const ReminderTable = sqliteTable(
+  "reminder",
+  {
+    id: text().primaryKey(),
+    session_id: text()
+      .$type<SessionSchema.ID>()
+      .notNull()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    text: text().notNull(),
+    created_by: text().notNull().default("agent"),
+    priority: text().notNull().default("medium"),
+    tags: text({ mode: "json" }).$type<string[]>(),
+    done: integer().notNull().default(0),
+    ...Timestamps,
+  },
+  (table) => [
+    index("reminder_session_idx").on(table.session_id),
+    index("reminder_done_idx").on(table.done),
+  ],
+)
+
 export const SessionMessageTable = sqliteTable(
   "session_message",
   {

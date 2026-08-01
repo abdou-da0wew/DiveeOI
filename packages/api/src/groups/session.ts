@@ -9,6 +9,7 @@ import { Schema, Struct } from "effect"
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
 import {
   ConflictError,
+  ForbiddenError,
   InvalidCursorError,
   InvalidRequestError,
   ServiceUnavailableError,
@@ -150,7 +151,7 @@ export const SessionGroup = HttpApiGroup.make("server.session")
         resume: Schema.Boolean.pipe(Schema.optional),
       }),
       success: Schema.Struct({ data: SessionInput.Admitted }),
-      error: [ConflictError, SessionNotFoundError],
+      error: [ConflictError, ForbiddenError, SessionNotFoundError],
     })
       .middleware(SessionLocationMiddleware)
       .annotateMerge(

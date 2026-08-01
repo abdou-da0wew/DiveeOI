@@ -21,6 +21,15 @@ import { Location } from "@diveeoi/db/location"
 import { LocationServiceMap } from "@diveeoi/db/location-layer"
 import { PluginBoot } from "@diveeoi/db/plugin/boot"
 import { Reference } from "@diveeoi/db/reference"
+import { Reminders } from "./reminders"
+import { SessionID } from "./schema"
+import { ContextBudget } from "./context-budget"
+import { IdentityLoader } from "./identity-loader"
+import { SkillMentions } from "./skill-mentions"
+import { BtwCommand } from "./btw-command"
+import { SessionMemoryIntegration } from "./memory"
+import { MemoryError } from "@diveeoi/memory/schema"
+import { PlatformError } from "effect/PlatformError"
 
 export function provider(model: Provider.Model) {
   if (model.api.id.includes("gpt-4") || model.api.id.includes("o1") || model.api.id.includes("o3"))
@@ -38,9 +47,19 @@ export function provider(model: Provider.Model) {
   return [PROMPT_DEFAULT]
 }
 
+export interface SystemAssembly {
+  readonly parts: string[]
+  readonly btwDetected: boolean
+  readonly mentionedSkills: string[]
+}
+
 export interface Interface {
-  readonly environment: (model: Provider.Model) => Effect.Effect<string[]>
-  readonly skills: (agent: Agent.Info) => Effect.Effect<string | undefined>
+  readonly system: (
+    model: Provider.Model,
+    agent: Agent.Info,
+    msgs: ReadonlyArray<{ info: { role: string }; parts?: ReadonlyArray<{ text?: string }> }>,
+    sessionID: SessionID,
+  ) => Effect.Effect<SystemAssembly, MemoryError | PlatformError, any>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SystemPrompt") {}
@@ -50,68 +69,141 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const skill = yield* Skill.Service
     const locations = yield* LocationServiceMap
+    const reminderService = yield* Reminders.Service
+    const identityLoader = yield* IdentityLoader.Service
+    const contextBudget = yield* ContextBudget.Service
+    const skillMentions = yield* SkillMentions.Service
+    const memory = yield* SessionMemoryIntegration.Service
 
     return Service.of({
-      environment: Effect.fn("SystemPrompt.environment")(function* (model: Provider.Model) {
+      system: Effect.fn("SystemPrompt.system")(function* (
+        model: Provider.Model,
+        agent: Agent.Info,
+        msgs: ReadonlyArray<{ info: { role: string }; parts?: ReadonlyArray<{ text?: string }> }>,
+        sessionID: SessionID,
+      ) {
         const ctx = yield* InstanceState.context
+
+        const budgetInfo = ContextBudget.compute({ model, currentTokenEstimate: 0 })
+        const tier = budgetInfo.tier
+
+        const lastUserMsg = [...msgs].reverse().find((m) => m.info.role === "user")
+        const lastUserContent = lastUserMsg?.parts?.map((p) => p.text ?? "").join(" ") ?? ""
+
+        const mentionResult = yield* skillMentions.parse(lastUserContent)
+        const btwResult = BtwCommand.parse(lastUserContent)
+
+        const identityContent = yield* identityLoader.load()
+        const identityBlock = identityLoader.format({ identity: identityContent, tier })
+
+        const reminders = yield* reminderService.list(sessionID)
+        const remindersBlock = reminderService.format(reminders, tier)
+
         const references = yield* Effect.gen(function* () {
           yield* (yield* PluginBoot.Service).wait()
           return (yield* (yield* Reference.Service).list()).filter((reference) => reference.description !== undefined)
         }).pipe(Effect.provide(locations.get(Location.Ref.make({ directory: AbsolutePath.make(ctx.directory) }))))
-        return [
+
+        // Load memory context
+        const memoryContext = yield* memory.loadSessionContext(sessionID)
+
+        const envParts: string[] = [
           [
             `You are powered by the model named ${model.api.id}. The exact model ID is ${model.providerID}/${model.api.id}`,
             `Here is some useful information about the environment you are running in:`,
             `<env>`,
             `  Working directory: ${ctx.directory}`,
             `  Workspace root folder: ${ctx.worktree}`,
-            `  Is directory a git repo: ${ctx.project.vcs === "git" ? "yes" : "no"}`,
+            `  Is directory a git repo: ${"vcs" in ctx.project && ctx.project.vcs === "git" ? "yes" : "no"}`,
             `  Platform: ${process.platform}`,
             `  Today's date: ${new Date().toDateString()}`,
             `</env>`,
           ].join("\n"),
-          references.length === 0
-            ? undefined
-            : [
-                "Project references provide additional directories that can be accessed when relevant.",
-                "<available_references>",
-                ...references
-                  .toSorted((a, b) => a.name.localeCompare(b.name))
-                  .flatMap((reference) => [
-                    "  <reference>",
-                    `    <name>${reference.name}</name>`,
-                    `    <path>${reference.path}</path>`,
-                    ...(reference.description === undefined
-                      ? []
-                      : [`    <description>${reference.description}</description>`]),
-                    "  </reference>",
-                  ]),
-                "</available_references>",
-              ].join("\n"),
-        ].filter((part): part is string => part !== undefined)
-      }),
+        ]
 
-      skills: Effect.fn("SystemPrompt.skills")(function* (agent: Agent.Info) {
-        if (Permission.disabled(["skill"], agent.permission).has("skill")) return
+        if (references.length > 0) {
+          envParts.push(
+            [
+              "Project references provide additional directories that can be accessed when relevant.",
+              "<available_references>",
+              ...references
+                .toSorted((a, b) => a.name.localeCompare(b.name))
+                .flatMap((reference) => [
+                  "  <reference>",
+                  `    <name>${reference.name}</name>`,
+                  `    <path>${reference.path}</path>`,
+                  ...(reference.description === undefined
+                    ? []
+                    : [`    <description>${reference.description}</description>`]),
+                  "  </reference>",
+                ]),
+              "</available_references>",
+            ].join("\n"),
+          )
+        }
 
-        const list = yield* skill.available(agent)
+        let skillsBlock: string | undefined
+        if (!Permission.disabled(["skill"], agent.permission).has("skill")) {
+          const mentionSkills = mentionResult.mentions.length > 0
+            ? skillMentions.formatMentions(mentionResult.mentions)
+            : undefined
 
-        return [
-          "Skills provide specialized instructions and workflows for specific tasks.",
-          "Use the skill tool to load a skill when a task matches its description.",
-          // the agents seem to ingest the information about skills a bit better if we present a more verbose
-          // version of them here and a less verbose version in tool description, rather than vice versa.
-          Skill.fmt(list, { verbose: true }),
-        ].join("\n")
+          if (mentionSkills && (tier === "normal" || tier === "generous" || tier === "unlimited")) {
+            skillsBlock = `<skills>\n${mentionSkills}\n</skills>`
+          } else {
+            const list = yield* skill.available(agent)
+            const defaultSkills = Skill.fmt(list, { verbose: tier === "generous" || tier === "unlimited" })
+            if (defaultSkills) {
+              skillsBlock = defaultSkills
+            }
+          }
+        }
+
+        const budgetHint = `<budget:token_budget>${tier}:${budgetInfo.remainingTokens}</budget:token_budget>`
+
+        const btwBlock = btwResult.found ? BtwCommand.formatForSystem(btwResult.command) : undefined
+
+        const parts: string[] = [
+          budgetHint,
+          ...envParts,
+          ...(identityBlock ? [identityBlock] : []),
+          ...(remindersBlock ? [remindersBlock] : []),
+          ...(skillsBlock ? [skillsBlock] : []),
+          ...(btwBlock ? [btwBlock] : []),
+          ...(memoryContext ? [memoryContext] : []),
+        ]
+
+        return {
+          parts,
+          btwDetected: btwResult.found,
+          mentionedSkills: mentionResult.mentions.map((m) => m.name),
+        }
       }),
     })
   }),
 )
 
-export const defaultLayer = layer.pipe(Layer.provide(Skill.defaultLayer), Layer.provide(LocationServiceMap.layer))
-
 const locationServiceMapNode = LayerNode.make(LocationServiceMap.layer, [])
+const contextBudgetNode = LayerNode.make(ContextBudget.layer, [])
+const skillMentionsNode = LayerNode.make(SkillMentions.layer, [])
 
-export const node = LayerNode.make(layer, [Skill.node, locationServiceMapNode])
+export const defaultLayer = layer.pipe(
+  Layer.provide(Skill.defaultLayer),
+  Layer.provide(LocationServiceMap.layer),
+  Layer.provide(Reminders.defaultLayer),
+  Layer.provide(IdentityLoader.node),
+  Layer.provide(contextBudgetNode),
+  Layer.provide(skillMentionsNode),
+)
+
+export const node = LayerNode.make(layer, [
+  Skill.node,
+  locationServiceMapNode,
+  Reminders.node,
+  IdentityLoader.node as never,
+  contextBudgetNode,
+  skillMentionsNode,
+  SessionMemoryIntegration.node,
+])
 
 export * as SystemPrompt from "./system"

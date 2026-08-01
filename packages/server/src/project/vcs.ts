@@ -353,7 +353,7 @@ export const layer: Layer.Layer<Service, never, Git.Service | EventV2Bridge.Serv
       }),
       status: Effect.fn("Vcs.status")(function* () {
         const ctx = yield* InstanceState.context
-        if (ctx.project.vcs !== "git") return []
+        if (!("vcs" in ctx.project) || ctx.project.vcs !== "git") return []
         const ref = (yield* git.hasHead(ctx.directory)) ? "HEAD" : undefined
         const [list, stats] = yield* Effect.all(
           [git.status(ctx.directory), ref ? git.stats(ctx.directory, ref) : Effect.succeed([])],
@@ -379,7 +379,7 @@ export const layer: Layer.Layer<Service, never, Git.Service | EventV2Bridge.Serv
       diff: Effect.fn("Vcs.diff")(function* (mode: Mode, options?: DiffOptions) {
         const value = yield* InstanceState.get(state)
         const ctx = yield* InstanceState.context
-        if (ctx.project.vcs !== "git") return []
+        if (!("vcs" in ctx.project) || ctx.project.vcs !== "git") return []
         if (mode === "git") {
           return yield* track(git, ctx.directory, (yield* git.hasHead(ctx.directory)) ? "HEAD" : undefined, options)
         }
@@ -392,7 +392,7 @@ export const layer: Layer.Layer<Service, never, Git.Service | EventV2Bridge.Serv
       }),
       diffRaw: Effect.fn("Vcs.diffRaw")(function* () {
         const ctx = yield* InstanceState.context
-        if (ctx.project.vcs !== "git") return ""
+        if (!("vcs" in ctx.project) || ctx.project.vcs !== "git") return ""
         const [hasHead, status] = yield* Effect.all([git.hasHead(ctx.directory), git.status(ctx.directory)], {
           concurrency: 2,
         })
@@ -405,7 +405,7 @@ export const layer: Layer.Layer<Service, never, Git.Service | EventV2Bridge.Serv
       }),
       apply: Effect.fn("Vcs.apply")(function* (input: ApplyInput) {
         const ctx = yield* InstanceState.context
-        if (ctx.project.vcs !== "git") {
+        if (!("vcs" in ctx.project) || ctx.project.vcs !== "git") {
           return yield* new PatchApplyError({
             message: "Patch can't be applied because the project is not git-based",
             reason: "non-git",

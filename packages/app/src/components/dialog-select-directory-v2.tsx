@@ -3,6 +3,7 @@ import { FileTree } from "@pierre/trees"
 import { Dialog, DialogFooter } from "@diveeoi/ui/v2/dialog-v2"
 import { ButtonV2 } from "@diveeoi/ui/v2/button-v2"
 import { TextInputV2 } from "@diveeoi/ui/v2/text-input-v2"
+import { TooltipV2 } from "@diveeoi/ui/v2/tooltip-v2"
 import { useDialog } from "@diveeoi/ui/context/dialog"
 import { createEffect, createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { useGlobal } from "@/context/global"
@@ -12,6 +13,9 @@ import {
   absoluteTreePath,
   activeTreeNavigation,
   advanceTreePreload,
+  classifyOpenProjects,
+  type ClassifiedProject,
+  fullPickerPath,
   nextSuggestionIndex,
   nextTreeScrollTop,
   pickerFileSearchQuery,
@@ -22,6 +26,8 @@ import {
   createDirectorySearch,
   currentPickerSuggestions,
   displayPickerPath,
+  truncatePath,
+  estimatePathMaxChars,
   pickerParent,
   pickerRoot,
 } from "./directory-picker-domain"
@@ -101,6 +107,12 @@ export function DialogSelectDirectoryV2(props: DialogSelectDirectoryV2Props) {
     }
   })
   const currentSuggestions = createMemo(() => currentPickerSuggestions(suggestions(), input()))
+  const [suggestedProjects] = createResource(
+    () => (input() ? undefined : { home: home(), server: props.server }),
+    ({ home: homeDir }) =>
+      homeDir ? classifyOpenProjects(sdk.client, homeDir).catch(() => [] as ClassifiedProject[]) : [],
+    { initialValue: [] as ClassifiedProject[] },
+  )
 
   async function load(path: string, generation: number, preload = true) {
     const key = path.replace(/\/+$/, "")
@@ -297,23 +309,64 @@ export function DialogSelectDirectoryV2(props: DialogSelectDirectoryV2Props) {
           <Show when={suggestionsOpen() && currentSuggestions().length > 0}>
             <div id="directory-picker-v2-suggestions" role="listbox" class="directory-picker-v2-suggestions">
               <For each={currentSuggestions()}>
-                {(suggestion, index) => (
-                  <button
-                    id={`directory-picker-v2-suggestion-${index()}`}
-                    role="option"
-                    aria-selected={index() === activeSuggestion()}
-                    data-active={index() === activeSuggestion() ? "" : undefined}
-                    onPointerMove={() => setActiveSuggestion(index())}
-                    onClick={() => chooseSuggestion(suggestion)}
-                  >
-                    {displayPickerPath(suggestion.absolute, input(), home())}
-                    {suggestion.type === "directory" ? "/" : ""}
-                  </button>
-                )}
+                {(suggestion, index) => {
+                  return (
+                    <TooltipV2
+                      value={
+                        <span class="text-xs max-w-[60vw] overflow-hidden text-ellipsis whitespace-nowrap">
+                          {fullPickerPath(suggestion.absolute, home())}
+                        </span>
+                      }
+                    >
+                      <button
+                        id={`directory-picker-v2-suggestion-${index()}`}
+                        role="option"
+                        aria-selected={index() === activeSuggestion()}
+                        data-active={index() === activeSuggestion() ? "" : undefined}
+                        onPointerMove={() => setActiveSuggestion(index())}
+                        onClick={() => chooseSuggestion(suggestion)}
+                      >
+                        <span class="truncate-bidi">
+                          {truncatePath(
+                            displayPickerPath(suggestion.absolute, input(), home()),
+                            estimatePathMaxChars(container?.clientWidth ?? 600, 12),
+                          )}
+                        </span>
+                        {suggestion.type === "directory" ? "/" : ""}
+                      </button>
+                    </TooltipV2>
+                  )
+                }}
               </For>
             </div>
           </Show>
         </div>
+        <Show when={suggestedProjects().length > 0 && !input()}>
+          <div class="directory-picker-v2-suggested-projects">
+            <div class="directory-picker-v2-suggested-projects-title">Suggested Projects</div>
+            <For each={suggestedProjects()}>
+              {(project) => (
+                <TooltipV2
+                  value={
+                    <span class="text-xs max-w-[60vw] overflow-hidden text-ellipsis whitespace-nowrap">
+                      {fullPickerPath(project.worktree, home())}
+                    </span>
+                  }
+                >
+                  <button
+                    class="directory-picker-v2-suggested-project"
+                    onClick={() => void navigate(project.worktree)}
+                  >
+                    <span class="directory-picker-v2-suggested-project-name">{project.name}</span>
+                    {project.language ? (
+                      <span class="directory-picker-v2-suggested-project-lang">{project.language}</span>
+                    ) : null}
+                  </button>
+                </TooltipV2>
+              )}
+            </For>
+          </div>
+        </Show>
         <div
           class="directory-picker-v2-browser"
           ref={container}

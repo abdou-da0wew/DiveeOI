@@ -11,5 +11,7 @@
         "namespaceImportPackages": ["effect", "@effect/*"]
       }
     ]
-  }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules"]
 }

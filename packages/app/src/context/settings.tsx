@@ -180,6 +180,7 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
       get current() {
         return store
       },
+      setStore,
       general: {
         autoSave: withFallback(() => store.general?.autoSave, defaultSettings.general.autoSave),
         setAutoSave(value: boolean) {

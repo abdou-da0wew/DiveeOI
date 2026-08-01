@@ -37,9 +37,8 @@ import { ProjectV2 } from "@diveeoi/db/project"
 import { WorkspaceV2 } from "@diveeoi/db/workspace"
 import { SessionID, MessageID, PartID } from "./schema"
 
-import type { Provider } from "@/provider/provider"
-import { Permission } from "@/permission"
-import { Global } from "@diveeoi/db/global"
+import { SessionMemoryIntegration } from "./memory"
+import { MemoryConfig, Memory } from "@diveeoi/memory"
 import { Effect, Layer, Option, Context, Schema, Types } from "effect"
 import { AbsolutePath, NonNegativeInt, optionalOmitUndefined } from "@diveeoi/db/schema"
 import { RuntimeFlags } from "@/effect/runtime-flags"
@@ -80,6 +79,7 @@ export function fromRow(row: SessionRow): Info {
     path: row.path ?? undefined,
     parentID: row.parent_id ?? undefined,
     title: row.title,
+    titleAttempted: 0,
     agent: row.agent ?? undefined,
     model: row.model
       ? {
@@ -223,6 +223,7 @@ export const Info = Schema.Struct({
   tokens: optionalOmitUndefined(Tokens),
   share: optionalOmitUndefined(Share),
   title: Schema.String,
+  titleAttempted: Schema.Number,
   agent: optionalOmitUndefined(Schema.String),
   model: optionalOmitUndefined(Model),
   version: Schema.String,
@@ -474,6 +475,8 @@ export interface Interface {
   readonly touch: (sessionID: SessionID) => Effect.Effect<void>
   readonly get: (id: SessionID) => Effect.Effect<Info, NotFound>
   readonly setTitle: (input: { sessionID: SessionID; title: string }) => Effect.Effect<void>
+  readonly incrementTitleAttempts: (sessionID: SessionID) => Effect.Effect<void>
+  readonly getTitleAttempts: (sessionID: SessionID) => Effect.Effect<number>
   readonly setArchived: (input: { sessionID: SessionID; time?: number }) => Effect.Effect<void>
   readonly setMetadata: (input: typeof SetMetadataInput.Type) => Effect.Effect<void>
   readonly setPermission: (input: { sessionID: SessionID; permission: PermissionV1.Ruleset }) => Effect.Effect<void>
@@ -561,6 +564,7 @@ export const layer: Layer.Layer<
         workspaceID: input.workspaceID,
         parentID: input.parentID,
         title: input.title ?? (input.parentID ? childTitlePrefix : parentTitlePrefix) + new Date().toISOString(),
+        titleAttempted: 0,
         agent: input.agent,
         model: input.model,
         metadata: input.metadata,
@@ -593,7 +597,10 @@ export const layer: Layer.Layer<
     const get = Effect.fn("Session.get")(function* (id: SessionID) {
       const row = yield* db.select().from(SessionTable).where(eq(SessionTable.id, id)).get().pipe(Effect.orDie)
       if (!row) return yield* Effect.fail(new NotFoundError({ message: `Session not found: ${id}` }))
-      return fromRow(row)
+      const info = fromRow(row)
+      const attempts = titleAttemptCounts.get(id)
+      if (attempts !== undefined) info.titleAttempted = attempts
+      return info
     })
 
     const list = Effect.fn("Session.list")(function* (input?: ListInput) {
@@ -807,6 +814,17 @@ export const layer: Layer.Layer<
       yield* patch(input.sessionID, { title: input.title }).pipe(Effect.orDie)
     })
 
+    const titleAttemptCounts = new Map<SessionID, number>()
+
+    const incrementTitleAttempts = Effect.fn("Session.incrementTitleAttempts")(function* (sessionID: SessionID) {
+      const current = titleAttemptCounts.get(sessionID) ?? 0
+      titleAttemptCounts.set(sessionID, current + 1)
+    })
+
+    const getTitleAttempts = Effect.fn("Session.getTitleAttempts")(function* (sessionID: SessionID) {
+      return titleAttemptCounts.get(sessionID) ?? 0
+    })
+
     const setArchived = Effect.fn("Session.setArchived")(function* (input: { sessionID: SessionID; time?: number }) {
       yield* patch(input.sessionID, { time: { archived: input.time } }).pipe(Effect.orDie)
     })
@@ -951,6 +969,8 @@ export const layer: Layer.Layer<
       touch,
       get,
       setTitle,
+      incrementTitleAttempts,
+      getTitleAttempts,
       setArchived,
       setMetadata,
       setPermission,
@@ -1125,6 +1145,6 @@ export function* listGlobal(input?: {
   }
 }
 
-export const node = LayerNode.make(layer, [BackgroundJob.node, RuntimeFlags.node, Database.node, EventV2Bridge.node])
+export const node = LayerNode.make(layer, [BackgroundJob.node, RuntimeFlags.node, Database.node, EventV2Bridge.node, Memory.node])
 
 export * as Session from "./session"

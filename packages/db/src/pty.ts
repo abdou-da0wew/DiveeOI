@@ -1,6 +1,6 @@
 export * as Pty from "./pty"
 
-import type { Disp, Proc } from "#pty"
+import type { Disp, Proc } from "./pty/pty.bun"
 import { Context, Effect, Layer, Schema, Types } from "effect"
 import { Config } from "./config"
 import { EventV2 } from "./event"
@@ -14,7 +14,7 @@ const BUFFER_LIMIT = 1024 * 1024 * 2
 // Exited sessions stay observable (status, exit code, retained output) until removed explicitly.
 // Cap retention so abandoned terminals do not accumulate unbounded buffers.
 const EXITED_LIMIT = 25
-const pty = lazy(() => import("#pty"))
+const pty = lazy(() => import("./pty/pty.bun"))
 
 type Subscriber = {
   readonly onData: (chunk: string) => void

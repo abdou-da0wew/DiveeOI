@@ -1979,7 +1979,7 @@ export type Config = {
         }
   }
   tool?: {
-    format?: "json"
+    format?: "json" | "toon"
     burst?: {
       /**
        * Max bytes per second before rate limiting triggers
@@ -1993,9 +1993,63 @@ export type Config = {
        * Sliding window duration in ms
        */
       window_ms?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-      strategy?: "truncate"
-      action?: "warn"
+      strategy?: "truncate" | "buffer" | "abort"
+      action?: "warn" | "truncate" | "abort"
     }
+  }
+  /**
+   * LLM configuration for tool format, burst limiting, output filtering, and compaction
+   */
+  llm?: {
+    format?: "json" | "toon"
+    burst?: {
+      /**
+       * Max bytes per second before rate limiting triggers
+       */
+      max_bytes_per_second?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      /**
+       * Max burst bytes before abort
+       */
+      max_burst_bytes?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      /**
+       * Sliding window duration in ms
+       */
+      window_ms?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      strategy?: "truncate" | "buffer" | "abort"
+      action?: "warn" | "truncate" | "abort"
+    }
+    tool_output?: {
+      /**
+       * Maximum lines of tool output before truncation
+       */
+      max_lines?: number
+      /**
+       * Maximum bytes of tool output before truncation
+       */
+      max_bytes?: number
+    }
+    compaction?: {
+      /**
+       * Enable automatic compaction when context is full
+       */
+      auto?: boolean
+      /**
+       * Enable pruning of old tool outputs
+       */
+      prune?: boolean
+      /**
+       * Number of recent turns to keep verbatim during compaction
+       */
+      tail_turns?: number
+    }
+    /**
+     * Maximum tool output size in characters before truncation
+     */
+    max_tool_output?: number
+    /**
+     * Allow parallel tool calls (default: true)
+     */
+    parallel_tool_calls?: boolean
   }
   builtin?: {
     ctx7?: {

@@ -36,15 +36,7 @@
     }
   },
   "devDependencies": {
-    "@tsconfig/bun": "catalog:",
-    "@types/bun": "catalog:",
-    "@types/cross-spawn": "catalog:",
-    "@types/node": "catalog:",
-    "@types/npm-package-arg": "6.1.4",
-    "@types/npmcli__arborist": "6.3.3",
-    "@types/semver": "catalog:",
-    "@types/turndown": "5.0.5",
-    "@types/which": "3.0.4",
+    "@diveeoi/http-recorder": "workspace:*",
     "@parcel/watcher-darwin-arm64": "2.5.1",
     "@parcel/watcher-darwin-x64": "2.5.1",
     "@parcel/watcher-linux-arm64-glibc": "2.5.1",
@@ -53,7 +45,18 @@
     "@parcel/watcher-linux-x64-musl": "2.5.1",
     "@parcel/watcher-win32-arm64": "2.5.1",
     "@parcel/watcher-win32-x64": "2.5.1",
-    "@diveeoi/http-recorder": "workspace:*",
+    "@tsconfig/bun": "catalog:",
+    "@types/bcryptjs": "3.0.0",
+    "@types/bun": "catalog:",
+    "@types/cross-spawn": "catalog:",
+    "@types/mime-types": "3.0.1",
+    "@types/node": "catalog:",
+    "@types/nodemailer": "8.0.1",
+    "@types/npm-package-arg": "6.1.4",
+    "@types/npmcli__arborist": "6.3.3",
+    "@types/semver": "catalog:",
+    "@types/turndown": "5.0.5",
+    "@types/which": "3.0.4",
     "drizzle-kit": "catalog:"
   },
   "dependencies": {
@@ -117,7 +120,9 @@
     "venice-ai-sdk-provider": "2.0.2",
     "which": "6.0.1",
     "xdg-basedir": "5.1.0",
-    "zod": "catalog:"
+    "bcryptjs": "^2.4.3",
+    "zod": "catalog:",
+    "nodemailer": "^6.9.16"
   },
   "overrides": {
     "drizzle-orm": "catalog:"

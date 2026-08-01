@@ -67,6 +67,7 @@ import { serveUIEffect } from "@/server/shared/ui"
 import { ServerAuth } from "@/server/auth"
 import { InstanceHttpApi, RootHttpApi } from "./api"
 import { Api } from "@diveeoi/api/api"
+import { JwtAuth } from "@diveeoi/api/middleware/jwt"
 import { PublicApi } from "./public"
 import {
   authorizationLayer,
@@ -107,6 +108,7 @@ import { corsVaryFix } from "./middleware/cors-vary"
 import { errorLayer } from "./middleware/error"
 import { fenceLayer } from "./middleware/fence"
 import { schemaErrorLayer } from "./middleware/schema-error"
+import { Memory } from "@diveeoi/memory"
 
 export const context = Context.makeUnsafe<unknown>(new Map())
 
@@ -115,6 +117,7 @@ const cors = (corsOptions?: CorsOptions) =>
     HttpMiddleware.cors({
       allowedOrigins: (origin) => isAllowedCorsOrigin(origin, corsOptions),
       maxAge: 86_400,
+      credentials: true,
     }),
     { global: true },
   )
@@ -169,6 +172,7 @@ const instanceRoutes = instanceApiRoutes.pipe(
 const serverRoutes = HttpApiBuilder.layer(Api).pipe(
   Layer.provide(handlers),
   Layer.provide(PluginPtyEnvironment.layer),
+  Layer.provide(JwtAuth.defaultLayer),
   Layer.provide([serverHttpApiAuthLayer, v2SchemaErrorLayer]),
 )
 
@@ -257,6 +261,7 @@ const app = LayerNode.group([
   ProjectV2.node,
   ProjectCopy.node,
   PtyTicket.node,
+  Memory.node,
 ])
 
 export function createRoutes(
