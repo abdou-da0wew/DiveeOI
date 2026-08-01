@@ -38,10 +38,6 @@ yarn-error.log*
 
 # Test artifacts
 tests/fixtures/generated/
-**/*.test.ts
-**/*.test.tsx
-**/*.spec.ts
-**/*.spec.tsx
 **/*.stories.tsx
 *.test.js
 *.spec.js
@@ -61,7 +57,6 @@ coverage/
 *.sqlite3
 
 # Memory package test files
-packages/memory/test/
 packages/memory/*.md
 
 # Build artifacts
