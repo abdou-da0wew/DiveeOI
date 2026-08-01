@@ -76,118 +76,113 @@ const getSignalNumber = (signal: string): number => {
   return signals[signal] ?? 15
 }
 
-const findProcesses = Effect.fn("KillTool.findProcesses")(function* (
-  input: typeof Input.Type,
-): Effect.Effect<Array<{ pid: number; name: string; cmd: string }>> {
-  if (input.pid) {
-    try {
-      const cmd = process.platform === "win32"
-        ? ChildProcess.make("tasklist", ["/FI", `PID eq ${input.pid}`, "/FO", "CSV"], { shell: false })
-        : ChildProcess.make("ps", ["-p", String(input.pid), "-o", "pid,comm,args"], { shell: false })
-      const proc = yield* AppProcess.run(cmd)
-      if (proc.exitCode === 0 && proc.stdout.toString().includes(String(input.pid))) {
-        return [{ pid: input.pid, name: "unknown", cmd: "" }]
+const findProcesses = (appProcess: AppProcess.Interface, input: typeof Input.Type): Effect.Effect<Array<{ pid: number; name: string; cmd: string }>, AppProcess.AppProcessError> =>
+  Effect.gen(function* () {
+    if (input.pid) {
+      try {
+        const cmd = process.platform === "win32"
+          ? ChildProcess.make("tasklist", ["/FI", `PID eq ${input.pid}`, "/FO", "CSV"], { shell: false })
+          : ChildProcess.make("ps", ["-p", String(input.pid), "-o", "pid,comm,args"], { shell: false })
+        const proc = yield* appProcess.run(cmd)
+        if (proc.exitCode === 0 && proc.stdout.toString().includes(String(input.pid))) {
+          return [{ pid: input.pid, name: "unknown", cmd: "" }]
+        }
+        return []
+      } catch {
+        return []
       }
-      return []
+    }
+
+    if (process.platform === "win32") {
+      let cmd = "tasklist"
+      const args = ["/FO", "CSV"]
+      if (input.name) {
+        args.push("/FI", `IMAGENAME eq ${input.name}*`)
+      }
+      const proc = yield* appProcess.run(ChildProcess.make(cmd, args, { shell: false }))
+      if (proc.exitCode !== 0) return []
+
+      const lines = proc.stdout.toString().trim().split("\n").slice(1)
+      const results = []
+      for (const line of lines) {
+        const match = line.match(/"([^"]+)","(\d+)"/)
+        if (match) {
+          const name = match[1]
+          const pid = parseInt(match[2], 10)
+          if (!isNaN(pid)) results.push({ pid, name, cmd: "" })
+        }
+      }
+      return results
+    }
+
+    try {
+      let args: string[]
+      if (input.pattern) {
+        args = ["-f", input.pattern]
+      } else if (input.name) {
+        args = [input.name]
+      } else {
+        return []
+      }
+      const proc = yield* appProcess.run(ChildProcess.make("pgrep", ["-a", ...args], { shell: false }))
+      if (proc.exitCode !== 0) return []
+
+      const results = []
+      for (const line of proc.stdout.toString().trim().split("\n")) {
+        const [pidStr, ...cmdParts] = line.split(" ")
+        const pid = parseInt(pidStr, 10)
+        if (!isNaN(pid)) {
+          results.push({ pid, name: cmdParts[0]?.split("/").pop() || "unknown", cmd: cmdParts.join(" ") })
+        }
+      }
+      return results
     } catch {
       return []
     }
-  }
+  })
 
-  if (process.platform === "win32") {
-    let cmd = "tasklist"
-    const args = ["/FO", "CSV"]
-    if (input.name) {
-      args.push("/FI", `IMAGENAME eq ${input.name}*`)
-    }
-    const proc = yield* AppProcess.run(ChildProcess.make(cmd, args, { shell: false }))
-    if (proc.exitCode !== 0) return []
+const killProcess = (appProcess: AppProcess.Interface, pid: number, signal: string, force: boolean, timeout: number): Effect.Effect<{ pid: number; success: boolean; error?: string }, AppProcess.AppProcessError> =>
+  Effect.gen(function* () {
+    const sigNum = getSignalNumber(signal)
 
-    const lines = proc.stdout.toString().trim().split("\n").slice(1)
-    const results = []
-    for (const line of lines) {
-      const match = line.match(/"([^"]+)","(\d+)"/)
-      if (match) {
-        const name = match[1]
-        const pid = parseInt(match[2], 10)
-        if (!isNaN(pid)) results.push({ pid, name, cmd: "" })
+    if (process.platform === "win32") {
+      const args = ["/PID", String(pid)]
+      if (signal === "CTRL_C_EVENT" || signal === "CTRL_BREAK_EVENT") {
+        args.push("/T")
+      } else {
+        args.push("/F")
       }
-    }
-    return results
-  }
 
-  try {
-    let args: string[]
-    if (input.pattern) {
-      args = ["-f", input.pattern]
-    } else if (input.name) {
-      args = [input.name]
-    } else {
-      return []
-    }
-    const proc = yield* AppProcess.run(ChildProcess.make("pgrep", ["-a", ...args], { shell: false }))
-    if (proc.exitCode !== 0) return []
-
-    const results = []
-    for (const line of proc.stdout.toString().trim().split("\n")) {
-      const [pidStr, ...cmdParts] = line.split(" ")
-      const pid = parseInt(pidStr, 10)
-      if (!isNaN(pid)) {
-        results.push({ pid, name: cmdParts[0]?.split("/").pop() || "unknown", cmd: cmdParts.join(" ") })
+      const proc = yield* appProcess.run(ChildProcess.make("taskkill", args, { shell: false }))
+      if (proc.exitCode === 0) {
+        return { pid, success: true }
       }
-    }
-    return results
-  } catch {
-    return []
-  }
-})
-
-const killProcess = Effect.fn("KillTool.killProcess")(function* (
-  pid: number,
-  signal: string,
-  force: boolean,
-  timeout: number,
-): Effect.Effect<{ pid: number; success: boolean; error?: string }> {
-  const sigNum = getSignalNumber(signal)
-
-  if (process.platform === "win32") {
-    const args = ["/PID", String(pid)]
-    if (signal === "CTRL_C_EVENT" || signal === "CTRL_BREAK_EVENT") {
-      args.push("/T")
-    } else {
-      args.push("/F")
+      return { pid, success: false, error: proc.stderr.toString() || "Unknown error" }
     }
 
-    const proc = yield* AppProcess.run(ChildProcess.make("taskkill", args, { shell: false }))
-    if (proc.exitCode === 0) {
-      return { pid, success: true }
-    }
-    return { pid, success: false, error: proc.stderr.toString() || "Unknown error" }
-  }
-
-  const killCmd = ChildProcess.make("kill", ["-" + sigNum, String(pid)], { shell: false })
-  const result = yield* AppProcess.run(killCmd, { timeout: Duration.millis(timeout) }).pipe(
-    Effect.catchAll(() => Effect.succeed({ exitCode: -1, stdout: new Uint8Array(), stderr: new Uint8Array() })),
-  )
-
-  if (result.exitCode === 0) {
-    return { pid, success: true }
-  }
-
-  if (force && signal !== "SIGKILL") {
-    const forceResult = yield* AppProcess.run(
-      ChildProcess.make("kill", ["-9", String(pid)], { shell: false }),
-      { timeout: Duration.millis(1000) },
-    ).pipe(
-      Effect.catchAll(() => Effect.succeed({ exitCode: -1, stdout: new Uint8Array(), stderr: new Uint8Array() })),
+    const killCmd = ChildProcess.make("kill", ["-" + sigNum, String(pid)], { shell: false })
+    const result = yield* appProcess.run(killCmd, { timeout: Duration.millis(timeout) }).pipe(
+      Effect.catch(() => Effect.succeed({ exitCode: -1, stdout: new Uint8Array(), stderr: new Uint8Array() })),
     )
-    if (forceResult.exitCode === 0) {
+
+    if (result.exitCode === 0) {
       return { pid, success: true }
     }
-  }
 
-  return { pid, success: false, error: "Failed to send signal" }
-})
+    if (force && signal !== "SIGKILL") {
+      const forceResult = yield* appProcess.run(
+        ChildProcess.make("kill", ["-9", String(pid)], { shell: false }),
+        { timeout: Duration.millis(1000) },
+      ).pipe(
+        Effect.catch(() => Effect.succeed({ exitCode: -1, stdout: new Uint8Array(), stderr: new Uint8Array() })),
+      )
+      if (forceResult.exitCode === 0) {
+        return { pid, success: true }
+      }
+    }
+
+    return { pid, success: false, error: "Failed to send signal" }
+  })
 
 export const layer = Layer.effectDiscard(
   Effect.gen(function* () {
@@ -253,7 +248,7 @@ export const layer = Layer.effectDiscard(
               const timeout = input.timeout ?? defaultTimeout
               const killAll = input.all ?? false
 
-              const processes = yield* findProcesses(input)
+              const processes = yield* findProcesses(appProcess, input)
               if (processes.length === 0) {
                 return {
                   killed: [],
@@ -266,7 +261,7 @@ export const layer = Layer.effectDiscard(
 
               const results = yield* Effect.all(
                 targets.map((p) =>
-                  killProcess(p.pid, signal, force, timeout).pipe(
+                  killProcess(appProcess, p.pid, signal, force, timeout).pipe(
                     Effect.map((r) => ({ ...r, name: p.name, signal })),
                   ),
                 ),
@@ -280,7 +275,7 @@ export const layer = Layer.effectDiscard(
                 totalMatched: targets.length,
                 totalKilled: successful,
               }
-            }).pipe(Effect.mapError(() => new ToolFailure({ message: "Failed to kill process" }))),
+            }).pipe(Effect.catch(() => new ToolFailure({ message: "Failed to kill process" }))),
         }),
       })
       .pipe(Effect.orDie)

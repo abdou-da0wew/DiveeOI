@@ -114,27 +114,25 @@ export const layer = Layer.effectDiscard(
               }
 
               const result = yield* Effect.tryPromise({
-                try: () =>
-                  new Promise((resolve, reject) => {
-                    const proc = Bun.spawn([sidecarPath, ...args], {
-                      stdout: "pipe",
-                      stderr: "pipe",
-                    })
-                    let stdout = ""
-                    let stderr = ""
-                    for await (const chunk of proc.stdout) {
-                      stdout += new TextDecoder().decode(chunk)
-                    }
-                    for await (const chunk of proc.stderr) {
-                      stderr += new TextDecoder().decode(chunk)
-                    }
-                    const exitCode = yield* proc.exited
-                    if (exitCode !== 0) {
-                      reject(new Error(stderr || "Sidecar exited with code " + exitCode))
-                    } else {
-                      resolve(stdout)
-                    }
-                  }),
+                try: async () => {
+                  const proc = Bun.spawn([sidecarPath, ...args], {
+                    stdout: "pipe",
+                    stderr: "pipe",
+                  })
+                  let stdout = ""
+                  let stderr = ""
+                  for await (const chunk of proc.stdout) {
+                    stdout += new TextDecoder().decode(chunk)
+                  }
+                  for await (const chunk of proc.stderr) {
+                    stderr += new TextDecoder().decode(chunk)
+                  }
+                  const exitCode = await proc.exited
+                  if (exitCode !== 0) {
+                    throw new Error(stderr || `Sidecar exited with code ${exitCode}`)
+                  }
+                  return stdout
+                },
                 catch: (error) => new ToolFailure({ message: `List failed: ${error}` }),
               })
 
