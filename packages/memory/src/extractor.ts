@@ -109,7 +109,7 @@ const tryExtractWithModel = (
 
     const response = yield* llmClient.generate(request).pipe(
       Effect.timeoutOrElse({ duration: "45 seconds", orElse: () => Effect.fail(new Error(`LLM timeout: ${modelConfig.name}`)) }),
-      Effect.mapError((err) => new MemoryError(`${modelConfig.name}: ${err}`))
+      Effect.mapError((err) => new MemoryError({ cause: `${modelConfig.name}: ${err}` }))
     )
 
     const responseText = (response as any).text ?? ""
@@ -119,11 +119,11 @@ const tryExtractWithModel = (
     try {
       parsed = JSON.parse(jsonText)
     } catch (e) {
-      return yield* Effect.fail(new MemoryError(`${modelConfig.name}: Failed to parse JSON output`))
+      return yield* Effect.fail(new MemoryError({ cause: `${modelConfig.name}: Failed to parse JSON output` }))
     }
 
     if (!Array.isArray(parsed) || parsed.length === 0 || parsed.length > 20) {
-      return yield* Effect.fail(new MemoryError(`${modelConfig.name}: Expected 1-20 memories, got ${Array.isArray(parsed) ? parsed.length : "non-array"}`))
+      return yield* Effect.fail(new MemoryError({ cause: `${modelConfig.name}: Expected 1-20 memories, got ${Array.isArray(parsed) ? parsed.length : "non-array"}` }))
     }
 
     const results: ExtractedMemory[] = []
@@ -188,9 +188,7 @@ const extractWithFallback = (
     }
 
     // All models failed
-    return yield* Effect.fail(new MemoryError(
-      `All extraction models failed`
-    ))
+    return yield* Effect.fail(new MemoryError({ cause: `All extraction models failed` }))
   })
 
 const makeExtractor = Effect.gen(function* () {

@@ -111,7 +111,7 @@ const makeIndexer = Effect.gen(function* () {
 
   // Transaction helper
   const mapDbError = <A, E>(effect: Effect.Effect<A, E>): Effect.Effect<A, MemoryError> =>
-    effect.pipe(Effect.mapError((err) => new MemoryError(err)))
+    effect.pipe(Effect.mapError((err) => new MemoryError({ cause: err })))
 
   const withTransaction = <A, E>(effect: Effect.Effect<A, E>): Effect.Effect<A, MemoryError> =>
     mapDbError(db.transaction(() => effect))
