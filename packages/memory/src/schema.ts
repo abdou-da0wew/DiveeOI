@@ -124,26 +124,18 @@ export class ConsolidationResult extends Schema.Class<ConsolidationResult>("Cons
 }) {}
 
 // Error types
-export class MemoryError extends Error {
-  readonly _tag = "MemoryError"
-  constructor(override readonly cause: unknown) {
-    super(String(cause))
-  }
-}
+export class MemoryError extends Schema.TaggedErrorClass<MemoryError>()("MemoryError", {
+  cause: Schema.Unknown,
+}) {}
 
-export class NodeNotFoundError extends Error {
-  readonly _tag = "NodeNotFoundError"
-  constructor(readonly nodeId: string) {
-    super(`Node not found: ${nodeId}`)
-  }
-}
+export class NodeNotFoundError extends Schema.TaggedErrorClass<NodeNotFoundError>()("NodeNotFoundError", {
+  nodeId: Schema.String,
+}) {}
 
-export class SessionMemoryError extends Error {
-  readonly _tag = "SessionMemoryError"
-  constructor(readonly sessionId: string, override readonly cause: unknown) {
-    super(`Session memory error: ${sessionId} - ${String(cause)}`)
-  }
-}
+export class SessionMemoryError extends Schema.TaggedErrorClass<SessionMemoryError>()("SessionMemoryError", {
+  sessionId: Schema.String,
+  cause: Schema.Unknown,
+}) {}
 
 // Export all types and schemas
 export * as MemorySchema from "./schema"

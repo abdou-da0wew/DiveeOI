@@ -132,7 +132,7 @@ export const readNodeFile = (memoryDir: string, nodeId: MemoryNodeID): Effect.Ef
       try: () => fs.stat(filePath),
       catch: (cause) => {
         if ((cause as NodeJS.ErrnoException).code === "ENOENT") {
-          return new NodeNotFoundError(nodeId)
+          return new NodeNotFoundError({ nodeId })
         }
         return new MemoryError({ cause })
       }
@@ -189,7 +189,7 @@ export const deleteNodeFile = (memoryDir: string, nodeId: MemoryNodeID): Effect.
 
     yield* Effect.tryPromise({
       try: () => fs.unlink(filePath),
-      catch: (cause) => new MemoryError(cause)
+      catch: (cause) => new MemoryError({ cause })
     }).pipe(Effect.catch((err) => {
       if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
         return Effect.void
@@ -207,7 +207,7 @@ export const listNodeFiles = (memoryDir: string): Effect.Effect<MemoryNodeID[], 
 
     const files = yield* Effect.tryPromise({
       try: () => fs.readdir(nodesDir),
-      catch: (cause) => new MemoryError(cause)
+      catch: (cause) => new MemoryError({ cause })
     }).pipe(Effect.catch((err) => {
       if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
         return Effect.succeed([] as MemoryNodeID[])
