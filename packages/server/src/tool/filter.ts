@@ -81,7 +81,7 @@ export function apply(text: string, opts: Options): Result {
 
   const rawTokens = estimateTokens(text)
   const filteredTokens = estimateTokens(filtered)
-  const neverWorseFallback = opts.neverWorse && filteredTokens > rawTokens
+  const neverWorseFallback = !!opts.neverWorse && filteredTokens > rawTokens
 
   return {
     content: neverWorseFallback ? text : filtered,

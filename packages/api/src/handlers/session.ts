@@ -15,8 +15,8 @@ import { AbsolutePath } from "@diveeoi/db/schema"
 const DefaultSessionsLimit = 50
 
 export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handlers) =>
-  Effect.gen(function* () {
-    const session = yield* SessionV2.Service
+    Effect.gen(function* () {
+      const session = yield* SessionV2.Service
 
     return handlers
       .handle(

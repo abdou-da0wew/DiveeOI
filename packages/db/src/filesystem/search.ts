@@ -2,7 +2,7 @@ export * as FileSystemSearch from "./search"
 
 import path from "path"
 import { Context, Effect, Layer, Scope } from "effect"
-import { Fff } from "#fff"
+import { Fff } from "./fff.bun"
 import fuzzysort from "fuzzysort"
 import { FileSystem } from "../filesystem"
 import { FSUtil } from "../fs-util"
@@ -135,9 +135,9 @@ export const fffLayer = Layer.effect(
           enableFsRootScanning: true,
           enableHomeDirScanning: true,
         }),
-      catch: (cause) => cause,
-    }).pipe(Effect.orDie)
-    if (!result.ok) return yield* Effect.die(result.error)
+      catch: (cause) => `FFF.create threw: ${cause}`,
+    })
+    if (!result.ok) return yield* Effect.fail(`Failed to init file picker: ${result.error}`)
     yield* Effect.addFinalizer(() => Effect.sync(() => result.value.destroy()).pipe(Effect.ignore))
     return Service.of({
       glob: (input) =>
@@ -233,5 +233,9 @@ export const fffLayer = Layer.effect(
 )
 
 export const defaultLayer = Layer.unwrap(
-  Effect.sync(() => (Flag.OPENCODE_DISABLE_FFF || !Fff.available() ? ripgrepLayer : fffLayer)),
+  Effect.sync(() =>
+    Flag.OPENCODE_DISABLE_FFF || !Fff.available()
+      ? ripgrepLayer
+      : fffLayer.pipe(Layer.catch(() => ripgrepLayer)),
+  ),
 )

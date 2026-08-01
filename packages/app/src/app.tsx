@@ -32,6 +32,7 @@ import { Dynamic } from "solid-js/web"
 import { CommandProvider } from "@/context/command"
 import { CommentsProvider } from "@/context/comments"
 import { FileProvider } from "@/context/file"
+import { GlobalPrefSync } from "@/components/global-pref-sync"
 import { ServerSDKProvider } from "@/context/server-sdk"
 import { ServerSyncProvider } from "@/context/server-sync"
 import { GlobalProvider } from "@/context/global"
@@ -52,10 +53,13 @@ import DirectoryLayout, { DirectoryDataProvider } from "@/pages/directory-layout
 import Layout from "@/pages/layout"
 import { ErrorPage } from "./pages/error"
 import { useCheckServerHealth } from "./utils/server-health"
+import { AuthProvider } from "./context/auth"
 
 const HomeRoute = lazy(() => import("@/pages/home"))
 const Session = lazy(() => import("@/pages/session"))
 const NewSession = lazy(() => import("@/pages/new-session"))
+const LoginPage = lazy(() => import("@/pages/login"))
+const RegisterPage = lazy(() => import("@/pages/register"))
 
 const SessionRoute = Object.assign(
   () => {
@@ -230,6 +234,7 @@ function ServerScopedShell(props: ParentProps) {
       <LayoutProvider>
         <NotificationProvider>
           <ModelsProvider>
+            <GlobalPrefSync />
             <Layout>{props.children}</Layout>
           </ModelsProvider>
         </NotificationProvider>
@@ -469,10 +474,14 @@ export function AppInterface(props: {
             component={props.router ?? Router}
             root={(routerProps) => (
               <TabsProvider>
-                <ServerShell>{routerProps.children}</ServerShell>
+                <ServerShell>
+                  <AuthProvider>{routerProps.children}</AuthProvider>
+                </ServerShell>
               </TabsProvider>
             )}
           >
+            <Route path="/login" component={LoginPage} />
+            <Route path="/register" component={RegisterPage} />
             <Route component={SelectedServerLayout}>
               <Route path="/" component={HomeRoute} />
               <Route path="/:dir" component={DirectoryLayout}>

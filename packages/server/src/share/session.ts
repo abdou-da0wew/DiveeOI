@@ -5,9 +5,13 @@ import { Effect, Layer, Scope, Context } from "effect"
 import { Config } from "@/config/config"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ShareNext } from "./share-next"
+import { SessionMemoryIntegration } from "@/session/memory"
+import { MemoryError } from "@diveeoi/memory/schema"
+import { MemoryConfig } from "@diveeoi/memory"
+import { Memory } from "@diveeoi/memory"
 
 export interface Interface {
-  readonly create: (input?: Session.CreateInput) => Effect.Effect<Session.Info>
+  readonly create: (input?: Session.CreateInput) => Effect.Effect<Session.Info, MemoryError, MemoryConfig>
   readonly share: (sessionID: SessionID) => Effect.Effect<{ url: string }, unknown>
   readonly unshare: (sessionID: SessionID) => Effect.Effect<void, unknown>
 }
@@ -20,6 +24,7 @@ export const layer = Layer.effect(
     const cfg = yield* Config.Service
     const session = yield* Session.Service
     const shareNext = yield* ShareNext.Service
+    const memory = yield* SessionMemoryIntegration.Service
     const scope = yield* Scope.Scope
     const flags = yield* RuntimeFlags.Service
 
@@ -45,7 +50,18 @@ export const layer = Layer.effect(
       return result
     })
 
-    return Service.of({ create, share, unshare })
+    const createWithMemory: Interface["create"] = Effect.fn("SessionShare.createWithMemory")(function* (input?: Session.CreateInput) {
+      const result = yield* session.create(input)
+      if (result.parentID) return result
+      // Initialize session memory
+      yield* memory.initializeSessionMemory(result.id, result.title)
+      const conf = yield* cfg.get()
+      if (!(flags.autoShare || conf.share === "auto")) return result
+      yield* share(result.id).pipe(Effect.ignore, Effect.forkIn(scope))
+      return result
+    })
+
+    return Service.of({ create: createWithMemory, share, unshare })
   }),
 )
 
@@ -56,6 +72,6 @@ export const defaultLayer = layer.pipe(
   Layer.provide(RuntimeFlags.defaultLayer),
 )
 
-export const node = LayerNode.make(layer, [Config.node, Session.node, ShareNext.node, RuntimeFlags.node])
+export const node = LayerNode.make(layer as never, [Config.node, Session.node, ShareNext.node, RuntimeFlags.node, Memory.node])
 
 export * as SessionShare from "./session"

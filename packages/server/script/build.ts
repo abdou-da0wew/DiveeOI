@@ -121,22 +121,22 @@ const allTargets: {
   },
 ]
 
-const targets = singleFlag
-  ? allTargets.filter((item) => {
-      if (item.os !== process.platform || item.arch !== process.arch) {
-        return false
-      }
+const platformOs = process.env.DIVEEOI_BUILD_OS
+const platformArch = process.env.DIVEEOI_BUILD_ARCH as string | undefined
 
-      // When building for the current platform, prefer a single native binary by default.
+const targets = singleFlag || platformOs
+  ? allTargets.filter((item) => {
+      const matchOs = platformOs ? item.os === platformOs : item.os === process.platform
+      const matchArch = platformArch ? item.arch === platformArch : item.arch === process.arch
+      if (!matchOs || !matchArch) return false
+
+      // When building for a specific platform, prefer a single native binary by default.
       // Baseline binaries require additional Bun artifacts and can be flaky to download.
-      if (item.avx2 === false) {
-        return baselineFlag
-      }
+      if (item.avx2 === false) return baselineFlag
 
       // also skip abi-specific builds for the same reason
-      if (item.abi !== undefined) {
-        return false
-      }
+      if (item.abi !== undefined && !platformOs) return false
+      if (item.abi !== undefined && platformOs) return true
 
       return true
     })

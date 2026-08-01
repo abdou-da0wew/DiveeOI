@@ -13,6 +13,7 @@ import { useLayout } from "@/context/layout"
 import { useLocal } from "@/context/local"
 import { usePermission } from "@/context/permission"
 import { type ContextItem, type ImageAttachmentPart, type Prompt, type usePrompt } from "@/context/prompt"
+import { useAuth } from "@/context/auth"
 import { useSDK, type DirectorySDK } from "@/context/sdk"
 import { useSync, type DirectorySync } from "@/context/sync"
 import { Identifier } from "@/utils/id"
@@ -21,6 +22,9 @@ import { buildRequestParts } from "./build-request-parts"
 import { setCursorPosition } from "./editor-dom"
 import { formatServerError } from "@/utils/server-errors"
 import { ScopedKey } from "@/utils/server-scope"
+
+let unverifiedMessageCount = 0
+const MESSAGE_LIMIT = 10
 
 type PendingPrompt = {
   abort: AbortController
@@ -217,6 +221,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const language = useLanguage()
   const params = useParams()
   const [search] = useSearchParams<{ draftId?: string }>()
+  const [authState] = useAuth()
   const server = useServer()
   const tabs = useTabs()
   const pendingKey = (sessionID: string) => ScopedKey.from(sdk().scope, sessionID)
@@ -582,19 +587,31 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       messageID,
       optimisticBusy: sessionDirectory === projectDirectory,
       before: waitForWorktree,
-    }).catch((err) => {
-      pending.delete(pendingKey(session.id))
-      if (sessionDirectory === projectDirectory) {
-        sync().set("session_status", session.id, { type: "idle" })
-      }
-      showToast({
-        title: language.t("prompt.toast.promptSendFailed.title"),
-        description: errorMessage(err),
-      })
-      removeOptimisticMessage()
-      restoreCommentItems(commentItems)
-      restoreInput()
     })
+      .then(() => {
+        unverifiedMessageCount++
+        const totalMessages = authState.messageCount + unverifiedMessageCount
+        if (totalMessages >= MESSAGE_LIMIT && authState.user && !authState.user.verified) {
+          showToast({
+            title: "Verify your email",
+            description:
+              "You've reached the message limit for unverified users. Please verify your email to continue.",
+          })
+        }
+      })
+      .catch((err) => {
+        pending.delete(pendingKey(session.id))
+        if (sessionDirectory === projectDirectory) {
+          sync().set("session_status", session.id, { type: "idle" })
+        }
+        showToast({
+          title: language.t("prompt.toast.promptSendFailed.title"),
+          description: errorMessage(err),
+        })
+        removeOptimisticMessage()
+        restoreCommentItems(commentItems)
+        restoreInput()
+      })
   }
 
   return {

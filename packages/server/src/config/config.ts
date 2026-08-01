@@ -223,8 +223,12 @@ export const layer = Layer.effect(
             : { text, type: "virtual", ...options, env },
         ),
       )
-      const parsed = ConfigParse.jsonc(expanded, source)
-      const data = ConfigParse.schema(ConfigV1.Info, normalizeLoadedConfig(parsed), source)
+      const result = ConfigParse.jsonc(expanded, source)
+      if (result.errors.length) {
+        const detail = ConfigParse.formatParseErrors(result)
+        yield* Effect.logWarning("config parse warnings (continuing with partial data)", { source, detail })
+      }
+      const data = ConfigParse.schemaLenient(ConfigV1.Info, normalizeLoadedConfig(result.data), source)
       if (!("path" in options)) return data
 
       yield* Effect.promise(() => resolveLoadedPlugins(data, options.path))
@@ -243,6 +247,11 @@ export const layer = Layer.effect(
       return yield* loadConfig(text, { path: filepath }, env)
     })
 
+    const diveeAgentPaths = [
+      path.join(os.homedir(), ".diveeagent", "diveeoi.jsonc"),
+      path.join(Global.Path.config.replace("opencode", "diveeagent"), "diveeoi.jsonc"),
+    ]
+
     const loadGlobal = Effect.fnUntraced(function* (env?: Record<string, string>) {
       let result: Info = {}
       // Seed the default global config with the schema for editor completion, but avoid writing when the user
@@ -258,6 +267,13 @@ export const layer = Layer.effect(
       result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "config.json"), env))
       result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "opencode.json"), env))
       result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "opencode.jsonc"), env))
+
+      // DiveeAgent config paths — loaded after standard opencode paths so they can override
+      for (const diveePath of diveeAgentPaths) {
+        if (existsSync(diveePath)) {
+          result = mergeConfig(result, yield* loadFile(diveePath, env))
+        }
+      }
 
       const legacy = path.join(Global.Path.config, "config")
       if (existsSync(legacy)) {
@@ -641,7 +657,7 @@ export const layer = Layer.effect(
       let next: Info
       let changed: boolean
       if (!file.endsWith(".jsonc")) {
-        const existing = ConfigParse.schema(ConfigV1.Info, ConfigParse.jsonc(before, file), file)
+        const existing = ConfigParse.schema(ConfigV1.Info, ConfigParse.jsoncStrict(before, file), file)
         const merged = mergeDeep(writable(existing), patch)
         const serialized = JSON.stringify(merged, null, 2)
         changed = serialized !== before
@@ -649,7 +665,7 @@ export const layer = Layer.effect(
         next = merged
       } else {
         const updated = patchJsonc(before, patch)
-        next = ConfigParse.schema(ConfigV1.Info, ConfigParse.jsonc(updated, file), file)
+        next = ConfigParse.schema(ConfigV1.Info, ConfigParse.jsoncStrict(updated, file), file)
         changed = updated !== before
         if (changed) yield* fs.writeFileString(file, updated).pipe(Effect.orDie)
       }

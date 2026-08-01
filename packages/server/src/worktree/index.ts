@@ -217,7 +217,7 @@ export const layer: Layer.Layer<
       detached?: boolean
     }) {
       const ctx = yield* InstanceState.context
-      if (ctx.project.vcs !== "git") {
+      if (!("vcs" in ctx.project && ctx.project.vcs === "git")) {
         return yield* new NotGitError({ message: "Worktrees are only supported for git projects" })
       }
 
@@ -348,7 +348,7 @@ export const layer: Layer.Layer<
 
     const list = Effect.fn("Worktree.list")(function* () {
       const ctx = yield* InstanceState.context
-      if (ctx.project.vcs !== "git") {
+      if (!("vcs" in ctx.project && ctx.project.vcs === "git")) {
         return []
       }
 
@@ -403,7 +403,7 @@ export const layer: Layer.Layer<
 
     const remove = Effect.fn("Worktree.remove")(function* (input: RemoveInput) {
       const ctx = yield* InstanceState.context
-      if (ctx.project.vcs !== "git") {
+      if (!("vcs" in ctx.project && ctx.project.vcs === "git")) {
         return yield* new NotGitError({ message: "Worktrees are only supported for git projects" })
       }
 
@@ -540,7 +540,7 @@ export const layer: Layer.Layer<
 
     const reset = Effect.fn("Worktree.reset")(function* (input: ResetInput) {
       const ctx = yield* InstanceState.context
-      if (ctx.project.vcs !== "git") {
+      if (!("vcs" in ctx.project && ctx.project.vcs === "git")) {
         return yield* new NotGitError({ message: "Worktrees are only supported for git projects" })
       }
 

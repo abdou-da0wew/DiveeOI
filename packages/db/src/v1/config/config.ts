@@ -112,7 +112,7 @@ export const Info = Schema.Struct({
   ).annotate({ description: "MCP (Model Context Protocol) server configurations" }),
   tool: Schema.optional(
     Schema.Struct({
-      format: Schema.optional(Schema.Literal("json", "toon")).annotate({ description: "Tool schema format (json or toon)" }),
+      format: Schema.optional(Schema.Literals(["json", "toon"] as const)).annotate({ description: "Tool schema format (json or toon)" }),
       burst: Schema.optional(
         Schema.Struct({
           max_bytes_per_second: Schema.optional(Schema.Number).annotate({
@@ -120,15 +120,15 @@ export const Info = Schema.Struct({
           }),
           max_burst_bytes: Schema.optional(Schema.Number).annotate({ description: "Max burst bytes before abort" }),
           window_ms: Schema.optional(Schema.Number).annotate({ description: "Sliding window duration in ms" }),
-          strategy: Schema.optional(Schema.Literal("truncate", "buffer", "abort")).annotate({ description: "Rate limiting strategy" }),
-          action: Schema.optional(Schema.Literal("warn", "truncate", "abort")).annotate({ description: "Action when rate exceeded" }),
+          strategy: Schema.optional(Schema.Literals(["truncate", "buffer", "abort"] as const)).annotate({ description: "Rate limiting strategy" }),
+          action: Schema.optional(Schema.Literals(["warn", "truncate", "abort"] as const)).annotate({ description: "Action when rate exceeded" }),
         }),
       ).annotate({ description: "Shell burst rate limiting configuration" }),
     }),
   ).annotate({ description: "Tool configuration" }),
   llm: Schema.optional(
     Schema.Struct({
-      format: Schema.optional(Schema.Literal("json", "toon")).annotate({ description: "Tool format for LLM calls (json or toon)" }),
+      format: Schema.optional(Schema.Literals(["json", "toon"] as const)).annotate({ description: "Tool format for LLM calls (json or toon)" }),
       burst: Schema.optional(
         Schema.Struct({
           max_bytes_per_second: Schema.optional(Schema.Number).annotate({
@@ -136,8 +136,8 @@ export const Info = Schema.Struct({
           }),
           max_burst_bytes: Schema.optional(Schema.Number).annotate({ description: "Max burst bytes before abort" }),
           window_ms: Schema.optional(Schema.Number).annotate({ description: "Sliding window duration in ms" }),
-          strategy: Schema.optional(Schema.Literal("truncate", "buffer", "abort")).annotate({ description: "Rate limiting strategy" }),
-          action: Schema.optional(Schema.Literal("warn", "truncate", "abort")).annotate({ description: "Action when rate exceeded" }),
+          strategy: Schema.optional(Schema.Literals(["truncate", "buffer", "abort"] as const)).annotate({ description: "Rate limiting strategy" }),
+          action: Schema.optional(Schema.Literals(["warn", "truncate", "abort"] as const)).annotate({ description: "Action when rate exceeded" }),
         }),
       ).annotate({ description: "LLM shell burst rate limiting" }),
       tool_output: Schema.optional(

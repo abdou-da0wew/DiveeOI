@@ -75,6 +75,7 @@
     "@diveeoi/api": "workspace:*",
     "@diveeoi/db": "workspace:*",
     "@diveeoi/llm": "workspace:*",
+    "@diveeoi/memory": "workspace:*",
     "@diveeoi/plugin": "workspace:*",
     "@diveeoi/script": "workspace:*",
     "@diveeoi/sdk": "workspace:*",

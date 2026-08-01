@@ -34,7 +34,13 @@ function eventResponse() {
   return Effect.gen(function* () {
     yield* Effect.logInfo("global event connected")
     const events = Stream.callback<GlobalBusEvent>((queue) => {
-      const handler = (event: GlobalBusEvent) => Queue.offerUnsafe(queue, event)
+      const handler = (event: GlobalBusEvent) => {
+        try {
+          Queue.offerUnsafe(queue, event)
+        } catch (err) {
+          console.error("[sse] offer failed", err)
+        }
+      }
       return Effect.acquireRelease(
         Effect.sync(() => GlobalBus.on("event", handler)),
         () => Effect.sync(() => GlobalBus.off("event", handler)),
@@ -45,13 +51,21 @@ function eventResponse() {
       Stream.map(() => ({ payload: { id: EventV2.ID.create(), type: "server.heartbeat", properties: {} } })),
     )
 
+    let eventCount = 0
     return HttpServerResponse.stream(
       Stream.make({ payload: { id: EventV2.ID.create(), type: "server.connected", properties: {} } }).pipe(
         Stream.concat(events.pipe(Stream.merge(heartbeat, { haltStrategy: "left" }))),
+        Stream.tap((event) =>
+          Effect.sync(() => {
+            eventCount++
+          }),
+        ),
         Stream.map(eventData),
         Stream.pipeThroughChannel(Sse.encode()),
         Stream.encodeText,
-        Stream.ensuring(Effect.logInfo("global event disconnected")),
+        Stream.ensuring(
+          Effect.logInfo("global event disconnected", { totalEvents: eventCount }),
+        ),
       ),
       {
         contentType: "text/event-stream",

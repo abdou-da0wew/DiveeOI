@@ -24,7 +24,12 @@ import { LocationHandler } from "./handlers/location"
 import { IntegrationHandler } from "./handlers/integration"
 import { CredentialHandler } from "./handlers/credential"
 import { Credential } from "@diveeoi/db/credential"
+import { Prefs } from "@diveeoi/db/prefs"
 import { ProjectCopyHandler } from "./handlers/project-copy"
+import { PrefsHandler } from "./handlers/prefs"
+import { AuthHandler } from "./handlers/auth"
+import { UserService } from "@diveeoi/db/auth-user/user"
+import { MailService } from "@diveeoi/db/mail/mail"
 
 export const handlers = Layer.mergeAll(
   HealthHandler,
@@ -45,6 +50,8 @@ export const handlers = Layer.mergeAll(
   QuestionHandler,
   ReferenceHandler,
   ProjectCopyHandler,
+  PrefsHandler,
+  AuthHandler,
 ).pipe(
   Layer.provide(sessionLocationLayer),
   Layer.provide(locationLayer),
@@ -54,4 +61,7 @@ export const handlers = Layer.mergeAll(
   Layer.provide(PtyTicket.defaultLayer),
   Layer.provide(LocationServiceMap.layer),
   Layer.provide(Credential.defaultLayer),
+  Layer.provide(Prefs.defaultLayer),
+  Layer.provide(UserService.layer),
+  Layer.provide(MailService.defaultLayer),
 )

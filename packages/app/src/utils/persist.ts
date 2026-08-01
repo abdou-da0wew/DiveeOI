@@ -14,7 +14,7 @@ type PersistedWithReady<T> = [
   Accessor<boolean> & { promise: undefined | Promise<any> },
 ]
 
-type PersistTarget = {
+export type PersistTarget = {
   storage?: string
   legacyStorageNames?: string[]
   key: string

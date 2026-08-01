@@ -504,6 +504,7 @@ export const dict = {
   "home.empty.title": "没有最近项目",
   "home.empty.description": "通过打开本地项目开始使用",
   "home.title": "主页",
+  "home.suggested": "建议项目",
   "home.projects": "项目",
   "home.project.add": "添加项目",
   "home.sessions.search.placeholder": "搜索会话",

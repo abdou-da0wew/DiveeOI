@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "version": "1.17.8",
+  "name": "@diveeoi/memory",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsgo --noEmit"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./memory": "./src/memory.ts",
+    "./node": "./src/node.ts",
+    "./graph": "./src/graph.ts",
+    "./indexer": "./src/indexer.ts",
+    "./extractor": "./src/extractor.ts",
+    "./session": "./src/session.ts",
+    "./recall": "./src/recall.ts",
+    "./consolidation": "./src/consolidation.ts",
+    "./schema": "./src/schema.ts",
+    "./config": "./src/config.ts"
+  },
+  "devDependencies": {
+    "@diveeoi/http-recorder": "workspace:*",
+    "@tsconfig/bun": "catalog:",
+    "@types/bun": "catalog:",
+    "yaml": "^2.5.1"
+  },
+  "dependencies": {
+    "@diveeoi/db": "workspace:*",
+    "@diveeoi/llm": "workspace:*",
+    "@effect/platform-node": "catalog:",
+    "drizzle-orm": "catalog:",
+    "effect": "catalog:",
+    "yaml": "^2.5.1"
+  }
+}

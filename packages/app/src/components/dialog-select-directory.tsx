@@ -3,12 +3,13 @@ import { Dialog } from "@diveeoi/ui/dialog"
 import { FileIcon } from "@diveeoi/ui/file-icon"
 import { List } from "@diveeoi/ui/list"
 import type { ListRef } from "@diveeoi/ui/list"
+import { TooltipV2 } from "@diveeoi/ui/v2/tooltip-v2"
 import { getDirectory, getFilename } from "@diveeoi/db/util/path"
 import { createMemo, createResource, createSignal } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { ServerConnection } from "@/context/server"
 import { useGlobal } from "@/context/global"
-import { cleanPickerInput, createDirectorySearch, displayPickerPath } from "./directory-picker-domain"
+import { cleanPickerInput, createDirectorySearch, displayPickerPath, fullPickerPath, truncatePath, estimatePathMaxChars } from "./directory-picker-domain"
 
 interface DialogSelectDirectoryProps {
   title?: string
@@ -158,34 +159,39 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
           resolve(path.absolute)
         }}
       >
-        {(item) => {
+          {(item) => {
           const path = displayPickerPath(item.absolute, filter(), home())
+          const fullPath = fullPickerPath(item.absolute, home())
           if (path === "~") {
             return (
+              <TooltipV2 value={<span class="text-xs">{fullPath}</span>}>
+                <div class="w-full flex items-center justify-between rounded-md">
+                  <div class="flex items-center gap-x-3 grow min-w-0">
+                    <FileIcon node={{ path: item.absolute, type: "directory" }} class="shrink-0 size-4" />
+                    <div class="flex items-center text-14-regular min-w-0">
+                      <span class="text-text-strong whitespace-nowrap">~</span>
+                      <span class="text-text-weak whitespace-nowrap">/</span>
+                    </div>
+                  </div>
+                </div>
+              </TooltipV2>
+            )
+          }
+          return (
+            <TooltipV2 value={<span class="text-xs">{fullPath}</span>}>
               <div class="w-full flex items-center justify-between rounded-md">
                 <div class="flex items-center gap-x-3 grow min-w-0">
                   <FileIcon node={{ path: item.absolute, type: "directory" }} class="shrink-0 size-4" />
                   <div class="flex items-center text-14-regular min-w-0">
-                    <span class="text-text-strong whitespace-nowrap">~</span>
+                    <span class="text-text-weak whitespace-nowrap overflow-hidden overflow-ellipsis truncate min-w-0">
+                      {truncatePath(getDirectory(path), estimatePathMaxChars(600, 14))}
+                    </span>
+                    <span class="text-text-strong whitespace-nowrap">{getFilename(path)}</span>
                     <span class="text-text-weak whitespace-nowrap">/</span>
                   </div>
                 </div>
               </div>
-            )
-          }
-          return (
-            <div class="w-full flex items-center justify-between rounded-md">
-              <div class="flex items-center gap-x-3 grow min-w-0">
-                <FileIcon node={{ path: item.absolute, type: "directory" }} class="shrink-0 size-4" />
-                <div class="flex items-center text-14-regular min-w-0">
-                  <span class="text-text-weak whitespace-nowrap overflow-hidden overflow-ellipsis truncate min-w-0">
-                    {getDirectory(path)}
-                  </span>
-                  <span class="text-text-strong whitespace-nowrap">{getFilename(path)}</span>
-                  <span class="text-text-weak whitespace-nowrap">/</span>
-                </div>
-              </div>
-            </div>
+            </TooltipV2>
           )
         }}
       </List>

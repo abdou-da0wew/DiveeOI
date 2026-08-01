@@ -5,7 +5,16 @@ import type { Provider } from "@/provider/provider"
 import { ProviderTransform } from "@/provider/transform"
 import type { MessageV2 } from "./message-v2"
 
-const COMPACTION_BUFFER = 20_000
+export const COMPACTION_BUFFER = 20_000
+
+export function reservedToolOutput(input: { cfg: ConfigV1.Info; model: Provider.Model; outputTokenMax?: number }) {
+  const context = input.model.limit.context
+  if (context === 0) return 0
+  return (
+    input.cfg.compaction?.reserved ??
+    Math.min(COMPACTION_BUFFER, ProviderTransform.maxOutputTokens(input.model, input.outputTokenMax))
+  )
+}
 
 export function usable(input: { cfg: ConfigV1.Info; model: Provider.Model; outputTokenMax?: number }) {
   const context = input.model.limit.context

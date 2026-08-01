@@ -12,6 +12,9 @@ import { ProviderTransform } from "@/provider/transform"
 import PROMPT_GENERATE from "./generate.txt"
 import PROMPT_COMPACTION from "./prompt/compaction.txt"
 import PROMPT_EXPLORE from "./prompt/explore.txt"
+import PROMPT_RESEARCH from "./prompt/research.txt"
+import PROMPT_SUBTHINKER from "./prompt/subthinker.txt"
+import PROMPT_CODE_REVIEWER from "./prompt/code-reviewer.txt"
 import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
 import { Permission } from "@/permission"
@@ -210,6 +213,65 @@ export const layer = Layer.effect(
             ),
             description: `Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns (eg. "src/components/**/*.tsx"), search code for keywords (eg. "API endpoints"), or answer questions about the codebase (eg. "how do API endpoints work?"). When calling this agent, specify the desired thoroughness level: "quick" for basic searches, "medium" for moderate exploration, or "very thorough" for comprehensive analysis across multiple locations and naming conventions.`,
             prompt: PROMPT_EXPLORE,
+            options: {},
+            mode: "subagent",
+            native: true,
+          },
+          research: {
+            name: "research",
+            description: `Deep research agent specialized for comprehensive analysis. Use this agent when you need to conduct thorough research across multiple sources, analyze complex topics, and produce structured reports.`,
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                "*": "deny",
+                webfetch: "allow",
+                websearch: "allow",
+                read: "allow",
+                grep: "allow",
+                glob: "allow",
+                external_directory: readonlyExternalDirectory,
+              }),
+              user,
+            ),
+            prompt: PROMPT_RESEARCH,
+            options: {},
+            mode: "subagent",
+            native: true,
+          },
+          subthinker: {
+            name: "subthinker",
+            description: `Focused reasoning agent for deep analytical thinking and problem decomposition. Use this agent for tasks requiring step-by-step reasoning, mathematical analysis, logic puzzles, and verification of complex chains of thought.`,
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                "*": "deny",
+                read: "allow",
+                bash: "allow",
+                external_directory: readonlyExternalDirectory,
+              }),
+              user,
+            ),
+            prompt: PROMPT_SUBTHINKER,
+            options: {},
+            mode: "subagent",
+            native: true,
+          },
+          codeReviewer: {
+            name: "code-reviewer",
+            description: `Critical code review agent that identifies bugs, security issues, design flaws, and style violations. Use this agent for pull request reviews, code audits, security reviews, and pre-commit checks.`,
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                "*": "deny",
+                read: "allow",
+                grep: "allow",
+                glob: "allow",
+                bash: "allow",
+                external_directory: readonlyExternalDirectory,
+              }),
+              user,
+            ),
+            prompt: PROMPT_CODE_REVIEWER,
             options: {},
             mode: "subagent",
             native: true,

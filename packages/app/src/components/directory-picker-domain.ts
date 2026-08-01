@@ -1,9 +1,39 @@
+const TRASH_DIR_NAMES = new Set([
+  // System trash
+  ".Trash", "$trash", "Trash",
+  // Package manager caches
+  "node_modules", ".npm", ".yarn",
+  // Language/framework caches
+  "__pycache__", ".pytest_cache", ".mypy_cache",
+  ".cache", ".cargo", ".rustup",
+  ".gradle", ".m2", ".ivy2",
+  // Build artifacts
+  "target", "dist", "build", ".next", ".turbo", ".output",
+  "out", ".svelte-kit", "dist-newstyle",
+  // Temp files
+  ".tmp", "tmp", ".temp", "temp",
+  // OS artifacts
+  ".DS_Store", "Thumbs.db",
+  // Version control
+  ".svn", ".hg",
+  // IDE/editor deep caches (NOT .vscode itself — that holds settings)
+  ".history",
+  // Junk
+  "node_modules", "bower_components",
+])
+
+export function isIgnoredDirectory(name: string): boolean {
+  return TRASH_DIR_NAMES.has(name)
+}
+
 export function treeEntries(parent: string, nodes: ReadonlyArray<{ name: string; type: "file" | "directory" }>) {
   const prefix = parent.replace(/^\/+|\/+$/g, "")
-  return nodes.map((node) => {
-    const path = prefix ? `${prefix}/${node.name}` : node.name
-    return node.type === "directory" ? path + "/" : path
-  })
+  return nodes
+    .filter((node) => !(node.type === "directory" && isIgnoredDirectory(node.name)))
+    .map((node) => {
+      const path = prefix ? `${prefix}/${node.name}` : node.name
+      return node.type === "directory" ? path + "/" : path
+    })
 }
 
 export function pickerTreeEntries(
@@ -14,11 +44,12 @@ export function pickerTreeEntries(
   return treeEntries(parent, mode === "directory" ? nodes.filter((node) => node.type === "directory") : nodes)
 }
 
-export function pickerSearchEntries<T extends { type: "file" | "directory" }>(
+export function pickerSearchEntries<T extends { name: string; type: "file" | "directory" }>(
   nodes: readonly T[],
   mode: "directory" | "file",
 ) {
-  return mode === "directory" ? nodes.filter((node) => node.type === "directory") : [...nodes]
+  return (mode === "directory" ? nodes.filter((node) => node.type === "directory") : [...nodes])
+    .filter((node) => !(node.type === "directory" && isIgnoredDirectory(node.name)))
 }
 
 export function pickerMode(mode: "directory" | "file", base?: string) {
@@ -245,7 +276,243 @@ function pickerTilde(absolute: string, home: string) {
 export function displayPickerPath(path: string, input: string, home: string) {
   const value = trimPickerPath(path)
   if (/^[A-Za-z]:\//.test(trimPickerPath(home)) || /^[A-Za-z]:\//.test(value)) return value.replaceAll("/", "\\")
-  return pickerTilde(value, home) || value
+  const tilde = pickerTilde(path, home)
+  return tilde || value
+}
+
+/** Full path with tilde shorthand — no truncation. Use for tooltips. */
+export function fullPickerPath(path: string, home: string): string {
+  return fullPickerPathFrom(path, trimPickerPath(path), home)
+}
+
+function fullPickerPathFrom(path: string, value: string, home: string): string {
+  if (/^[A-Za-z]:\//.test(trimPickerPath(home)) || /^[A-Za-z]:\//.test(value)) return value.replaceAll("/", "\\")
+  const tilde = pickerTilde(path, home)
+  return tilde || value
+}
+
+/** Bidirectional truncation: shorten path on both sides like macOS Finder. */
+export function truncatePath(text: string, maxLength: number): string {
+  if (text.length <= maxLength || maxLength < 6) return text
+  const ellipsis = "..."
+  const sideChars = Math.floor((maxLength - ellipsis.length) / 2)
+  if (sideChars < 1) return text.slice(0, maxLength)
+  const start = text.slice(0, sideChars)
+  const end = text.slice(text.length - sideChars)
+  return `${start}${ellipsis}${end}`
+}
+
+/**
+ * Estimate max chars from container width (px) and font size (px).
+ * Rough: average char is ~0.6em wide.
+ */
+export function estimatePathMaxChars(containerWidthPx: number, fontSizePx: number): number {
+  const avgCharWidth = fontSizePx * 0.6
+  return Math.max(10, Math.floor(containerWidthPx / avgCharWidth))
+}
+
+export interface ClassifiedProject {
+  worktree: string
+  name: string
+  type: "project" | "sandbox" | "other"
+  language?: string
+}
+
+const PROJECT_INDICATORS: Record<string, string> = {
+  "package.json": "node",
+  "Cargo.toml": "rust",
+  "go.mod": "go",
+  "pom.xml": "java",
+  "build.gradle": "java",
+  "Gemfile": "ruby",
+  "requirements.txt": "python",
+  "setup.py": "python",
+  "pyproject.toml": "python",
+  "pubspec.yaml": "dart",
+  "composer.json": "php",
+  "Cargo.lock": "rust",
+  "yarn.lock": "node",
+  "pnpm-lock.yaml": "node",
+  "bun.lockb": "node",
+  "Gemfile.lock": "ruby",
+  "mix.exs": "elixir",
+}
+
+// ---------------------------------------------------------------------------
+// Classification cache (localStorage + TTL)
+// ---------------------------------------------------------------------------
+const CLASSIFICATION_CACHE_KEY = "opencode.classification.cache"
+const CLASSIFICATION_CACHE_TTL_MS = 5 * 60 * 1000 // 5 min default
+const CLASSIFICATION_CACHE_MAX_ENTRIES = 20
+
+interface ClassifyCacheEntry {
+  homeDir: string
+  results: ClassifiedProject[]
+  dirListingHashes: Record<string, string> // path -> hash of file listing
+  timestamp: number
+}
+
+function readClassifyCache(): Map<string, ClassifyCacheEntry> {
+  try {
+    const raw = localStorage.getItem(CLASSIFICATION_CACHE_KEY)
+    if (!raw) return new Map()
+    const parsed = JSON.parse(raw) as Record<string, ClassifyCacheEntry>
+    const entries = Object.entries(parsed)
+    // Prune expired
+    const now = Date.now()
+    const valid = entries.filter(([, e]) => now - e.timestamp < CLASSIFICATION_CACHE_TTL_MS)
+    return new Map(valid as [string, ClassifyCacheEntry][])
+  } catch {
+    return new Map()
+  }
+}
+
+function writeClassifyCache(cache: Map<string, ClassifyCacheEntry>): void {
+  try {
+    // Keep only the most recent N entries
+    const entries = Array.from(cache.entries())
+      .sort((a, b) => b[1].timestamp - a[1].timestamp)
+      .slice(0, CLASSIFICATION_CACHE_MAX_ENTRIES)
+    const obj: Record<string, ClassifyCacheEntry> = {}
+    for (const [key, val] of entries) obj[key] = val
+    localStorage.setItem(CLASSIFICATION_CACHE_KEY, JSON.stringify(obj))
+  } catch {
+    // localStorage full or unavailable — silently ignore
+  }
+}
+
+function listingHash(nodes: Array<{ name: string; type: string }>): string {
+  let h = 0
+  for (const n of nodes) {
+    h = ((h << 5) - h + n.name.length) | 0
+    h = ((h << 5) - h + n.type.length) | 0
+  }
+  return h.toString(36)
+}
+
+/** Check if any tracked directories changed since cache was built. */
+async function listingChanged(
+  client: ClassifyClient,
+  cacheEntry: ClassifyCacheEntry,
+): Promise<boolean> {
+  for (const [dir, oldHash] of Object.entries(cacheEntry.dirListingHashes)) {
+    try {
+      const nodes = await client.file.list({ directory: dir, path: "" }).then((r) => r.data ?? [])
+      if (listingHash(nodes) !== oldHash) return true
+    } catch {
+      return true // if we can't check, assume stale
+    }
+  }
+  return false
+}
+
+interface ClassifyClient {
+  file: {
+    list: (args: { directory: string; path: string }) => Promise<{
+      data?: Array<{ name: string; type: string; absolute?: string }>
+    }>
+  }
+}
+
+export async function classifyOpenProjects(
+  client: ClassifyClient,
+  homeDir: string,
+  existingProjects?: string[],
+  force?: boolean,
+): Promise<ClassifiedProject[]> {
+  if (!homeDir) return []
+
+  // Check cache
+  if (!force) {
+    const cache = readClassifyCache()
+    const cached = cache.get(homeDir)
+    if (cached && Date.now() - cached.timestamp < CLASSIFICATION_CACHE_TTL_MS) {
+      const stale = await listingChanged(client, cached)
+      if (!stale) return cached.results
+    }
+  }
+
+  // Full classification walk
+  const existing = new Set((existingProjects ?? []).map((p) => trimPickerPath(p)))
+  const results = new Map<string, ClassifiedProject>()
+  const seen = new Set<string>()
+  const dirHashes: Record<string, string> = {}
+
+  async function walk(dir: string, depth: number): Promise<void> {
+    if (depth >= 3 || results.size >= 50) return
+
+    const key = trimPickerPath(dir)
+    if (seen.has(key) || existing.has(key)) return
+    seen.add(key)
+
+    const nodes: Array<{ name: string; type: string; absolute?: string }> = await client.file
+      .list({ directory: key, path: "" })
+      .then((r) => r.data ?? [])
+      .catch(() => [])
+
+    dirHashes[key] = listingHash(nodes)
+
+    const subdirs: string[] = []
+    let detectedLang: string | undefined
+
+    for (const node of nodes) {
+      if (node.type === "directory") {
+        if (node.name === ".git" && !detectedLang) {
+          detectedLang = "project"
+        }
+        if (!isIgnoredDirectory(node.name)) {
+          subdirs.push(node.absolute ? trimPickerPath(node.absolute) : joinPickerPath(key, node.name))
+        }
+        continue
+      }
+      const lang = PROJECT_INDICATORS[node.name]
+      if (lang && lang !== "project") {
+        detectedLang = lang
+      }
+    }
+
+    if (detectedLang) {
+      results.set(key, {
+        worktree: key,
+        name: getFilename(key),
+        type: "project",
+        language: detectedLang !== "project" ? detectedLang : undefined,
+      })
+    }
+
+    if (!detectedLang || depth < 1) {
+      await Promise.all(subdirs.map((sub) => walk(sub, depth + 1)))
+    }
+  }
+
+  await walk(homeDir, 0)
+
+  const classified = Array.from(results.values())
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .slice(0, 50)
+
+  // Write cache
+  const cache = readClassifyCache()
+  cache.set(homeDir, {
+    homeDir,
+    results: classified,
+    dirListingHashes: dirHashes,
+    timestamp: Date.now(),
+  })
+  writeClassifyCache(cache)
+
+  return classified
+}
+
+/** Force-invalidate the classification cache for a homeDir. */
+export function invalidateClassifyCache(homeDir?: string): void {
+  if (homeDir) {
+    const cache = readClassifyCache()
+    cache.delete(homeDir)
+    writeClassifyCache(cache)
+  } else {
+    localStorage.removeItem(CLASSIFICATION_CACHE_KEY)
+  }
 }
 
 export function createDirectorySearch(args: { sdk: ServerSDK; base: () => string | undefined; home: () => string }) {
@@ -275,7 +542,7 @@ export function createDirectorySearch(args: { sdk: ServerSDK; base: () => string
       .catch(() => [])
       .then((nodes) =>
         nodes
-          .filter((node) => node.type === "directory")
+          .filter((node) => node.type === "directory" && !isIgnoredDirectory(node.name))
           .map((node) => ({ name: node.name, absolute: trimPickerPath(normalizePickerDrive(node.absolute)) })),
       )
     cache.set(key, request)
