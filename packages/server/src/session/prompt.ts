@@ -230,22 +230,22 @@ export const layer = Layer.effect(
       if (!Session.isDefaultTitle(session.title)) return
       if (titleGenerated.has(input.sessionID)) return
 
-      const ag = yield* agents.get("title").pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+      const ag = yield* agents.get("title").pipe(Effect.catch(() => Effect.succeed(undefined)))
       if (!ag) return
 
       // Get model - try small model first, fallback to user's model
       const mdl = yield* Effect.gen(function* () {
         const small = yield* provider.getSmallModel(session.model?.providerID ?? ProviderV2.ID.make("openai")).pipe(
-          Effect.catchAll(() => Effect.succeed(undefined)),
+          Effect.catch(() => Effect.succeed(undefined)),
         )
         if (small) return small
         if (session.model) {
-          return yield* provider.getModel(session.model.providerID, session.model.modelID).pipe(
-            Effect.catchAll(() => Effect.succeed(undefined)),
+          return yield* provider.getModel(session.model.providerID, session.model.id).pipe(
+            Effect.catch(() => Effect.succeed(undefined)),
           )
         }
         return undefined
-      }).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+      }).pipe(Effect.catch(() => Effect.succeed(undefined)))
 
       if (!mdl) return
 
@@ -253,7 +253,14 @@ export const layer = Layer.effect(
       const text = yield* llm
         .stream({
           agent: ag,
-          user: { id: MessageID.ascending(), role: "user" as const },
+          user: {
+            id: MessageID.ascending(),
+            sessionID: input.sessionID,
+            time: { created: Date.now() },
+            role: "user",
+            agent: ag.name,
+            model: { providerID: mdl.providerID, modelID: mdl.id },
+          },
           system: [],
           small: true,
           tools: {},
@@ -268,7 +275,7 @@ export const layer = Layer.effect(
           Stream.filter(LLMEvent.is.textDelta),
           Stream.map((e) => e.text),
           Stream.mkString,
-          Effect.catchAllCause((cause) =>
+          Effect.catchCause((cause) =>
             Effect.succeed("").pipe(
               Effect.tap(() =>
                 Effect.logError("failed to generate title", { error: Cause.squash(cause) })
@@ -1156,7 +1163,7 @@ export const layer = Layer.effect(
       return { info, parts }
     }, Effect.scoped)
 
-    const prompt: (input: PromptInput) => Effect.Effect<SessionV1.WithParts, Image.Error> = Effect.fn(
+    const prompt = Effect.fn(
       "SessionPrompt.prompt",
     )(function* (input: PromptInput) {
       const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
@@ -1174,7 +1181,7 @@ export const layer = Layer.effect(
           .join("\n")
         if (textContent) {
           yield* generateTitle({ sessionID: input.sessionID, messageContent: textContent }).pipe(
-            Effect.catchAll(() => Effect.void),
+            Effect.catch(() => Effect.void),
             Effect.forkIn(scope),
           )
         }
@@ -1253,7 +1260,7 @@ export const layer = Layer.effect(
             yield* Tracer.info("session.loop.exit", { sessionID })
             // Extract session memory on exit
             yield* memory.extractSessionMemory(sessionID, msgs as any).pipe(
-              Effect.catchAll((err) => Effect.logError("Session memory extraction failed", { sessionID, error: err }))
+              Effect.catch((err) => Effect.logError("Session memory extraction failed", { sessionID, error: err }))
             )
             break
           }
@@ -1281,7 +1288,7 @@ export const layer = Layer.effect(
             if (result === "stop") {
               // Extract session memory on compaction stop
               yield* memory.extractSessionMemory(sessionID, msgs as any).pipe(
-                Effect.catchAll((err) => Effect.logError("Session memory extraction failed", { sessionID, error: err }))
+                Effect.catch((err) => Effect.logError("Session memory extraction failed", { sessionID, error: err }))
               )
               break
             }
@@ -1377,8 +1384,13 @@ export const layer = Layer.effect(
 
             yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
 
+            const legacyMsgs = msgs.map((m) => ({
+              info: { role: String(m.info.role) },
+              parts: m.parts.map((p) => ({ text: "text" in p ? p.text : undefined })),
+            }))
+
             const [assembly, instructions, modelMsgs] = yield* Effect.all([
-              sys.system(model, agent, msgs, sessionID),
+              sys.system(model, agent, legacyMsgs, sessionID),
               instruction.system().pipe(Effect.orDie),
               MessageV2.toModelMessagesEffect(msgs, model),
             ])

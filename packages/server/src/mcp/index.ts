@@ -463,7 +463,7 @@ export const layer = Layer.effect(
 
         const contextModeEntry = resolveContextModeMCP(initialCfg.builtin?.context_mode)
         if (contextModeEntry) {
-          config = { [contextModeEntry.name]: contextModeEntry.config, ...config }
+          config = { ...contextModeEntry, ...config }
         }
 
         const s: State = {

@@ -237,3 +237,11 @@ cd packages/memory
 bun run typecheck    # tsgo --noEmit — must be clean
 bun test             # must pass
 ```
+## LayerNode graph gotchas (packages/server/src/session)
+
+- `Layer.provide(...)` takes a LAYER, not a node. Passing a node var (e.g. `Layer.provide(skillMentionsNode)`) is a TS2769 no-overload error. Use `Layer.provide(SomeModule.layer)`.
+- A `LayerNode.make` deps tuple entry typed `never` provides NOTHING to the missing-deps check. Two ways a node becomes `never`:
+  - `LayerNode.make(layer as never, [...])` — casting the implementation hides its output service; the tuple then reports the service as "Missing dependencies".
+  - `export const node = LayerNode.make(...) as never` — hides the node entirely.
+  Fix: remove the casts; if the layer's RIn is a genuine service (e.g. `FileSystem`), provide it via a real node (`filesystem` from `@diveeoi/db/effect/layer-node-platform`) rather than casting.
+- `Layer.effect` absorbs `Scope.Scope` from `InstanceState.make` usage — the node deps error names only the real services (e.g. `FileSystem`), never `Scope.Scope`.

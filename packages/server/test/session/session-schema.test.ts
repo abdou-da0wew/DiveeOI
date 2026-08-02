@@ -16,6 +16,7 @@ const info = {
   tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
   share: undefined,
   title: "Test session",
+  titleAttempted: 0,
   version: "1.0.0",
   time: {
     created: 1,

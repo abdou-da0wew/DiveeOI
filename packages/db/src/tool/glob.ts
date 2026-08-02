@@ -127,14 +127,8 @@ export const layer = Layer.effectDiscard(
                     stdout: "pipe",
                     stderr: "pipe",
                   })
-                  let stdout = ""
-                  let stderr = ""
-                  for await (const chunk of proc.stdout) {
-                    stdout += new TextDecoder().decode(chunk)
-                  }
-                  for await (const chunk of proc.stderr) {
-                    stderr += new TextDecoder().decode(chunk)
-                  }
+                  const stdout = await Bun.readableStreamToText(proc.stdout)
+                  const stderr = await Bun.readableStreamToText(proc.stderr)
                   const exitCode = await proc.exited
                   if (exitCode !== 0) {
                     throw new Error(stderr || `Sidecar exited with code ${exitCode}`)

@@ -1,4 +1,5 @@
 import { LayerNode } from "@diveeoi/db/effect/layer-node"
+import { filesystem } from "@diveeoi/db/effect/layer-node-platform"
 import { Context, Effect, Layer } from "effect"
 
 import { InstanceState } from "@/effect/instance-state"
@@ -185,22 +186,22 @@ export const layer = Layer.effect(
 
 const locationServiceMapNode = LayerNode.make(LocationServiceMap.layer, [])
 const contextBudgetNode = LayerNode.make(ContextBudget.layer, [])
-const skillMentionsNode = LayerNode.make(SkillMentions.layer, [])
+const skillMentionsNode = LayerNode.make(SkillMentions.layer, [filesystem])
 
 export const defaultLayer = layer.pipe(
   Layer.provide(Skill.defaultLayer),
   Layer.provide(LocationServiceMap.layer),
   Layer.provide(Reminders.defaultLayer),
-  Layer.provide(IdentityLoader.node),
-  Layer.provide(contextBudgetNode),
-  Layer.provide(skillMentionsNode),
+  Layer.provide(IdentityLoader.layer),
+  Layer.provide(ContextBudget.layer),
+  Layer.provide(SkillMentions.layer),
 )
 
 export const node = LayerNode.make(layer, [
   Skill.node,
   locationServiceMapNode,
   Reminders.node,
-  IdentityLoader.node as never,
+  IdentityLoader.node,
   contextBudgetNode,
   skillMentionsNode,
   SessionMemoryIntegration.node,
