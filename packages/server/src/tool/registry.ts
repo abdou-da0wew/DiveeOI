@@ -28,6 +28,8 @@ import { Provider } from "@/provider/provider"
 import { WebSearchTool } from "./websearch"
 import { getCtx7Defs } from "@/setup/ctx7"
 import * as MemoryTools from "./memory"
+import { Memory } from "@diveeoi/memory"
+import { SessionMemoryIntegration } from "@/session/memory"
 
 import * as Truncate from "./truncate"
 
@@ -221,40 +223,49 @@ export const layer = Layer.effect(
           fetch: Tool.init(webfetch),
           todo: Tool.init(todo),
           search: Tool.init(websearch),
-  question: Tool.init(question),
-  export: Tool.init(dbexport),
+          question: Tool.init(question),
+          export: Tool.init(dbexport),
         })
 
-        return {
-          custom,
-          builtin: [
-            tool.invalid,
-            ...(questionEnabled ? [tool.question] : []),
-            tool.shell,
-            tool.read,
-            tool.glob,
-            tool.grep,
-            tool.edit,
-            tool.write,
-            tool.task,
-            tool.fetch,
-            tool.todo,
-            tool.search,
-            tool.export,
-            // Memory tools
-            memoryRetrieve,
-            memoryCreate,
-            memoryUpdate,
-            memoryDelete,
-            memoryLink,
-            memoryConsolidate,
-            memoryStats,
-            memoryToggle,
-            ...ctx7Defs,
-          ],
-          task: tool.task,
-          read: tool.read,
-          lazy: [
+        const memory = yield* Effect.all({
+          retrieve: Tool.init(memoryRetrieve),
+          create: Tool.init(memoryCreate),
+          update: Tool.init(memoryUpdate),
+          delete: Tool.init(memoryDelete),
+          link: Tool.init(memoryLink),
+          consolidate: Tool.init(memoryConsolidate),
+          stats: Tool.init(memoryStats),
+          toggle: Tool.init(memoryToggle),
+        })
+
+        const builtin: Tool.Def[] = [
+          tool.invalid,
+          ...(questionEnabled ? [tool.question] : []),
+          tool.shell,
+          tool.read,
+          tool.glob,
+          tool.grep,
+          tool.edit,
+          tool.write,
+          tool.task,
+          tool.fetch,
+          tool.todo,
+          tool.search,
+          tool.export,
+          // Memory tools
+          memory.retrieve,
+          memory.create,
+          memory.update,
+          memory.delete,
+          memory.link,
+          memory.consolidate,
+          memory.stats,
+          memory.toggle,
+          ...ctx7Defs,
+        ]
+        const taskDef: TaskDef = tool.task
+        const readDef: ReadDef = tool.read
+        const lazy: Array<{ init: Effect.Effect<Tool.Def> }> = [
             {
               init: Effect.gen(function* () {
                 const mod: any = yield* Effect.promise(() => import("./skill"))
@@ -293,7 +304,14 @@ export const layer = Layer.effect(
                   },
                 ]
               : [],
-          ),
+          )
+
+        return {
+          custom,
+          builtin,
+          task: taskDef,
+          read: readDef,
+          lazy,
         }
       }),
     )
@@ -501,6 +519,8 @@ export const node = LayerNode.make(layer.pipe(Layer.provide(Ripgrep.defaultLayer
   Truncate.node,
   RuntimeFlags.node,
   Database.node,
+  Memory.node,
+  SessionMemoryIntegration.node,
 ])
 
 export * as ToolRegistry from "./registry"

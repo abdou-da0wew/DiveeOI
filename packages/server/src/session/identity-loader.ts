@@ -111,6 +111,6 @@ export const layer = Layer.effect(
   }),
 )
 
-export const node = LayerNode.make(layer as never, [filesystem])
+export const node = LayerNode.make(layer, [filesystem])
 
 export * as IdentityLoader from "./identity-loader"

@@ -1,5 +1,5 @@
 // Minimal reproduction: just building the routes layer
-import { Effect, Layer } from "effect"
+import { Cause, Effect, Exit, Layer } from "effect"
 import { HttpRouter, HttpServer } from "effect/unstable/http"
 import { layerWebSocketConstructorGlobal } from "effect/unstable/socket/Socket"
 import { NodeHttpServer, NodeServices } from "@effect/platform-node"
@@ -20,11 +20,11 @@ async function main() {
   )
 
   console.log("Building layer...")
-  const result = await Effect.runPromise(
-    Layer.build(httpApiLayer).pipe(Effect.scoped, Effect.either),
+  const exit = await Effect.runPromise(
+    Layer.build(httpApiLayer).pipe(Effect.scoped, Effect.exit) as Effect.Effect<Exit.Exit<unknown, unknown>, never, never>,
   )
-  if (result._tag === "Left") {
-    console.error("FAILED:", result.left)
+  if (Exit.isFailure(exit)) {
+    console.error("FAILED:", Cause.prettyErrors(exit.cause))
     process.exit(1)
   }
   console.log("SUCCESS: Layer built OK")

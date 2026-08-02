@@ -1,4 +1,4 @@
-import { Database } from "bun"
+import { Database } from "bun:sqlite"
 import { readFileSync, existsSync, unlinkSync } from "fs"
 import { join, dirname } from "path"
 import { homedir } from "os"

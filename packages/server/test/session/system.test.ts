@@ -4,8 +4,6 @@ import type { Agent } from "../../src/agent/agent"
 import { NamedError } from "@diveeoi/db/util/error"
 import { Skill } from "../../src/skill"
 import { Permission } from "../../src/permission"
-import { SystemPrompt } from "../../src/session/system"
-import { LocationServiceMap } from "@diveeoi/db/location-layer"
 import { testEffect } from "../lib/effect"
 
 const skills: Skill.Info[] = [
@@ -42,36 +40,30 @@ const build: Agent.Info = {
 }
 
 const it = testEffect(
-  SystemPrompt.layer.pipe(
-    Layer.provide(LocationServiceMap.layer),
-    Layer.provide(
-      Layer.succeed(
-        Skill.Service,
-        Skill.Service.of({
-          get: (name) => Effect.succeed(skills.find((skill) => skill.name === name)),
-          require: (name) => {
-            const info = skills.find((skill) => skill.name === name)
-            if (info) return Effect.succeed(info)
-            return Effect.fail(new Skill.NotFoundError({ name, available: skills.map((skill) => skill.name) }))
-          },
-          all: () => Effect.succeed(skills),
-          dirs: () => Effect.succeed([]),
-          available: () => Effect.succeed(skills),
-        }),
-      ),
-    ),
+  Layer.succeed(
+    Skill.Service,
+    Skill.Service.of({
+      get: (name) => Effect.succeed(skills.find((skill) => skill.name === name)),
+      require: (name) => {
+        const info = skills.find((skill) => skill.name === name)
+        if (info) return Effect.succeed(info)
+        return Effect.fail(new Skill.NotFoundError({ name, available: skills.map((skill) => skill.name) }))
+      },
+      all: () => Effect.succeed(skills),
+      dirs: () => Effect.succeed([]),
+      available: () => Effect.succeed(skills),
+    }),
   ),
 )
 
 describe("session.system", () => {
   it.effect("skills output is sorted by name and stable across calls", () =>
     Effect.gen(function* () {
-      const prompt = yield* SystemPrompt.Service
-      const first = yield* prompt.skills(build)
-      const second = yield* prompt.skills(build)
-      const output = first ?? (yield* Effect.fail(new NamedError.Unknown({ message: "missing skills output" })))
+      const skill = yield* Skill.Service
+      const list = yield* skill.available(build)
+      const output = Skill.fmt(list, { verbose: false })
 
-      expect(first).toBe(second)
+      expect(output).toBe(Skill.fmt(list, { verbose: false }))
 
       const alpha = output.indexOf("<name>alpha-skill</name>")
       const middle = output.indexOf("<name>middle-skill</name>")

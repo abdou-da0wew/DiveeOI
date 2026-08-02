@@ -246,6 +246,7 @@ const app = LayerNode.group([
   McpAuth.node,
   Command.node,
   Truncate.node,
+  Memory.node,
   ToolRegistry.node,
   Format.node,
   Project.node,
@@ -261,7 +262,6 @@ const app = LayerNode.group([
   ProjectV2.node,
   ProjectCopy.node,
   PtyTicket.node,
-  Memory.node,
 ])
 
 export function createRoutes(

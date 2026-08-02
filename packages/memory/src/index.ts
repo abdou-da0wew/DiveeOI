@@ -13,6 +13,7 @@ export * as MemoryModule from "./memory"
 export { MemoryService } from "./memory"
 export { SessionService } from "./session"
 export { ExtractorService } from "./extractor"
+export { GraphService } from "./graph"
 export { MemoryConfig, defaultMemoryConfig } from "./config"
 export { MemoryError } from "./schema"
 export type { MemoryMessage } from "./extractor"
@@ -53,7 +54,7 @@ const consolidation = LayerNode.make(ConsolidationLive, [memory, indexer])
 
 // Main memory layer with all dependencies
 export const MemoryLayer = LayerNode.buildLayer(
-  LayerNode.group([memory, session, recall, consolidation, extractor])
+  LayerNode.group([memory, session, recall, consolidation, extractor, graph, memoryConfig])
 )
 
 // Convenience layer for just the core services (Node, Indexer, Graph)
