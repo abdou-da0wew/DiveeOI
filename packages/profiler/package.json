@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "version": "1.17.8",
+  "name": "@diveeoi/profiler",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsgo --noEmit"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./core": "./src/core.ts",
+    "./effect": "./src/effect.ts",
+    "./types": "./src/types.ts"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "catalog:",
+    "@types/bun": "catalog:",
+    "@types/node": "catalog:"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  }
+}
