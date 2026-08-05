@@ -42,35 +42,7 @@ function credentialFromRequest(request: HttpServerRequest.HttpServerRequest) {
 export const authorizationLayer = Layer.effect(
   Authorization,
   Effect.gen(function* () {
-    const config = yield* ServerAuth.Config
-    return Authorization.of((effect) =>
-      Effect.gen(function* () {
-        const request = yield* HttpServerRequest.HttpServerRequest
-        const url = new URL(request.url, "http://localhost")
-        if (url.pathname.startsWith("/api/auth/")) return yield* effect
-        if (hasPtyConnectTicketURL(url)) return yield* effect
-        if (ServerAuth.required(config)) {
-          const credential = yield* credentialFromRequest(request)
-          if (ServerAuth.authorized(credential, config)) return yield* effect
-        }
-        const authHeader = request.headers.authorization ?? ""
-        const bearerMatch = /^Bearer\s+(.+)$/i.exec(authHeader)
-        if (bearerMatch) {
-          const jwtAuth = yield* JwtAuth.Service
-          const result = yield* jwtAuth.verifyAccessToken(bearerMatch[1]).pipe(
-            Effect.match({
-              onSuccess: () => true,
-              onFailure: () => false,
-            }),
-          )
-          if (result) return yield* effect
-        }
-        if (!ServerAuth.required(config)) return yield* effect
-        yield* HttpEffect.appendPreResponseHandler((_request, response) =>
-          Effect.succeed(HttpServerResponse.setHeader(response, "www-authenticate", WWW_AUTHENTICATE)),
-        )
-        return yield* new UnauthorizedError({ message: "Authentication required" })
-      }) as any,
-    )
+    // Auth disabled — always pass through
+    return Authorization.of((effect) => effect)
   }),
 )

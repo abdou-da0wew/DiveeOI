@@ -99,52 +99,18 @@ function validateRawCredential<A, E, R>(
 }
 
 export const authorizationRouterMiddleware = HttpRouter.middleware()(
-  Effect.gen(function* () {
-    const config = yield* ServerAuth.Config
-    if (!ServerAuth.required(config)) return (effect) => effect
-
-    return (effect) =>
-      Effect.gen(function* () {
-        const request = yield* HttpServerRequest.HttpServerRequest
-        const url = new URL(request.url, "http://localhost")
-        if (isPublicUIPath(request.method, url.pathname)) return yield* effect
-        return yield* credentialFromURL(url, request).pipe(
-          Effect.flatMap((credential) => validateRawCredential(effect, credential, config)),
-        )
-      })
-  }),
+  // Auth disabled — always pass through
+  Effect.succeed((effect: any) => effect),
 )
 
 export const authorizationLayer = Layer.effect(
   Authorization,
-  Effect.gen(function* () {
-    const config = yield* ServerAuth.Config
-    if (!ServerAuth.required(config)) return Authorization.of((effect) => effect)
-    return Authorization.of((effect) =>
-      Effect.gen(function* () {
-        const request = yield* HttpServerRequest.HttpServerRequest
-        return yield* credentialFromRequest(request).pipe(
-          Effect.flatMap((credential) => validateCredential(effect, credential, config)),
-        )
-      }),
-    )
-  }),
+  // Auth disabled — always pass through
+  Effect.succeed(Authorization.of((effect) => effect)),
 )
 
 export const ptyConnectAuthorizationLayer = Layer.effect(
   PtyConnectAuthorization,
-  Effect.gen(function* () {
-    const config = yield* ServerAuth.Config
-    if (!ServerAuth.required(config)) return PtyConnectAuthorization.of((effect) => effect)
-    return PtyConnectAuthorization.of((effect) =>
-      Effect.gen(function* () {
-        const request = yield* HttpServerRequest.HttpServerRequest
-        const url = new URL(request.url, "http://localhost")
-        if (hasPtyConnectTicketURL(url)) return yield* effect
-        return yield* credentialFromURL(url, request).pipe(
-          Effect.flatMap((credential) => validateCredential(effect, credential, config)),
-        )
-      }),
-    )
-  }),
+  // Auth disabled — always pass through
+  Effect.succeed(PtyConnectAuthorization.of((effect) => effect)),
 )

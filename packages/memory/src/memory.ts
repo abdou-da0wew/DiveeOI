@@ -49,12 +49,14 @@ export interface MemoryService {
 export const MemoryService = Context.Service<MemoryService, MemoryService>()("@diveeoi/memory/MemoryService")
 
 const makeMemoryService = Effect.gen(function* () {
+  console.log("[DEBUG] MemoryLive.init: Starting init effect")
   const nodeService = yield* NodeService
   const indexer = yield* IndexerService
   const graph = yield* GraphService
   const extractor = yield* ExtractorService
   const config = yield* MemoryConfig
   const { db } = yield* Database.Service
+  console.log("[DEBUG] MemoryLive.init: All services obtained, initializing indexer")
 
   // Initialize indexer
   yield* indexer.initialize()

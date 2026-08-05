@@ -26,8 +26,10 @@ const ParametersSchema = Schema.Struct({
 export const MemoryRetrieveTool = Tool.define(
   "memory_retrieve",
   Effect.gen(function* () {
+    console.log("[DEBUG] MemoryRetrieveTool.init: Starting init effect")
     const memory = yield* MemoryService
     const sessionMemory = yield* SessionMemoryIntegration.Service
+    console.log("[DEBUG] MemoryRetrieveTool.init: MemoryService and SessionMemoryIntegration.Service obtained")
 
     return {
       description: "Search and retrieve memories from the knowledge graph. Supports querying by text, tags, types, session, and graph traversal from methods (seedNodes).",

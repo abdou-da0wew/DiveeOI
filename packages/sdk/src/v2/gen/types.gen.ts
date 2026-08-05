@@ -76,6 +76,7 @@ export type Event =
   | EventProjectUpdated
   | EventSessionStatus
   | EventSessionIdle
+  | EventReminderUpdated
   | EventQuestionAsked
   | EventQuestionReplied
   | EventQuestionRejected
@@ -1510,6 +1511,22 @@ export type GlobalEvent = {
       }
     | {
         id: string
+        type: "reminder.updated"
+        properties: {
+          sessionID: string
+          reminders: Array<{
+            id: string
+            text: string
+            createdBy: string
+            priority: string
+            tags: Array<string>
+            done: boolean
+            createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+          }>
+        }
+      }
+    | {
+        id: string
         type: "question.asked"
         properties: {
           id: string
@@ -1997,9 +2014,6 @@ export type Config = {
       action?: "warn" | "truncate" | "abort"
     }
   }
-  /**
-   * LLM configuration for tool format, burst limiting, output filtering, and compaction
-   */
   llm?: {
     format?: "json" | "toon"
     burst?: {
@@ -2019,36 +2033,15 @@ export type Config = {
       action?: "warn" | "truncate" | "abort"
     }
     tool_output?: {
-      /**
-       * Maximum lines of tool output before truncation
-       */
       max_lines?: number
-      /**
-       * Maximum bytes of tool output before truncation
-       */
       max_bytes?: number
     }
     compaction?: {
-      /**
-       * Enable automatic compaction when context is full
-       */
       auto?: boolean
-      /**
-       * Enable pruning of old tool outputs
-       */
       prune?: boolean
-      /**
-       * Number of recent turns to keep verbatim during compaction
-       */
       tail_turns?: number
     }
-    /**
-     * Maximum tool output size in characters before truncation
-     */
     max_tool_output?: number
-    /**
-     * Allow parallel tool calls (default: true)
-     */
     parallel_tool_calls?: boolean
   }
   builtin?: {
@@ -2319,6 +2312,7 @@ export type GlobalSession = {
     url: string
   }
   title: string
+  titleAttempted: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
   agent?: string
   model?: {
     id: string
@@ -2652,10 +2646,393 @@ export type ProviderAuthError1 = {
   }
 }
 
+export type Session1 = {
+  id: string
+  slug: string
+  projectID: string
+  workspaceID?: string
+  directory: string
+  path?: string
+  parentID?: string
+  summary?: {
+    additions: number
+    deletions: number
+    files: number
+    diffs?: Array<SnapshotFileDiff>
+  }
+  cost?: number
+  tokens?: {
+    input: number
+    output: number
+    reasoning: number
+    cache: {
+      read: number
+      write: number
+    }
+  }
+  share?: {
+    url: string
+  }
+  title: string
+  titleAttempted: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  agent?: string
+  model?: {
+    id: string
+    providerID: string
+    variant?: string
+  }
+  version: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  time: {
+    created: number
+    updated: number
+    compacting?: number
+    archived?: number
+  }
+  permission?: PermissionRuleset
+  revert?: {
+    messageID: string
+    partID?: string
+    snapshot?: string
+    diff?: string
+  }
+}
+
+export type Session2 = {
+  id: string
+  slug: string
+  projectID: string
+  workspaceID?: string
+  directory: string
+  path?: string
+  parentID?: string
+  summary?: {
+    additions: number
+    deletions: number
+    files: number
+    diffs?: Array<SnapshotFileDiff>
+  }
+  cost?: number
+  tokens?: {
+    input: number
+    output: number
+    reasoning: number
+    cache: {
+      read: number
+      write: number
+    }
+  }
+  share?: {
+    url: string
+  }
+  title: string
+  titleAttempted: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  agent?: string
+  model?: {
+    id: string
+    providerID: string
+    variant?: string
+  }
+  version: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  time: {
+    created: number
+    updated: number
+    compacting?: number
+    archived?: number
+  }
+  permission?: PermissionRuleset
+  revert?: {
+    messageID: string
+    partID?: string
+    snapshot?: string
+    diff?: string
+  }
+}
+
 export type NotFoundError = {
   name: "NotFoundError"
   data: {
     message: string
+  }
+}
+
+export type Session3 = {
+  id: string
+  slug: string
+  projectID: string
+  workspaceID?: string
+  directory: string
+  path?: string
+  parentID?: string
+  summary?: {
+    additions: number
+    deletions: number
+    files: number
+    diffs?: Array<SnapshotFileDiff>
+  }
+  cost?: number
+  tokens?: {
+    input: number
+    output: number
+    reasoning: number
+    cache: {
+      read: number
+      write: number
+    }
+  }
+  share?: {
+    url: string
+  }
+  title: string
+  titleAttempted: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  agent?: string
+  model?: {
+    id: string
+    providerID: string
+    variant?: string
+  }
+  version: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  time: {
+    created: number
+    updated: number
+    compacting?: number
+    archived?: number
+  }
+  permission?: PermissionRuleset
+  revert?: {
+    messageID: string
+    partID?: string
+    snapshot?: string
+    diff?: string
+  }
+}
+
+export type MemoryError = {
+  _tag: "MemoryError"
+  cause: unknown
+}
+
+export type Session4 = {
+  id: string
+  slug: string
+  projectID: string
+  workspaceID?: string
+  directory: string
+  path?: string
+  parentID?: string
+  summary?: {
+    additions: number
+    deletions: number
+    files: number
+    diffs?: Array<SnapshotFileDiff>
+  }
+  cost?: number
+  tokens?: {
+    input: number
+    output: number
+    reasoning: number
+    cache: {
+      read: number
+      write: number
+    }
+  }
+  share?: {
+    url: string
+  }
+  title: string
+  titleAttempted: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  agent?: string
+  model?: {
+    id: string
+    providerID: string
+    variant?: string
+  }
+  version: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  time: {
+    created: number
+    updated: number
+    compacting?: number
+    archived?: number
+  }
+  permission?: PermissionRuleset
+  revert?: {
+    messageID: string
+    partID?: string
+    snapshot?: string
+    diff?: string
+  }
+}
+
+export type Session5 = {
+  id: string
+  slug: string
+  projectID: string
+  workspaceID?: string
+  directory: string
+  path?: string
+  parentID?: string
+  summary?: {
+    additions: number
+    deletions: number
+    files: number
+    diffs?: Array<SnapshotFileDiff>
+  }
+  cost?: number
+  tokens?: {
+    input: number
+    output: number
+    reasoning: number
+    cache: {
+      read: number
+      write: number
+    }
+  }
+  share?: {
+    url: string
+  }
+  title: string
+  titleAttempted: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  agent?: string
+  model?: {
+    id: string
+    providerID: string
+    variant?: string
+  }
+  version: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  time: {
+    created: number
+    updated: number
+    compacting?: number
+    archived?: number
+  }
+  permission?: PermissionRuleset
+  revert?: {
+    messageID: string
+    partID?: string
+    snapshot?: string
+    diff?: string
+  }
+}
+
+export type Session6 = {
+  id: string
+  slug: string
+  projectID: string
+  workspaceID?: string
+  directory: string
+  path?: string
+  parentID?: string
+  summary?: {
+    additions: number
+    deletions: number
+    files: number
+    diffs?: Array<SnapshotFileDiff>
+  }
+  cost?: number
+  tokens?: {
+    input: number
+    output: number
+    reasoning: number
+    cache: {
+      read: number
+      write: number
+    }
+  }
+  share?: {
+    url: string
+  }
+  title: string
+  titleAttempted: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  agent?: string
+  model?: {
+    id: string
+    providerID: string
+    variant?: string
+  }
+  version: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  time: {
+    created: number
+    updated: number
+    compacting?: number
+    archived?: number
+  }
+  permission?: PermissionRuleset
+  revert?: {
+    messageID: string
+    partID?: string
+    snapshot?: string
+    diff?: string
+  }
+}
+
+export type Session7 = {
+  id: string
+  slug: string
+  projectID: string
+  workspaceID?: string
+  directory: string
+  path?: string
+  parentID?: string
+  summary?: {
+    additions: number
+    deletions: number
+    files: number
+    diffs?: Array<SnapshotFileDiff>
+  }
+  cost?: number
+  tokens?: {
+    input: number
+    output: number
+    reasoning: number
+    cache: {
+      read: number
+      write: number
+    }
+  }
+  share?: {
+    url: string
+  }
+  title: string
+  titleAttempted: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  agent?: string
+  model?: {
+    id: string
+    providerID: string
+    variant?: string
+  }
+  version: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  time: {
+    created: number
+    updated: number
+    compacting?: number
+    archived?: number
+  }
+  permission?: PermissionRuleset
+  revert?: {
+    messageID: string
+    partID?: string
+    snapshot?: string
+    diff?: string
   }
 }
 
@@ -2711,6 +3088,114 @@ export type SessionBusyError = {
   _tag: "SessionBusyError"
   sessionID: string
   message: string
+}
+
+export type Session8 = {
+  id: string
+  slug: string
+  projectID: string
+  workspaceID?: string
+  directory: string
+  path?: string
+  parentID?: string
+  summary?: {
+    additions: number
+    deletions: number
+    files: number
+    diffs?: Array<SnapshotFileDiff>
+  }
+  cost?: number
+  tokens?: {
+    input: number
+    output: number
+    reasoning: number
+    cache: {
+      read: number
+      write: number
+    }
+  }
+  share?: {
+    url: string
+  }
+  title: string
+  titleAttempted: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  agent?: string
+  model?: {
+    id: string
+    providerID: string
+    variant?: string
+  }
+  version: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  time: {
+    created: number
+    updated: number
+    compacting?: number
+    archived?: number
+  }
+  permission?: PermissionRuleset
+  revert?: {
+    messageID: string
+    partID?: string
+    snapshot?: string
+    diff?: string
+  }
+}
+
+export type Session9 = {
+  id: string
+  slug: string
+  projectID: string
+  workspaceID?: string
+  directory: string
+  path?: string
+  parentID?: string
+  summary?: {
+    additions: number
+    deletions: number
+    files: number
+    diffs?: Array<SnapshotFileDiff>
+  }
+  cost?: number
+  tokens?: {
+    input: number
+    output: number
+    reasoning: number
+    cache: {
+      read: number
+      write: number
+    }
+  }
+  share?: {
+    url: string
+  }
+  title: string
+  titleAttempted: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  agent?: string
+  model?: {
+    id: string
+    providerID: string
+    variant?: string
+  }
+  version: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  time: {
+    created: number
+    updated: number
+    compacting?: number
+    archived?: number
+  }
+  permission?: PermissionRuleset
+  revert?: {
+    messageID: string
+    partID?: string
+    snapshot?: string
+    diff?: string
+  }
 }
 
 export type EventTuiPromptAppend = {
@@ -2819,6 +3304,11 @@ export type ConflictError = {
   resource?: string
 }
 
+export type ForbiddenError = {
+  _tag: "ForbiddenError"
+  message: string
+}
+
 export type ServiceUnavailableError = {
   _tag: "ServiceUnavailableError"
   message: string
@@ -2845,16 +3335,25 @@ export type ProviderNotFoundError = {
   message: string
 }
 
-export type ForbiddenError = {
-  _tag: "ForbiddenError"
-  message: string
-}
-
 export type ProjectCopyError = {
   name: "ProjectCopyError"
   data: {
     message: string
     forceRequired?: boolean
+  }
+}
+
+export type PrefsListResponse = {
+  data: Array<{
+    name: string
+    value: string
+  }>
+}
+
+export type PrefsSetResponse = {
+  data: {
+    name: string
+    value: string
   }
 }
 
@@ -4234,6 +4733,9 @@ export type FileSystemEntry = {
   path: string
   type: "file" | "directory"
   mime: string
+  size?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  modified?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  mode?: string
 }
 
 export type CommandV2Info = {
@@ -5092,6 +5594,23 @@ export type EventSessionIdle = {
   type: "session.idle"
   properties: {
     sessionID: string
+  }
+}
+
+export type EventReminderUpdated = {
+  id: string
+  type: "reminder.updated"
+  properties: {
+    sessionID: string
+    reminders: Array<{
+      id: string
+      text: string
+      createdBy: string
+      priority: string
+      tags: Array<string>
+      done: boolean
+      createdAt: number | "NaN" | "Infinity" | "-Infinity"
+    }>
   }
 }
 
@@ -7617,7 +8136,7 @@ export type SessionListResponses = {
   /**
    * List of sessions
    */
-  200: Array<Session>
+  200: Array<Session1>
 }
 
 export type SessionListResponse = SessionListResponses[keyof SessionListResponses]
@@ -7651,6 +8170,10 @@ export type SessionCreateErrors = {
    * BadRequest | InvalidRequestError
    */
   400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * MemoryError
+   */
+  500: MemoryError
 }
 
 export type SessionCreateError = SessionCreateErrors[keyof SessionCreateErrors]
@@ -7659,7 +8182,7 @@ export type SessionCreateResponses = {
   /**
    * Successfully created session
    */
-  200: Session
+  200: Session3
 }
 
 export type SessionCreateResponse = SessionCreateResponses[keyof SessionCreateResponses]
@@ -7757,7 +8280,7 @@ export type SessionGetResponses = {
   /**
    * Get session
    */
-  200: Session
+  200: Session2
 }
 
 export type SessionGetResponse = SessionGetResponses[keyof SessionGetResponses]
@@ -7800,7 +8323,7 @@ export type SessionUpdateResponses = {
   /**
    * Successfully updated session
    */
-  200: Session
+  200: Session4
 }
 
 export type SessionUpdateResponse = SessionUpdateResponses[keyof SessionUpdateResponses]
@@ -7834,7 +8357,7 @@ export type SessionChildrenResponses = {
   /**
    * List of children
    */
-  200: Array<Session>
+  200: Array<Session1>
 }
 
 export type SessionChildrenResponse = SessionChildrenResponses[keyof SessionChildrenResponses]
@@ -8103,7 +8626,7 @@ export type SessionForkResponses = {
   /**
    * 200
    */
-  200: Session
+  200: Session5
 }
 
 export type SessionForkResponse = SessionForkResponses[keyof SessionForkResponses]
@@ -8209,7 +8732,7 @@ export type SessionUnshareResponses = {
   /**
    * Successfully unshared session
    */
-  200: Session
+  200: Session7
 }
 
 export type SessionUnshareResponse = SessionUnshareResponses[keyof SessionUnshareResponses]
@@ -8236,9 +8759,9 @@ export type SessionShareErrors = {
    */
   404: NotFoundError
   /**
-   * InternalServerError
+   * InternalServerError | MemoryError
    */
-  500: EffectHttpApiErrorInternalServerError
+  500: EffectHttpApiErrorInternalServerError | MemoryError
 }
 
 export type SessionShareError = SessionShareErrors[keyof SessionShareErrors]
@@ -8247,7 +8770,7 @@ export type SessionShareResponses = {
   /**
    * Successfully shared session
    */
-  200: Session
+  200: Session6
 }
 
 export type SessionShareResponse = SessionShareResponses[keyof SessionShareResponses]
@@ -8476,7 +8999,7 @@ export type SessionRevertResponses = {
   /**
    * Updated session
    */
-  200: Session
+  200: Session8
 }
 
 export type SessionRevertResponse = SessionRevertResponses[keyof SessionRevertResponses]
@@ -8514,7 +9037,7 @@ export type SessionUnrevertResponses = {
   /**
    * Updated session
    */
-  200: Session
+  200: Session9
 }
 
 export type SessionUnrevertResponse = SessionUnrevertResponses[keyof SessionUnrevertResponses]
@@ -9625,6 +10148,10 @@ export type V2SessionPromptErrors = {
    * UnauthorizedError
    */
   401: UnauthorizedError
+  /**
+   * ForbiddenError
+   */
+  403: ForbiddenError
   /**
    * SessionNotFoundError
    */
@@ -11314,6 +11841,443 @@ export type V2ProjectCopyRefreshResponses = {
 }
 
 export type V2ProjectCopyRefreshResponse = V2ProjectCopyRefreshResponses[keyof V2ProjectCopyRefreshResponses]
+
+export type V2PrefsDeleteScopeData = {
+  body?: never
+  path: {
+    scope: string
+  }
+  query?: never
+  url: "/api/prefs/{scope}"
+}
+
+export type V2PrefsDeleteScopeErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2PrefsDeleteScopeError = V2PrefsDeleteScopeErrors[keyof V2PrefsDeleteScopeErrors]
+
+export type V2PrefsDeleteScopeResponses = {
+  /**
+   * <No Content>
+   */
+  200: unknown
+}
+
+export type V2PrefsListData = {
+  body?: never
+  path: {
+    scope: string
+  }
+  query?: never
+  url: "/api/prefs/{scope}"
+}
+
+export type V2PrefsListErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2PrefsListError = V2PrefsListErrors[keyof V2PrefsListErrors]
+
+export type V2PrefsListResponses = {
+  /**
+   * PrefsListResponse
+   */
+  200: PrefsListResponse
+}
+
+export type V2PrefsListResponse = V2PrefsListResponses[keyof V2PrefsListResponses]
+
+export type V2PrefsSetData = {
+  body: {
+    name: string
+    value: string
+  }
+  path: {
+    scope: string
+  }
+  query?: never
+  url: "/api/prefs/{scope}"
+}
+
+export type V2PrefsSetErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2PrefsSetError = V2PrefsSetErrors[keyof V2PrefsSetErrors]
+
+export type V2PrefsSetResponses = {
+  /**
+   * PrefsSetResponse
+   */
+  200: PrefsSetResponse
+}
+
+export type V2PrefsSetResponse = V2PrefsSetResponses[keyof V2PrefsSetResponses]
+
+export type V2PrefsDeleteData = {
+  body?: never
+  path: {
+    scope: string
+    name: string
+  }
+  query?: never
+  url: "/api/prefs/{scope}/{name}"
+}
+
+export type V2PrefsDeleteErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2PrefsDeleteError = V2PrefsDeleteErrors[keyof V2PrefsDeleteErrors]
+
+export type V2PrefsDeleteResponses = {
+  /**
+   * <No Content>
+   */
+  200: unknown
+}
+
+export type V2AuthRegisterData = {
+  body: {
+    email: string
+    password: string
+    username?: string
+  }
+  path?: never
+  query?: never
+  url: "/api/auth/register"
+}
+
+export type V2AuthRegisterErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
+}
+
+export type V2AuthRegisterError = V2AuthRegisterErrors[keyof V2AuthRegisterErrors]
+
+export type V2AuthRegisterResponses = {
+  /**
+   * Success
+   */
+  200: {
+    user: {
+      id: string
+      email: string
+      username: string
+      role: string
+      verified: boolean
+      message_count: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }
+  }
+}
+
+export type V2AuthRegisterResponse = V2AuthRegisterResponses[keyof V2AuthRegisterResponses]
+
+export type V2AuthLoginData = {
+  body: {
+    email: string
+    password: string
+  }
+  path?: never
+  query?: never
+  url: "/api/auth/login"
+}
+
+export type V2AuthLoginErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2AuthLoginError = V2AuthLoginErrors[keyof V2AuthLoginErrors]
+
+export type V2AuthLoginResponses = {
+  /**
+   * Success
+   */
+  200: {
+    accessToken: string
+    refreshToken: string
+    user: {
+      id: string
+      email: string
+      username: string
+      role: string
+      verified: boolean
+      message_count: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }
+  }
+}
+
+export type V2AuthLoginResponse = V2AuthLoginResponses[keyof V2AuthLoginResponses]
+
+export type V2AuthRefreshData = {
+  body: {
+    refreshToken: string
+  }
+  path?: never
+  query?: never
+  url: "/api/auth/refresh"
+}
+
+export type V2AuthRefreshErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2AuthRefreshError = V2AuthRefreshErrors[keyof V2AuthRefreshErrors]
+
+export type V2AuthRefreshResponses = {
+  /**
+   * Success
+   */
+  200: {
+    accessToken: string
+    refreshToken: string
+    user: {
+      id: string
+      email: string
+      username: string
+      role: string
+      verified: boolean
+      message_count: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }
+  }
+}
+
+export type V2AuthRefreshResponse = V2AuthRefreshResponses[keyof V2AuthRefreshResponses]
+
+export type V2AuthLogoutData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/api/auth/logout"
+}
+
+export type V2AuthLogoutErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2AuthLogoutError = V2AuthLogoutErrors[keyof V2AuthLogoutErrors]
+
+export type V2AuthLogoutResponses = {
+  /**
+   * Success
+   */
+  200: {
+    ok: true
+  }
+}
+
+export type V2AuthLogoutResponse = V2AuthLogoutResponses[keyof V2AuthLogoutResponses]
+
+export type V2AuthMeData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/api/auth/me"
+}
+
+export type V2AuthMeErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2AuthMeError = V2AuthMeErrors[keyof V2AuthMeErrors]
+
+export type V2AuthMeResponses = {
+  /**
+   * Success
+   */
+  200: {
+    user: {
+      id: string
+      email: string
+      username: string
+      role: string
+      verified: boolean
+      message_count: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }
+  }
+}
+
+export type V2AuthMeResponse = V2AuthMeResponses[keyof V2AuthMeResponses]
+
+export type V2AuthVerifyEmailData = {
+  body?: never
+  path?: never
+  query: {
+    token: string
+  }
+  url: "/api/auth/verify-email"
+}
+
+export type V2AuthVerifyEmailErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2AuthVerifyEmailError = V2AuthVerifyEmailErrors[keyof V2AuthVerifyEmailErrors]
+
+export type V2AuthVerifyEmailResponses = {
+  /**
+   * Success
+   */
+  200: {
+    ok: true
+  }
+}
+
+export type V2AuthVerifyEmailResponse = V2AuthVerifyEmailResponses[keyof V2AuthVerifyEmailResponses]
+
+export type V2AuthResendVerificationData = {
+  body: {
+    email: string
+  }
+  path?: never
+  query?: never
+  url: "/api/auth/resend-verification"
+}
+
+export type V2AuthResendVerificationErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2AuthResendVerificationError = V2AuthResendVerificationErrors[keyof V2AuthResendVerificationErrors]
+
+export type V2AuthResendVerificationResponses = {
+  /**
+   * Success
+   */
+  200: {
+    ok: true
+  }
+}
+
+export type V2AuthResendVerificationResponse =
+  V2AuthResendVerificationResponses[keyof V2AuthResendVerificationResponses]
+
+export type V2AuthUpdateProfileData = {
+  body: {
+    username?: string
+    email?: string
+    password?: string
+  }
+  path?: never
+  query?: never
+  url: "/api/auth/profile"
+}
+
+export type V2AuthUpdateProfileErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
+}
+
+export type V2AuthUpdateProfileError = V2AuthUpdateProfileErrors[keyof V2AuthUpdateProfileErrors]
+
+export type V2AuthUpdateProfileResponses = {
+  /**
+   * Success
+   */
+  200: {
+    user: {
+      id: string
+      email: string
+      username: string
+      role: string
+      verified: boolean
+      message_count: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }
+  }
+}
+
+export type V2AuthUpdateProfileResponse = V2AuthUpdateProfileResponses[keyof V2AuthUpdateProfileResponses]
 
 export type PtyConnectData = {
   body?: never
