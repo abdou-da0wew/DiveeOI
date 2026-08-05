@@ -28,15 +28,12 @@ const plugin = createSolidTransformPlugin()
 const createEmbeddedWebUIBundle = async () => {
   const appDir = path.join(import.meta.dirname, "../../app")
   const dist = path.join(appDir, "dist")
-  // If turbo already built the app, skip rebuilding. Otherwise build it.
-  const distExists = fs.existsSync(dist)
-  if (distExists) {
-    console.log(`Using existing Web UI dist at ${dist}`)
-    } else {
-      console.log(`Building Web UI to embed in the binary`)
-      const buildEnv = { ...process.env, OPENCODE_CHANNEL: Script.channel }
-      await $`bun run --cwd ${appDir} build`.env(buildEnv)
-    }
+  // Always rebuild the Web UI to ensure fresh hashes.
+  // When turbo builds in parallel, the dist directory may exist but contain stale
+  // Vite hashes from a previous app build. Rebuilding guarantees fresh imports.
+  console.log(`Building Web UI to embed in the binary`)
+  const buildEnv = { ...process.env, OPENCODE_CHANNEL: Script.channel }
+  await $`bun run --cwd ${appDir} build`.env(buildEnv)
   const files = (await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: dist })))
     .map((file) => file.replaceAll("\\", "/"))
     .filter((file) => !file.endsWith(".map"))

@@ -28,6 +28,7 @@ import { Vcs } from "@/project/vcs"
 import { ProviderAuth } from "@/provider/auth"
 import { Provider } from "@/provider/provider"
 import { Question } from "@/question"
+import { SessionMemoryIntegration } from "@/session/memory"
 import { SessionCompaction } from "@/session/compaction"
 import { Instruction } from "@/session/instruction"
 import { LLM } from "@/session/llm"
@@ -247,6 +248,7 @@ const app = LayerNode.group([
   Command.node,
   Truncate.node,
   Memory.node,
+  SessionMemoryIntegration.node,
   ToolRegistry.node,
   Format.node,
   Project.node,
@@ -287,6 +289,7 @@ export function createRoutes(
       HttpServer.layerServices,
     ]),
     Layer.provide(LayerNode.buildLayer(app)),
+    Layer.provideMerge(LayerNode.buildLayer(SessionMemoryIntegration.node)),
     Layer.provide(Layer.succeed(CorsConfig)(corsOptions)),
     Layer.provide(Observability.layer),
   ) as Layer.Layer<never, EffectConfig.ConfigError, RouteRequirements>

@@ -81,7 +81,6 @@ const baseState = (input: Partial<State> = {}) =>
     limit: 10,
     message: {},
     part: {},
-    part_text_accum_delta: {},
     ...input,
   }) as State
 
@@ -150,7 +149,6 @@ describe("applyDirectoryEvent", () => {
       loadLsp() {},
     })
 
-    expect(store.part_text_accum_delta.part).toBe("existing appended")
     expect((store.part.message?.[0] as { text: string }).text).toBe("existing appended")
   })
 
@@ -403,6 +401,7 @@ describe("applyDirectoryEvent", () => {
     const messageID = "msg_1"
     const [store, setStore] = createStore(
       baseState({
+        message: { [sessionID]: [userMessage(messageID, sessionID)] },
         part: { [messageID]: [textPart("prt_1", sessionID, messageID), textPart("prt_3", sessionID, messageID)] },
       }),
     )

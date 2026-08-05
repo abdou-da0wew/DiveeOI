@@ -245,3 +245,62 @@ bun test             # must pass
   - `export const node = LayerNode.make(...) as never` — hides the node entirely.
   Fix: remove the casts; if the layer's RIn is a genuine service (e.g. `FileSystem`), provide it via a real node (`filesystem` from `@diveeoi/db/effect/layer-node-platform`) rather than casting.
 - `Layer.effect` absorbs `Scope.Scope` from `InstanceState.make` usage — the node deps error names only the real services (e.g. `FileSystem`), never `Scope.Scope`.
+
+## LayerNode.group with intra-group deps: services may not surface to outer context (2026-08-03)
+
+**Problem**: After fixing `Service not found: @diveeoi/memory/MemoryService`, the server crashed with `Service not found: @diveeoi/server/SessionMemoryIntegration` at the final layer resolution stage. The service was available during init (memory tools successfully yielded `SessionMemoryIntegration.Service`) but not after the layer was fully built.
+
+**Root cause**: `LayerNode.buildLayer(group)` uses `Layer.mergeAll(...)` to combine all members. When a `make` node depends on another group member (SessionMemoryIntegration depends on Memory), the inner `Layer.provide(impl, deps)` layer is correctly built but `Layer.mergeAll` doesn't always propagate the inner provided service to the outer scope.
+
+The fix pattern: explicit `Layer.provideMerge(LayerNode.buildLayer(missingNode))` after the group build.
+
+**Location**: `packages/server/src/server/routes/instance/httpapi/server.ts`, createRoutes function, line 291.
+
+**Fix (lines 291-295)**:
+```typescript
+).pipe(
+  Layer.provide([errorLayer, ...]),
+  Layer.provide(LayerNode.buildLayer(app)),
+  Layer.provideMerge(LayerNode.buildLayer(SessionMemoryIntegration.node)),  // <-- explicit
+  Layer.provide(Layer.succeed(CorsConfig)(corsOptions)),
+  Layer.provide(Observability.layer),
+)
+```
+
+## ToolRegistry memory tools: eager service resolution at boot time
+
+**Discovery**: `Tool.define(id, Effect.gen(function* () { const svc = yield* ... }))` resolves its yield* during the ToolRegistry layer's build phase — NOT per-tool call. This means:
+- Memory tools require `MemoryService` and `SessionMemoryIntegration.Service` at boot time, not per call
+- Missing services are only diagnosed at server start (not at tool execution)
+- All tool deps must be available in the ToolRegistry layer before running server
+
+**Fix stack for DiveeOI + memory integration boot**:
+1. `ToolRegistry.node` deps: add `Memory.node` and `SessionMemoryIntegration.node` (packages/server/src/tool/registry.ts)
+2. `MemoryLayer` exports: include GraphService and MemoryConfig in the group (packages/memory/src/index.ts)
+3. `SessionMemoryIntegration.node` deps: must be `[Memory.node]`, NOT empty (packages/server/src/session/memory.ts)
+4. `createRoutes()` pipe: add `Layer.provideMerge(LayerNode.buildLayer(SessionMemoryIntegration.node))` after app group (packages/server/src/server/routes/instance/httpapi/server.ts)
+
+## SessionMemoryIntegration.Live with pipe(Layer.provide) breaks external Layer.provide
+
+**Problem**: `SessionMemoryIntegrationLive` is `Layer.effect(Service, makeSessionMemoryIntegration).pipe(Layer.provide(MemoryConfig.defaultLayer))`. Using it directly in `Layer.provide(X.pipe( Layer.provide())` causes `TypeError: that.build undefined` in Effect v4 beta.74.
+
+**Fix**: Don't use `.pipe()`-wrapped layers in external `Layer.provide()`. Use `LayerNode.buildLayer(node)` instead.
+
+## `Layer.provide(["array"])` must use `Layer.provideMerge` for multi-layer to level deep
+
+**Pattern**: `Layer.provide[arrayLayers])` wraps layers flat. But if a `Layer.provideMerge` appears, Effect treats it differently for type inference.
+
+## Memory package: cannot use effect/Logger.Logger (not in package scope)
+
+**Problem**: `import { Logger } from "effect"` in `packages/server|memory` was `undefined` at import time. The `Logger.Logger` wasn't provided by the local memory's dependency chain.
+
+**Workaround**: For debugging effect layer init order, use `console.log` with explicit init order markers.
+
+## The app group (LayerNode.group) has 55+ nodes
+
+Current group nodes in `createRoutes`:
+- 250: Memory.node
+- 251: SessionMemoryIntegration.node
+- 252: ToolRegistry.node
+
+Architecture decision: any node whose service must be available at the outer context (not just internally to tool init) should be added as an explicit `Layer.provideMerge` after the group build.

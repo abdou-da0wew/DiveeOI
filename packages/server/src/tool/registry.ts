@@ -1,5 +1,6 @@
 import { LayerNode } from "@diveeoi/db/effect/layer-node"
 import { httpClient } from "@diveeoi/db/effect/layer-node-platform"
+import { LogLevel } from "effect"
 import { Ripgrep } from "@diveeoi/db/ripgrep"
 import { DbExportTool } from "./db-export"
 import { Session } from "@/session/session"
@@ -108,6 +109,9 @@ export const layer = Layer.effect(
     const edit = yield* EditTool
     const greptool = yield* GrepTool
     const agent = yield* Agent.Service
+
+    // DEBUG: Log available services before memory tools
+    console.log("[DEBUG] ToolRegistry: About to initialize memory tools")
 
     // Memory tools
     const memoryRetrieve = yield* MemoryTools.MemoryRetrieveTool
@@ -499,7 +503,7 @@ function isJsonSchemaObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-export const node = LayerNode.make(layer.pipe(Layer.provide(Ripgrep.defaultLayer)) as never, [
+export const node = LayerNode.make(layer.pipe(Layer.provide(Ripgrep.defaultLayer)), [
   Config.node,
   Plugin.node,
   Question.node,

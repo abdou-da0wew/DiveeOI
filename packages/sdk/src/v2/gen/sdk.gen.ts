@@ -10,7 +10,7 @@ import type {
   AppLogResponses,
   AppSkillsErrors,
   AppSkillsResponses,
-  Auth as Auth3,
+  Auth as Auth4,
   AuthRemoveErrors,
   AuthRemoveResponses,
   AuthSetErrors,
@@ -261,6 +261,22 @@ import type {
   TuiSubmitPromptResponses,
   V2AgentListErrors,
   V2AgentListResponses,
+  V2AuthLoginErrors,
+  V2AuthLoginResponses,
+  V2AuthLogoutErrors,
+  V2AuthLogoutResponses,
+  V2AuthMeErrors,
+  V2AuthMeResponses,
+  V2AuthRefreshErrors,
+  V2AuthRefreshResponses,
+  V2AuthRegisterErrors,
+  V2AuthRegisterResponses,
+  V2AuthResendVerificationErrors,
+  V2AuthResendVerificationResponses,
+  V2AuthUpdateProfileErrors,
+  V2AuthUpdateProfileResponses,
+  V2AuthVerifyEmailErrors,
+  V2AuthVerifyEmailResponses,
   V2CommandListErrors,
   V2CommandListResponses,
   V2CredentialRemoveErrors,
@@ -301,6 +317,14 @@ import type {
   V2PermissionSavedListResponses,
   V2PermissionSavedRemoveErrors,
   V2PermissionSavedRemoveResponses,
+  V2PrefsDeleteErrors,
+  V2PrefsDeleteResponses,
+  V2PrefsDeleteScopeErrors,
+  V2PrefsDeleteScopeResponses,
+  V2PrefsListErrors,
+  V2PrefsListResponses,
+  V2PrefsSetErrors,
+  V2PrefsSetResponses,
   V2ProjectCopyCreateErrors,
   V2ProjectCopyCreateResponses,
   V2ProjectCopyRefreshErrors,
@@ -451,7 +475,7 @@ export class Auth extends HeyApiClient {
   public set<ThrowOnError extends boolean = false>(
     parameters: {
       providerID: string
-      auth?: Auth3
+      auth?: Auth4
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -6604,6 +6628,325 @@ export class ProjectCopy2 extends HeyApiClient {
   }
 }
 
+export class Prefs extends HeyApiClient {
+  /**
+   * Delete all preferences for a scope
+   *
+   * Delete every preference under the given scope.
+   */
+  public deleteScope<ThrowOnError extends boolean = false>(
+    parameters: {
+      scope: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "scope" }] }])
+    return (options?.client ?? this.client).delete<V2PrefsDeleteScopeResponses, V2PrefsDeleteScopeErrors, ThrowOnError>(
+      {
+        url: "/api/prefs/{scope}",
+        ...options,
+        ...params,
+      },
+    )
+  }
+
+  /**
+   * List preferences for a scope
+   *
+   * Returns all preferences for the given scope.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters: {
+      scope: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "scope" }] }])
+    return (options?.client ?? this.client).get<V2PrefsListResponses, V2PrefsListErrors, ThrowOnError>({
+      url: "/api/prefs/{scope}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Set a preference
+   *
+   * Upsert a preference value for the given scope.
+   */
+  public set<ThrowOnError extends boolean = false>(
+    parameters: {
+      scope: string
+      name?: string
+      value?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "scope" },
+            { in: "body", key: "name" },
+            { in: "body", key: "value" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<V2PrefsSetResponses, V2PrefsSetErrors, ThrowOnError>({
+      url: "/api/prefs/{scope}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Delete a preference
+   *
+   * Delete a single preference by scope and name.
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      scope: string
+      name: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "scope" },
+            { in: "path", key: "name" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<V2PrefsDeleteResponses, V2PrefsDeleteErrors, ThrowOnError>({
+      url: "/api/prefs/{scope}/{name}",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Auth3 extends HeyApiClient {
+  /**
+   * Register a new user
+   *
+   * Create a new user account with email and password.
+   */
+  public register<ThrowOnError extends boolean = false>(
+    parameters?: {
+      email?: string
+      password?: string
+      username?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "email" },
+            { in: "body", key: "password" },
+            { in: "body", key: "username" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<V2AuthRegisterResponses, V2AuthRegisterErrors, ThrowOnError>({
+      url: "/api/auth/register",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Login
+   *
+   * Authenticate with email and password.
+   */
+  public login<ThrowOnError extends boolean = false>(
+    parameters?: {
+      email?: string
+      password?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "email" },
+            { in: "body", key: "password" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<V2AuthLoginResponses, V2AuthLoginErrors, ThrowOnError>({
+      url: "/api/auth/login",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Refresh access token
+   *
+   * Get a new access token using a refresh token.
+   */
+  public refresh<ThrowOnError extends boolean = false>(
+    parameters?: {
+      refreshToken?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "body", key: "refreshToken" }] }])
+    return (options?.client ?? this.client).post<V2AuthRefreshResponses, V2AuthRefreshErrors, ThrowOnError>({
+      url: "/api/auth/refresh",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Logout
+   *
+   * Clear the current session.
+   */
+  public logout<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).post<V2AuthLogoutResponses, V2AuthLogoutErrors, ThrowOnError>({
+      url: "/api/auth/logout",
+      ...options,
+    })
+  }
+
+  /**
+   * Get current user
+   *
+   * Get the currently authenticated user from the Bearer token.
+   */
+  public me<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<V2AuthMeResponses, V2AuthMeErrors, ThrowOnError>({
+      url: "/api/auth/me",
+      ...options,
+    })
+  }
+
+  /**
+   * Verify email
+   *
+   * Verify email address using a verification token.
+   */
+  public verifyEmail<ThrowOnError extends boolean = false>(
+    parameters: {
+      token: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "token" }] }])
+    return (options?.client ?? this.client).get<V2AuthVerifyEmailResponses, V2AuthVerifyEmailErrors, ThrowOnError>({
+      url: "/api/auth/verify-email",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Resend verification email
+   *
+   * Resend the email verification link.
+   */
+  public resendVerification<ThrowOnError extends boolean = false>(
+    parameters?: {
+      email?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "body", key: "email" }] }])
+    return (options?.client ?? this.client).post<
+      V2AuthResendVerificationResponses,
+      V2AuthResendVerificationErrors,
+      ThrowOnError
+    >({
+      url: "/api/auth/resend-verification",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Update user profile
+   *
+   * Update username, email, or password for the authenticated user.
+   */
+  public updateProfile<ThrowOnError extends boolean = false>(
+    parameters?: {
+      username?: string
+      email?: string
+      password?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "username" },
+            { in: "body", key: "email" },
+            { in: "body", key: "password" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<
+      V2AuthUpdateProfileResponses,
+      V2AuthUpdateProfileErrors,
+      ThrowOnError
+    >({
+      url: "/api/auth/profile",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class V2 extends HeyApiClient {
   private _health?: Health
   get health(): Health {
@@ -6688,6 +7031,16 @@ export class V2 extends HeyApiClient {
   private _projectCopy?: ProjectCopy2
   get projectCopy(): ProjectCopy2 {
     return (this._projectCopy ??= new ProjectCopy2({ client: this.client }))
+  }
+
+  private _prefs?: Prefs
+  get prefs(): Prefs {
+    return (this._prefs ??= new Prefs({ client: this.client }))
+  }
+
+  private _auth?: Auth3
+  get auth(): Auth3 {
+    return (this._auth ??= new Auth3({ client: this.client }))
   }
 }
 

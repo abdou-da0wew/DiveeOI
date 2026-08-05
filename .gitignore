@@ -62,3 +62,5 @@ packages/memory/*.md
 # Build artifacts
 packages/*/dist/
 packages/*/build/
+# Runtime data
+.divee/
