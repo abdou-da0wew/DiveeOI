@@ -189,7 +189,7 @@ if (shouldBuildBinary) {
       autoloadPackageJson: true,
       target: name.replace(pkg.name, "bun") as any,
       outfile: `dist/${name}/bin/diveeoi`,
-      execArgv: [`--user-agent=diveeoi/${Script.version}`, "--use-system-ca", "--"],
+      execArgv: [`--user-agent=diveeoi/${Script.version}`, "--use-system-ca", "--memory-limit=1200", "--max-old-space-size=512", "--"],
       windows: {},
     },
     files: embeddedFileMap ? { "diveeoi-web-ui.gen.ts": embeddedFileMap } : {},
