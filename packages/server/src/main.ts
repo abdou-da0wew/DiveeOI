@@ -1,4 +1,5 @@
-import { Effect } from "effect"
+import { Effect, ManagedRuntime } from "effect"
+import { AdaptiveResourceService } from "@diveeoi/db/adaptive"
 import { handleCLI } from "./cli/index"
 import { Server } from "./server/server"
 import { DevMonitor } from "./dev/monitor"
@@ -19,6 +20,24 @@ try {
   // Background ctx7 update check (non-blocking)
   Effect.runFork(
     Effect.catchCause(checkCtx7Update(), (cause) => Effect.logWarning("ctx7 update check failed", { cause })),
+  )
+
+  // Adaptive GC scheduler: triggers Bun.gc(true) on the interval computed
+  // from the current resource profile. Runs in its own runtime so it does
+  // not depend on the server's AppLayer lifecycle.
+  const adaptiveRuntime = ManagedRuntime.make(AdaptiveResourceService.defaultLayer)
+  adaptiveRuntime.runFork(
+    Effect.gen(function* () {
+      const adaptive = yield* AdaptiveResourceService
+      while (true) {
+        const { gcIntervalMs } = yield* adaptive.getCurrentTargets()
+        yield* Effect.sleep(gcIntervalMs)
+        if (typeof Bun !== "undefined" && Bun.gc) {
+          Bun.gc(true)
+          yield* Effect.logDebug("Adaptive GC", { interval: gcIntervalMs })
+        }
+      }
+    }),
   )
 
   const shutdown = async () => {

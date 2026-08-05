@@ -1258,9 +1258,10 @@ export const layer = Layer.effect(
               })
             }
             yield* Tracer.info("session.loop.exit", { sessionID })
-            // Extract session memory on exit
+            // Extract session memory on exit (fire and forget)
             yield* memory.extractSessionMemory(sessionID, msgs as any).pipe(
-              Effect.catch((err) => Effect.logError("Session memory extraction failed", { sessionID, error: err }))
+              Effect.catch((err) => Effect.logError("Session memory extraction failed", { sessionID, error: err })),
+              Effect.forkIn(scope),
             )
             break
           }
@@ -1286,9 +1287,10 @@ export const layer = Layer.effect(
               overflow: task.overflow,
             })
             if (result === "stop") {
-              // Extract session memory on compaction stop
+              // Extract session memory on compaction stop (fire and forget)
               yield* memory.extractSessionMemory(sessionID, msgs as any).pipe(
-                Effect.catch((err) => Effect.logError("Session memory extraction failed", { sessionID, error: err }))
+                Effect.catch((err) => Effect.logError("Session memory extraction failed", { sessionID, error: err })),
+                Effect.forkIn(scope),
               )
               break
             }
