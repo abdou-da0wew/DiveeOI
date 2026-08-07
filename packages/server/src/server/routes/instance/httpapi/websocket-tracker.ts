@@ -1,12 +1,13 @@
 import { Context, Effect, Layer, Option } from "effect"
 import * as Socket from "effect/unstable/socket/Socket"
+import { AdaptiveResourceService, useAdaptiveTargets } from "@diveeoi/db/adaptive"
 
 export const SERVER_CLOSING_EVENT = () => new Socket.CloseEvent(1001, "server closing")
 
 type Close = Effect.Effect<void, unknown>
 
 export interface Interface {
-  readonly add: (close: Close) => Effect.Effect<boolean>
+  readonly add: (close: Close) => Effect.Effect<boolean, never, AdaptiveResourceService>
   readonly remove: (close: Close) => Effect.Effect<void>
   readonly closeAll: Effect.Effect<void>
 }
@@ -18,11 +19,14 @@ export const layer = Layer.sync(Service)(() => {
   let closing = false
   return Service.of({
     add: (close) =>
-      Effect.gen(function* () {
-        if (closing) return false
-        sockets.add(close)
-        return true
-      }),
+      useAdaptiveTargets((targets) =>
+        Effect.gen(function* () {
+          if (closing) return false
+          if (sockets.size >= targets.maxWSConnections) return false
+          sockets.add(close)
+          return true
+        }),
+      ),
     remove: (close) =>
       Effect.sync(() => {
         sockets.delete(close)

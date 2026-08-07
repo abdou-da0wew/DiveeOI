@@ -1,137 +1,153 @@
-import { appendFileSync, mkdirSync } from "node:fs"
-import { appendFile } from "node:fs/promises"
-import { dirname } from "node:path"
-import { _onScope, dispatchSnapshot, processMem, snapshot } from "./core"
+import { openSync, writeSync, closeSync } from "node:fs"
+import { _onScope, isEnabled, processMem, snapshot } from "./core"
 import type { ScopeEvent } from "./types"
 
-const parseMs = (raw: string | undefined, fallback: number): number => {
-  if (raw === undefined) return fallback
-  const n = Number.parseInt(raw, 10)
-  return Number.isFinite(n) && n >= 0 ? n : fallback
-}
+const DEFAULT_OUTPUT = ".divee/profiler.jsonl"
 
-const OUTPUT = process.env["DIVEEOI_PROFILER_OUTPUT"] ?? ".divee/profiler.jsonl"
-const FLUSH_MS = parseMs(process.env["DIVEEOI_PROFILER_FLUSH_MS"], 5000)
-const SNAPSHOT_MS = parseMs(process.env["DIVEEOI_PROFILER_SNAPSHOT_MS"], 60000)
-const MIN_MS = parseMs(process.env["DIVEEOI_PROFILER_MIN_MS"], 1)
-const TOP_FUNCTIONS = 200
-const SIGNAL_GRACE_MS = 100
+const outputPath = process.env["DIVEEOI_PROFILER_OUTPUT"] ?? DEFAULT_OUTPUT
+const flushMs = parseMs(process.env["DIVEEOI_PROFILER_FLUSH_MS"], 5000)
+const snapshotMs = parseMs(process.env["DIVEEOI_PROFILER_SNAPSHOT_MS"], 60000)
+const minMs = parseMs(process.env["DIVEEOI_PROFILER_MIN_MS"], 1)
+const topFunctions = parseNum(process.env["DIVEEOI_PROFILER_TOP_FUNCTIONS"], 200)
 
 let started = false
-let lines: string[] = []
-let flushTimer: ReturnType<typeof setInterval> | undefined
-let snapshotTimer: ReturnType<typeof setInterval> | undefined
-let offScope: (() => void) | undefined
+let fd: number | null = null
+let buffer: string[] = []
+let flushTimer: ReturnType<typeof setInterval> | null = null
+let snapshotTimer: ReturnType<typeof setInterval> | null = null
+const cleanup: Array<() => void> = []
 
-const onScopeEvent = (key: string, event: ScopeEvent): void => {
-  if (event.durMs < MIN_MS && event.error !== true) return
-  const line: Record<string, unknown> = {
+_onScope((key, event) => {
+  if (!started) return
+  if (event.durMs < minMs) return
+  writeLine({
     kind: "scope_done",
     t: Date.now(),
     key,
-    durMs: event.durMs,
-    err: event.error === true,
+    durMs: round2(event.durMs),
+    caller: event.caller,
+    err: event.error,
+    heapDeltaMB: event.heapDeltaMB,
+    rssDeltaMB: event.rssDeltaMB,
+  })
+})
+
+export function start(): void {
+  if (started) return
+  if (!isEnabled()) return
+  started = true
+  fd = openSync(outputPath, "a")
+  flushTimer = setInterval(onFlushTick, flushMs)
+  flushTimer.unref?.()
+  snapshotTimer = setInterval(onSnapshotTick, snapshotMs)
+  snapshotTimer.unref?.()
+
+  const onSignal = (): void => {
+    try {
+      onFlushTick()
+      drain()
+    } finally {
+      process.exit(0)
+    }
   }
-  if (event.heapDeltaMB !== undefined) line["heapDeltaMB"] = event.heapDeltaMB
-  if (event.rssDeltaMB !== undefined) line["rssDeltaMB"] = event.rssDeltaMB
-  pushLine(JSON.stringify(line))
-}
-
-const onFlushTick = (): void => {
-  try {
-    pushLine(JSON.stringify({ kind: "proc", t: Date.now(), mem: processMem() }))
-  } catch {
-    // swallow
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.on(signal, onSignal)
+    cleanup.push(() => process.off(signal, onSignal))
   }
-  flush()
-}
-
-const onSnapshotTick = (): void => {
-  try {
-    const agg = snapshot()
-    pushLine(
-      JSON.stringify({
-        kind: "snapshot",
-        t: Date.now(),
-        mem: processMem(),
-        functions: agg.functions.slice(0, TOP_FUNCTIONS),
-        modules: agg.modules,
-        files: agg.files,
-      }),
-    )
-  } catch {
-    // swallow
+  const onExit = (): void => {
+    if (started) {
+      try {
+        drain()
+      } catch {
+        // never throw from exit handlers
+      }
+    }
   }
-  dispatchSnapshot()
+  process.on("exit", onExit)
+  cleanup.push(() => process.off("exit", onExit))
+
+  writeLine({ kind: "start", t: Date.now(), pid: process.pid, output: outputPath })
+  drain()
 }
 
-const pushLine = (line: string): void => {
-  lines.push(line)
+export function stop(): void {
+  if (!started) return
+  started = false
+  for (const off of cleanup) off()
+  cleanup.length = 0
+  if (flushTimer) clearInterval(flushTimer)
+  if (snapshotTimer) clearInterval(snapshotTimer)
+  flushTimer = null
+  snapshotTimer = null
+  writeLine({ kind: "stop", t: Date.now() })
+  drain()
+  if (fd !== null) {
+    closeSync(fd)
+    fd = null
+  }
 }
 
-const flush = (): void => {
-  if (lines.length === 0) return
-  const chunk = lines.join("\n") + "\n"
-  lines = []
-  appendFile(OUTPUT, chunk).catch(() => {
-    // swallow
+export function flush(): void {
+  if (started) drain()
+}
+
+/** Test hooks. */
+export const _flushTick = (): void => onFlushTick()
+export const _snapshotTick = (): void => onSnapshotTick()
+
+function onFlushTick(): void {
+  if (!started) return
+  const mem = processMem()
+  writeLine({
+    kind: "proc",
+    t: Date.now(),
+    rssMB: round2(mem.rssMB),
+    heapUsedMB: round2(mem.heapUsedMB),
+    externalMB: round2(mem.externalMB),
+  })
+  const agg = snapshot()
+  writeLine({ kind: "states", t: Date.now(), states: agg.states, active: agg.active })
+  drain()
+}
+
+function onSnapshotTick(): void {
+  if (!started) return
+  const agg = snapshot()
+  writeLine({
+    kind: "snapshot",
+    t: Date.now(),
+    functions: agg.functions.slice(0, topFunctions),
+    files: agg.files,
+    modules: agg.modules,
+    classes: agg.classes,
+    states: agg.states,
+    active: agg.active,
+    total: agg.total,
   })
 }
 
-// Async appendFile cannot complete inside the exit event, so do a best-effort sync write.
-const flushSync = (): void => {
-  if (lines.length === 0) return
-  const chunk = lines.join("\n") + "\n"
-  lines = []
-  try {
-    appendFileSync(OUTPUT, chunk, { flag: "a" })
-  } catch {
-    // swallow
-  }
+function writeLine(line: Record<string, unknown>): void {
+  buffer.push(JSON.stringify(line))
 }
 
-const cleanup = (): void => {
-  if (flushTimer !== undefined) clearInterval(flushTimer)
-  if (snapshotTimer !== undefined) clearInterval(snapshotTimer)
-  flushTimer = undefined
-  snapshotTimer = undefined
-  if (offScope !== undefined) {
-    offScope()
-    offScope = undefined
-  }
-  process.removeListener("exit", onExit)
-  process.removeListener("SIGINT", onSignal)
-  process.removeListener("SIGTERM", onSignal)
+function drain(): void {
+  if (buffer.length === 0 || fd === null) return
+  const chunk = buffer.join("\n") + "\n"
+  buffer = []
+  const written = writeSync(fd, chunk)
+  if (written < chunk.length) buffer.push(chunk.slice(written))
 }
 
-const onExit = (): void => {
-  flushSync()
-  cleanup()
+function parseMs(raw: string | undefined, fallback: number): number {
+  const value = Number(raw)
+  return Number.isFinite(value) && value >= 0 ? value : fallback
 }
 
-// Grace period lets the pending appendFile finish before default signal handling.
-const onSignal = (signal: NodeJS.Signals): void => {
-  flush()
-  cleanup()
-  setTimeout(() => {
-    process.kill(process.pid, signal)
-  }, SIGNAL_GRACE_MS)
+function parseNum(raw: string | undefined, fallback: number): number {
+  const value = Number(raw)
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback
 }
 
-export const start = (): void => {
-  if (started) return
-  started = true
-  try {
-    mkdirSync(dirname(OUTPUT), { recursive: true })
-  } catch {
-    // swallow
-  }
-  offScope = _onScope(onScopeEvent)
-  flushTimer = setInterval(onFlushTick, FLUSH_MS)
-  snapshotTimer = setInterval(onSnapshotTick, SNAPSHOT_MS)
-  flushTimer.unref()
-  snapshotTimer.unref()
-  process.on("exit", onExit)
-  process.on("SIGINT", onSignal)
-  process.on("SIGTERM", onSignal)
+function round2(value: number): number {
+  return Math.round(value * 100) / 100
 }

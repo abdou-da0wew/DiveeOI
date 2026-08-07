@@ -685,7 +685,14 @@ const maybeDecompress = (data: string): string => {
 }
 ```
 
-### 5.3 Part Delta Coalescing
+### 5.3 Part Delta Coalescing — DISCARDED (2026-08-06)
+
+> **Discarded**: Deltas stay live-streamed as-is. Final part state is already
+> persisted by the message writer; deltas are transient transport with no replay
+> consumer. A 100ms debounce would only batch UI updates (UX change) and the
+> "delta log for replay" would be a new subsystem with nothing reading it.
+> Revisit only if a replay/undo feature is added.
+
 **File**: `packages/server/src/session/session.ts` — `updatePartDelta`
 ```ts
 // Debounce rapid deltas (100ms window)

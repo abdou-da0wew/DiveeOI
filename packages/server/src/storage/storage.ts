@@ -1,5 +1,6 @@
 import { LayerNode } from "@diveeoi/db/effect/layer-node"
 import path from "path"
+import { gzipSync, gunzipSync } from "node:zlib"
 import { Global } from "@diveeoi/db/global"
 import { FSUtil } from "@diveeoi/db/fs-util"
 import { Effect, Exit, Layer, Option, RcMap, Schema, Context, TxReentrantLock } from "effect"
@@ -17,6 +18,32 @@ export class NotFoundError extends Schema.TaggedErrorClass<NotFoundError>()("Not
 }
 
 export type Error = FSUtil.Error | NotFoundError
+
+const GZIP_THRESHOLD = 10 * 1024
+
+function encodeContent(content: unknown): string {
+  const text = JSON.stringify(content)
+  if (text.length <= GZIP_THRESHOLD) return JSON.stringify(content, null, 2)
+  return `GZIP:${gzipSync(text).toString("base64")}`
+}
+
+function decodeContent(content: unknown): unknown {
+  if (typeof content === "string" && content.startsWith("GZIP:")) {
+    return JSON.parse(gunzipSync(Buffer.from(content.slice(5), "base64")).toString("utf8"))
+  }
+  // Legacy wrapper format written before the GZIP: prefix marker.
+  if (
+    typeof content === "object" &&
+    content !== null &&
+    "gzip" in content &&
+    content.gzip === true &&
+    "data" in content &&
+    typeof content.data === "string"
+  ) {
+    return JSON.parse(gunzipSync(Buffer.from(content.data, "base64")).toString("utf8"))
+  }
+  return content
+}
 
 const RootFile = Schema.Struct({
   path: Schema.optional(
@@ -249,7 +276,7 @@ export const layer = Layer.effect(
       body.pipe(Effect.catchIf(missing, () => fail(target)))
 
     const writeJson = Effect.fnUntraced(function* (target: string, content: unknown) {
-      yield* fs.writeWithDirs(target, JSON.stringify(content, null, 2))
+      yield* fs.writeWithDirs(target, encodeContent(content))
     })
 
     const withResolved = <A, E>(
@@ -274,7 +301,7 @@ export const layer = Layer.effect(
         const value = yield* withResolved(key, (target, rw) =>
           TxReentrantLock.withReadLock(rw, wrap(target, fs.readJson(target))),
         )
-        return value as T
+        return decodeContent(value) as T
       })
 
     const update: Interface["update"] = <T>(key: string[], fn: (draft: T) => void) =>
@@ -284,9 +311,10 @@ export const layer = Layer.effect(
             rw,
             Effect.gen(function* () {
               const content = yield* wrap(target, fs.readJson(target))
-              fn(content as T)
-              yield* writeJson(target, content)
-              return content
+              const decoded = decodeContent(content)
+              fn(decoded as T)
+              yield* writeJson(target, decoded)
+              return decoded
             }),
           ),
         )

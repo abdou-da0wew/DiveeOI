@@ -1,4 +1,5 @@
 import { LayerNode } from "@diveeoi/db/effect/layer-node"
+import { defaultLayer as AdaptiveResourceDefaultLayer, useAdaptiveTargets } from "@diveeoi/db/adaptive"
 import { httpClient } from "@diveeoi/db/effect/layer-node-platform"
 import { LogLevel } from "effect"
 import { Ripgrep } from "@diveeoi/db/ripgrep"
@@ -37,7 +38,7 @@ import * as Truncate from "./truncate"
 import { Glob } from "@diveeoi/db/util/glob"
 import path from "path"
 import { pathToFileURL } from "url"
-import { Effect, Layer, Context } from "effect"
+import { Effect, Layer, Context, Semaphore } from "effect"
 import { FetchHttpClient, HttpClient } from "effect/unstable/http"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { CrossSpawnSpawner } from "@diveeoi/db/cross-spawn-spawner"
@@ -94,6 +95,7 @@ export const layer = Layer.effect(
     const agents = yield* Agent.Service
     const truncate = yield* Truncate.Service
     const flags = yield* RuntimeFlags.Service
+    const toolSemaphore = yield* useAdaptiveTargets(({ maxToolConcurrency }) => Semaphore.make(maxToolConcurrency))
 
     const invalid = yield* InvalidTool
     const task = yield* TaskTool
@@ -110,9 +112,6 @@ export const layer = Layer.effect(
     const greptool = yield* GrepTool
     const agent = yield* Agent.Service
 
-    // DEBUG: Log available services before memory tools
-    console.log("[DEBUG] ToolRegistry: About to initialize memory tools")
-
     // Memory tools
     const memoryRetrieve = yield* MemoryTools.MemoryRetrieveTool
     const memoryCreate = yield* MemoryTools.MemoryCreateTool
@@ -122,6 +121,8 @@ export const layer = Layer.effect(
     const memoryConsolidate = yield* MemoryTools.MemoryConsolidateTool
     const memoryStats = yield* MemoryTools.MemoryStatsTool
     const memoryToggle = yield* MemoryTools.MemoryToggleTool
+    const memoryExtract = yield* MemoryTools.MemoryExtractTool
+    const memoryExtractStatus = yield* MemoryTools.MemoryExtractStatusTool
 
     const ctx7Defs = yield* getCtx7Defs().pipe(
       Effect.catch(() => Effect.succeed([] as Tool.Def[])),
@@ -160,7 +161,9 @@ export const layer = Layer.effect(
                   directory: ctx.directory,
                   worktree: ctx.worktree,
                 }
-                const result = yield* Effect.promise(() => def.execute(args as any, pluginCtx))
+                const result = yield* toolSemaphore.withPermit(
+                  Effect.promise(() => def.execute(args as any, pluginCtx)),
+                )
                 const output = typeof result === "string" ? result : result.output
                 const metadata = typeof result === "string" ? {} : (result.metadata ?? {})
                 const attachments = typeof result === "string" ? undefined : result.attachments
@@ -240,6 +243,8 @@ export const layer = Layer.effect(
           consolidate: Tool.init(memoryConsolidate),
           stats: Tool.init(memoryStats),
           toggle: Tool.init(memoryToggle),
+          extract: Tool.init(memoryExtract),
+          "extract-status": Tool.init(memoryExtractStatus),
         })
 
         const builtin: Tool.Def[] = [
@@ -423,6 +428,7 @@ export const defaultLayer = Layer.suspend(() =>
       Layer.provide(Format.defaultLayer),
       Layer.provide(CrossSpawnSpawner.defaultLayer),
       Layer.provide(Truncate.defaultLayer),
+      Layer.provide(AdaptiveResourceDefaultLayer),
     )
     .pipe(Layer.provide(Database.defaultLayer), Layer.provide(RuntimeFlags.defaultLayer)),
 )
@@ -503,6 +509,8 @@ function isJsonSchemaObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
+const adaptiveNode = LayerNode.make(AdaptiveResourceDefaultLayer, [])
+
 export const node = LayerNode.make(layer.pipe(Layer.provide(Ripgrep.defaultLayer)), [
   Config.node,
   Plugin.node,
@@ -522,6 +530,7 @@ export const node = LayerNode.make(layer.pipe(Layer.provide(Ripgrep.defaultLayer
   Format.node,
   Truncate.node,
   RuntimeFlags.node,
+  adaptiveNode,
   Database.node,
   Memory.node,
   SessionMemoryIntegration.node,

@@ -5,6 +5,8 @@ import { PositiveInt } from "../schema"
 import { PtyID } from "./schema"
 import { Cache, Context, Duration, Effect, Layer, Schema } from "effect"
 import { LayerNode } from "../effect/layer-node"
+import { makeAdaptiveLayer } from "../adaptive/hooks"
+import { node as AdaptiveResourceNode } from "../adaptive/service"
 
 const DEFAULT_TTL = Duration.seconds(60)
 const CAPACITY = 10_000
@@ -37,10 +39,10 @@ function matches(record: Scope, input: Scope) {
 // never invoked; it dies if it ever is, which would signal a misuse of the Service interface.
 const noLookup = () => Effect.die("PtyTicket cache must be used via set/invalidateWhen, never get")
 
-// Visible for tests so the TTL can be shortened. Production uses `layer` with the default TTL.
-export const make = (ttl: Duration.Input = DEFAULT_TTL) =>
+// Visible for tests so the TTL can be shortened. Production uses `layer` with adaptive capacity.
+export const make = (ttl: Duration.Input = DEFAULT_TTL, capacity: number = CAPACITY) =>
   Effect.gen(function* () {
-    const cache = yield* Cache.make<string, Scope>({ capacity: CAPACITY, lookup: noLookup, timeToLive: ttl })
+    const cache = yield* Cache.make<string, Scope>({ capacity, lookup: noLookup, timeToLive: ttl })
     const expiresIn = Math.max(1, Math.round(Duration.toSeconds(Duration.fromInputUnsafe(ttl))))
     return Service.of({
       issue: Effect.fn("PtyTicket.issue")(function* (input) {
@@ -54,7 +56,9 @@ export const make = (ttl: Duration.Input = DEFAULT_TTL) =>
     })
   })
 
-export const layer = Layer.effect(Service, make())
+export const layer = makeAdaptiveLayer((targets) =>
+  Layer.effect(Service, make(Duration.millis(targets.ptyTicketTTLMs), targets.ptyTicketCapacity)),
+)
 
 export const defaultLayer = layer
-export const node = LayerNode.make(layer, [])
+export const node = LayerNode.make(layer, [AdaptiveResourceNode])

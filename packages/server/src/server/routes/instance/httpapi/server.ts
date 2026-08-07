@@ -29,6 +29,7 @@ import { ProviderAuth } from "@/provider/auth"
 import { Provider } from "@/provider/provider"
 import { Question } from "@/question"
 import { SessionMemoryIntegration } from "@/session/memory"
+import { MemoryScheduler } from "@/session/memory-scheduler"
 import { SessionCompaction } from "@/session/compaction"
 import { Instruction } from "@/session/instruction"
 import { LLM } from "@/session/llm"
@@ -52,6 +53,7 @@ import { Worktree } from "@/worktree"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { MoveSession } from "@diveeoi/db/control-plane/move-session"
 import { Database } from "@diveeoi/db/database/database"
+import { defaultLayer as AdaptiveResourceDefaultLayer } from "@diveeoi/db/adaptive"
 import { LayerNode } from "@diveeoi/db/effect/layer-node"
 import { httpClient } from "@diveeoi/db/effect/layer-node-platform"
 import { EventV2 } from "@diveeoi/db/event"
@@ -94,12 +96,13 @@ import { providerHandlers } from "./handlers/provider"
 import { ptyConnectHandlers, ptyHandlers } from "./handlers/pty"
 import { questionHandlers } from "./handlers/question"
 import { sessionHandlers } from "./handlers/session"
+import { memoryExtractRoute } from "./handlers/memory"
 import { syncHandlers } from "./handlers/sync"
 import { themeRoute } from "./handlers/themes"
 import { tuiHandlers } from "./handlers/tui"
+import { workspaceHandlers } from "./handlers/workspace"
 import { handlers } from "@diveeoi/api/handlers"
 import { schemaErrorLayer as v2SchemaErrorLayer } from "@diveeoi/api/middleware/schema-error"
-import { workspaceHandlers } from "./handlers/workspace"
 import { instanceContextLayer } from "./middleware/instance-context"
 import { workspaceRoutingLayer } from "./middleware/workspace-routing"
 import { disposeMiddleware, traceMiddleware } from "./lifecycle"
@@ -110,6 +113,7 @@ import { errorLayer } from "./middleware/error"
 import { fenceLayer } from "./middleware/fence"
 import { schemaErrorLayer } from "./middleware/schema-error"
 import { Memory } from "@diveeoi/memory"
+import { memoryExtractRoute } from "./handlers/memory"
 
 export const context = Context.makeUnsafe<unknown>(new Map())
 
@@ -249,6 +253,7 @@ const app = LayerNode.group([
   Truncate.node,
   Memory.node,
   SessionMemoryIntegration.node,
+  MemoryScheduler.node,
   ToolRegistry.node,
   Format.node,
   Project.node,
@@ -269,7 +274,7 @@ const app = LayerNode.group([
 export function createRoutes(
   corsOptions?: CorsOptions,
 ): Layer.Layer<never, EffectConfig.ConfigError, RouteRequirements> {
-  return Layer.mergeAll(
+return Layer.mergeAll(
     rootApiRoutes,
     eventApiRoutes,
     ptyConnectApiRoutes,
@@ -277,6 +282,7 @@ export function createRoutes(
     serverRoutes,
     docRoute,
     themeRoute,
+    memoryExtractRoute,
     uiRoute,
   ).pipe(
     Layer.provide([
@@ -287,9 +293,11 @@ export function createRoutes(
       cors(corsOptions),
       MoveSession.defaultLayer,
       HttpServer.layerServices,
+      AdaptiveResourceDefaultLayer,
     ]),
     Layer.provide(LayerNode.buildLayer(app)),
     Layer.provideMerge(LayerNode.buildLayer(SessionMemoryIntegration.node)),
+    Layer.provideMerge(LayerNode.buildLayer(MemoryScheduler.node)),
     Layer.provide(Layer.succeed(CorsConfig)(corsOptions)),
     Layer.provide(Observability.layer),
   ) as Layer.Layer<never, EffectConfig.ConfigError, RouteRequirements>

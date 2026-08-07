@@ -1,4 +1,5 @@
 import { Effect, Layer, LayerMap } from "effect"
+import { defaultLayer as AdaptiveResourceDefaultLayer } from "./adaptive"
 import { Location } from "./location"
 import { Policy } from "./policy"
 import { Config } from "./config"
@@ -101,6 +102,7 @@ export class LocationServiceMap extends LayerMap.Service<LocationServiceMap>()("
       Layer.provide(model),
       Layer.provide(skillGuidance),
       Layer.provide(referenceGuidance),
+      Layer.provide(AdaptiveResourceDefaultLayer),
     )
 
     // Kick off a background project copy refresh to update locations now that we

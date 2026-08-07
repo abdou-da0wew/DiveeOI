@@ -24,8 +24,10 @@ import { APICallError, convertToModelMessages, LoadAPIKeyError, type ModelMessag
 import { Database } from "@diveeoi/db/database/database"
 import { NotFoundError } from "@/storage/storage"
 import { and } from "drizzle-orm"
+import { asc } from "drizzle-orm"
 import { desc } from "drizzle-orm"
 import { eq } from "drizzle-orm"
+import { gt } from "drizzle-orm"
 import { inArray } from "drizzle-orm"
 import { lt } from "drizzle-orm"
 import { or } from "drizzle-orm"
@@ -105,6 +107,9 @@ const part = (row: typeof PartTable.$inferSelect) =>
 
 const older = (row: Cursor) =>
   or(lt(MessageTable.time_created, row.time), and(eq(MessageTable.time_created, row.time), lt(MessageTable.id, row.id)))
+
+const newer = (row: Cursor) =>
+  or(gt(MessageTable.time_created, row.time), and(eq(MessageTable.time_created, row.time), gt(MessageTable.id, row.id)))
 
 function hydrate(db: Database.Interface["db"], rows: (typeof MessageTable.$inferSelect)[]) {
   const ids = rows.map((row) => row.id)
@@ -437,17 +442,26 @@ export const page = Effect.fn("MessageV2.page")(function* (input: {
   sessionID: SessionID
   limit: number
   before?: string
+  after?: string
 }) {
   const { db } = yield* Database.Service
   const before = input.before ? cursor.decode(input.before) : undefined
-  const where = before
-    ? and(eq(MessageTable.session_id, input.sessionID), older(before))
+  const after = input.after ? cursor.decode(input.after) : undefined
+  if (before && after) yield* Effect.die("MessageV2.page: before and after cursors are mutually exclusive")
+  const forward = after !== undefined
+  const bound = forward ? after : before
+  const predicate = forward ? newer : older
+  const where = bound
+    ? and(eq(MessageTable.session_id, input.sessionID), predicate(bound))
     : eq(MessageTable.session_id, input.sessionID)
+  const order = forward
+    ? ([asc(MessageTable.time_created), asc(MessageTable.id)] as const)
+    : ([desc(MessageTable.time_created), desc(MessageTable.id)] as const)
   const rows = yield* db
     .select()
     .from(MessageTable)
     .where(where)
-    .orderBy(desc(MessageTable.time_created), desc(MessageTable.id))
+    .orderBy(...order)
     .limit(input.limit + 1)
     .all()
     .pipe(Effect.orDie)
@@ -468,7 +482,7 @@ export const page = Effect.fn("MessageV2.page")(function* (input: {
   const more = rows.length > input.limit
   const slice = more ? rows.slice(0, input.limit) : rows
   const items = yield* hydrate(db, slice)
-  items.reverse()
+  if (!forward) items.reverse()
   const tail = slice.at(-1)
   return {
     items,

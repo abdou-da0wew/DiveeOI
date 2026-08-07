@@ -2,6 +2,7 @@ import { SessionV2 } from "@diveeoi/db/session"
 import { LocationServiceMap } from "@diveeoi/db/location-layer"
 import { PermissionSaved } from "@diveeoi/db/permission/saved"
 import { PtyTicket } from "@diveeoi/db/pty/ticket"
+import { defaultLayer as AdaptiveResourceDefaultLayer } from "@diveeoi/db/adaptive"
 import { Layer } from "effect"
 import { layer as locationLayer } from "./groups/location"
 import { sessionLocationLayer } from "./middleware/session-location"
@@ -58,6 +59,7 @@ export const handlers = Layer.mergeAll(
   Layer.provide(SessionV2.defaultLayer),
   Layer.provide(SessionExecutionLocal.defaultLayer),
   Layer.provide(PermissionSaved.defaultLayer),
+  Layer.provide(AdaptiveResourceDefaultLayer),
   Layer.provide(PtyTicket.defaultLayer),
   Layer.provide(LocationServiceMap.layer),
   Layer.provide(Credential.defaultLayer),

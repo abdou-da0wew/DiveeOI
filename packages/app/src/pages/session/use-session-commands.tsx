@@ -119,6 +119,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   const mcpCommand = withCategory(language.t("command.category.mcp"))
   const agentCommand = withCategory(language.t("command.category.agent"))
   const permissionsCommand = withCategory(language.t("command.category.permissions"))
+  const memoryCommand = withCategory(language.t("command.category.memory"))
 
   const isAutoAcceptActive = () => {
     const sessionID = params.id
@@ -571,6 +572,42 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     }),
   ]
 
+  const memoryCmds = () => [
+    memoryCommand({
+      id: "memory.extract",
+      title: language.t("command.memory.extract"),
+      description: language.t("command.memory.extract.description"),
+      slash: "memory-extract",
+      disabled: !params.id,
+      onSelect: () => {
+        const text = "/memory-extract "
+        prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
+      },
+    }),
+    memoryCommand({
+      id: "memory.extract-all",
+      title: language.t("command.memory.extractAll"),
+      description: language.t("command.memory.extractAll.description"),
+      slash: "memory-extract-all",
+      disabled: false,
+      onSelect: () => {
+        const text = "/memory-extract-all "
+        prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
+      },
+    }),
+    memoryCommand({
+      id: "memory.extract-status",
+      title: language.t("command.memory.extractStatus"),
+      description: language.t("command.memory.extractStatus.description"),
+      slash: "memory-extract-status",
+      disabled: false,
+      onSelect: () => {
+        const text = "/memory-extract-status "
+        prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
+      },
+    }),
+  ]
+
   command.register("session", () => [
     ...sessionCmds(),
     ...shareCmds(),
@@ -583,5 +620,6 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     ...mcpCmds(),
     ...agentCmds(),
     ...permissionsCmds(),
+    ...memoryCmds(),
   ])
 }

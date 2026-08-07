@@ -2,6 +2,7 @@ import { Config } from "@/config/config"
 import { GlobalBus, type GlobalEvent as GlobalBusEvent } from "@/bus/global"
 import { EffectBridge } from "@/effect/bridge"
 import { EventV2 } from "@diveeoi/db/event"
+import { withAdaptiveConfig } from "@diveeoi/db/adaptive"
 import { Installation } from "@/installation"
 import { disposeAllInstancesAndEmitGlobalDisposed } from "@/server/global-lifecycle"
 import { InstallationVersion } from "@diveeoi/db/installation/version"
@@ -33,19 +34,20 @@ function parseBody(body: string) {
 function eventResponse() {
   return Effect.gen(function* () {
     yield* Effect.logInfo("global event connected")
-    const events = Stream.callback<GlobalBusEvent>((queue) => {
-      const handler = (event: GlobalBusEvent) => {
-        try {
-          Queue.offerUnsafe(queue, event)
-        } catch (err) {
-          console.error("[sse] offer failed", err)
-        }
+    const queue = yield* withAdaptiveConfig(
+      (targets) => targets.maxSSEQueueSize,
+      (size) => Queue.bounded<GlobalBusEvent>(size),
+    )
+    const handler = (event: GlobalBusEvent) => {
+      try {
+        Queue.offerUnsafe(queue, event)
+      } catch (err) {
+        console.error("[sse] offer failed", err)
       }
-      return Effect.acquireRelease(
-        Effect.sync(() => GlobalBus.on("event", handler)),
-        () => Effect.sync(() => GlobalBus.off("event", handler)),
-      )
-    })
+    }
+    yield* Effect.sync(() => GlobalBus.on("event", handler))
+    yield* Effect.addFinalizer(() => Effect.sync(() => GlobalBus.off("event", handler)))
+    const events = Stream.fromQueue(queue)
     const heartbeat = Stream.tick("10 seconds").pipe(
       Stream.drop(1),
       Stream.map(() => ({ payload: { id: EventV2.ID.create(), type: "server.heartbeat", properties: {} } })),

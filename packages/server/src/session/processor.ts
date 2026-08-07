@@ -248,7 +248,7 @@ export const layer = Layer.effect(
 
       const finishReasoning = Effect.fn("SessionProcessor.finishReasoning")(function* (reasoningID: string) {
         if (!(reasoningID in ctx.reasoningMap)) return
-        // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
+        // Temporary dual-write while migrating session messages to v2 events (removal in v2).
         if (mirrorAssistant) {
           yield* events.publish(SessionEvent.Reasoning.Ended, {
             sessionID: ctx.sessionID,
@@ -313,7 +313,7 @@ export const layer = Layer.effect(
           }
           return { call: ctx.toolcalls[input.id], part }
         }
-        // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
+        // Temporary dual-write while migrating session messages to v2 events (removal in v2).
         const assistantMessageID = mirrorAssistant ? yield* ensureV2AssistantMessage() : undefined
         if (assistantMessageID) {
           yield* events.publish(SessionEvent.Tool.Input.Started, {
@@ -373,7 +373,7 @@ export const layer = Layer.effect(
         switch (value.type) {
           case "reasoning-start":
             if (value.id in ctx.reasoningMap) return
-            // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
+            // Temporary dual-write while migrating session messages to v2 events (removal in v2).
             if (mirrorAssistant) {
               yield* events.publish(SessionEvent.Reasoning.Started, {
                 sessionID: ctx.sessionID,
@@ -451,7 +451,7 @@ export const layer = Layer.effect(
 
           case "tool-input-end": {
             const toolCall = yield* ensureToolCall(value)
-            // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
+            // Temporary dual-write while migrating session messages to v2 events (removal in v2).
             if (mirrorAssistant) {
               const assistantMessageID = yield* requireV2AssistantMessage(toolCall.call)
               yield* events.publish(SessionEvent.Tool.Input.Ended, {
@@ -473,7 +473,7 @@ export const layer = Layer.effect(
             const toolCall = yield* ensureToolCall(value)
             const input = isRecord(value.input) ? value.input : { value: value.input }
             if (!toolCall.call.inputEnded) {
-              // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
+              // Temporary dual-write while migrating session messages to v2 events (removal in v2).
               if (mirrorAssistant) {
                 const assistantMessageID = yield* requireV2AssistantMessage(toolCall.call)
                 yield* events.publish(SessionEvent.Tool.Input.Ended, {
@@ -485,7 +485,7 @@ export const layer = Layer.effect(
                 })
               }
             }
-            // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
+            // Temporary dual-write while migrating session messages to v2 events (removal in v2).
             if (mirrorAssistant) {
               const assistantMessageID = yield* requireV2AssistantMessage(toolCall.call)
               yield* events.publish(SessionEvent.Tool.Called, {
@@ -551,7 +551,7 @@ export const layer = Layer.effect(
             const toolCall = yield* readToolCall(value.id)
             if (!toolCall && value.result.type === "error") return
             if (value.result.type === "error") {
-              // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
+              // Temporary dual-write while migrating session messages to v2 events (removal in v2).
               if (mirrorAssistant) {
                 const assistantMessageID = yield* requireV2AssistantMessage(toolCall?.call)
                 yield* events.publish(SessionEvent.Tool.Failed, {
@@ -592,7 +592,7 @@ export const layer = Layer.effect(
                   : `${rawOutput.output}\n\n[${omitted} image${omitted === 1 ? "" : "s"} omitted: could not be resized below the image size limit.]`,
               attachments: attachments.length ? attachments : undefined,
             }
-            // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
+            // Temporary dual-write while migrating session messages to v2 events (removal in v2).
             if (mirrorAssistant) {
               const assistantMessageID = yield* requireV2AssistantMessage(toolCall?.call)
               const content = [
@@ -649,7 +649,7 @@ export const layer = Layer.effect(
 
           case "tool-error": {
             const toolCall = yield* readToolCall(value.id)
-            // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
+            // Temporary dual-write while migrating session messages to v2 events (removal in v2).
             if (mirrorAssistant) {
               const assistantMessageID = yield* requireV2AssistantMessage(toolCall?.call)
               yield* events.publish(SessionEvent.Tool.Failed, {
@@ -677,7 +677,7 @@ export const layer = Layer.effect(
           case "step-start":
             if (!ctx.snapshot) ctx.snapshot = yield* snapshot.track()
             if (!ctx.assistantMessage.summary) {
-              // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
+              // Temporary dual-write while migrating session messages to v2 events (removal in v2).
               if (mirrorAssistant) {
                 yield* ensureV2AssistantMessage()
               }
@@ -700,7 +700,7 @@ export const layer = Layer.effect(
               metadata: value.providerMetadata,
             })
             if (!ctx.assistantMessage.summary) {
-              // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
+              // Temporary dual-write while migrating session messages to v2 events (removal in v2).
               if (mirrorAssistant) {
                 yield* events.publish(SessionEvent.Step.Ended, {
                   sessionID: ctx.sessionID,
@@ -759,7 +759,7 @@ export const layer = Layer.effect(
 
           case "text-start":
             if (!ctx.assistantMessage.summary) {
-              // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
+              // Temporary dual-write while migrating session messages to v2 events (removal in v2).
               if (mirrorAssistant) {
                 yield* events.publish(SessionEvent.Text.Started, {
                   sessionID: ctx.sessionID,
@@ -818,7 +818,7 @@ export const layer = Layer.effect(
               { text: ctx.currentText.text },
             )).text
             if (!ctx.assistantMessage.summary) {
-              // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
+              // Temporary dual-write while migrating session messages to v2 events (removal in v2).
               if (mirrorAssistant) {
                 yield* events.publish(SessionEvent.Text.Ended, {
                   sessionID: ctx.sessionID,
@@ -937,7 +937,7 @@ export const layer = Layer.effect(
           return
         }
         if (!ctx.assistantMessage.summary) {
-          // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
+          // Temporary dual-write while migrating session messages to v2 events (removal in v2).
           if (mirrorAssistant) {
             yield* events.publish(SessionEvent.Step.Failed, {
               sessionID: ctx.sessionID,
@@ -997,7 +997,7 @@ export const layer = Layer.effect(
                 provider: input.model.providerID,
                 parse,
                 set: (info) => {
-                  // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
+                  // Temporary dual-write while migrating session messages to v2 events (removal in v2).
                   const event = mirrorAssistant
                     ? events.publish(SessionEvent.Retried, {
                         sessionID: ctx.sessionID,

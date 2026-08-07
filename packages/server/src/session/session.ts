@@ -290,6 +290,8 @@ export const SetRevertInput = Schema.Struct({
 export const MessagesInput = Schema.Struct({
   sessionID: SessionID,
   limit: Schema.optional(NonNegativeInt),
+  before: Schema.optional(Schema.String),
+  after: Schema.optional(Schema.String),
 })
 export type ListInput = {
   directory?: string
@@ -492,7 +494,12 @@ export interface Interface {
   readonly setShare: (input: { sessionID: SessionID; share: Info["share"] }) => Effect.Effect<void>
   readonly setWorkspace: (input: { sessionID: SessionID; workspaceID: Info["workspaceID"] }) => Effect.Effect<void>
   readonly diff: (sessionID: SessionID) => Effect.Effect<Snapshot.FileDiff[]>
-  readonly messages: (input: { sessionID: SessionID; limit?: number }) => Effect.Effect<SessionV1.WithParts[], NotFound>
+  readonly messages: (input: {
+    sessionID: SessionID
+    limit?: number
+    before?: string
+    after?: string
+  }) => Effect.Effect<SessionV1.WithParts[], NotFound>
   readonly children: (parentID: SessionID) => Effect.Effect<Info[]>
   readonly remove: (sessionID: SessionID) => Effect.Effect<void, NotFound>
   readonly updateMessage: <T extends SessionV1.Info>(msg: T) => Effect.Effect<T>
@@ -886,13 +893,18 @@ export const layer: Layer.Layer<
     })
 
     const messages: Interface["messages"] = Effect.fn("Session.messages")(function* (input) {
-      if (input.limit) {
-        return (yield* MessageV2.page({ sessionID: input.sessionID, limit: input.limit }).pipe(
-          Effect.provideService(Database.Service, database),
-        )).items
-      }
+  if (input.limit || input.before || input.after) {
+    return (yield* MessageV2.page({
+      sessionID: input.sessionID,
+      limit: input.limit ?? 50,
+      ...(input.before ? { before: input.before } : {}),
+      ...(input.after ? { after: input.after } : {}),
+    }).pipe(
+      Effect.provideService(Database.Service, database),
+    )).items
+  }
 
-      const size = 50
+  const size = 50
       const result = [] as SessionV1.WithParts[]
       let before: string | undefined
       while (true) {

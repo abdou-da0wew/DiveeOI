@@ -1,5 +1,6 @@
 // packages/db/src/adaptive/service.ts
 import { Context, Effect, Layer, Ref } from "effect"
+import { LayerNode } from "../effect/layer-node"
 import { detectSystemResources } from "./detect"
 import type { SystemResources } from "./detect"
 import { computeProfile, computeTargets, interpolateTargets } from "./profiles"
@@ -64,3 +65,4 @@ export const layer = Layer.effect(AdaptiveResourceService, Effect.gen(function* 
 }))
 
 export const defaultLayer = layer
+export const node = LayerNode.make(layer, [])

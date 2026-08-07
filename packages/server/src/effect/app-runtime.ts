@@ -47,7 +47,7 @@ import { Installation } from "@/installation"
 import { ShareNext } from "@/share/share-next"
 import { SessionShare } from "@/share/session"
 import { Npm } from "@diveeoi/db/npm"
-import { AdaptiveResourceService } from "@diveeoi/db/adaptive"
+import { defaultLayer as AdaptiveResourceDefaultLayer } from "@diveeoi/db/adaptive"
 import { memoMap } from "@diveeoi/db/effect/memo-map"
 import { BackgroundJob } from "@/background/job"
 import { RuntimeFlags } from "@/effect/runtime-flags"
@@ -55,7 +55,7 @@ import { EventV2Bridge } from "@/event-v2-bridge"
 
 export const AppLayer = Layer.mergeAll(
   Npm.defaultLayer,
-  AdaptiveResourceService.defaultLayer,
+  AdaptiveResourceDefaultLayer,
   FSUtil.defaultLayer,
   Database.defaultLayer,
   Auth.defaultLayer,
