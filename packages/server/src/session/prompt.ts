@@ -1134,7 +1134,7 @@ export const layer = Layer.effect(
           synthetic: [] as string[],
         },
       )
-      // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
+      // Temporary dual-write while migrating session messages to v2 events (removal in v2).
       if (flags.experimentalEventSystem) {
         yield* events.publish(SessionEvent.Prompted, {
           sessionID: input.sessionID,
@@ -1149,7 +1149,7 @@ export const layer = Layer.effect(
         })
       }
       for (const text of nextPrompt.synthetic) {
-        // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
+        // Temporary dual-write while migrating session messages to v2 events (removal in v2).
         if (flags.experimentalEventSystem) {
           yield* events.publish(SessionEvent.Synthetic, {
             sessionID: input.sessionID,
@@ -1259,9 +1259,10 @@ export const layer = Layer.effect(
             }
             yield* Tracer.info("session.loop.exit", { sessionID })
             // Extract session memory on exit (fire and forget)
-            yield* memory.extractSessionMemory(sessionID, msgs as any).pipe(
-              Effect.catch((err) => Effect.logError("Session memory extraction failed", { sessionID, error: err })),
-              Effect.forkIn(scope),
+            yield* Effect.forkDetach(
+              memory.extractSessionMemory(sessionID, msgs as any).pipe(
+                Effect.catch((err) => Effect.logError("Session memory extraction failed", { sessionID, error: err })),
+              ),
             )
             break
           }
@@ -1288,9 +1289,10 @@ export const layer = Layer.effect(
             })
             if (result === "stop") {
               // Extract session memory on compaction stop (fire and forget)
-              yield* memory.extractSessionMemory(sessionID, msgs as any).pipe(
-                Effect.catch((err) => Effect.logError("Session memory extraction failed", { sessionID, error: err })),
-                Effect.forkIn(scope),
+              yield* Effect.forkDetach(
+                memory.extractSessionMemory(sessionID, msgs as any).pipe(
+                  Effect.catch((err) => Effect.logError("Session memory extraction failed", { sessionID, error: err })),
+                ),
               )
               break
             }

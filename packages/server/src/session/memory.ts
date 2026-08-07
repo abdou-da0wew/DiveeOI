@@ -26,12 +26,9 @@ export interface MemoryMessage {
 }
 
 const makeSessionMemoryIntegration = Effect.gen(function* () {
-  console.log("[DEBUG] SessionMemoryIntegration.init: Starting init effect")
   const memory = yield* Memory.MemoryService
-  console.log("[DEBUG] SessionMemoryIntegration.init: MemoryService obtained")
   const sessionSvc = yield* SessionService
   const extractor = yield* ExtractorService
-  console.log("[DEBUG] SessionMemoryIntegration.init: All services obtained")
 
   const initializeSessionMemory: Interface["initializeSessionMemory"] = (sessionId, title) =>
     Effect.gen(function* () {

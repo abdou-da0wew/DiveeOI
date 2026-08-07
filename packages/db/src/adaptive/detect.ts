@@ -107,8 +107,8 @@ const fallback = (): SystemResources => ({
   platform: mapPlatform(process.platform),
 })
 
-export const detectSystemResources: Effect.Effect<SystemResources, never, never> = detectInternal.pipe(
-  Effect.catchAllCause((cause) =>
+export const detectSystemResources: Effect.Effect<SystemResources, never, never> = detectInternal().pipe(
+  Effect.catchCause((cause) =>
     Effect.logError("Adaptive detect failed", { cause }).pipe(Effect.as(fallback())),
   ),
 )

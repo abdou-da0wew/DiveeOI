@@ -286,6 +286,18 @@
         "@opentui/solid",
       ],
     },
+    "packages/profiler": {
+      "name": "@diveeoi/profiler",
+      "version": "1.17.8",
+      "dependencies": {
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@tsconfig/bun": "catalog:",
+        "@types/bun": "catalog:",
+        "@types/node": "catalog:",
+      },
+    },
     "packages/script": {
       "name": "@diveeoi/script",
       "dependencies": {
@@ -344,6 +356,7 @@
         "@diveeoi/llm": "workspace:*",
         "@diveeoi/memory": "workspace:*",
         "@diveeoi/plugin": "workspace:*",
+        "@diveeoi/profiler": "workspace:*",
         "@diveeoi/script": "workspace:*",
         "@diveeoi/sdk": "workspace:*",
         "@effect/opentelemetry": "catalog:",
@@ -769,6 +782,8 @@
     "@diveeoi/memory": ["@diveeoi/memory@workspace:packages/memory"],
 
     "@diveeoi/plugin": ["@diveeoi/plugin@workspace:packages/plugin"],
+
+    "@diveeoi/profiler": ["@diveeoi/profiler@workspace:packages/profiler"],
 
     "@diveeoi/script": ["@diveeoi/script@workspace:packages/script"],
 

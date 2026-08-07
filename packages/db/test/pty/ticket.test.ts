@@ -3,9 +3,10 @@ import { Effect, Layer } from "effect"
 import { PtyID } from "@diveeoi/db/pty/schema"
 import { PtyTicket } from "@diveeoi/db/pty/ticket"
 import { WorkspaceV2 } from "@diveeoi/db/workspace"
+import { defaultLayer as AdaptiveResourceDefaultLayer } from "@diveeoi/db/adaptive"
 import { testEffect } from "../lib/effect"
 
-const it = testEffect(PtyTicket.layer)
+const it = testEffect(Layer.provideMerge(PtyTicket.layer, AdaptiveResourceDefaultLayer))
 const itExpiring = testEffect(Layer.effect(PtyTicket.Service, PtyTicket.make(5)))
 
 describe("PTY websocket tickets", () => {

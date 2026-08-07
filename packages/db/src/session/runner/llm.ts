@@ -9,6 +9,7 @@ import {
 } from "@diveeoi/llm"
 import { Cause, DateTime, Effect, FiberSet, Layer, Option, Schema, Semaphore, Stream } from "effect"
 import { AgentV2 } from "../../agent"
+import { defaultLayer as AdaptiveResourceDefaultLayer, useAdaptiveTargets } from "../../adaptive"
 import { Config } from "../../config"
 import { Database } from "../../database/database"
 import { EventV2 } from "../../event"
@@ -175,6 +176,7 @@ export const layer = Layer.effect(
     const runTurnAttempt = Effect.fn("SessionRunner.runTurn")(function* (
       sessionID: SessionSchema.ID,
       promotion: SessionInput.Delivery | undefined,
+      llmStreamBuffer: number,
       recoverOverflow?: typeof compaction.compactAfterOverflow,
     ) {
       const session = yield* getSession(sessionID)
@@ -243,6 +245,7 @@ export const layer = Layer.effect(
       if (!(yield* SessionContextEpoch.current(db, session.id, agent.id, system.revision)))
         return yield* Effect.die(rebuildPreparedTurn())
       const providerStream = llm.stream(request).pipe(
+        Stream.buffer({ capacity: llmStreamBuffer, strategy: "suspend" }),
         Stream.runForEach((event) =>
           Effect.gen(function* () {
             if (overflowFailure || publisher.hasProviderError()) return
@@ -340,31 +343,32 @@ export const layer = Layer.effect(
     type RunTurn = (
       sessionID: SessionSchema.ID,
       promotion: SessionInput.Delivery | undefined,
+      llmStreamBuffer: number,
     ) => Effect.Effect<boolean, RunError>
 
-    const runAfterOverflowCompaction: RunTurn = Effect.fnUntraced(function* (sessionID, promotion) {
-      return yield* runTurnAttempt(sessionID, promotion).pipe(
+    const runAfterOverflowCompaction: RunTurn = Effect.fnUntraced(function* (sessionID, promotion, llmStreamBuffer) {
+      return yield* runTurnAttempt(sessionID, promotion, llmStreamBuffer).pipe(
         Effect.catchDefect(
           Effect.fnUntraced(function* (defect) {
             if (!(defect instanceof TurnTransitionError)) return yield* Effect.die(defect)
             if (defect.transition._tag === "ContinueAfterOverflowCompaction")
               return yield* Effect.die("Post-compaction provider attempt cannot recover another overflow")
             yield* Effect.yieldNow
-            return yield* runAfterOverflowCompaction(sessionID, defect.transition.promotion)
+            return yield* runAfterOverflowCompaction(sessionID, defect.transition.promotion, llmStreamBuffer)
           }),
         ),
       )
     })
 
-    const runTurn: RunTurn = Effect.fnUntraced(function* (sessionID, promotion) {
-      return yield* runTurnAttempt(sessionID, promotion, compaction.compactAfterOverflow).pipe(
+    const runTurn: RunTurn = Effect.fnUntraced(function* (sessionID, promotion, llmStreamBuffer) {
+      return yield* runTurnAttempt(sessionID, promotion, llmStreamBuffer, compaction.compactAfterOverflow).pipe(
         Effect.catchDefect(
           Effect.fnUntraced(function* (defect) {
             if (!(defect instanceof TurnTransitionError)) return yield* Effect.die(defect)
             yield* Effect.yieldNow
             if (defect.transition._tag === "ContinueAfterOverflowCompaction")
-              return yield* runAfterOverflowCompaction(sessionID, undefined)
-            return yield* runTurn(sessionID, defect.transition.promotion)
+              return yield* runAfterOverflowCompaction(sessionID, undefined, llmStreamBuffer)
+            return yield* runTurn(sessionID, defect.transition.promotion, llmStreamBuffer)
           }),
         ),
       )
@@ -377,13 +381,14 @@ export const layer = Layer.effect(
       const hasSteer = yield* SessionInput.hasPending(db, input.sessionID, "steer")
       const hasQueue = hasSteer ? false : yield* SessionInput.hasPending(db, input.sessionID, "queue")
       if (input.force !== true && !hasSteer && !hasQueue) return
+      const llmStreamBuffer = yield* useAdaptiveTargets(({ maxLLMStreamBuffer }) => Effect.succeed(maxLLMStreamBuffer))
       yield* failInterruptedTools(input.sessionID)
       let promotion: SessionInput.Delivery | undefined = hasSteer ? "steer" : hasQueue ? "queue" : undefined
       let openActivity = input.force === true || hasSteer || hasQueue
       while (openActivity) {
         let needsContinuation = true
         for (let step = 0; step < MAX_STEPS; step++) {
-          needsContinuation = yield* runTurn(input.sessionID, promotion)
+          needsContinuation = yield* runTurn(input.sessionID, promotion, llmStreamBuffer)
           promotion = "steer"
           if (!needsContinuation) needsContinuation = yield* SessionInput.hasPending(db, input.sessionID, "steer")
           if (!needsContinuation) break
@@ -399,6 +404,6 @@ export const layer = Layer.effect(
       run,
     })
   }),
-)
+).pipe(Layer.provide(AdaptiveResourceDefaultLayer))
 
 export const defaultLayer = layer
