@@ -1,15 +1,22 @@
-import { Effect, Layer, Context, Schedule, DateTime, Duration } from "effect"
+import { Effect, Layer, Context, Schedule, DateTime, Duration, Ref, Fiber, Scope } from "effect"
 import { SessionMemoryIntegration } from "./memory"
 import { MemoryConfig } from "@diveeoi/memory"
 import { MemoryError } from "@diveeoi/memory/schema"
-import { Database } from "@diveeoi/db/database/database"
 import { LayerNode } from "@diveeoi/db/effect/layer-node"
-import { sql } from "drizzle-orm"
+import { Session } from "./session"
+import { SessionID } from "./schema"
 
 /**
  * Memory Scheduler - Runs automatic memory extraction daily at 12:00
  * and provides manual extraction trigger.
  */
+
+const EXTRACT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+
+const MAX_EXTRACT_SESSIONS = 50
+
+const EXTRACT_SESSION_DELAY = Duration.seconds(2)
+
 export interface MemorySchedulerInterface {
   readonly start: () => Effect.Effect<void, MemoryError, MemoryConfig>
   readonly stop: () => Effect.Effect<void>
@@ -21,12 +28,12 @@ export const MemorySchedulerService = Context.Service<MemorySchedulerInterface, 
 
 const makeScheduler = Effect.gen(function* () {
   const sessionMemory = yield* SessionMemoryIntegration.Service
-  const config = yield* MemoryConfig
-  const { db } = yield* Database.Service
+  const sessions = yield* Session.Service
+  const scope = yield* Scope.Scope
 
   // State for the scheduled fiber
-  const scheduleFiberRef = yield* Effect.makeRef<Effect.Fiber<unknown, unknown> | null>(null)
-  const nextRunRef = yield* Effect.makeRef<DateTime.DateTime | undefined>(undefined)
+  const scheduleFiberRef = yield* Ref.make<Fiber.Fiber<unknown, unknown> | null>(null)
+  const nextRunRef = yield* Ref.make<DateTime.DateTime | undefined>(undefined)
 
   const extractForSession = (
     sessionId: string
@@ -38,130 +45,119 @@ const makeScheduler = Effect.gen(function* () {
 
       yield* sessionMemory.extractSessionMemory(sessionId, messages).pipe(
         Effect.catch((err) =>
-          Effect.logError("Scheduled memory extraction failed", { sessionId, error: err })
+          Effect.logError("Scheduled memory extraction failed", { sessionID: sessionId, error: err })
         )
       )
     })
 
   const extractAllSessions = (): Effect.Effect<void, MemoryError, MemoryConfig> =>
     Effect.gen(function* () {
-      // Get all active sessions from database
-      const sessions = yield* Effect.tryPromise({
-        try: async () => {
-          const rows = await db.all(sql`
-            SELECT id FROM sessions 
-            WHERE updated_at > ${Date.now() - 7 * 24 * 60 * 60 * 1000}
-            ORDER BY updated_at DESC
-            LIMIT 50
-          `)
-          return rows.map((r: any) => r.id)
-        },
-        catch: (err) => new MemoryError({ cause: err })
-      })
+      // Get the most recently updated sessions from the session service
+      const cutoff = Date.now() - EXTRACT_WINDOW_MS
+      const all = yield* sessions.listGlobal({ limit: MAX_EXTRACT_SESSIONS })
+      const recent = all
+        .filter((session) => session.time.updated > cutoff)
+        .sort((a, b) => b.time.updated - a.time.updated)
+        .slice(0, MAX_EXTRACT_SESSIONS)
 
       // Extract for each session sequentially to avoid overwhelming the LLM
-      for (const sessionId of sessions) {
-        yield* extractForSession(sessionId).pipe(
+      for (const info of recent) {
+        yield* extractForSession(info.id).pipe(
           Effect.catch((err) =>
-            Effect.logError("Session extraction failed", { sessionId, error: err })
+            Effect.logError("Session extraction failed", { sessionID: info.id, error: err })
           )
         )
         // Small delay between sessions
-        yield* Effect.sleep("2 seconds")
+        yield* Effect.sleep(EXTRACT_SESSION_DELAY)
       }
     })
 
   const getSessionMessages = (sessionId: string): Effect.Effect<Array<{ role: "user" | "assistant" | "system"; content: string }>, MemoryError> =>
-    Effect.tryPromise({
-      try: async () => {
-        const rows = await db.all(sql`
-          SELECT role, content FROM messages 
-          WHERE session_id = ${sessionId}
-          ORDER BY created_at ASC
-        `)
-        return rows.map((r: any) => ({
-          role: r.role as "user" | "assistant" | "system",
-          content: r.content
-        }))
-      },
-      catch: (err) => new MemoryError({ cause: err })
-    })
+    sessions.messages({ sessionID: sessionId as SessionID }).pipe(
+      Effect.mapError((err) => new MemoryError({ cause: err })),
+      Effect.map((withParts) =>
+        withParts.flatMap((message) => {
+          const content = message.parts
+            .filter((part) => part.type === "text" && !part.synthetic && !part.ignored)
+            .map((part) => part.text)
+            .join("\n\n")
+          return content.length === 0
+            ? []
+            : [{ role: message.info.role, content }]
+        })
+      )
+    )
 
   const calculateNextRun = (): Effect.Effect<DateTime.DateTime> =>
     Effect.gen(function* () {
       const now = yield* DateTime.now
-      const todayAtNoon = yield* DateTime.make({
+      const todayAtNoon = DateTime.makeUnsafe({
         year: now.year,
         month: now.month,
         day: now.day,
         hour: 12,
         minute: 0,
         second: 0,
-        millisecond: 0
       })
-      
+
       // If it's already past noon today, schedule for tomorrow
-      const nextRun = DateTime.greaterThan(now, todayAtNoon)
-        ? yield* DateTime.add(todayAtNoon, Duration.days(1))
+      const nextRun = DateTime.isGreaterThan(now, todayAtNoon)
+        ? DateTime.addDuration(Duration.days(1))(todayAtNoon)
         : todayAtNoon
-      
+
       return nextRun
     })
 
-  const runSchedule = (): Effect.Effect<void, never> =>
+  const runSchedule = (): Effect.Effect<void, never, MemoryConfig> =>
     Effect.gen(function* () {
       yield* Effect.logInfo("Memory scheduler started - daily extraction at 12:00")
-      
+
       // Initial calculation of next run
       const nextRun = yield* calculateNextRun()
-      yield* Effect.setRef(nextRunRef, nextRun)
-      
+      yield* Ref.set(nextRunRef, nextRun)
+
       // Run immediately on startup for any sessions that need it
       yield* extractAllSessions().pipe(
-        Effect.catchAll((err) => Effect.logError("Initial extraction failed", { error: err }))
-      )
-      
-      // Schedule recurring daily at 12:00
-      const schedule = Schedule.recursForever(
-        Schedule.spaced(Duration.days(1))
-      ).pipe(
-        Schedule.addDelay(() => Effect.gen(function* () {
-          const nextRun = yield* calculateNextRun()
-          yield* Effect.setRef(nextRunRef, nextRun)
-          const now = yield* DateTime.now
-          const delay = yield* DateTime.toMillis(DateTime.diff(nextRun, now))
-          return Duration.millis(Math.max(0, delay))
-        }))
+        Effect.catch((err) => Effect.logError("Initial extraction failed", { error: err }))
       )
 
-      yield* Effect.sleepForever.pipe(
-        Effect.provideService(Schedule.Schedule, schedule),
-        Effect.tap(() => extractAllSessions().pipe(
-          Effect.catchAll((err) => Effect.logError("Scheduled extraction failed", { error: err }))
-        ))
-      )
+      // Wait until the scheduled time, extract, then reschedule and repeat
+      yield* Effect.gen(function* () {
+        const target = yield* Ref.get(nextRunRef)
+        const now = yield* DateTime.now
+        const delayMs = target === undefined
+          ? 0
+          : Math.max(0, DateTime.toEpochMillis(target) - DateTime.toEpochMillis(now))
+        if (delayMs > 0) {
+          yield* Effect.sleep(Duration.millis(delayMs))
+        }
+
+        yield* extractAllSessions().pipe(
+          Effect.catch((err) => Effect.logError("Scheduled extraction failed", { error: err }))
+        )
+
+        const next = yield* calculateNextRun()
+        yield* Ref.set(nextRunRef, next)
+      }).pipe(Effect.repeat(Schedule.forever))
     })
 
   const start = (): Effect.Effect<void, MemoryError, MemoryConfig> =>
     Effect.gen(function* () {
-      const existingFiber = yield* Effect.getRef(scheduleFiberRef)
+      const existingFiber = yield* Ref.get(scheduleFiberRef)
       if (existingFiber) return
-      
-      const scope = yield* Effect.scope
-      const fiber = yield* runSchedule().pipe(
-        Effect.forkIn(scope)
-      )
-      
-      yield* Effect.setRef(scheduleFiberRef, fiber)
+
+      const fiber = yield* runSchedule().pipe(Effect.forkIn(scope))
+
+      yield* Ref.set(scheduleFiberRef, fiber)
       yield* Effect.logInfo("Memory scheduler started")
     })
 
   const stop = (): Effect.Effect<void> =>
     Effect.gen(function* () {
-      const fiber = yield* Effect.getRef(scheduleFiberRef)
+      const fiber = yield* Ref.get(scheduleFiberRef)
       if (fiber) {
-        yield* Effect.interrupt(fiber)
-        yield* Effect.setRef(scheduleFiberRef, null)
+        yield* Fiber.interrupt(fiber)
+        yield* Ref.set(scheduleFiberRef, null)
         yield* Effect.logInfo("Memory scheduler stopped")
       }
     })
@@ -176,7 +172,7 @@ const makeScheduler = Effect.gen(function* () {
     })
 
   const getNextRun = (): Effect.Effect<DateTime.DateTime | undefined> =>
-    Effect.getRef(nextRunRef)
+    Ref.get(nextRunRef)
 
   return { start, stop, extractNow, getNextRun }
 })
@@ -192,7 +188,7 @@ export const MemorySchedulerLive = Layer.effect(
 
 export const node = LayerNode.make(MemorySchedulerLive, [
   SessionMemoryIntegration.node,
-  Database.node,
+  Session.node,
 ])
 
 export * as MemoryScheduler from "./memory-scheduler"
