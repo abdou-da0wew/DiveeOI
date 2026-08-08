@@ -74,6 +74,7 @@ export const Memory = {
   CoreMemoryLayer,
   MemoryNode,
   TestMemoryLayer: MemoryLayer,
+  defaultLayer: MemoryLive,
 } as const
 
 // Test layer alias

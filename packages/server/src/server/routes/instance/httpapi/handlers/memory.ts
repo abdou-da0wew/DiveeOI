@@ -7,7 +7,7 @@ import { authorizationRouterMiddleware } from "../middleware/authorization"
 
 const sessionIdParam = "/:sessionID/memory-extract"
 
-export const memoryExtractRoute = HttpRouter.use((router) =>
+const memoryExtractRouteBase = HttpRouter.use((router) =>
   Effect.gen(function* () {
     const sessionMemory = yield* SessionMemoryIntegration.Service
     const scheduler = yield* MemoryScheduler.Service
@@ -40,4 +40,8 @@ export const memoryExtractRoute = HttpRouter.use((router) =>
   }),
 ).pipe(
   Layer.provide(authorizationRouterMiddleware.layer.pipe(Layer.provide(ServerAuth.Config.defaultLayer))),
+)
+
+export const memoryExtractRoute = memoryExtractRouteBase.pipe(
+  Layer.provide(MemoryScheduler.node),
 )
