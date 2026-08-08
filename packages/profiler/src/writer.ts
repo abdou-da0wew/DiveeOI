@@ -1,12 +1,13 @@
-import { openSync, writeSync, closeSync } from "node:fs"
+import { mkdirSync, openSync, writeSync, closeSync } from "node:fs"
+import { dirname } from "node:path"
 import { _onScope, isEnabled, processMem, snapshot } from "./core"
 import type { ScopeEvent } from "./types"
 
 const DEFAULT_OUTPUT = ".divee/profiler.jsonl"
 
 const outputPath = process.env["DIVEEOI_PROFILER_OUTPUT"] ?? DEFAULT_OUTPUT
-const flushMs = parseMs(process.env["DIVEEOI_PROFILER_FLUSH_MS"], 5000)
-const snapshotMs = parseMs(process.env["DIVEEOI_PROFILER_SNAPSHOT_MS"], 60000)
+const flushMs = parsePositiveMs(process.env["DIVEEOI_PROFILER_FLUSH_MS"], 5000)
+const snapshotMs = parsePositiveMs(process.env["DIVEEOI_PROFILER_SNAPSHOT_MS"], 60000)
 const minMs = parseMs(process.env["DIVEEOI_PROFILER_MIN_MS"], 1)
 const topFunctions = parseNum(process.env["DIVEEOI_PROFILER_TOP_FUNCTIONS"], 200)
 
@@ -36,6 +37,7 @@ export function start(): void {
   if (started) return
   if (!isEnabled()) return
   started = true
+  mkdirSync(dirname(outputPath), { recursive: true })
   fd = openSync(outputPath, "a")
   flushTimer = setInterval(onFlushTick, flushMs)
   flushTimer.unref?.()
@@ -46,9 +48,7 @@ export function start(): void {
     try {
       onFlushTick()
       drain()
-    } finally {
-      process.exit(0)
-    }
+    } catch {}
   }
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, onSignal)
@@ -141,6 +141,11 @@ function drain(): void {
 function parseMs(raw: string | undefined, fallback: number): number {
   const value = Number(raw)
   return Number.isFinite(value) && value >= 0 ? value : fallback
+}
+
+function parsePositiveMs(raw: string | undefined, fallback: number): number {
+  const value = Number(raw)
+  return Number.isFinite(value) && value > 0 ? value : fallback
 }
 
 function parseNum(raw: string | undefined, fallback: number): number {

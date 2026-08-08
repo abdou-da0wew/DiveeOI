@@ -98,7 +98,7 @@ import { questionHandlers } from "./handlers/question"
 import { sessionHandlers } from "./handlers/session"
 import { memoryExtractRoute } from "./handlers/memory"
 import { syncHandlers } from "./handlers/sync"
-import { themeRoute } from "./handlers/themes"
+import { themeRoute as rawThemeRoute } from "./handlers/themes"
 import { tuiHandlers } from "./handlers/tui"
 import { workspaceHandlers } from "./handlers/workspace"
 import { handlers } from "@diveeoi/api/handlers"
@@ -113,7 +113,6 @@ import { errorLayer } from "./middleware/error"
 import { fenceLayer } from "./middleware/fence"
 import { schemaErrorLayer } from "./middleware/schema-error"
 import { Memory } from "@diveeoi/memory"
-import { memoryExtractRoute } from "./handlers/memory"
 
 export const context = Context.makeUnsafe<unknown>(new Map())
 
@@ -202,6 +201,8 @@ const uiRoute = HttpRouter.use((router) =>
     )
   }),
 ).pipe(Layer.provide(authOnlyRouterLayer))
+
+const themeRoute = rawThemeRoute.pipe(Layer.provide(authOnlyRouterLayer))
 
 type RouteRequirements =
   | HttpRouter.HttpRouter
