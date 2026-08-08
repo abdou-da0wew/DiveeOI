@@ -69,10 +69,11 @@ const makeMemoryService = Effect.gen(function* () {
     const initFiber = yield* Effect.forkIn(
       indexer.initialize().pipe(
         Effect.tap(() =>
-          Effect.logInfo("Memory indexer initialized").pipe(
-            // Suppress notifications if feature disabled
-            Effect.when(() => Effect.sync(() => config.features.notifications))
-          )
+          Effect.gen(function* () {
+            if (config.features.notifications) {
+              yield* Effect.logInfo("Memory indexer initialized")
+            }
+          })
         ),
         Effect.catchCause((cause) =>
           Effect.logError("Memory indexer init failed", { cause })
@@ -86,9 +87,11 @@ const makeMemoryService = Effect.gen(function* () {
     // Blocking mode — wait for init to complete before returning
     yield* indexer.initialize().pipe(
       Effect.tap(() =>
-        Effect.logInfo("Memory indexer initialized").pipe(
-          Effect.when(() => Effect.sync(() => config.features.notifications))
-        )
+        Effect.gen(function* () {
+          if (config.features.notifications) {
+            yield* Effect.logInfo("Memory indexer initialized")
+          }
+        })
       )
     )
   }

@@ -1,4 +1,4 @@
-import { Context, Layer, Schema } from "effect"
+import { Context, Layer, Schema, Effect } from "effect"
 import { AbsolutePath } from "@diveeoi/db/schema"
 
 // Recall configuration
@@ -26,13 +26,13 @@ export class ConsolidationConfig extends Schema.Class<ConsolidationConfig>("Cons
 
 // Feature toggles — all default to true for smooth upgrade
 export class MemoryFeatures extends Schema.Class<MemoryFeatures>("MemoryFeatures")({
-  multiProject: Schema.Boolean.pipe(Schema.withDefault(true)),      // Load memories from all projects
-  autoDetectProjects: Schema.Boolean.pipe(Schema.withDefault(true)), // Scan for .divee/memory/ dirs
-  orphanDetection: Schema.Boolean.pipe(Schema.withDefault(true)),   // Mark missing files
-  projectBoundaries: Schema.Boolean.pipe(Schema.withDefault(true)), // Filter recall by project
-  nonBlockingInit: Schema.Boolean.pipe(Schema.withDefault(true)),   // Background indexer init
-  notifications: Schema.Boolean.pipe(Schema.withDefault(true)),     // Indexer ready events
-  legacyOpencodePaths: Schema.Boolean.pipe(Schema.withDefault(true)), // Read .opencode/memory/ (legacy)
+  multiProject: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),      // Load memories from all projects
+  autoDetectProjects: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))), // Scan for .divee/memory/ dirs
+  orphanDetection: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),   // Mark missing files
+  projectBoundaries: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))), // Filter recall by project
+  nonBlockingInit: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),   // Background indexer init
+  notifications: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),     // Indexer ready events
+  legacyOpencodePaths: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))), // Read .opencode/memory/ (legacy)
 }) {}
 
 // Memory config shape (encodable/decodable)
