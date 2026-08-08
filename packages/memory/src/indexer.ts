@@ -437,15 +437,22 @@ const getLinkedNodes = (nodeId: MemoryNodeID, depth: number): Effect.Effect<Memo
       const row = yield* mapDbError(db.get<{ path: string }>(sql`SELECT path FROM memory_nodes WHERE id = ${nodeId}`))
       if (!row) return false
       const fs = yield* Effect.promise(() => import("fs/promises"))
-      try {
-        yield* Effect.tryPromise({
-          try: () => fs.access(row.path),
-          catch: () => new Error("File not found")
-        })
-        // File exists — update file_exists if it was marked orphaned
+      // Check file existence - treat any error as "not exists"
+      const exists = yield* Effect.tryPromise({
+        try: async () => {
+          try {
+            await fs.access(row.path)
+            return true
+          } catch {
+            return false // ENOENT or any error = file doesn't exist
+          }
+        },
+        catch: (cause) => new MemoryError({ cause }) // Unexpected error
+      })
+      if (exists) {
         yield* mapDbError(db.run(sql`UPDATE memory_nodes SET file_exists = 1 WHERE id = ${nodeId}`))
         return true
-      } catch {
+      } else {
         yield* mapDbError(db.run(sql`UPDATE memory_nodes SET file_exists = 0 WHERE id = ${nodeId}`))
         return false
       }
