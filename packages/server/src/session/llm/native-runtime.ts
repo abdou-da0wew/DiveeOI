@@ -4,6 +4,7 @@ import { ProviderTransform } from "@/provider/transform"
 import { errorMessage } from "@/util/error"
 import { isRecord } from "@/util/record"
 import { asSchema, type ModelMessage, type Tool } from "ai"
+import { AbortSignal } from "effect/AbortSignal"
 import { Cause, Effect, FiberSet, Queue } from "effect"
 import * as Stream from "effect/Stream"
 import { FetchHttpClient } from "effect/unstable/http"
@@ -139,9 +140,19 @@ export function stream(input: StreamInput): StreamResult {
     ),
   )
 
+  // Wire the abort signal to interrupt the stream
+  const abortSignal = input.abort
+  const interruptibleStream = Stream.interruptWhen(
+    stream,
+    Stream.fromEffect(Effect.promise<void>((resolve) => {
+      if (abortSignal.aborted) resolve()
+      else abortSignal.addEventListener("abort", () => resolve(), { once: true })
+    }))
+  )
+
   return {
     ...current,
-    stream: fetch ? stream.pipe(Stream.provideService(FetchHttpClient.Fetch, fetch)) : stream,
+    stream: fetch ? interruptibleStream.pipe(Stream.provideService(FetchHttpClient.Fetch, fetch)) : interruptibleStream,
   }
 }
 

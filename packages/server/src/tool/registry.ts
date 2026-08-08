@@ -32,6 +32,7 @@ import { getCtx7Defs } from "@/setup/ctx7"
 import * as MemoryTools from "./memory"
 import { Memory } from "@diveeoi/memory"
 import { SessionMemoryIntegration } from "@/session/memory"
+import { MemoryScheduler } from "@/session/memory-scheduler"
 
 import * as Truncate from "./truncate"
 
@@ -121,8 +122,6 @@ export const layer = Layer.effect(
     const memoryConsolidate = yield* MemoryTools.MemoryConsolidateTool
     const memoryStats = yield* MemoryTools.MemoryStatsTool
     const memoryToggle = yield* MemoryTools.MemoryToggleTool
-    const memoryExtract = yield* MemoryTools.MemoryExtractTool
-    const memoryExtractStatus = yield* MemoryTools.MemoryExtractStatusTool
 
     const ctx7Defs = yield* getCtx7Defs().pipe(
       Effect.catch(() => Effect.succeed([] as Tool.Def[])),
@@ -243,8 +242,6 @@ export const layer = Layer.effect(
           consolidate: Tool.init(memoryConsolidate),
           stats: Tool.init(memoryStats),
           toggle: Tool.init(memoryToggle),
-          extract: Tool.init(memoryExtract),
-          "extract-status": Tool.init(memoryExtractStatus),
         })
 
         const builtin: Tool.Def[] = [
@@ -430,7 +427,13 @@ export const defaultLayer = Layer.suspend(() =>
       Layer.provide(Truncate.defaultLayer),
       Layer.provide(AdaptiveResourceDefaultLayer),
     )
-    .pipe(Layer.provide(Database.defaultLayer), Layer.provide(RuntimeFlags.defaultLayer)),
+    .pipe(
+      Layer.provide(Database.defaultLayer),
+      Layer.provide(RuntimeFlags.defaultLayer),
+      Layer.provide(Memory.defaultLayer),
+      Layer.provide(SessionMemoryIntegration.defaultLayer),
+      Layer.provide(MemoryScheduler.defaultLayer),
+    ),
 )
 
 function isZodType(value: unknown): value is z.ZodType {
@@ -511,7 +514,7 @@ function isJsonSchemaObject(value: unknown): value is Record<string, unknown> {
 
 const adaptiveNode = LayerNode.make(AdaptiveResourceDefaultLayer, [])
 
-export const node = LayerNode.make(layer.pipe(Layer.provide(Ripgrep.defaultLayer)), [
+export const node = LayerNode.make(layer, [
   Config.node,
   Plugin.node,
   Question.node,
@@ -534,6 +537,8 @@ export const node = LayerNode.make(layer.pipe(Layer.provide(Ripgrep.defaultLayer
   Database.node,
   Memory.node,
   SessionMemoryIntegration.node,
+  MemoryScheduler.node,
+  Ripgrep.node,
 ])
 
 export * as ToolRegistry from "./registry"

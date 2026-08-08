@@ -7,6 +7,7 @@ import os from "os"
 import { PermissionV1 } from "@diveeoi/db/v1/permission"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { EventV2 } from "@diveeoi/db/event"
+import { Config } from "@/config/config"
 
 export const Event = {
   Asked: EventV2.define({ type: "permission.asked", schema: PermissionV1.Request.fields }),
@@ -118,6 +119,7 @@ export const layer = Layer.effect(
     })
 
     const reply = Effect.fn("Permission.reply")(function* (input: PermissionV1.ReplyInput) {
+      const config = yield* Config.Service
       const { approved, pending } = yield* InstanceState.get(state)
       const existing = pending.get(input.requestID)
       if (!existing) return yield* new PermissionV1.NotFoundError({ requestID: input.requestID })
@@ -161,10 +163,12 @@ export const layer = Layer.effect(
         })
       }
 
+      const ruleset = fromConfig(config.permission)
+
       for (const [id, item] of pending.entries()) {
         if (item.info.sessionID !== existing.info.sessionID) continue
         const ok = item.info.patterns.every(
-          (pattern) => evaluate(item.info.permission, pattern, approved).action === "allow",
+          (pattern) => evaluate(item.info.permission, pattern, ruleset, approved).action === "allow",
         )
         if (!ok) continue
         pending.delete(id)
