@@ -94,6 +94,8 @@ export const SessionMemoryIntegrationLive = Layer.effect(
   makeSessionMemoryIntegration
 ).pipe(Layer.provide(MemoryConfig.defaultLayer))
 
+export const defaultLayer = SessionMemoryIntegrationLive
+
 export const node = LayerNode.make(SessionMemoryIntegrationLive, [
   Memory.node,
 ])

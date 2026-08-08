@@ -297,8 +297,6 @@ return Layer.mergeAll(
       AdaptiveResourceDefaultLayer,
     ]),
     Layer.provide(LayerNode.buildLayer(app)),
-    Layer.provideMerge(LayerNode.buildLayer(SessionMemoryIntegration.node)),
-    Layer.provideMerge(LayerNode.buildLayer(MemoryScheduler.node)),
     Layer.provide(Layer.succeed(CorsConfig)(corsOptions)),
     Layer.provide(Observability.layer),
   ) as Layer.Layer<never, EffectConfig.ConfigError, RouteRequirements>

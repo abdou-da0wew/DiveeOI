@@ -186,6 +186,8 @@ export const MemorySchedulerLive = Layer.effect(
   })
 ).pipe(Layer.provide(MemoryConfig.defaultLayer))
 
+export const defaultLayer = MemorySchedulerLive
+
 export const node = LayerNode.make(MemorySchedulerLive, [
   SessionMemoryIntegration.node,
   Session.node,
