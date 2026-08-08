@@ -8,6 +8,9 @@ export type MemoryNodeID = Schema.Schema.Type<typeof MemoryNodeID>
 export const SessionID = Schema.String.pipe(Schema.brand("SessionID"))
 export type SessionID = Schema.Schema.Type<typeof SessionID>
 
+export const ProjectID = Schema.String.pipe(Schema.brand("ProjectID"))
+export type ProjectID = Schema.Schema.Type<typeof ProjectID>
+
 // Memory node types - use Literals for union
 export const MemoryType = Schema.Literals([
   "preference", "decision", "pattern", "entity", "error", "fact", "constraint", "session"
@@ -20,7 +23,19 @@ export const LinkType = Schema.Literals([
 ])
 export type LinkType = Schema.Schema.Type<typeof LinkType>
 
+// Project info - tracks which project/directory a memory belongs to
+export class ProjectInfo extends Schema.Class<ProjectInfo>("ProjectInfo")({
+  id: ProjectID,
+  rootPath: AbsolutePath,
+  name: Schema.String,
+  memoryDir: AbsolutePath,
+  lastScanned: Schema.Number,
+  isActive: Schema.Boolean,
+  nodeCount: Schema.Number,
+}) {}
+
 // Memory Node - the core entity
+// projectId, projectRoot, fileExists added for multi-project support with fallbacks
 export class MemoryNode extends Schema.Class<MemoryNode>("MemoryNode")({
   id: MemoryNodeID,
   type: MemoryType,
@@ -31,7 +46,11 @@ export class MemoryNode extends Schema.Class<MemoryNode>("MemoryNode")({
   created: Schema.Number,
   updated: Schema.Number,
   confidence: Schema.Number,
-  path: AbsolutePath
+  path: AbsolutePath,
+  // Multi-project fields (optional for backward compat with existing data)
+  projectId: optionalOmitUndefined(ProjectID),
+  projectRoot: optionalOmitUndefined(AbsolutePath),
+  fileExists: optionalOmitUndefined(Schema.Boolean),
 }) {}
 
 // Memory Link - edge in the graph

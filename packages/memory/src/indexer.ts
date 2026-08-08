@@ -1,7 +1,7 @@
 import { Effect, Layer, Context, Option, Schema } from "effect"
 import { sql } from "drizzle-orm"
 import { Database } from "@diveeoi/db/database/database"
-import type { MemoryNode, MemoryLink, MemoryNodeID, LinkType, MemoryType } from "./schema"
+import type { MemoryNode, MemoryLink, MemoryNodeID, LinkType, MemoryType, ProjectInfo, ProjectID } from "./schema"
 import { MemoryError } from "./schema"
 import { MemoryConfig } from "./config"
 
@@ -21,6 +21,12 @@ export const MemoryIndexSchema = {
       path TEXT NOT NULL
     );
   `,
+  // Add new columns for multi-project support (idempotent)
+  nodesAlterColumns: [
+    `ALTER TABLE memory_nodes ADD COLUMN project_id TEXT;`,
+    `ALTER TABLE memory_nodes ADD COLUMN project_root TEXT;`,
+    `ALTER TABLE memory_nodes ADD COLUMN file_exists INTEGER DEFAULT 1;`,
+  ],
   links: `
     CREATE TABLE IF NOT EXISTS memory_links (
       source_id TEXT NOT NULL,
@@ -36,7 +42,9 @@ export const MemoryIndexSchema = {
     `CREATE INDEX IF NOT EXISTS idx_memory_nodes_type ON memory_nodes(type);`,
     `CREATE INDEX IF NOT EXISTS idx_memory_nodes_updated ON memory_nodes(updated DESC);`,
     `CREATE INDEX IF NOT EXISTS idx_memory_nodes_confidence ON memory_nodes(confidence DESC);`,
-    `CREATE INDEX IF NOT EXISTS idx_memory_nodes_content ON memory_nodes(content);`
+    `CREATE INDEX IF NOT EXISTS idx_memory_nodes_content ON memory_nodes(content);`,
+    `CREATE INDEX IF NOT EXISTS idx_memory_nodes_project ON memory_nodes(project_id);`,
+    `CREATE INDEX IF NOT EXISTS idx_memory_nodes_orphaned ON memory_nodes(file_exists);`,
   ],
   sessionMemories: `
     CREATE TABLE IF NOT EXISTS session_memories (
@@ -44,7 +52,23 @@ export const MemoryIndexSchema = {
       root_node_id TEXT NOT NULL,
       FOREIGN KEY (root_node_id) REFERENCES memory_nodes(id) ON DELETE CASCADE
     );
-  `
+  `,
+  // Project registry for multi-project memory loading
+  projects: `
+    CREATE TABLE IF NOT EXISTS memory_projects (
+      id TEXT PRIMARY KEY,
+      root_path TEXT NOT NULL UNIQUE,
+      name TEXT,
+      memory_dir TEXT,
+      last_scanned INTEGER,
+      is_active INTEGER DEFAULT 1,
+      node_count INTEGER DEFAULT 0
+    );
+  `,
+  projectsIndexes: [
+    `CREATE INDEX IF NOT EXISTS idx_memory_projects_active ON memory_projects(is_active);`,
+    `CREATE INDEX IF NOT EXISTS idx_memory_projects_root ON memory_projects(root_path);`,
+  ],
 }
 
 export interface IndexerService {
@@ -59,6 +83,7 @@ export interface IndexerService {
   readonly getBacklinks: (nodeId: MemoryNodeID) => Effect.Effect<MemoryLink[], MemoryError>
   readonly getNodesBySession: (sessionId: string) => Effect.Effect<MemoryNode[], MemoryError>
   readonly getNodesByType: (type: MemoryType) => Effect.Effect<MemoryNode[], MemoryError>
+  readonly getNodesByProject: (projectId: ProjectID) => Effect.Effect<MemoryNode[], MemoryError>
   readonly searchNodes: (query: string, limit?: number) => Effect.Effect<MemoryNode[], MemoryError>
   readonly bindSession: (sessionId: string, rootNodeId: MemoryNodeID) => Effect.Effect<void, MemoryError>
   readonly getSessionRoot: (sessionId: string) => Effect.Effect<Option.Option<MemoryNodeID>, MemoryError>
@@ -69,6 +94,12 @@ export interface IndexerService {
   readonly countLinks: () => Effect.Effect<number, MemoryError>
   readonly countSessions: () => Effect.Effect<number, MemoryError>
   readonly rebuildIndex: () => Effect.Effect<void, MemoryError>
+  // Multi-project methods
+  readonly registerProject: (rootPath: string, memoryDir: string, name?: string) => Effect.Effect<ProjectInfo, MemoryError>
+  readonly listProjects: () => Effect.Effect<ProjectInfo[], MemoryError>
+  readonly getOrphanedNodes: () => Effect.Effect<MemoryNode[], MemoryError>
+  readonly verifyFileExists: (nodeId: MemoryNodeID) => Effect.Effect<boolean, MemoryError>
+  readonly markOrphaned: (nodeId: MemoryNodeID) => Effect.Effect<void, MemoryError>
 }
 
 export const IndexerService = Context.Service<IndexerService, IndexerService>()("@diveeoi/memory/IndexerService")
@@ -81,10 +112,21 @@ const makeIndexer = Effect.gen(function* () {
     Effect.gen(function* () {
       yield* mapDbError(db.run(MemoryIndexSchema.nodes))
       yield* mapDbError(db.run(MemoryIndexSchema.links))
+      yield* mapDbError(db.run(MemoryIndexSchema.sessionMemories))
+      yield* mapDbError(db.run(MemoryIndexSchema.projects))
       for (const idx of MemoryIndexSchema.indexes) {
         yield* mapDbError(db.run(idx))
       }
-      yield* mapDbError(db.run(MemoryIndexSchema.sessionMemories))
+      for (const idx of MemoryIndexSchema.projectsIndexes) {
+        yield* mapDbError(db.run(idx))
+      }
+      // Add new columns if they don't exist (idempotent ALTER TABLE)
+      // SQLite ignores "duplicate column" errors, so we catch them
+      for (const alter of MemoryIndexSchema.nodesAlterColumns) {
+        yield* mapDbError(db.run(alter)).pipe(
+          Effect.catch(() => Effect.void) // ignore "duplicate column" errors
+        )
+      }
       // Enable foreign keys
       yield* mapDbError(db.run(`PRAGMA foreign_keys = ON`))
     })
@@ -99,7 +141,10 @@ const makeIndexer = Effect.gen(function* () {
     created: row.created,
     updated: row.updated,
     confidence: row.confidence,
-    path: row.path
+    path: row.path,
+    projectId: row.project_id ?? undefined,
+    projectRoot: row.project_root ?? undefined,
+    fileExists: row.file_exists === undefined ? true : Boolean(row.file_exists),
   })
 
   const rowToLink = (row: any): MemoryLink => ({
@@ -120,8 +165,8 @@ const makeIndexer = Effect.gen(function* () {
     withTransaction(
       Effect.gen(function* () {
         yield* db.run(sql`
-          INSERT OR REPLACE INTO memory_nodes (id, type, title, content, session_id, created, updated, confidence, tags, path)
-          VALUES (${node.id}, ${node.type}, ${node.title}, ${node.content}, ${node.sessionId}, ${node.created}, ${node.updated}, ${node.confidence}, ${JSON.stringify(node.tags)}, ${node.path})
+          INSERT OR REPLACE INTO memory_nodes (id, type, title, content, session_id, created, updated, confidence, tags, path, project_id, project_root, file_exists)
+          VALUES (${node.id}, ${node.type}, ${node.title}, ${node.content}, ${node.sessionId}, ${node.created}, ${node.updated}, ${node.confidence}, ${JSON.stringify(node.tags)}, ${node.path}, ${node.projectId ?? null}, ${node.projectRoot ?? null}, ${node.fileExists ?? true})
         `)
       })
     )
@@ -311,6 +356,90 @@ const getLinkedNodes = (nodeId: MemoryNodeID, depth: number): Effect.Effect<Memo
       })
     )
 
+  // Multi-project methods
+
+  // Hash a path to create a stable project ID
+  const hashProjectPath = (path: string): string => {
+    // Simple hash - sufficient for project identification
+    let hash = 0
+    for (let i = 0; i < path.length; i++) {
+      const char = path.charCodeAt(i)
+      hash = (hash << 5) - hash + char
+      hash = hash & hash // Convert to 32bit integer
+    }
+    return `proj_${Math.abs(hash).toString(16)}`
+  }
+
+  const rowToProject = (row: any): ProjectInfo => ({
+    id: row.id,
+    rootPath: row.root_path,
+    name: row.name ?? row.root_path.split("/").pop() ?? row.root_path,
+    memoryDir: row.memory_dir ?? "",
+    lastScanned: row.last_scanned ?? 0,
+    isActive: Boolean(row.is_active),
+    nodeCount: row.node_count ?? 0,
+  })
+
+  const registerProject = (rootPath: string, memoryDir: string, name?: string): Effect.Effect<ProjectInfo, MemoryError> =>
+    withTransaction(
+      Effect.gen(function* () {
+        const id = hashProjectPath(rootPath)
+        const now = Date.now()
+        const projectName = name ?? rootPath.split("/").pop() ?? rootPath.split("\\").pop() ?? rootPath
+        yield* db.run(sql`
+          INSERT INTO memory_projects (id, root_path, name, memory_dir, last_scanned, is_active, node_count)
+          VALUES (${id}, ${rootPath}, ${projectName}, ${memoryDir}, ${now}, 1, 0)
+          ON CONFLICT(id) DO UPDATE SET
+            memory_dir = excluded.memory_dir,
+            last_scanned = excluded.last_scanned,
+            is_active = 1
+        `)
+        const row = yield* mapDbError(db.get<any>(sql`SELECT * FROM memory_projects WHERE id = ${id}`))
+        if (!row) {
+          return yield* Effect.fail(new MemoryError({ cause: new Error("Failed to register project") }))
+        }
+        return rowToProject(row)
+      })
+    )
+
+  const listProjects = (): Effect.Effect<ProjectInfo[], MemoryError> =>
+    Effect.gen(function* () {
+      const rows = yield* mapDbError(db.all(sql`SELECT * FROM memory_projects WHERE is_active = 1 ORDER BY last_scanned DESC`))
+      return rows.map(rowToProject)
+    })
+
+  const getNodesByProject = (projectId: ProjectID): Effect.Effect<MemoryNode[], MemoryError> =>
+    Effect.gen(function* () {
+      const rows = yield* mapDbError(db.all(sql`SELECT * FROM memory_nodes WHERE project_id = ${projectId} ORDER BY updated DESC`))
+      return rows.map(rowToNode)
+    })
+
+  // Orphan detection: check if file still exists, mark if not
+  const verifyFileExists = (nodeId: MemoryNodeID): Effect.Effect<boolean, MemoryError> =>
+    Effect.gen(function* () {
+      const row = yield* mapDbError(db.get<{ path: string }>(sql`SELECT path FROM memory_nodes WHERE id = ${nodeId}`))
+      if (!row) return false
+      const fs = yield* Effect.promise(() => import("fs/promises"))
+      try {
+        await fs.access(row.path)
+        // File exists — update file_exists if it was marked orphaned
+        yield* mapDbError(db.run(sql`UPDATE memory_nodes SET file_exists = 1 WHERE id = ${nodeId}`))
+        return true
+      } catch {
+        yield* mapDbError(db.run(sql`UPDATE memory_nodes SET file_exists = 0 WHERE id = ${nodeId}`))
+        return false
+      }
+    })
+
+  const markOrphaned = (nodeId: MemoryNodeID): Effect.Effect<void, MemoryError> =>
+    mapDbError(db.run(sql`UPDATE memory_nodes SET file_exists = 0 WHERE id = ${nodeId}`))
+
+  const getOrphanedNodes = (): Effect.Effect<MemoryNode[], MemoryError> =>
+    Effect.gen(function* () {
+      const rows = yield* mapDbError(db.all(sql`SELECT * FROM memory_nodes WHERE file_exists = 0 ORDER BY updated DESC`))
+      return rows.map(rowToNode)
+    })
+
   return {
     initialize,
     upsertNode,
@@ -323,6 +452,7 @@ const getLinkedNodes = (nodeId: MemoryNodeID, depth: number): Effect.Effect<Memo
     getBacklinks,
     getNodesBySession,
     getNodesByType,
+    getNodesByProject,
     searchNodes,
     bindSession,
     getSessionRoot,
@@ -332,7 +462,13 @@ const getLinkedNodes = (nodeId: MemoryNodeID, depth: number): Effect.Effect<Memo
     countNodes,
     countLinks,
     countSessions,
-    rebuildIndex
+    rebuildIndex,
+    // Multi-project
+    registerProject,
+    listProjects,
+    getOrphanedNodes,
+    verifyFileExists,
+    markOrphaned,
   }
 })
 

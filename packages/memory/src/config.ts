@@ -24,12 +24,24 @@ export class ConsolidationConfig extends Schema.Class<ConsolidationConfig>("Cons
   batchSize: Schema.Int
 }) {}
 
+// Feature toggles — all default to true for smooth upgrade
+export class MemoryFeatures extends Schema.Class<MemoryFeatures>("MemoryFeatures")({
+  multiProject: Schema.Boolean.pipe(Schema.withDefault(true)),      // Load memories from all projects
+  autoDetectProjects: Schema.Boolean.pipe(Schema.withDefault(true)), // Scan for .divee/memory/ dirs
+  orphanDetection: Schema.Boolean.pipe(Schema.withDefault(true)),   // Mark missing files
+  projectBoundaries: Schema.Boolean.pipe(Schema.withDefault(true)), // Filter recall by project
+  nonBlockingInit: Schema.Boolean.pipe(Schema.withDefault(true)),   // Background indexer init
+  notifications: Schema.Boolean.pipe(Schema.withDefault(true)),     // Indexer ready events
+  legacyOpencodePaths: Schema.Boolean.pipe(Schema.withDefault(true)), // Read .opencode/memory/ (legacy)
+}) {}
+
 // Memory config shape (encodable/decodable)
 export class MemoryConfigShape extends Schema.Class<MemoryConfigShape>("MemoryConfig")({
   memoryDir: AbsolutePath,
   recall: RecallConfig,
   session: SessionConfig,
-  consolidation: ConsolidationConfig
+  consolidation: ConsolidationConfig,
+  features: MemoryFeatures
 }) {}
 
 // Main memory configuration service
@@ -71,5 +83,14 @@ export const defaultMemoryConfig = MemoryConfig.make({
     enabled: true,
     triggerTokens: 10000,
     batchSize: 50
+  }),
+  features: MemoryFeatures.make({
+    multiProject: true,
+    autoDetectProjects: true,
+    orphanDetection: true,
+    projectBoundaries: true,
+    nonBlockingInit: true,
+    notifications: true,
+    legacyOpencodePaths: true
   })
 })
