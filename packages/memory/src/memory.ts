@@ -1,4 +1,4 @@
-import { Effect, Layer, Context, Option, Array as Arr, Schema, PartitionedSemaphore } from "effect"
+import { Effect, Layer, Context, Option, Array as Arr, Schema, PartitionedSemaphore, Scope, Fiber } from "effect"
 import type { LLMClient } from "@diveeoi/llm"
 import type { MemoryNode, MemoryNodeID, MemoryLink, CreateNodeInput, PatchNode, MemoryType, LinkType, RecallOptions, RecallResult, ExtractedMemory, MemoryError, NodeNotFoundError } from "./schema"
 import { SessionMemory, SessionID } from "./schema"
@@ -44,22 +44,54 @@ export interface MemoryService {
   readonly search: (query: string, limit?: number) => Effect.Effect<MemoryNode[], MemoryError>
   readonly getRecent: (limit: number, since?: number) => Effect.Effect<MemoryNode[], MemoryError>
   readonly getStats: () => Effect.Effect<{ nodes: number; links: number; sessions: number }, MemoryError>
+
+  // Non-blocking init support
+  /** Block until indexer init is complete (returns immediately if already done) */
+  readonly waitForIndexer: () => Effect.Effect<void, MemoryError>
+  /** Check if indexer is ready (non-blocking) */
+  readonly isIndexerReady: () => Effect.Effect<boolean>
 }
 
 export const MemoryService = Context.Service<MemoryService, MemoryService>()("@diveeoi/memory/MemoryService")
 
 const makeMemoryService = Effect.gen(function* () {
-  console.log("[DEBUG] MemoryLive.init: Starting init effect")
   const nodeService = yield* NodeService
   const indexer = yield* IndexerService
   const graph = yield* GraphService
   const extractor = yield* ExtractorService
   const config = yield* MemoryConfig
   const { db } = yield* Database.Service
-  console.log("[DEBUG] MemoryLive.init: All services obtained, initializing indexer")
+  const scope = yield* Scope.Scope
 
-  // Initialize indexer
-  yield* indexer.initialize()
+  // Initialize indexer — non-blocking if feature enabled (default: true)
+  // Init runs in a background fiber; callers needing init complete should use waitForIndexer()
+  if (config.features.nonBlockingInit) {
+    const initFiber = yield* Effect.forkIn(
+      indexer.initialize().pipe(
+        Effect.tap(() =>
+          Effect.logInfo("Memory indexer initialized").pipe(
+            // Suppress notifications if feature disabled
+            Effect.when(() => Effect.sync(() => config.features.notifications))
+          )
+        ),
+        Effect.catchCause((cause) =>
+          Effect.logError("Memory indexer init failed", { cause })
+        )
+      ),
+      scope
+    )
+    // Store fiber for tracking if needed
+    void initFiber
+  } else {
+    // Blocking mode — wait for init to complete before returning
+    yield* indexer.initialize().pipe(
+      Effect.tap(() =>
+        Effect.logInfo("Memory indexer initialized").pipe(
+          Effect.when(() => Effect.sync(() => config.features.notifications))
+        )
+      )
+    )
+  }
 
   // PartitionedSemaphore per session for race condition prevention (1 permit per session key)
   const sessionLocks = yield* PartitionedSemaphore.make<string>({ permits: 1 })
@@ -272,6 +304,13 @@ const makeMemoryService = Effect.gen(function* () {
       return { nodes, links, sessions }
     })
 
+  // Non-blocking init helpers
+  const waitForIndexer = (): Effect.Effect<void, MemoryError> =>
+    indexer.waitForReady()
+
+  const isIndexerReady = (): Effect.Effect<boolean> =>
+    indexer.isReady()
+
   return {
     createNode,
     getNode,
@@ -290,7 +329,9 @@ const makeMemoryService = Effect.gen(function* () {
     consolidate,
     search,
     getRecent,
-    getStats
+    getStats,
+    waitForIndexer,
+    isIndexerReady,
   }
 })
 

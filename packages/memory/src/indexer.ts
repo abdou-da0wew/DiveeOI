@@ -1,4 +1,4 @@
-import { Effect, Layer, Context, Option, Schema } from "effect"
+import { Effect, Layer, Context, Option, Schema, Deferred } from "effect"
 import { sql } from "drizzle-orm"
 import { Database } from "@diveeoi/db/database/database"
 import type { MemoryNode, MemoryLink, MemoryNodeID, LinkType, MemoryType, ProjectInfo, ProjectID } from "./schema"
@@ -72,6 +72,12 @@ export const MemoryIndexSchema = {
 }
 
 export interface IndexerService {
+  /** The Deferred resolves when indexer init completes — callers can await this */
+  readonly ready: Deferred.Deferred<void, MemoryError>
+  /** Check if indexer is initialized (non-blocking) */
+  readonly isReady: () => Effect.Effect<boolean>
+  /** Block until indexer is ready (returns immediately if already ready) */
+  readonly waitForReady: () => Effect.Effect<void, MemoryError>
   readonly initialize: () => Effect.Effect<void, MemoryError>
   readonly upsertNode: (node: MemoryNode) => Effect.Effect<void, MemoryError>
   readonly deleteNode: (nodeId: MemoryNodeID) => Effect.Effect<void, MemoryError>
@@ -108,6 +114,9 @@ const makeIndexer = Effect.gen(function* () {
   const { db } = yield* Database.Service
   const config = yield* MemoryConfig
 
+  // Create Deferred for ready notification
+  const ready = yield* Deferred.make<void, MemoryError>()
+
   const initialize = (): Effect.Effect<void, MemoryError> =>
     Effect.gen(function* () {
       yield* mapDbError(db.run(MemoryIndexSchema.nodes))
@@ -129,7 +138,15 @@ const makeIndexer = Effect.gen(function* () {
       }
       // Enable foreign keys
       yield* mapDbError(db.run(`PRAGMA foreign_keys = ON`))
+      // Signal that init is complete
+      yield* Deferred.succeed(ready, undefined)
     })
+
+  const isReady = (): Effect.Effect<boolean> =>
+    Deferred.isDone(ready)
+
+  const waitForReady = (): Effect.Effect<void, MemoryError> =>
+    Deferred.await(ready)
 
   const rowToNode = (row: any): MemoryNode => ({
     id: row.id,
@@ -441,6 +458,9 @@ const getLinkedNodes = (nodeId: MemoryNodeID, depth: number): Effect.Effect<Memo
     })
 
   return {
+    ready,
+    isReady,
+    waitForReady,
     initialize,
     upsertNode,
     deleteNode,
