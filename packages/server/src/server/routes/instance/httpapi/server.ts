@@ -112,7 +112,6 @@ import { corsVaryFix } from "./middleware/cors-vary"
 import { errorLayer } from "./middleware/error"
 import { fenceLayer } from "./middleware/fence"
 import { schemaErrorLayer } from "./middleware/schema-error"
-import { Memory } from "@diveeoi/memory"
 
 export const context = Context.makeUnsafe<unknown>(new Map())
 
@@ -261,9 +260,6 @@ const app = LayerNode.group([
   ShareNext.node,
   SessionShare.node,
   InstanceStore.node,
-  Memory.node,
-  SessionMemoryIntegration.node,
-  MemoryScheduler.node,
   httpClient,
   EventV2.node,
   ProjectV2.node,
@@ -296,6 +292,7 @@ return Layer.mergeAll(
       AdaptiveResourceDefaultLayer,
     ]),
     Layer.provide(LayerNode.buildLayer(app)),
+    Layer.provideMerge(LayerNode.buildLayer(SessionMemoryIntegration.node)),
     Layer.provide(ToolRegistry.defaultLayer),
     Layer.provide(Layer.succeed(CorsConfig)(corsOptions)),
     Layer.provide(Observability.layer),

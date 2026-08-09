@@ -1,5 +1,6 @@
 import { Effect, Layer } from "effect"
 import { HttpRouter, HttpServerResponse } from "effect/unstable/http"
+import { LayerNode } from "@diveeoi/db/effect/layer-node"
 import { SessionMemoryIntegration } from "@/session/memory"
 import { MemoryScheduler } from "@/session/memory-scheduler"
 import { ServerAuth } from "@/server/auth"
@@ -43,5 +44,5 @@ const memoryExtractRouteBase = HttpRouter.use((router) =>
 )
 
 export const memoryExtractRoute = memoryExtractRouteBase.pipe(
-  Layer.provide(MemoryScheduler.node),
+  LayerNode.buildLayer(MemoryScheduler.node),
 )
