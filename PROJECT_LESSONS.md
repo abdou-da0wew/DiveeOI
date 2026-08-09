@@ -304,3 +304,33 @@ Current group nodes in `createRoutes`:
 - 252: ToolRegistry.node
 
 Architecture decision: any node whose service must be available at the outer context (not just internally to tool init) should be added as an explicit `Layer.provideMerge` after the group build.
+
+## Colab CI false positive: default-branch clone validates the wrong code (Aug 2026)
+
+**Symptom**: colab build "succeeds" and starts cleanly, but the same code fails locally with `Service not found: @diveeoi/server/SessionMemoryIntegration`.
+
+**Root cause**: the colab clone checked out the repo default branch (`main`) and `git pull` kept updating `main`. `main` has NO memory HTTP wiring at all — no memory-extract route, no memory nodes in the app group, no `ToolRegistry.defaultLayer`. The colab test never exercised memory services, so it could not catch the dev regression. Binary version strings exposed it: colab `0.0.0-main-202608091042` vs local `0.0.0-dev-202608091353`.
+
+**Fix**: always `git fetch origin && git checkout <explicit-branch> && git pull origin <explicit-branch>` on colab before building; verify the produced binary's version string matches the expected branch (`0.0.0-dev-...` for dev). Also `git diff main dev` on the composition file to see exactly what differs.
+
+## `Layer.provideMerge(x)` one-arg form is the curried pipe stage — only valid in a `.pipe(...)` chain
+
+Effect v4 beta.74 `Layer.provideMerge` is dual: one-arg `<RIn, E, ROut>(that) => (self) => Layer` (curried, for `.pipe`). Putting `Layer.provideMerge(x)` as an ITEM inside `Layer.mergeAll([...])` passes a function where a Layer is expected — latent type error that `bun build` silently ignores. The proven fix pattern (e214588, d1c4622, 8c5a3e0) is exactly:
+
+```ts
+Layer.mergeAll(routes..., uiRoute).pipe(
+  Layer.provide([...base layers...]),
+  Layer.provide(LayerNode.buildLayer(app)),
+  Layer.provideMerge(LayerNode.buildLayer(SessionMemoryIntegration.node)),
+  Layer.provide(ToolRegistry.defaultLayer),
+  ...
+)
+```
+
+## `Layer.provide(Node)` is wrong — `LayerNode.make` returns a Node, not a Layer
+
+`LayerNode.make(impl, deps)` returns `{ kind, implementation, dependencies }` — NOT a Layer. Feeding it to `Layer.provide(...)` is a silent type violation (bun build doesn't typecheck). Always `LayerNode.buildLayer(node)` first. Found in `handlers/memory.ts` as `Layer.provide(MemoryScheduler.node)`; fixed in 8c5a3e0.
+
+## Memory scheduler must be provisioned exactly once
+
+`MemorySchedulerLive` (memory-scheduler.ts:180) calls `scheduler.start()` at BUILD time (background fiber). Duplicate provisioning = duplicate scheduler loops. Keep memory nodes OUT of the app group (main-era shape: group has domain nodes only); provision `SessionMemoryIntegration` via the boundary provideMerge and `MemoryScheduler` via the handler's own `LayerNode.buildLayer(MemoryScheduler.node)`. The shared memoMap dedupes service tags, but the build-time side effect makes one-instance discipline mandatory.
