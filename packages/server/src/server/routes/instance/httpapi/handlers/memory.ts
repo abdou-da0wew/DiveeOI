@@ -44,5 +44,5 @@ const memoryExtractRouteBase = HttpRouter.use((router) =>
 )
 
 export const memoryExtractRoute = memoryExtractRouteBase.pipe(
-  LayerNode.buildLayer(MemoryScheduler.node),
+  Layer.provideMerge(LayerNode.buildLayer(MemoryScheduler.node)),
 )

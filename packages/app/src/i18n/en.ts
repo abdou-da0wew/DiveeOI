@@ -106,6 +106,7 @@ export const dict = {
   "toast.memory.extractStatus.result": "Memory extraction status",
   "toast.memory.extractStatus.failed": "Failed to get memory extraction status",
   "palette.empty": "No results found",
+  "palette.search.placeholder": "Search files, commands and sessions",
   "palette.group.commands": "Commands",
   "palette.group.files": "Files",
 
