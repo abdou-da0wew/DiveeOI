@@ -7,7 +7,7 @@ import {
   isContextOverflowFailure,
   type ProviderErrorEvent,
 } from "@diveeoi/llm"
-import { Cause, DateTime, Effect, FiberSet, Layer, Option, Schema, Semaphore, Stream } from "effect"
+import { Cause, DateTime, Effect, FiberSet, Layer, Option, Schema, Semaphore, Stream, catchAll } from "effect"
 import { AgentV2 } from "../../agent"
 import { defaultLayer as AdaptiveResourceDefaultLayer, useAdaptiveTargets } from "../../adaptive"
 import { Config } from "../../config"
@@ -30,8 +30,27 @@ import { SessionHistory } from "../history"
 import { SessionInput } from "../input"
 import { SessionSchema } from "../schema"
 import { SessionStore } from "../store"
-import { RunError, Service, StepLimitExceededError } from "./index"
-import { SessionRunnerModel } from "./model"
+import {
+  type RunError,
+  Service,
+  StepLimitExceededError,
+  SessionRunnerModel,
+} from "./index"
+import { MessageDecodeError, ContextSnapshotDecodeError } from "../error"
+import { LLMError } from "@diveeoi/llm"
+import { SystemContext } from "../../system-context/index"
+import { SessionContextEpoch } from "../context-epoch"
+import { ToolOutputStore } from "../../tool-output-store"
+
+const isRunError = (error: unknown): error is RunError =>
+  error instanceof LLMError ||
+  error instanceof SessionRunnerModel.Error ||
+  error instanceof MessageDecodeError ||
+  error instanceof ContextSnapshotDecodeError ||
+  error instanceof StepLimitExceededError ||
+  error instanceof SystemContext.InitializationBlocked ||
+  error instanceof SessionContextEpoch.AgentReplacementBlocked ||
+  error instanceof ToolOutputStore.Error
 import { createLLMEventPublisher } from "./publish-llm-event"
 import { toLLMMessages } from "./to-llm-message"
 
@@ -280,13 +299,16 @@ export const layer = Layer.effect(
                       settlement.outputPaths ?? [],
                     ),
                   ),
-                ).catchAll((error) => Effect.logError(`Tool settlement failed: ${error}`).pipe(Effect.asVoid)),
+                  catchAll((error) => Effect.logError(`Tool settlement failed: ${error}`).pipe(Effect.asVoid)),
+                ),
               ),
             )
           }),
         ),
         Effect.ensuring(
-              withPublication(publisher.flush()).catchAll((error) => Effect.logError(`Publisher flush failed: ${error}`).pipe(Effect.asVoid)),
+              withPublication(publisher.flush()).pipe(
+                catchAll((error) => Effect.logError(`Publisher flush failed: ${error}`).pipe(Effect.asVoid)),
+              ),
             ),
       )
 
@@ -357,7 +379,7 @@ export const layer = Layer.effect(
     ) {
       return yield* runTurnAttempt(sessionID, promotion, llmStreamBuffer).pipe(
         Effect.catchAll((error: unknown) =>
-          error instanceof RunError
+          isRunError(error)
             ? Effect.fail(error)
             : Effect.die(error),
         ),
@@ -380,7 +402,7 @@ export const layer = Layer.effect(
     ) {
       return yield* runTurnAttempt(sessionID, promotion, llmStreamBuffer, compaction.compactAfterOverflow).pipe(
         Effect.catchAll((error: unknown) =>
-          error instanceof RunError
+          isRunError(error)
             ? Effect.fail(error)
             : Effect.die(error),
         ),
