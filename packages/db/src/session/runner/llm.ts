@@ -30,7 +30,7 @@ import { SessionHistory } from "../history"
 import { SessionInput } from "../input"
 import { SessionSchema } from "../schema"
 import { SessionStore } from "../store"
-import { type RunError, Service, StepLimitExceededError } from "./index"
+import { RunError, Service, StepLimitExceededError } from "./index"
 import { SessionRunnerModel } from "./model"
 import { createLLMEventPublisher } from "./publish-llm-event"
 import { toLLMMessages } from "./to-llm-message"
@@ -261,38 +261,32 @@ export const layer = Layer.effect(
             const assistantMessageID = yield* publisher.assistantMessageID(event.id)
             yield* Effect.uninterruptibleMask((restore) =>
               FiberSet.run(toolFibers)(
-                Effect.catchAll(
-                  restore(
-                    toolMaterialization.settle({
-                      sessionID: session.id,
-                      agent: agent.id,
-                      assistantMessageID,
-                      call: event,
-                    }),
-                  ).pipe(
-                    Effect.flatMap((settlement) =>
-                      publish(
-                        LLMEvent.toolResult({
-                          id: event.id,
-                          name: event.name,
-                          result: settlement.result,
-                          output: settlement.output,
-                        }),
-                        settlement.outputPaths ?? [],
-                      ),
+                restore(
+                  toolMaterialization.settle({
+                    sessionID: session.id,
+                    agent: agent.id,
+                    assistantMessageID,
+                    call: event,
+                  }),
+                ).pipe(
+                  Effect.flatMap((settlement) =>
+                    publish(
+                      LLMEvent.toolResult({
+                        id: event.id,
+                        name: event.name,
+                        result: settlement.result,
+                        output: settlement.output,
+                      }),
+                      settlement.outputPaths ?? [],
                     ),
                   ),
-                  (error) => Effect.logError(`Tool settlement failed: ${error}`).pipe(Effect.asVoid),
-                ),
+                ).catchAll((error) => Effect.logError(`Tool settlement failed: ${error}`).pipe(Effect.asVoid)),
               ),
             )
           }),
         ),
         Effect.ensuring(
-              Effect.catchAll(
-                withPublication(publisher.flush()),
-                (error) => Effect.logError(`Publisher flush failed: ${error}`).pipe(Effect.asVoid),
-              ),
+              withPublication(publisher.flush()).catchAll((error) => Effect.logError(`Publisher flush failed: ${error}`).pipe(Effect.asVoid)),
             ),
       )
 
@@ -362,7 +356,7 @@ export const layer = Layer.effect(
       llmStreamBuffer: number,
     ) {
       return yield* runTurnAttempt(sessionID, promotion, llmStreamBuffer).pipe(
-        Effect.catchAll((error) =>
+        Effect.catchAll((error: unknown) =>
           error instanceof RunError
             ? Effect.fail(error)
             : Effect.die(error),
@@ -385,7 +379,7 @@ export const layer = Layer.effect(
       llmStreamBuffer: number,
     ) {
       return yield* runTurnAttempt(sessionID, promotion, llmStreamBuffer, compaction.compactAfterOverflow).pipe(
-        Effect.catchAll((error) =>
+        Effect.catchAll((error: unknown) =>
           error instanceof RunError
             ? Effect.fail(error)
             : Effect.die(error),
