@@ -1,6 +1,7 @@
 import { createSignal, onMount, onCleanup, createEffect, mergeProps, JSX } from "solid-js"
 import * as d3 from "d3"
-import { MemoryNode, MemoryLink, MemoryType, LinkType } from "@diveeoi/memory/schema"
+import { MemoryNode, MemoryLink, MemoryType, LinkType, MemoryNodeID, SessionID } from "@diveeoi/memory/schema"
+import { AbsolutePath } from "@diveeoi/db/schema"
 
 export interface GraphViewProps {
   nodes?: MemoryNode[]
@@ -310,31 +311,31 @@ export function GraphView(props: GraphViewProps) {
         position: "absolute",
         top: "12px",
         right: "12px",
-        zIndex: 10,
+        "z-index": 10,
         display: "flex",
         gap: "8px",
-        flexDirection: "column",
+        "flex-direction": "column",
         background: "rgba(15, 23, 42, 0.9)",
         padding: "12px",
-        borderRadius: "8px",
+        "border-radius": "8px",
         border: "1px solid rgba(148, 163, 184, 0.2)",
-        backdropFilter: "blur(8px)",
+        "backdrop-filter": "blur(8px)",
       }}>
         <button onClick={resetView} class="control-btn" title="Reset View">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
             <path d="M21 12a9 9 0 1 1-9 9 9.75 9.75 0 0 1 6.74-2.74L21 16" />
           </svg>
         </button>
         <button onClick={() => simulation()?.alpha(0.3).restart()} class="control-btn" title="Restart Physics">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M23 4v6h-6" />
             <path d="M1 20v-6h6" />
             <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
           </svg>
         </button>
         <button onClick={() => physicsEnabled && simulation()?.alpha(0.5).restart()} class="control-btn" title="Pause Physics">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <rect x="6" y="4" width="4" height="16" />
             <rect x="14" y="4" width="4" height="16" />
           </svg>
@@ -345,52 +346,52 @@ export function GraphView(props: GraphViewProps) {
         position: "absolute",
         bottom: "12px",
         left: "12px",
-        zIndex: 10,
+        "z-index": 10,
         background: "rgba(15, 23, 42, 0.9)",
         padding: "12px",
-        borderRadius: "8px",
+        "border-radius": "8px",
         border: "1px solid rgba(148, 163, 184, 0.2)",
-        backdropFilter: "blur(8px)",
-        fontSize: "11px",
+        "backdrop-filter": "blur(8px)",
+        "font-size": "11px",
         color: "#94a3b8",
       }}>
-        <div style={{ fontWeight: 600, color: "#e2e8f0", marginBottom: "8px" }}>Node Types</div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+        <div style={{ "font-weight": 600, color: "#e2e8f0", "margin-bottom": "8px" }}>Node Types</div>
+        <div style={{ display: "flex", "flex-wrap": "wrap", gap: "8px" }}>
           {Object.entries(TYPE_COLORS).map(([type, color]) => (
             <span key={type} style={{
               display: "flex",
-              alignItems: "center",
+              "align-items": "center",
               gap: "4px",
               padding: "2px 6px",
-              borderRadius: "4px",
+              "border-radius": "4px",
               background: "rgba(148, 163, 184, 0.1)",
             }}>
               <span style={{
                 width: "10px",
                 height: "10px",
-                borderRadius: "50%",
+                "border-radius": "50%",
                 background: color,
               }} />
               {type}
             </span>
           ))}
         </div>
-        <div style={{ marginTop: "12px", fontWeight: 600, color: "#e2e8f0" }}>Link Types</div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+        <div style={{ "margin-top": "12px", "font-weight": 600, color: "#e2e8f0" }}>Link Types</div>
+        <div style={{ display: "flex", "flex-wrap": "wrap", gap: "8px" }}>
           {Object.entries(LINK_TYPE_COLORS).map(([type, color]) => (
             <span key={type} style={{
               display: "flex",
-              alignItems: "center",
+              "align-items": "center",
               gap: "4px",
               padding: "2px 6px",
-              borderRadius: "4px",
+              "border-radius": "4px",
               background: "rgba(148, 163, 184, 0.1)",
             }}>
               <span style={{
                 width: "20px",
                 height: "2px",
                 background: color,
-                borderTop: `2px ${dashForLinkType(type as LinkType)} ${color}`,
+                "border-top": `2px ${dashForLinkType(type as LinkType)} ${color}`,
               }} />
               {type}
             </span>
@@ -414,29 +415,29 @@ export function GraphView(props: GraphViewProps) {
 
 export function GraphViewDemo() {
   const mockNodes: MemoryNode[] = [
-    { id: "mem_1", type: "decision", title: "Use SQLite for memory index", content: "Chose SQLite over PostgreSQL for the memory system's metadata index because it's lightweight and embedded", tags: ["database", "architecture", "sqlite"], sessionId: "ses_1", created: Date.now() - 86400000, updated: Date.now() - 86400000, confidence: 0.95, path: "/memory/ses_1/mem_1" },
-    { id: "mem_2", type: "pattern", title: "Effect v4 beta.74 API patterns", content: "Documented all breaking changes in Effect v4 beta.74: catchAll→catch, forkDaemon→forkScoped, etc.", tags: ["effect", "typescript", "api"], sessionId: "ses_1", created: Date.now() - 172800000, updated: Date.now() - 172800000, confidence: 0.9, path: "/memory/ses_1/mem_2" },
-    { id: "mem_3", type: "error", title: "Drizzle adapter raw SQL bug", content: "Raw SQL with ? placeholders silently drops params. Must use sql template literals.", tags: ["drizzle", "sqlite", "bug"], sessionId: "ses_1", created: Date.now() - 259200000, updated: Date.now() - 259200000, confidence: 1.0, path: "/memory/ses_1/mem_3" },
-    { id: "mem_4", type: "entity", title: "DiveeOI server architecture", content: "Effect-TS HttpRouter/HttpApi framework with SolidJS frontend", tags: ["architecture", "effect", "solidjs"], sessionId: "ses_1", created: Date.now() - 345600000, updated: Date.now() - 345600000, confidence: 0.95, path: "/memory/ses_1/mem_4" },
-    { id: "mem_5", type: "preference", title: "TypeScript strict mode", content: "Always use verbatimModuleSyntax: true and noUncheckedIndexedAccess: true", tags: ["typescript", "config", "strict"], sessionId: "ses_1", created: Date.now() - 432000000, updated: Date.now() - 432000000, confidence: 0.85, path: "/memory/ses_1/mem_5" },
-    { id: "mem_6", type: "fact", title: "AMD Radeon HD 6350 constraints", content: "TeraScale 2 GPU needs texture2D() not texture(), no ivec/uvec, max 16 samplers", tags: ["gpu", "glsl", "terascale"], sessionId: "ses_2", created: Date.now() - 518400000, updated: Date.now() - 518400000, confidence: 1.0, path: "/memory/ses_2/mem_6" },
-    { id: "mem_7", type: "constraint", title: "Memory package size limit", content: "Max 1000 nodes per session, 20 edges per node for performance", tags: ["memory", "performance", "limits"], sessionId: "ses_1", created: Date.now() - 604800000, updated: Date.now() - 604800000, confidence: 0.9, path: "/memory/ses_1/mem_7" },
-    { id: "mem_8", type: "pattern", title: "LayerNode composition pattern", content: "Use LayerNode.group for parallel composition, LayerNode.make for single services", tags: ["effect", "layer", "pattern"], sessionId: "ses_1", created: Date.now() - 691200000, updated: Date.now() - 691200000, confidence: 0.88, path: "/memory/ses_1/mem_8" },
-    { id: "mem_9", type: "decision", title: "Use D3 for graph visualization", content: "D3 force-directed layout provides best Obsidian-like experience", tags: ["d3", "visualization", "graph"], sessionId: "ses_1", created: Date.now() - 777600000, updated: Date.now() - 777600000, confidence: 0.92, path: "/memory/ses_1/mem_9" },
-    { id: "mem_10", type: "entity", title: "Obsidian graph view", content: "Force-directed graph with charge, link, collision, and center forces", tags: ["obsidian", "graph", "visualization"], sessionId: "ses_1", created: Date.now() - 864000000, updated: Date.now() - 864000000, confidence: 0.9, path: "/memory/ses_1/mem_10" },
+    { id: MemoryNodeID.make("mem_1"), type: "decision", title: "Use SQLite for memory index", content: "Chose SQLite over PostgreSQL for the memory system's metadata index because it's lightweight and embedded", tags: ["database", "architecture", "sqlite"], sessionId: SessionID.make("ses_1"), created: Date.now() - 86400000, updated: Date.now() - 86400000, confidence: 0.95, path: AbsolutePath.make("/memory/ses_1/mem_1") },
+    { id: MemoryNodeID.make("mem_2"), type: "pattern", title: "Effect v4 beta.74 API patterns", content: "Documented all breaking changes in Effect v4 beta.74: catchAll→catch, forkDaemon→forkScoped, etc.", tags: ["effect", "typescript", "api"], sessionId: SessionID.make("ses_1"), created: Date.now() - 172800000, updated: Date.now() - 172800000, confidence: 0.9, path: AbsolutePath.make("/memory/ses_1/mem_2") },
+    { id: MemoryNodeID.make("mem_3"), type: "error", title: "Drizzle adapter raw SQL bug", content: "Raw SQL with ? placeholders silently drops params. Must use sql template literals.", tags: ["drizzle", "sqlite", "bug"], sessionId: SessionID.make("ses_1"), created: Date.now() - 259200000, updated: Date.now() - 259200000, confidence: 1.0, path: AbsolutePath.make("/memory/ses_1/mem_3") },
+    { id: MemoryNodeID.make("mem_4"), type: "entity", title: "DiveeOI server architecture", content: "Effect-TS HttpRouter/HttpApi framework with SolidJS frontend", tags: ["architecture", "effect", "solidjs"], sessionId: SessionID.make("ses_1"), created: Date.now() - 345600000, updated: Date.now() - 345600000, confidence: 0.95, path: AbsolutePath.make("/memory/ses_1/mem_4") },
+    { id: MemoryNodeID.make("mem_5"), type: "preference", title: "TypeScript strict mode", content: "Always use verbatimModuleSyntax: true and noUncheckedIndexedAccess: true", tags: ["typescript", "config", "strict"], sessionId: SessionID.make("ses_1"), created: Date.now() - 432000000, updated: Date.now() - 432000000, confidence: 0.85, path: AbsolutePath.make("/memory/ses_1/mem_5") },
+    { id: MemoryNodeID.make("mem_6"), type: "fact", title: "AMD Radeon HD 6350 constraints", content: "TeraScale 2 GPU needs texture2D() not texture(), no ivec/uvec, max 16 samplers", tags: ["gpu", "glsl", "terascale"], sessionId: SessionID.make("ses_2"), created: Date.now() - 518400000, updated: Date.now() - 518400000, confidence: 1.0, path: AbsolutePath.make("/memory/ses_2/mem_6") },
+    { id: MemoryNodeID.make("mem_7"), type: "constraint", title: "Memory package size limit", content: "Max 1000 nodes per session, 20 edges per node for performance", tags: ["memory", "performance", "limits"], sessionId: SessionID.make("ses_1"), created: Date.now() - 604800000, updated: Date.now() - 604800000, confidence: 0.9, path: AbsolutePath.make("/memory/ses_1/mem_7") },
+    { id: MemoryNodeID.make("mem_8"), type: "pattern", title: "LayerNode composition pattern", content: "Use LayerNode.group for parallel composition, LayerNode.make for single services", tags: ["effect", "layer", "pattern"], sessionId: SessionID.make("ses_1"), created: Date.now() - 691200000, updated: Date.now() - 691200000, confidence: 0.88, path: AbsolutePath.make("/memory/ses_1/mem_8") },
+    { id: MemoryNodeID.make("mem_9"), type: "decision", title: "Use D3 for graph visualization", content: "D3 force-directed layout provides best Obsidian-like experience", tags: ["d3", "visualization", "graph"], sessionId: SessionID.make("ses_1"), created: Date.now() - 777600000, updated: Date.now() - 777600000, confidence: 0.92, path: AbsolutePath.make("/memory/ses_1/mem_9") },
+    { id: MemoryNodeID.make("mem_10"), type: "entity", title: "Obsidian graph view", content: "Force-directed graph with charge, link, collision, and center forces", tags: ["obsidian", "graph", "visualization"], sessionId: SessionID.make("ses_1"), created: Date.now() - 864000000, updated: Date.now() - 864000000, confidence: 0.9, path: AbsolutePath.make("/memory/ses_1/mem_10") },
   ]
 
   const mockLinks: MemoryLink[] = [
-    { sourceId: "mem_1", targetId: "mem_2", type: "references", created: Date.now() - 100000 },
-    { sourceId: "mem_2", targetId: "mem_3", type: "see_also", created: Date.now() - 200000 },
-    { sourceId: "mem_1", targetId: "mem_4", type: "references", created: Date.now() - 300000 },
-    { sourceId: "mem_4", targetId: "mem_8", type: "see_also", created: Date.now() - 400000 },
-    { sourceId: "mem_8", targetId: "mem_9", type: "references", created: Date.now() - 500000 },
-    { sourceId: "mem_9", targetId: "mem_10", type: "see_also", created: Date.now() - 600000 },
-    { sourceId: "mem_3", targetId: "mem_7", type: "contradicts", created: Date.now() - 700000 },
-    { sourceId: "mem_5", targetId: "mem_2", type: "references", created: Date.now() - 800000 },
-    { sourceId: "mem_6", targetId: "mem_9", type: "see_also", created: Date.now() - 900000 },
-    { sourceId: "mem_4", targetId: "mem_5", type: "supersedes", created: Date.now() - 1000000 },
+    { sourceId: MemoryNodeID.make("mem_1"), targetId: MemoryNodeID.make("mem_2"), type: "references", created: Date.now() - 100000 },
+    { sourceId: MemoryNodeID.make("mem_2"), targetId: MemoryNodeID.make("mem_3"), type: "see_also", created: Date.now() - 200000 },
+    { sourceId: MemoryNodeID.make("mem_1"), targetId: MemoryNodeID.make("mem_4"), type: "references", created: Date.now() - 300000 },
+    { sourceId: MemoryNodeID.make("mem_4"), targetId: MemoryNodeID.make("mem_8"), type: "see_also", created: Date.now() - 400000 },
+    { sourceId: MemoryNodeID.make("mem_8"), targetId: MemoryNodeID.make("mem_9"), type: "references", created: Date.now() - 500000 },
+    { sourceId: MemoryNodeID.make("mem_9"), targetId: MemoryNodeID.make("mem_10"), type: "see_also", created: Date.now() - 600000 },
+    { sourceId: MemoryNodeID.make("mem_3"), targetId: MemoryNodeID.make("mem_7"), type: "contradicts", created: Date.now() - 700000 },
+    { sourceId: MemoryNodeID.make("mem_5"), targetId: MemoryNodeID.make("mem_2"), type: "references", created: Date.now() - 800000 },
+    { sourceId: MemoryNodeID.make("mem_6"), targetId: MemoryNodeID.make("mem_9"), type: "see_also", created: Date.now() - 900000 },
+    { sourceId: MemoryNodeID.make("mem_4"), targetId: MemoryNodeID.make("mem_5"), type: "supersedes", created: Date.now() - 1000000 },
   ]
 
   return (
