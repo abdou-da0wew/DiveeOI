@@ -34,19 +34,22 @@ import {
   type RunError,
   Service,
   StepLimitExceededError,
+  SessionRunnerModel,
 } from "./index"
-import { SessionRunnerModel } from "./model"
 import { MessageDecodeError, ContextSnapshotDecodeError } from "../error"
+import { ModelNotSelectedError, UnsupportedApiError } from "./model"
+import { StorageError } from "../../tool-output-store"
 
 const isRunError = (error: unknown): error is RunError =>
   error instanceof LLMError ||
-  error instanceof SessionRunnerModel.Error ||
+  error instanceof ModelNotSelectedError ||
+  error instanceof UnsupportedApiError ||
   error instanceof MessageDecodeError ||
   error instanceof ContextSnapshotDecodeError ||
   error instanceof StepLimitExceededError ||
   error instanceof SystemContext.InitializationBlocked ||
   error instanceof SessionContextEpoch.AgentReplacementBlocked ||
-  error instanceof ToolOutputStore.Error
+  error instanceof StorageError
 
 import { createLLMEventPublisher } from "./publish-llm-event"
 import { toLLMMessages } from "./to-llm-message"
@@ -296,7 +299,7 @@ export const layer = Layer.effect(
                       settlement.outputPaths ?? [],
                     ),
                   ),
-                  Effect.catchAll((error: unknown) => Effect.logError(`Tool settlement failed: ${error}`).pipe(Effect.asVoid)),
+                  Effect.catch((error: unknown) => Effect.logError(`Tool settlement failed: ${error}`).pipe(Effect.asVoid)),
                 ),
               ),
             )
@@ -304,7 +307,7 @@ export const layer = Layer.effect(
         ),
         Effect.ensuring(
               withPublication(publisher.flush()).pipe(
-                Effect.catchAll((error: unknown) => Effect.logError(`Publisher flush failed: ${error}`).pipe(Effect.asVoid)),
+                Effect.catch((error: unknown) => Effect.logError(`Publisher flush failed: ${error}`).pipe(Effect.asVoid)),
               ),
             ),
       )
@@ -375,7 +378,7 @@ export const layer = Layer.effect(
       llmStreamBuffer: number,
     ): Effect.Effect<boolean, RunError> {
       return yield* runTurnAttempt(sessionID, promotion, llmStreamBuffer).pipe(
-        Effect.catchAll((error: unknown) =>
+        Effect.catch((error: unknown) =>
           isRunError(error)
             ? Effect.fail(error)
             : Effect.die(error),
@@ -398,7 +401,7 @@ export const layer = Layer.effect(
       llmStreamBuffer: number,
     ): Effect.Effect<boolean, RunError> {
       return yield* runTurnAttempt(sessionID, promotion, llmStreamBuffer, compaction.compactAfterOverflow).pipe(
-        Effect.catchAll((error: unknown) =>
+        Effect.catch((error: unknown) =>
           isRunError(error)
             ? Effect.fail(error)
             : Effect.die(error),
