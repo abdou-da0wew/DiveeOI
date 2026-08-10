@@ -4,6 +4,10 @@
   "globalPassThroughEnv": ["CI"],
   "tasks": {
     "typecheck": {},
+    "@diveeoi/app#build": {
+      "dependsOn": ["@diveeoi/sdk#build"],
+      "outputs": ["dist/**"]
+    },
     "@diveeoi/server#build": {
       "dependsOn": ["@diveeoi/app#build"],
       "outputs": ["dist/**"]
