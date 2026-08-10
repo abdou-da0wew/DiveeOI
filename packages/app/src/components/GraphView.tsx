@@ -308,15 +308,15 @@ export function GraphView(props: GraphViewProps) {
     <div class="graph-view" style={{ width: "100%", height: "100%", position: "relative" }}>
       <div class="graph-controls" style={{
         position: "absolute",
-        top: 12,
-        right: 12,
+        top: "12px",
+        right: "12px",
         zIndex: 10,
         display: "flex",
-        gap: 8,
+        gap: "8px",
         flexDirection: "column",
         background: "rgba(15, 23, 42, 0.9)",
-        padding: 12,
-        borderRadius: 8,
+        padding: "12px",
+        borderRadius: "8px",
         border: "1px solid rgba(148, 163, 184, 0.2)",
         backdropFilter: "blur(8px)",
       }}>
@@ -343,31 +343,31 @@ export function GraphView(props: GraphViewProps) {
 
       <div class="graph-legend" style={{
         position: "absolute",
-        bottom: 12,
-        left: 12,
+        bottom: "12px",
+        left: "12px",
         zIndex: 10,
         background: "rgba(15, 23, 42, 0.9)",
-        padding: 12,
-        borderRadius: 8,
+        padding: "12px",
+        borderRadius: "8px",
         border: "1px solid rgba(148, 163, 184, 0.2)",
         backdropFilter: "blur(8px)",
         fontSize: "11px",
         color: "#94a3b8",
       }}>
-        <div style={{ fontWeight: 600, color: "#e2e8f0", marginBottom: 8 }}>Node Types</div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        <div style={{ fontWeight: 600, color: "#e2e8f0", marginBottom: "8px" }}>Node Types</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
           {Object.entries(TYPE_COLORS).map(([type, color]) => (
             <span key={type} style={{
               display: "flex",
               alignItems: "center",
-              gap: 4,
+              gap: "4px",
               padding: "2px 6px",
-              borderRadius: 4,
+              borderRadius: "4px",
               background: "rgba(148, 163, 184, 0.1)",
             }}>
               <span style={{
-                width: 10,
-                height: 10,
+                width: "10px",
+                height: "10px",
                 borderRadius: "50%",
                 background: color,
               }} />
@@ -375,20 +375,20 @@ export function GraphView(props: GraphViewProps) {
             </span>
           ))}
         </div>
-        <div style={{ marginTop: 12, fontWeight: 600, color: "#e2e8f0" }}>Link Types</div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        <div style={{ marginTop: "12px", fontWeight: 600, color: "#e2e8f0" }}>Link Types</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
           {Object.entries(LINK_TYPE_COLORS).map(([type, color]) => (
             <span key={type} style={{
               display: "flex",
               alignItems: "center",
-              gap: 4,
+              gap: "4px",
               padding: "2px 6px",
-              borderRadius: 4,
+              borderRadius: "4px",
               background: "rgba(148, 163, 184, 0.1)",
             }}>
               <span style={{
-                width: 20,
-                height: 2,
+                width: "20px",
+                height: "2px",
                 background: color,
                 borderTop: `2px ${dashForLinkType(type as LinkType)} ${color}`,
               }} />
