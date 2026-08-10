@@ -260,30 +260,41 @@ export const layer = Layer.effect(
             needsContinuation = true
             const assistantMessageID = yield* publisher.assistantMessageID(event.id)
             yield* Effect.uninterruptibleMask((restore) =>
-              restore(
-                toolMaterialization.settle({
-                  sessionID: session.id,
-                  agent: agent.id,
-                  assistantMessageID,
-                  call: event,
-                }),
-              ).pipe(
-                Effect.flatMap((settlement) =>
-                  publish(
-                    LLMEvent.toolResult({
-                      id: event.id,
-                      name: event.name,
-                      result: settlement.result,
-                      output: settlement.output,
-                    }),
-                    settlement.outputPaths ?? [],
+              FiberSet.run(toolFibers)(
+                restore(
+                  toolMaterialization.settle({
+                    sessionID: session.id,
+                    agent: agent.id,
+                    assistantMessageID,
+                    call: event,
+                  }),
+                ).pipe(
+                  Effect.flatMap((settlement) =>
+                    publish(
+                      LLMEvent.toolResult({
+                        id: event.id,
+                        name: event.name,
+                        result: settlement.result,
+                        output: settlement.output,
+                      }),
+                      settlement.outputPaths ?? [],
+                    ),
+                  ),
+                  Effect.catchAll((error) =>
+                    Effect.logError(`Tool settlement failed: ${error}`).pipe(Effect.asVoid),
                   ),
                 ),
               ),
-            ).pipe(FiberSet.run(toolFibers))
+            )
           }),
         ),
-        Effect.ensuring(withPublication(publisher.flush())),
+        Effect.ensuring(
+              withPublication(publisher.flush()).pipe(
+                Effect.catchAll((error) =>
+                  Effect.logError(`Publisher flush failed: ${error}`).pipe(Effect.asVoid),
+                ),
+              ),
+            ),
       )
 
       return yield* Effect.uninterruptibleMask((restore) =>
@@ -346,7 +357,11 @@ export const layer = Layer.effect(
       llmStreamBuffer: number,
     ) => Effect.Effect<boolean, RunError>
 
-    const runAfterOverflowCompaction: RunTurn = Effect.fnUntraced(function* (sessionID, promotion, llmStreamBuffer) {
+    const runAfterOverflowCompaction: RunTurn = Effect.fnUntraced(function* (
+      sessionID: SessionSchema.ID,
+      promotion: SessionInput.Delivery | undefined,
+      llmStreamBuffer: number,
+    ): Effect.Effect<boolean, RunError> {
       return yield* runTurnAttempt(sessionID, promotion, llmStreamBuffer).pipe(
         Effect.catchDefect(
           Effect.fnUntraced(function* (defect) {
@@ -360,7 +375,11 @@ export const layer = Layer.effect(
       )
     })
 
-    const runTurn: RunTurn = Effect.fnUntraced(function* (sessionID, promotion, llmStreamBuffer) {
+    const runTurn: RunTurn = Effect.fnUntraced(function* (
+      sessionID: SessionSchema.ID,
+      promotion: SessionInput.Delivery | undefined,
+      llmStreamBuffer: number,
+    ): Effect.Effect<boolean, RunError> {
       return yield* runTurnAttempt(sessionID, promotion, llmStreamBuffer, compaction.compactAfterOverflow).pipe(
         Effect.catchDefect(
           Effect.fnUntraced(function* (defect) {
@@ -377,7 +396,7 @@ export const layer = Layer.effect(
     const run = Effect.fn("SessionRunner.run")(function* (input: {
       readonly sessionID: SessionSchema.ID
       readonly force?: boolean
-    }) {
+    }): Effect.Effect<void, RunError> {
       const hasSteer = yield* SessionInput.hasPending(db, input.sessionID, "steer")
       const hasQueue = hasSteer ? false : yield* SessionInput.hasPending(db, input.sessionID, "queue")
       if (input.force !== true && !hasSteer && !hasQueue) return

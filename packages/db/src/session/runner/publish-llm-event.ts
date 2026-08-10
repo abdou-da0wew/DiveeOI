@@ -93,7 +93,7 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
 
   const fragments = (
     name: string,
-    ended: (id: string, value: string, providerMetadata?: ProviderMetadata) => Effect.Effect<void>,
+    ended: (id: string, value: string, providerMetadata?: ProviderMetadata) => Effect.Effect<void, PublishError>,
   ) => {
     const chunks = new Map<string, string[]>()
     const start = (id: string) =>
