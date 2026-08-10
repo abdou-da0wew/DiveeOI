@@ -273,8 +273,8 @@ export function GraphView(props: GraphViewProps) {
   }
 
   const centerOnNode = (node: GraphNode) => {
-    const newX = width / 2 - node.x * transform().k
-    const newY = height / 2 - node.y * transform().k
+    const newX = width / 2 - (node.x ?? 0) * transform().k
+    const newY = height / 2 - (node.y ?? 0) * transform().k
     setTransform(prev => ({ ...prev, x: newX, y: newY }))
     renderGraph()
   }
@@ -358,7 +358,7 @@ export function GraphView(props: GraphViewProps) {
         <div style={{ "font-weight": 600, color: "#e2e8f0", "margin-bottom": "8px" }}>Node Types</div>
         <div style={{ display: "flex", "flex-wrap": "wrap", gap: "8px" }}>
           {Object.entries(TYPE_COLORS).map(([type, color]) => (
-            <span key={type} style={{
+            <span style={{
               display: "flex",
               "align-items": "center",
               gap: "4px",
@@ -379,7 +379,7 @@ export function GraphView(props: GraphViewProps) {
         <div style={{ "margin-top": "12px", "font-weight": 600, color: "#e2e8f0" }}>Link Types</div>
         <div style={{ display: "flex", "flex-wrap": "wrap", gap: "8px" }}>
           {Object.entries(LINK_TYPE_COLORS).map(([type, color]) => (
-            <span key={type} style={{
+            <span style={{
               display: "flex",
               "align-items": "center",
               gap: "4px",
