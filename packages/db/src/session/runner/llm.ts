@@ -36,7 +36,7 @@ import {
   StepLimitExceededError,
 } from "./index"
 import { MessageDecodeError, ContextSnapshotDecodeError } from "../error"
-import { ModelNotSelectedError, UnsupportedApiError } from "./model"
+import { ModelNotSelectedError, SessionRunnerModel, UnsupportedApiError } from "./model"
 import { StorageError } from "../../tool-output-store"
 
 const isRunError = (error: unknown): error is RunError =>

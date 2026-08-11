@@ -290,7 +290,15 @@ const it = testEffect(
     coordinator,
     execution,
     sessions,
-  ),
+  ) as unknown as Layer.Layer<
+    | ApplicationTools.Service
+    | Database.Service
+    | SessionRunCoordinator.Service
+    | SessionRunner.Service
+    | SessionStore.Service
+    | ToolRegistry.Service,
+    unknown
+  >,
 )
 const sessionID = SessionV2.ID.make("ses_runner_test")
 const otherSessionID = SessionV2.ID.make("ses_runner_other")

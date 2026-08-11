@@ -43,7 +43,14 @@ const it = testEffect(
         ),
       ),
     ),
-  ),
+  ) as unknown as Layer.Layer<
+    | ApplicationTools.Service
+    | Catalog.Service
+    | PluginBoot.Service
+    | Reference.Service
+    | ToolRegistry.Service,
+    unknown
+  >,
 )
 
 describe("LocationServiceMap", () => {
