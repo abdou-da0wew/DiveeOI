@@ -119,10 +119,34 @@ function listenerLayer(opts: ListenOptions, port: number) {
 }
 
 function startWithPortFallback(opts: ListenOptions) {
-  if (opts.port !== 0) return startListener(opts, opts.port)
+  if (opts.port !== 0) return listenWithFallback(opts, opts.port)
   // Match the legacy listener port-resolution behavior: explicit `0` prefers
   // 4096 first, then any free port.
   return startListener(opts, 4096).pipe(Effect.catch(() => startListener(opts, 0)))
+}
+
+// If the requested port (default or PORT env) is taken, scan upward a bounded
+// number of times for a free port instead of crashing on EADDRINUSE.
+function listenWithFallback(
+  opts: ListenOptions,
+  port: number,
+  attempts = 16,
+): Effect.Effect<ListenerState, unknown> {
+  return startListener(opts, port).pipe(
+    Effect.catch((error) => {
+      if (attempts > 1 && isAddressInUse(error)) return listenWithFallback(opts, port + 1, attempts - 1)
+      return Effect.fail(error)
+    }),
+  )
+}
+
+function isAddressInUse(error: unknown) {
+  if (!error || typeof error !== "object") return false
+  const serveError = error as { _tag?: unknown; cause?: unknown }
+  if (serveError._tag !== "ServeError" || typeof serveError.cause !== "object" || serveError.cause === null) {
+    return false
+  }
+  return (serveError.cause as { code?: unknown }).code === "EADDRINUSE"
 }
 
 function startListener(opts: ListenOptions, port: number) {
