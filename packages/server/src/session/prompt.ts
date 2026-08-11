@@ -1658,6 +1658,7 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(FSUtil.defaultLayer),
     Layer.provide(Plugin.defaultLayer),
     Layer.provide(Session.defaultLayer),
+    Layer.provide(SessionMemoryIntegration.defaultLayer),
     Layer.provide(SessionRevert.defaultLayer),
     Layer.provide(SessionSummary.defaultLayer),
     Layer.provide(Image.defaultLayer),
@@ -1778,7 +1779,8 @@ const argsRegex = /(?:\[Image\s+\d+\]|"[^"]*"|'[^']*'|[^\s"']+)/gi
 const placeholderRegex = /\$(\d+)/g
 const quoteTrimRegex = /^["']|["']$/g
 
-export const node = LayerNode.make(layer as never, [
+export const node = LayerNode.make(layer, [
+  SessionMemoryIntegration.node,
   SessionStatus.node,
   Session.node,
   Agent.node,

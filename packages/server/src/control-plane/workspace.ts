@@ -912,6 +912,7 @@ export const defaultLayer = layer.pipe(
   Layer.provide(EventV2Bridge.defaultLayer),
   Layer.provide(FetchHttpClient.layer),
   Layer.provide(RuntimeFlags.defaultLayer),
+  Layer.provide(InstanceStore.defaultLayer),
 )
 
 const TIMEOUT = 5000
@@ -974,7 +975,7 @@ function route(url: string | URL, path: string) {
   return next
 }
 
-export const node = LayerNode.make(layer as never, [
+export const node = LayerNode.make(layer, [
   Auth.node,
   Session.node,
   SessionPrompt.node,
@@ -984,6 +985,7 @@ export const node = LayerNode.make(layer as never, [
   RuntimeFlags.node,
   FSUtil.node,
   Database.node,
+  InstanceStore.node,
 ])
 
 export * as Workspace from "./workspace"
