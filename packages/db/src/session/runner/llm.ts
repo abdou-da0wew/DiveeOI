@@ -34,7 +34,6 @@ import {
   type RunError,
   Service,
   StepLimitExceededError,
-  SessionRunnerModel,
 } from "./index"
 import { MessageDecodeError, ContextSnapshotDecodeError } from "../error"
 import { ModelNotSelectedError, UnsupportedApiError } from "./model"
@@ -372,11 +371,11 @@ export const layer = Layer.effect(
       llmStreamBuffer: number,
     ) => Effect.Effect<boolean, RunError>
 
-    const runAfterOverflowCompaction: RunTurn = Effect.fnUntraced(function* (
+    const runAfterOverflowCompaction = Effect.fnUntraced(function* (
       sessionID: SessionSchema.ID,
       promotion: SessionInput.Delivery | undefined,
       llmStreamBuffer: number,
-    ): Effect.Effect<boolean, RunError> {
+    ) {
       return yield* runTurnAttempt(sessionID, promotion, llmStreamBuffer).pipe(
         Effect.catch((error: unknown) =>
           isRunError(error)
@@ -393,13 +392,13 @@ export const layer = Layer.effect(
           }),
         ),
       )
-    })
+    }) as RunTurn
 
-    const runTurn: RunTurn = Effect.fnUntraced(function* (
+    const runTurn = Effect.fnUntraced(function* (
       sessionID: SessionSchema.ID,
       promotion: SessionInput.Delivery | undefined,
       llmStreamBuffer: number,
-    ): Effect.Effect<boolean, RunError> {
+    ) {
       return yield* runTurnAttempt(sessionID, promotion, llmStreamBuffer, compaction.compactAfterOverflow).pipe(
         Effect.catch((error: unknown) =>
           isRunError(error)
@@ -416,12 +415,12 @@ export const layer = Layer.effect(
           }),
         ),
       )
-    })
+    }) as RunTurn
 
     const run = Effect.fn("SessionRunner.run")(function* (input: {
       readonly sessionID: SessionSchema.ID
       readonly force?: boolean
-    }): Effect.Effect<void, RunError> {
+    }) {
       const hasSteer = yield* SessionInput.hasPending(db, input.sessionID, "steer")
       const hasQueue = hasSteer ? false : yield* SessionInput.hasPending(db, input.sessionID, "queue")
       if (input.force !== true && !hasSteer && !hasQueue) return
