@@ -127,7 +127,7 @@ const it = testEffect(
     coordinator,
     execution,
     sessions,
-  ) as unknown as Layer.Layer<Database.Service, unknown>,
+  ) as unknown as Layer.Layer<any, unknown>,
 )
 const sessionID = SessionV2.ID.make("ses_runner_recorded")
 
