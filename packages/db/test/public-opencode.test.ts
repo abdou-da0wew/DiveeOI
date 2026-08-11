@@ -1,12 +1,12 @@
 import fs from "fs/promises"
 import path from "path"
 import { describe, expect } from "bun:test"
-import { Effect, Schema } from "effect"
+import { Effect, Layer, Schema } from "effect"
 import { AbsolutePath, Location, Model, OpenCode, Session, Tool } from "@diveeoi/db/public"
 import { tmpdir } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
 
-const it = testEffect(OpenCode.layer)
+const it = testEffect(OpenCode.layer as unknown as Layer.Layer<OpenCode.Service, unknown>)
 
 describe("public native OpenCode API", () => {
   it.effect("exposes only the intentional Session capabilities", () =>

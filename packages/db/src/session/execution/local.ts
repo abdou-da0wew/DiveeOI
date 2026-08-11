@@ -20,7 +20,10 @@ export const layer = Layer.effect(
         return yield* SessionRunner.Service.use((runner) => runner.run({ sessionID, force: mode === "run" })).pipe(
           Effect.provide(locations.get(session.location)),
         )
-      }),
+      }) as (
+        sessionID: SessionSchema.ID,
+        mode: SessionRunCoordinator.Mode,
+      ) => Effect.Effect<void, SessionRunner.RunError, never>,
       onFailure: (sessionID, cause) => logFailure("Failed to drain Session", sessionID, cause),
     })
 

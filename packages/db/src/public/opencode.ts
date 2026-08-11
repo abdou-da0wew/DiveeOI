@@ -62,7 +62,9 @@ const SessionModelValidationLayer = Layer.effect(
               variant: input.model.variant,
             })
         }).pipe(Effect.provide(locations.get(input.location)))
-      }),
+      }) as (
+        input: Session.SwitchModelInput & { readonly location: Session.Info["location"] },
+      ) => Effect.Effect<void, Session.ModelUnavailableError | Session.VariantUnavailableError, never>,
     })
   }),
 )
