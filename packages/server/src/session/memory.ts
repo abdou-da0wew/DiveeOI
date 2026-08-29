@@ -92,7 +92,10 @@ const makeSessionMemoryIntegration = Effect.gen(function* () {
 export const SessionMemoryIntegrationLive = Layer.effect(
   Service,
   makeSessionMemoryIntegration
-).pipe(Layer.provide(MemoryConfig.defaultLayer))
+).pipe(
+  Layer.provide(MemoryConfig.defaultLayer),
+  Layer.provide(LayerNode.buildLayer(Memory.node)),
+)
 
 export const defaultLayer = SessionMemoryIntegrationLive
 
