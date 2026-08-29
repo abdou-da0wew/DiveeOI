@@ -195,6 +195,8 @@ export const defaultLayer = layer.pipe(
   Layer.provide(IdentityLoader.layer),
   Layer.provide(ContextBudget.layer),
   Layer.provide(SkillMentions.layer),
+  Layer.provide(LayerNode.buildLayer(filesystem)),
+  Layer.provide(SessionMemoryIntegration.defaultLayer),
 )
 
 export const node = LayerNode.make(layer, [

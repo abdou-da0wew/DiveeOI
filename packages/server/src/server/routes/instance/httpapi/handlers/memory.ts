@@ -11,13 +11,12 @@ const sessionIdParam = "/:sessionID/memory-extract"
 const memoryExtractRouteBase = HttpRouter.use((router) =>
   Effect.gen(function* () {
     const sessionMemory = yield* SessionMemoryIntegration.Service
-    const scheduler = yield* MemoryScheduler.Service
+    const scheduler = yield* MemoryScheduler.MemorySchedulerService
 
     return router.add("POST", `/api/session${sessionIdParam}`, (request) =>
       Effect.gen(function* () {
-        const sessionID = request.url.pathname
-          .replace(/^\/api\/session\//, "")
-          .replace(/\/memory-extract$/, "")
+        const routeParams = yield* HttpRouter.params
+        const sessionID = routeParams.sessionID ?? ""
 
         let body: { all?: boolean } = {}
         const raw = yield* request.text
@@ -31,7 +30,7 @@ const memoryExtractRouteBase = HttpRouter.use((router) =>
         }
 
         if (body.all) {
-          yield* scheduler.extractNow
+          yield* scheduler.extractNow()
         } else if (sessionID) {
           yield* sessionMemory.extractSessionMemory(sessionID, [])
         }

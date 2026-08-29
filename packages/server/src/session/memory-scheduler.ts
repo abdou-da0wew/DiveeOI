@@ -1,4 +1,5 @@
 import { Effect, Layer, Context, Schedule, DateTime, Duration, Ref, Fiber, Scope } from "effect"
+import { SessionV1 } from "@diveeoi/db/v1/session"
 import { SessionMemoryIntegration } from "./memory"
 import { MemoryConfig } from "@diveeoi/memory"
 import { MemoryError } from "@diveeoi/memory/schema"
@@ -78,7 +79,7 @@ const makeScheduler = Effect.gen(function* () {
       Effect.map((withParts) =>
         withParts.flatMap((message) => {
           const content = message.parts
-            .filter((part) => part.type === "text" && !part.synthetic && !part.ignored)
+            .filter((part): part is SessionV1.TextPart => part.type === "text" && !part.synthetic && !part.ignored)
             .map((part) => part.text)
             .join("\n\n")
           return content.length === 0
@@ -91,10 +92,11 @@ const makeScheduler = Effect.gen(function* () {
   const calculateNextRun = (): Effect.Effect<DateTime.DateTime> =>
     Effect.gen(function* () {
       const now = yield* DateTime.now
+      const nowParts = DateTime.toPartsUtc(now)
       const todayAtNoon = DateTime.makeUnsafe({
-        year: now.year,
-        month: now.month,
-        day: now.day,
+        year: nowParts.year,
+        month: nowParts.month,
+        day: nowParts.day,
         hour: 12,
         minute: 0,
         second: 0,
