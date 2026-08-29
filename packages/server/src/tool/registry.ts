@@ -433,6 +433,7 @@ export const defaultLayer = Layer.suspend(() =>
       Layer.provide(Memory.defaultLayer),
       Layer.provide(SessionMemoryIntegration.defaultLayer),
       Layer.provide(MemoryScheduler.defaultLayer),
+      Layer.provide(Ripgrep.defaultLayer),
     ),
 )
 
