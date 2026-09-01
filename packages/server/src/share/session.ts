@@ -7,11 +7,10 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ShareNext } from "./share-next"
 import { SessionMemoryIntegration } from "@/session/memory"
 import { MemoryError } from "@diveeoi/memory/schema"
-import { MemoryConfig } from "@diveeoi/memory"
 import { Memory } from "@diveeoi/memory"
 
 export interface Interface {
-  readonly create: (input?: Session.CreateInput) => Effect.Effect<Session.Info, MemoryError, MemoryConfig>
+  readonly create: (input?: Session.CreateInput) => Effect.Effect<Session.Info, MemoryError>
   readonly share: (sessionID: SessionID) => Effect.Effect<{ url: string }, unknown>
   readonly unshare: (sessionID: SessionID) => Effect.Effect<void, unknown>
 }

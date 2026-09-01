@@ -13,9 +13,9 @@ import { Context, Effect, Layer } from "effect"
  * Wraps MemoryService methods for server session lifecycle
  */
 export interface Interface {
-  readonly initializeSessionMemory: (sessionId: string, title: string) => Effect.Effect<void, MemoryError, MemoryConfig>
-  readonly extractSessionMemory: (sessionId: string, messages: MemoryMessage[]) => Effect.Effect<void, MemoryError, MemoryConfig>
-  readonly loadSessionContext: (sessionId: string) => Effect.Effect<string, MemoryError, MemoryConfig>
+  readonly initializeSessionMemory: (sessionId: string, title: string) => Effect.Effect<void, MemoryError>
+  readonly extractSessionMemory: (sessionId: string, messages: MemoryMessage[]) => Effect.Effect<void, MemoryError>
+  readonly loadSessionContext: (sessionId: string) => Effect.Effect<string, MemoryError>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@diveeoi/server/SessionMemoryIntegration") {}
@@ -29,10 +29,10 @@ const makeSessionMemoryIntegration = Effect.gen(function* () {
   const memory = yield* Memory.MemoryService
   const sessionSvc = yield* SessionService
   const extractor = yield* ExtractorService
+  const memConfig = yield* MemoryConfig
 
   const initializeSessionMemory: Interface["initializeSessionMemory"] = (sessionId, title) =>
     Effect.gen(function* () {
-      const memConfig = yield* MemoryConfig
       if (!memConfig.session.autoLoadDepth || !memConfig.session.autoLoadMaxNodes) {
         return
       }
@@ -41,7 +41,6 @@ const makeSessionMemoryIntegration = Effect.gen(function* () {
 
   const extractSessionMemory: Interface["extractSessionMemory"] = (sessionId, messages) =>
     Effect.gen(function* () {
-      const memConfig = yield* MemoryConfig
       if (!memConfig.session.extractOnEnd) {
         return
       }
@@ -62,7 +61,6 @@ const makeSessionMemoryIntegration = Effect.gen(function* () {
 
   const loadSessionContext: Interface["loadSessionContext"] = (sessionId) =>
     Effect.gen(function* () {
-      const memConfig = yield* MemoryConfig
       if (!memConfig.session.autoLoadDepth || !memConfig.session.autoLoadMaxNodes) {
         return ""
       }
