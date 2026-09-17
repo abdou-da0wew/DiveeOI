@@ -1,3 +1,5 @@
+CRITICAL SYSTEM DIRECTIVE: Before writing, editing, or scaffolding ANY code, you MUST read the root `.zcode-quality.md` file. You must strictly align your architecture, naming styles, and code-shaping structures to its exact instructions. No exceptions.
+
 # DiveeOI Project Guide
 
 **DiveeOI** is a fork of [OpenCode](https://github.com/anomalyco/opencode) that extracts only the web UI and server components into a standalone web application. The TUI (terminal UI) subsystem has been completely removed.

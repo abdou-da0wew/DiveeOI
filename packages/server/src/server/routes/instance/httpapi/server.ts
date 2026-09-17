@@ -293,7 +293,7 @@ return Layer.mergeAll(
     ]),
     Layer.provide(LayerNode.buildLayer(app)),
     Layer.provideMerge(LayerNode.buildLayer(SessionMemoryIntegration.node)),
-    Layer.provide(ToolRegistry.defaultLayer),
+    Layer.provideMerge(LayerNode.buildLayer(ToolRegistry.node)),
     Layer.provide(Layer.succeed(CorsConfig)(corsOptions)),
     Layer.provide(Observability.layer),
   ) as Layer.Layer<never, EffectConfig.ConfigError, RouteRequirements>
