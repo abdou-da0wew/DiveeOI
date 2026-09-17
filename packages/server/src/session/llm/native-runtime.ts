@@ -144,10 +144,14 @@ export function stream(input: StreamInput): StreamResult {
   const abortSignal = input.abort
   const interruptibleStream = Stream.interruptWhen(
     stream,
-    Stream.fromEffect(Effect.promise<void>((resolve) => {
-      if (abortSignal.aborted) resolve()
-      else abortSignal.addEventListener("abort", () => resolve(), { once: true })
-    }))
+    Stream.fromEffect(
+      Effect.promise<void>(() => {
+        if (abortSignal.aborted) return Promise.resolve()
+        return new Promise<void>((resolve) =>
+          abortSignal.addEventListener("abort", () => resolve(), { once: true }),
+        )
+      }),
+    ),
   )
 
   return {

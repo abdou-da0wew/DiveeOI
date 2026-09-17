@@ -3,6 +3,7 @@ import { Effect, Stream } from "effect"
 import { HttpBody, HttpClient, HttpClientRequest, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import * as Socket from "effect/unstable/socket/Socket"
 import { WebSocketTracker } from "../websocket-tracker"
+import { AdaptiveResourceService } from "@diveeoi/db/adaptive"
 
 function requestBody(request: HttpServerRequest.HttpServerRequest) {
   if (request.method === "GET" || request.method === "HEAD") return HttpBody.empty
@@ -14,7 +15,7 @@ function requestBody(request: HttpServerRequest.HttpServerRequest) {
 export function websocket(
   request: HttpServerRequest.HttpServerRequest,
   target: string | URL,
-): Effect.Effect<HttpServerResponse.HttpServerResponse, never, Socket.WebSocketConstructor> {
+): Effect.Effect<HttpServerResponse.HttpServerResponse, never, AdaptiveResourceService | Socket.WebSocketConstructor> {
   return Effect.scoped(
     Effect.gen(function* () {
       const inbound = yield* Effect.orDie(request.upgrade)

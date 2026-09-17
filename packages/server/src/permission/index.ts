@@ -23,7 +23,7 @@ export const Event = {
 
 export interface Interface {
   readonly ask: (input: PermissionV1.AskInput) => Effect.Effect<void, PermissionV1.Error>
-  readonly reply: (input: PermissionV1.ReplyInput) => Effect.Effect<void, PermissionV1.NotFoundError>
+  readonly reply: (input: PermissionV1.ReplyInput) => Effect.Effect<void, PermissionV1.NotFoundError, Config.Service>
   readonly list: () => Effect.Effect<ReadonlyArray<PermissionV1.Request>>
 }
 
@@ -163,7 +163,7 @@ export const layer = Layer.effect(
         })
       }
 
-      const ruleset = fromConfig(config.permission)
+      const ruleset = fromConfig((yield* config.get()).permission ?? {})
 
       for (const [id, item] of pending.entries()) {
         if (item.info.sessionID !== existing.info.sessionID) continue

@@ -1,131 +1,105 @@
-# @opencode-ai/llm
+# @diveeoi/llm
 
-Schema-first LLM core for opencode. One typed request, response, event, and tool language; provider quirks live in adapters, not in calling code.
+Schema-first LLM core. Provides the provider-agnostic message/tool/request model, the `LLMEvent` stream, the `HttpClient` route pipeline, and the provider facades that wrap it. No session, plugin, or permission code.
 
-```ts
-import { Effect } from "effect"
-import { LLM, LLMClient } from "@opencode-ai/llm"
-import { OpenAI } from "@opencode-ai/llm/providers"
+## Model
 
-const model = OpenAI.configure({ apiKey: process.env.OPENAI_API_KEY }).responses("gpt-4o-mini")
+All runtime shapes are `Effect.Schema.Class` in `src/schema/`:
 
-const request = LLM.request({
-  model,
-  system: "You are concise.",
-  prompt: "Say hello in one short sentence.",
-  generation: { maxTokens: 40 },
-})
+- `ids.ts` — branded `ProviderID/ModelID/VariantID`, `ProviderMetadata`.
+- `options.ts` — `GenerationOptions`, `Limits`, `Model { id, providerID, route }`, `CachePolicy`.
+- `messages.ts` — `TextPart/SystemPart/ToolCallPart/ToolResultPart/Message { system/user/assistant/tool }`, `ToolDefinition`, `LLMRequest`.
+- `events.ts` — `Usage`, `LLMEvent { text-start/delta/end, reasoning-*/tool-input-delta/tool-call/tool-result/tool-error/provider-error/step-start/finish/ finish }`, `PreparedRequest`, `LLMResponse`.
+- `errors.ts` — `LLMError`, `ToolFailure`.
 
-const program = Effect.gen(function* () {
-  const response = yield* LLMClient.generate(request)
-  console.log(response.text)
-})
-```
-
-Run `LLMClient.stream(request)` instead of `generate` when you want incremental `LLMEvent`s. The event stream is provider-neutral — same shape across OpenAI Chat, OpenAI Responses, Anthropic Messages, Gemini, Bedrock Converse, and any OpenAI-compatible deployment.
-
-## Public API
-
-- **`LLM.request({...})`** — build a provider-neutral `LLMRequest`. Accepts ergonomic inputs (`system: string`, `prompt: string`) that normalize into the canonical Schema classes.
-- **`LLM.generate` / `LLM.stream`** — re-exported from `LLMClient` for one-import use.
-- **`Message.user(...)` / `Message.assistant(...)` / `Message.tool(...)`** — message constructors from the canonical schema model.
-- **`Model.make(...)` / `ToolCallPart.make(...)` / `ToolResultPart.make(...)` / `ToolDefinition.make(...)`** — model and tool-related constructors from the canonical schema model.
-- **`LLMClient.prepare(request)`** — compile a request through protocol body construction, validation, and HTTP preparation without sending. Useful for inspection and testing.
-- **`LLMEvent.is.*`** — typed guards (`is.textDelta`, `is.toolCall`, `is.finish`, …) for filtering streams.
-
-## Caching
-
-Prompt caching is **on by default**. Every `LLMRequest` resolves to `cache: "auto"` unless the caller opts out with `cache: "none"`. Each protocol translates `CacheHint`s to its wire format (`cache_control` on Anthropic, `cachePoint` on Bedrock; OpenAI and Gemini do implicit caching server-side and don't need inline markers — auto is a no-op there).
-
-### Auto placement
-
-`"auto"` places three breakpoints — last tool definition, last system part, latest user message. The last-user-message boundary is the load-bearing detail: in a tool-use loop, a single user turn expands into many assistant/tool round-trips, all sharing that prefix. Caching at that boundary lets every intra-turn API call hit.
-
-The math justifies the default: Anthropic's 5-minute cache write is 1.25× base, read is 0.1×, so a single reuse within 5 minutes already wins. One-shot completions below the per-model minimum-cacheable-token threshold silently no-op on the wire, so the worst case is harmless.
-
-### Opting out
-
-```ts
-LLM.request({
-  model,
-  system,
-  prompt: "one-off question",
-  cache: "none",
-})
-```
-
-### Granular policy
-
-```ts
-cache: {
-  tools?: boolean,
-  system?: boolean,
-  messages?: "latest-user-message" | "latest-assistant" | { tail: number },
-  ttlSeconds?: number,         // ≥ 3600 → 1h on Anthropic/Bedrock; else 5m
-}
-```
-
-### Manual hints
-
-Inline `CacheHint` on any text / system / tool / tool-result part overrides automatic placement. The auto policy preserves manual hints; it only fills gaps.
-
-```ts
-LLM.request({
-  model,
-  system: [
-    { type: "text", text: "stable system prompt", cache: { type: "ephemeral" } },
-  ],
-  ...
-})
-```
-
-### Provider behavior table
-
-| Protocol                | `cache: "auto"`                                                           |
-| ----------------------- | ------------------------------------------------------------------------- |
-| Anthropic Messages      | emits up to 3 `cache_control` markers (4-breakpoint cap enforced)         |
-| Bedrock Converse        | emits up to 3 `cachePoint` blocks (4-breakpoint cap enforced)             |
-| OpenAI Chat / Responses | no-op (implicit caching above 1024 tokens)                                |
-| Gemini                  | no-op (implicit caching on 2.5+; explicit `CachedContent` is out-of-band) |
-
-Normalized cache usage is read back into `response.usage.cacheReadInputTokens` and `cacheWriteInputTokens` across every provider.
-
-## Providers
-
-Provider facades configure endpoint/auth/deployment details first, then expose model selectors that take only a model or deployment id. The selected model carries the executable route value used at runtime.
-
-```ts
-import { OpenAI, CloudflareAIGateway } from "@opencode-ai/llm/providers"
-
-const openai = OpenAI.configure({ apiKey: process.env.OPENAI_API_KEY }).responses("gpt-4o-mini")
-const gateway = CloudflareAIGateway.configure({
-  accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
-  gatewayApiKey: process.env.CLOUDFLARE_API_TOKEN,
-}).model("workers-ai/@cf/meta/llama-3.1-8b-instruct")
-```
-
-Included providers: OpenAI, Anthropic, Google (Gemini), Amazon Bedrock, Azure OpenAI, Cloudflare AI Gateway, Cloudflare Workers AI, GitHub Copilot, OpenRouter, xAI, plus generic OpenAI-compatible helpers for DeepSeek, Cerebras, Groq, Fireworks, Together, etc.
-
-## Provider options & HTTP overlays
-
-Three escape hatches in order of stability:
-
-1. **`generation`** — portable knobs (`maxTokens`, `temperature`, `topP`, `topK`, penalties, seed, stop).
-2. **`providerOptions: { <provider>: {...} }`** — typed-at-the-facade provider-specific knobs (OpenAI `promptCacheKey`, Anthropic `thinking`, Gemini `thinkingConfig`, OpenRouter routing).
-3. **`http: { body, headers, query }`** — last-resort serializable overlays merged into the final HTTP request. Reach for this only when a stable typed path doesn't yet exist.
-
-Route/provider defaults are overridden by request-level values for each axis.
+Convenience constructors live on the type (`Message.system(...)`, `Message.user(...)`, `ToolCallPart.make(...)`, `Model.make(...)`, `GenerationOptions.make(...)`). The top-level `LLM` namespace is reserved for request helpers: `LLM.request`, `LLM.generate`, `LLM.stream`, `LLM.updateRequest`, `LLM.generateObject`.
 
 ## Routes
 
-Adding a new model or deployment is usually 5-15 lines using `Route.make({ protocol, endpoint, auth, framing, ... })`. The route owns endpoint/auth/framing and the protocol owns body construction plus stream parsing. Transports are reusable IO templates that receive route endpoint/auth at compile time. Capability/catalog metadata lives outside this low-level package; unsupported request shapes fail during protocol lowering. See `AGENTS.md` for the architectural detail.
+A route composes four orthogonal pieces via `Route.make({ id, provider, protocol, endpoint, auth, framing })`:
 
-## Effect
+- **`Protocol`** (`src/route/protocol.ts`) — provider contract: `body.from(request)`, `body.schema`, `stream.event` (decoded framed bytes), `stream.step(state, event)` state machine that emits common `LLMEvent`s. Example `OpenAIChat.protocol`, `AnthropicMessages.protocol`, `BedrockConverse.protocol`.
+- **`Endpoint`** (`src/route/endpoint.ts`) — `{ baseURL, path, query }` owned by the route. `Endpoint.path("/chat/completions", {baseURL})` or `Endpoint.path(({body})=>`/model/${body.modelId}/...`)` for templated paths.
+- **`Auth`** (`src/route/auth.ts`) — `Auth.bearer(apiKey)` vs `Auth.header("x-api-key", key)` vs `Auth.passthrough` or a per-request signer (`Auth(a => signed Headers + body)`). Routes that need SigV4 (Bedrock) implement `Auth` as a signing function.
+- **`Framing`** (`src/route/framing.ts`) — bytes -> frames (`Framing.sse` vs Bedrock's `Framing<object>` event-stream).
 
-This package is built on Effect. Public methods return `Effect` or `Stream`; provide `LLMClient.layer` for runtime dispatch and import the provider/protocol modules for the routes you use. The example at `example/tutorial.ts` is a runnable walkthrough.
+Transports further specialize `Framing`: `HttpTransport.httpJson` (POST + SSE) vs `WebSocketTransport.jsonTransport` (IO template with `prepare` building a WebSocket URL and `frames` decoding text). One protocol to many provider deployments is the point: `OpenAIChat.protocol` powers OpenAI + DeepSeek + TogetherAI + Cerebras + Baseten + Fireworks + DeepInfra each as a 5-15 line `Route.make`.
 
-## See also
+## Protocols and providers
 
-- `AGENTS.md` — architecture, route construction, contributor guide
-- `example/tutorial.ts` — runnable end-to-end walkthrough
-- `test/provider/*.test.ts` — fixture-first protocol tests; `*.recorded.test.ts` files cover live cassettes
+- Implementations: `src/protocols/{openai-chat,openai-responses,anthropic-messages,gemini,bedrock-converse,openai-compatible-chat,shared,utils/*}`.
+- Facades: `src/providers/{openai,anthropic,google,azure,amazon-bedrock,cloudflare,github-copilot,gateway,openrouter,xai,openai-compatible}` + `openai-compatible-profile.ts` (family defaults).
+
+Protocol file order: model input, request body schema, streaming event schema, parser state, `fromRequest`, event handlers, `Protocol + route`. Prefer small `utils/*` helpers for media/cache/tool-stream quirks so two protocol files compare side-by-side.
+
+Facade rule: configure the route before `.model(id)` — the model holds only `id/providerID/route`:
+
+```ts
+const openai = OpenAI.configure({ apiKey, baseURL })
+const responses = openai.responses("gpt-4o-mini")
+const azure = Azure.configure({ resourceName, apiKey, apiVersion: "v1" })
+const dep = azure.responses("my-deployment")
+```
+
+`AtLeastOne<T>` enforces required-derivation pairs (e.g. Azure `resourceName|baseURL`), and `ProviderAuthOption` enforces `apiKey xor auth`.
+
+## Client
+
+Entry for callers (see `src/route/client.ts`):
+
+```ts
+const request = LLM.request({
+  model: OpenAI.configure({ apiKey }).responses("gpt-4o-mini"),
+  system: "You are concise.",
+  prompt: "Say hello.",
+})
+
+const response = yield* LLMClient.generate(request)     // events collected into LLMResponse
+const stream  = LLMClient.stream(request)               // Stream<LLMEvent>
+const prep    = yield* LLMClient.prepare<OpenAIChatBody>(request) // compile without sending
+events.filter(LLMEvent.is.toolCall)
+```
+
+Callers add tools via `Tool.toDefinitions(tools)` on `request.tools`. One-call execution is `ToolRuntime.dispatch(tools, toolCall)`:
+
+```ts
+const get_weather = tool({
+  description: "Get current weather",
+  parameters: Schema.Struct({ city: Schema.String }),
+  success: Schema.Struct({ temperature: Schema.Number, condition: Schema.String }),
+  execute: ({city}) => Effect.gen(function*(){ /* ... */ })
+})
+const t = { get_weather }
+const events = yield* LLM.stream(LLM.updateRequest(request, { tools: Tool.toDefinitions(t) })).pipe(Stream.runCollect)
+const call = events.find(LLMEvent.is.toolCall)
+if (call && !call.providerExecuted) {
+  const dispatched = yield* ToolRuntime.dispatch(t, call)
+}
+```
+
+Provider-defined/hosted tools (`web_search`, `code_execution` etc.) surface as `tool-call providerExecuted:true` + `tool-result providerExecuted:true` — skip local dispatch when `providerExecuted` is set.
+
+Chronological `Message.system(...)` inside `messages` is lowered per-route: only `claude-opus-4-8` preserves it natively; elsewhere it is wrapped as `<system-update>...</system-update>` inside ordinary user text.
+
+## Layout
+
+```
+src/
+  llm.ts                      # request constructors
+  schema/                     # canonical Schema model
+  route/{client,executor,protocol,endpoint,auth,auth-options,framing,transport/{http,websocket}}
+  protocols/{shared,openai-chat,openai-responses,anthropic-messages,gemini,bedrock-converse,bedrock-event-stream,openai-compatible-chat,utils/*}
+  providers/{openai,anthropic,...}
+  tool.ts / tool-runtime.ts / provider.ts / cache-policy.ts / provider-error.ts
+test/lib/{effect,http}       # testEffect, record/replay helpers
+```
+
+Dependency arrow points down; protocols don't import providers.
+
+## Test
+
+```bash
+bun --cwd packages/llm run typecheck
+bun --cwd packages/llm run test   # fixture-first recorded tests; RECORD=1 requires api keys
+RECORDED_PROVIDER=openai RECORDED_PREFIX=openai-chat bun test  # filtered replay/record
+```

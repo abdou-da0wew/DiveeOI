@@ -32,31 +32,56 @@ const CHANNEL = await (async () => {
   if (env.DIVEEOI_CHANNEL) return env.DIVEEOI_CHANNEL
   if (env.OPENCODE_CHANNEL) return env.OPENCODE_CHANNEL
   if (env.DIVEEOI_BUMP || env.OPENCODE_BUMP) return "latest"
-  if ((env.DIVEEOI_VERSION || env.OPENCODE_VERSION) && !(env.DIVEEOI_VERSION || env.OPENCODE_VERSION).startsWith("0.0.0-")) return "latest"
+  const version = env.DIVEEOI_VERSION || env.OPENCODE_VERSION
+  // Prerelease versions (0.0.0-*, 1.2.3-dev-*) build preview channels; a plain
+  // release version builds the "latest" channel.
+  if (version && !version.includes("-")) return "latest"
   return await $`git branch --show-current`.text().then((x) => x.trim())
 })()
 const IS_PREVIEW = CHANNEL !== "latest"
 
-const VERSION = await (async () => {
-  if (env.DIVEEOI_VERSION) return env.DIVEEOI_VERSION
-  if (env.OPENCODE_VERSION) return env.OPENCODE_VERSION
-  if (IS_PREVIEW) return `0.0.0-${CHANNEL}-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "")}`
+const timestamp = () => new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "")
+
+const latestUpstream = async (): Promise<string | undefined> => {
   try {
-    const version = await fetch("https://registry.npmjs.org/opencode-ai/latest")
+    return await fetch("https://registry.npmjs.org/opencode-ai/latest")
       .then((res) => {
         if (!res.ok) throw new Error(res.statusText)
         return res.json()
       })
-      .then((data: any) => data.version)
-    const [major, minor, patch] = version.split(".").map((x: string) => Number(x) || 0)
+      .then((data: any) => data.version as string)
+  } catch {
+    console.warn("Failed to fetch latest version from npm registry")
+    return undefined
+  }
+}
+
+const nextPatch = (version: string) => {
+  const [major, minor, patch] = version.split(".").map((x: string) => Number(x) || 0)
+  return `${major}.${minor}.${patch + 1}`
+}
+
+const VERSION = await (async () => {
+  if (env.DIVEEOI_VERSION) return env.DIVEEOI_VERSION
+  if (env.OPENCODE_VERSION) return env.OPENCODE_VERSION
+  if (IS_PREVIEW) {
+    // Preview builds still talk to upstream services that version-gate clients
+    // (the opencode free tier rejects anything below its current minimum, so a
+    // 0.0.0-* version is always rejected). Base the preview on the next patch
+    // above upstream's latest release: semver-greater than any gate upstream
+    // itself satisfies, while still identifying as a prerelease build.
+    const latest = await latestUpstream()
+    return latest ? `${nextPatch(latest)}-${CHANNEL}-${timestamp()}` : `0.0.0-${CHANNEL}-${timestamp()}`
+  }
+  const latest = await latestUpstream()
+  if (latest) {
+    const [major, minor, patch] = latest.split(".").map((x: string) => Number(x) || 0)
     const t = env.DIVEEOI_BUMP || env.OPENCODE_BUMP
     if (t?.toLowerCase() === "major") return `${major + 1}.0.0`
     if (t?.toLowerCase() === "minor") return `${major}.${minor + 1}.0`
     return `${major}.${minor}.${patch + 1}`
-  } catch {
-    console.warn("Failed to fetch latest version from npm registry, using preview version format")
-    return `0.0.0-${CHANNEL}-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "")}`
   }
+  return `0.0.0-${CHANNEL}-${timestamp()}`
 })()
 
 const teamPath = path.resolve(import.meta.dir, "../../../.github/TEAM_MEMBERS")

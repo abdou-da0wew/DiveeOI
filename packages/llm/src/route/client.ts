@@ -364,13 +364,47 @@ const prepareWith = Effect.fn("LLMClient.prepare")(function* (request: LLMReques
   })
 })
 
-const streamRequestWith = (runtime: TransportRuntime) => (request: LLMRequest) =>
-  Stream.unwrap(
-    Effect.gen(function* () {
-      const compiled = yield* compile(request)
-      return compiled.route.streamPrepared(compiled.prepared, compiled.request, runtime)
-    }),
+// OpenAI Responses requests with store:false replay previous reasoning items
+// by their encrypted_content blob. That blob is bound to the account that
+// produced it, so when the follow-up request lands on a different upstream
+// account (proxies/routers do this) the provider rejects it with
+// "[invalid_request_error] reasoning `encrypted_content` was not issued to
+// this caller". Dropping the replayed reasoning items is the documented
+// fallback: it loses chain-of-thought continuity for that turn but keeps the
+// conversation usable.
+const encryptedContentFailure = (error: LLMError) =>
+  error.reason._tag === "InvalidRequest" && /encrypted_content/i.test(error.reason.message)
+
+const stripReasoningParts = (request: LLMRequest): LLMRequest => ({
+  ...request,
+  messages: request.messages.map((message) =>
+    message.role === "assistant"
+      ? { ...message, content: message.content.filter((part) => part.type !== "reasoning") }
+      : message,
+  ),
+})
+
+const hasReplayableReasoning = (request: LLMRequest) =>
+  request.messages.some(
+    (message) => message.role === "assistant" && message.content.some((part) => part.type === "reasoning"),
   )
+
+const streamRequestWith = (runtime: TransportRuntime) => {
+  const run = (request: LLMRequest): Stream.Stream<LLMEvent, LLMError> =>
+    Stream.unwrap(
+      Effect.gen(function* () {
+        const compiled = yield* compile(request)
+        return compiled.route.streamPrepared(compiled.prepared, compiled.request, runtime).pipe(
+          Stream.catch((error) =>
+            encryptedContentFailure(error) && hasReplayableReasoning(request)
+              ? run(stripReasoningParts(request))
+              : Stream.fail(error),
+          ),
+        )
+      }),
+    )
+  return run
+}
 
 const generateWith = (stream: Interface["stream"]) =>
   Effect.fn("LLM.generate")(function* (request: LLMRequest) {
