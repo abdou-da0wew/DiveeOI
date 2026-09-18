@@ -253,10 +253,12 @@ export const workspaceRoutingLayer = Layer.effect(
     const makeWebSocket = yield* Socket.WebSocketConstructor
     const workspace = yield* Workspace.Service
     const client = yield* HttpClient.HttpClient
+    const adaptive = yield* AdaptiveResourceService
     return WorkspaceRoutingMiddleware.of((effect) =>
       routeHttpApiWorkspace(client, effect).pipe(
         Effect.provideService(Socket.WebSocketConstructor, makeWebSocket),
         Effect.provideService(Workspace.Service, workspace),
+        Effect.provideService(AdaptiveResourceService, adaptive),
       ),
     )
   }),
