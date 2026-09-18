@@ -142,9 +142,8 @@ export function stream(input: StreamInput): StreamResult {
 
   // Wire the abort signal to interrupt the stream
   const abortSignal = input.abort
-  const interruptibleStream = Stream.interruptWhen(
-    stream,
-    Stream.fromEffect(
+  const interruptibleStream = stream.pipe(
+    Stream.interruptWhen(
       Effect.promise<void>(() => {
         if (abortSignal.aborted) return Promise.resolve()
         return new Promise<void>((resolve) =>
