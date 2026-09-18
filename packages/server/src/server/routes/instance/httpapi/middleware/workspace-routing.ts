@@ -12,6 +12,7 @@ import { Context, Data, Effect, Layer, Option, Schema } from "effect"
 import { HttpClient, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiMiddleware } from "effect/unstable/httpapi"
 import * as Socket from "effect/unstable/socket/Socket"
+import { AdaptiveResourceService } from "@diveeoi/db/adaptive"
 import { InvalidRequestError } from "../errors"
 
 // Query fields this middleware reads from the URL. Spread into every
@@ -116,7 +117,11 @@ function proxyRemote(
   workspace: Workspace.Info,
   target: RemoteTarget,
   url: URL,
-): Effect.Effect<HttpServerResponse.HttpServerResponse, never, Socket.WebSocketConstructor | Workspace.Service> {
+): Effect.Effect<
+  HttpServerResponse.HttpServerResponse,
+  never,
+  AdaptiveResourceService | Socket.WebSocketConstructor | Workspace.Service
+> {
   return Effect.gen(function* () {
     const syncing = yield* Workspace.Service.use((svc) => svc.isSyncing(workspace.id))
     if (!syncing) {
@@ -189,7 +194,11 @@ function routeWorkspace<E>(
   client: HttpClient.HttpClient,
   effect: Effect.Effect<HttpServerResponse.HttpServerResponse, E, WorkspaceRouteContext>,
   plan: RequestPlan,
-): Effect.Effect<HttpServerResponse.HttpServerResponse, E, Socket.WebSocketConstructor | Workspace.Service> {
+): Effect.Effect<
+  HttpServerResponse.HttpServerResponse,
+  E,
+  AdaptiveResourceService | Socket.WebSocketConstructor | Workspace.Service
+> {
   return RequestPlan.$match(plan, {
     InvalidWorkspace: () =>
       Effect.succeed(
@@ -215,7 +224,11 @@ function routeHttpApiWorkspace<E>(
 ): Effect.Effect<
   HttpServerResponse.HttpServerResponse,
   E,
-  Session.Service | Workspace.Service | HttpServerRequest.HttpServerRequest | Socket.WebSocketConstructor
+  | AdaptiveResourceService
+  | Session.Service
+  | Workspace.Service
+  | HttpServerRequest.HttpServerRequest
+  | Socket.WebSocketConstructor
 > {
   return Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest

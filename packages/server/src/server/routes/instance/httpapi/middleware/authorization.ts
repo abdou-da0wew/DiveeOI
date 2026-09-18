@@ -98,9 +98,9 @@ function validateRawCredential<A, E, R>(
   return effect
 }
 
-export const authorizationRouterMiddleware = HttpRouter.middleware<{ requires: never; handles: unknown }>()(
+export const authorizationRouterMiddleware = HttpRouter.middleware<{ handles: unknown }>()(
   // Auth disabled — always pass through
-  Effect.succeed((effect: any) => effect),
+  (effect) => effect,
 )
 
 export const authorizationLayer = Layer.effect(
