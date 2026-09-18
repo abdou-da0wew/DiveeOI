@@ -58,6 +58,7 @@
     "@types/semver": "catalog:",
     "@types/turndown": "5.0.5",
     "@types/which": "3.0.4",
+    "@typescript/native-preview": "catalog:",
     "drizzle-kit": "catalog:"
   },
   "dependencies": {
