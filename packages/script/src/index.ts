@@ -32,10 +32,7 @@ const CHANNEL = await (async () => {
   if (env.DIVEEOI_CHANNEL) return env.DIVEEOI_CHANNEL
   if (env.OPENCODE_CHANNEL) return env.OPENCODE_CHANNEL
   if (env.DIVEEOI_BUMP || env.OPENCODE_BUMP) return "latest"
-  const version = env.DIVEEOI_VERSION || env.OPENCODE_VERSION
-  // Prerelease versions (0.0.0-*, 1.2.3-dev-*) build preview channels; a plain
-  // release version builds the "latest" channel.
-  if (version && !version.includes("-")) return "latest"
+  if ((env.DIVEEOI_VERSION || env.OPENCODE_VERSION) && !(env.DIVEEOI_VERSION || env.OPENCODE_VERSION).startsWith("0.0.0-")) return "latest"
   return await $`git branch --show-current`.text().then((x) => x.trim())
 })()
 const IS_PREVIEW = CHANNEL !== "latest"
@@ -64,16 +61,15 @@ const nextPatch = (version: string) => {
 const VERSION = await (async () => {
   if (env.DIVEEOI_VERSION) return env.DIVEEOI_VERSION
   if (env.OPENCODE_VERSION) return env.OPENCODE_VERSION
+  const latest = await latestUpstream()
   if (IS_PREVIEW) {
     // Preview builds still talk to upstream services that version-gate clients
-    // (the opencode free tier rejects anything below its current minimum, so a
-    // 0.0.0-* version is always rejected). Base the preview on the next patch
-    // above upstream's latest release: semver-greater than any gate upstream
-    // itself satisfies, while still identifying as a prerelease build.
-    const latest = await latestUpstream()
-    return latest ? `${nextPatch(latest)}-${CHANNEL}-${timestamp()}` : `0.0.0-${CHANNEL}-${timestamp()}`
+    // (the opencode free tier requires a recent release; a 0.0.0-* version is
+    // always rejected). Use the next patch above upstream's latest release as a
+    // plain release-style string — npm semver ranges like >=1.17.0 exclude
+    // prerelease suffixes, so a `1.17.1-dev-*` form would fail the same gate.
+    return latest ? nextPatch(latest) : `0.0.0-${CHANNEL}-${timestamp()}`
   }
-  const latest = await latestUpstream()
   if (latest) {
     const [major, minor, patch] = latest.split(".").map((x: string) => Number(x) || 0)
     const t = env.DIVEEOI_BUMP || env.OPENCODE_BUMP
