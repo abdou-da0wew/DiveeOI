@@ -1,5 +1,10 @@
 import { Effect, ManagedRuntime } from "effect"
 import { Features } from "./features"
+import { waitForParentExit } from "./server/restart"
+
+// When spawned by an in-process restart, wait for the old process to release
+// the listen port before anything tries to bind it.
+await waitForParentExit()
 
 // The profiler is a startup feature: its module (and writer fiber) is only
 // loaded when enabled. Actual activation stays gated by DIVEEOI_PROFILER.

@@ -10,6 +10,7 @@ import { SettingsProviders } from "./settings-providers"
 import { SettingsModels } from "./settings-models"
 import { SettingsServers } from "./settings-servers"
 import { SettingsLlm } from "./settings-llm"
+import { SettingsFeatures } from "./settings-features"
 
 export const DialogSettings: Component = () => {
   const language = useLanguage()
@@ -36,6 +37,10 @@ export const DialogSettings: Component = () => {
                     <Tabs.Trigger value="servers">
                       <Icon name="server" />
                       {language.t("status.popover.tab.servers")}
+                    </Tabs.Trigger>
+                    <Tabs.Trigger value="features">
+                      <Icon name="task" />
+                      {language.t("settings.tab.features")}
                     </Tabs.Trigger>
                   </div>
                 </div>
@@ -73,6 +78,9 @@ export const DialogSettings: Component = () => {
         </Tabs.Content>
         <Tabs.Content value="servers" class="no-scrollbar">
           <SettingsServers />
+        </Tabs.Content>
+        <Tabs.Content value="features" class="no-scrollbar">
+          <SettingsFeatures />
         </Tabs.Content>
         <Tabs.Content value="llm" class="no-scrollbar">
           <SettingsLlm />

@@ -1,4 +1,7 @@
 import { Config } from "@/config/config"
+import { Features } from "@/features"
+import * as LSPServer from "@/lsp/server"
+import { ServerRestart } from "@/server/restart"
 import { GlobalBus, type GlobalEvent as GlobalBusEvent } from "@/bus/global"
 import { EffectBridge } from "@/effect/bridge"
 import { EventV2 } from "@diveeoi/db/event"
@@ -110,6 +113,30 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
       return true
     })
 
+    const featuresGet = Effect.fn("GlobalHttpApi.featuresGet")(function* () {
+      const info = yield* config.getGlobal()
+      const lspConfig = info.lsp
+      const overrides = typeof lspConfig === "object" && lspConfig !== null ? lspConfig : {}
+      const lspServers = Object.values(LSPServer)
+        .filter((server): server is LSPServer.Info => typeof server === "object" && server !== null && "id" in server)
+        .map((server) => ({
+          id: server.id,
+          extensions: [...server.extensions],
+          disabled: overrides[server.id]?.disabled === true,
+        }))
+      return {
+        features: { ...Features.flags },
+        envDisabled: [...Features.envDisabled],
+        lspEnabled: lspConfig !== false,
+        lspServers,
+      }
+    })
+
+    const restart = Effect.fn("GlobalHttpApi.restart")(function* () {
+      const started = yield* ServerRestart.restartProcess()
+      return { started }
+    })
+
     const upgrade = Effect.fn("GlobalHttpApi.upgrade")(function* (ctx: { payload: typeof GlobalUpgradeInput.Type }) {
       const method = yield* installation.method()
       if (method === "unknown") {
@@ -167,6 +194,8 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
       .handle("configGet", configGet)
       .handle("configUpdate", configUpdate)
       .handle("dispose", dispose)
+      .handle("featuresGet", featuresGet)
+      .handle("restart", restart)
       .handleRaw("upgrade", upgradeRaw)
   }),
 )

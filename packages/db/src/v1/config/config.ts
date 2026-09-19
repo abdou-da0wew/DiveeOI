@@ -193,6 +193,24 @@ export const Info = Schema.Struct({
     description:
       "Enable or configure LSP servers. Omit or set to false to disable, true to enable built-ins, or an object to enable built-ins with overrides.",
   }),
+  features: Schema.optional(
+    Schema.Struct({
+      memory: Schema.optional(Schema.Boolean).annotate({
+        description: "Session memory: extraction, scheduler, memory tools (default: true)",
+      }),
+      mcp: Schema.optional(Schema.Boolean).annotate({
+        description: "MCP client connections and MCP-backed tools (default: true)",
+      }),
+      lsp: Schema.optional(Schema.Boolean).annotate({
+        description: "LSP language servers and diagnostics (default: true)",
+      }),
+      profiler: Schema.optional(Schema.Boolean).annotate({
+        description: "Startup profiler instrumentation (default: true)",
+      }),
+    }),
+  ).annotate({
+    description: "Startup feature flags. Disabled features never load their machinery. Changes require a server restart.",
+  }),
   instructions: Schema.optional(Schema.mutable(Schema.Array(Schema.String))).annotate({
     description: "Additional instruction files or patterns to include",
   }),
