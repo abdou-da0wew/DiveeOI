@@ -7,8 +7,10 @@ import { InstanceState } from "@/effect/instance-state"
 import { pathToFileURL } from "url"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import { FSUtil } from "@diveeoi/db/fs-util"
+import type { Diagnostic as LSPDiagnostic } from "@/lsp/client"
 
 const operations = [
+  "diagnostics",
   "goToDefinition",
   "findReferences",
   "hover",
@@ -20,15 +22,22 @@ const operations = [
   "outgoingCalls",
 ] as const
 
+/** Operations that operate on a whole file (or the workspace) and need no line/character. */
+const fileLevel = new Set<string>(["diagnostics", "documentSymbol", "workspaceSymbol"])
+
 export const Parameters = Schema.Struct({
   operation: Schema.Literals(operations).annotate({ description: "The LSP operation to perform" }),
   filePath: Schema.String.annotate({ description: "The absolute or relative path to the file" }),
-  line: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)).annotate({
-    description: "The line number (1-based, as shown in editors)",
-  }),
-  character: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)).annotate({
-    description: "The character offset (1-based, as shown in editors)",
-  }),
+  line: Schema.optional(
+    Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)).annotate({
+      description: "The line number (1-based, as shown in editors). Required by position-based operations.",
+    }),
+  ),
+  character: Schema.optional(
+    Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)).annotate({
+      description: "The character offset (1-based, as shown in editors). Required by position-based operations.",
+    }),
+  ),
   query: Schema.optional(Schema.String).annotate({
     description: "Search query for workspaceSymbol. Empty string requests all symbols.",
   }),
@@ -47,12 +56,14 @@ export const LspTool = Tool.define(
           const instance = yield* InstanceState.context
           const file = path.isAbsolute(args.filePath) ? args.filePath : path.join(instance.directory, args.filePath)
           yield* assertExternalDirectoryEffect(ctx, file)
-          const meta =
-            args.operation === "workspaceSymbol"
+          if (!fileLevel.has(args.operation) && (args.line === undefined || args.character === undefined)) {
+            throw new Error(`Operation ${args.operation} requires line and character`)
+          }
+          const meta = fileLevel.has(args.operation)
+            ? args.operation === "workspaceSymbol"
               ? { operation: args.operation }
-              : args.operation === "documentSymbol"
-                ? { operation: args.operation, filePath: file }
-                : { operation: args.operation, filePath: file, line: args.line, character: args.character }
+              : { operation: args.operation, filePath: file }
+            : { operation: args.operation, filePath: file, line: args.line, character: args.character }
           yield* ctx.ask({
             permission: "lsp",
             patterns: ["*"],
@@ -61,14 +72,13 @@ export const LspTool = Tool.define(
           })
 
           const uri = pathToFileURL(file).href
-          const position = { file, line: args.line - 1, character: args.character - 1 }
+          const position = { file, line: (args.line ?? 1) - 1, character: (args.character ?? 1) - 1 }
           const relPath = path.relative(instance.worktree, file)
-          const detail =
-            args.operation === "workspaceSymbol"
+          const detail = !fileLevel.has(args.operation)
+            ? `${relPath}:${args.line}:${args.character}`
+            : args.operation === "workspaceSymbol"
               ? ""
-              : args.operation === "documentSymbol"
-                ? relPath
-                : `${relPath}:${args.line}:${args.character}`
+              : relPath
           const title = detail ? `${args.operation} ${detail}` : args.operation
 
           const exists = yield* fs.existsSafe(file)
@@ -81,6 +91,9 @@ export const LspTool = Tool.define(
 
           const result: unknown[] = yield* (() => {
             switch (args.operation) {
+              case "diagnostics": {
+                return Effect.map(lsp.diagnostics(), (all) => all[FSUtil.normalizePath(file)] ?? [])
+              }
               case "goToDefinition":
                 return lsp.definition(position)
               case "findReferences":
@@ -102,10 +115,19 @@ export const LspTool = Tool.define(
             }
           })()
 
+          const output =
+            args.operation === "diagnostics"
+              ? result.length === 0
+                ? `No LSP diagnostics for ${relPath}`
+                : result.map((item) => LSP.Diagnostic.pretty(item as LSPDiagnostic)).join("\n")
+              : result.length === 0
+                ? `No results found for ${args.operation}`
+                : JSON.stringify(result, null, 2)
+
           return {
             title,
             metadata: { result },
-            output: result.length === 0 ? `No results found for ${args.operation}` : JSON.stringify(result, null, 2),
+            output,
           }
         }).pipe(Effect.orDie),
     }

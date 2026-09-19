@@ -151,7 +151,10 @@ export const layer = Layer.effect(
 
         const servers: Record<string, LSPServer.Info> = {}
 
-        if (!cfg.lsp) {
+        // LSP servers are enabled by default so the agent sees diagnostics
+        // out of the box. Only an explicit `lsp: false` (or per-server
+        // `disabled: true` entries below) turns them off.
+        if (cfg.lsp === false) {
           yield* Effect.logInfo("all LSPs are disabled")
         } else {
           for (const server of Object.values(LSPServer)) {
@@ -160,7 +163,7 @@ export const layer = Layer.effect(
 
           filterExperimentalServers(servers, flags)
 
-          if (cfg.lsp !== true) {
+          if (cfg.lsp && cfg.lsp !== true) {
             for (const [name, item] of Object.entries(cfg.lsp)) {
               const existing = servers[name]
               if (item.disabled) {
