@@ -13,10 +13,11 @@ import { parse as parseJsonc } from "jsonc-parser"
  * Sources, lowest to highest priority:
  *   1. Built-in defaults (everything enabled).
  *   2. The `features` object in the global config files (same candidate list
- *      as the Config service reads — `opencode.jsonc`, `opencode.json`,
- *      `config.json`, plus `~/.diveeagent/diveeoi.jsonc`). Per-project config
- *      is deliberately not consulted: layers are process-global, so feature
- *      gating must be decided before any instance state exists.
+ *      as the Config service reads — `~/.config/diveeoi/`, `~/.config/opencode/`,
+ *      `~/.diveeagent/` with files `opencode.jsonc`, `opencode.json`,
+ *      `config.json`, `diveeoi.jsonc`). Per-project config is deliberately not
+ *      consulted: layers are process-global, so feature gating must be decided
+ *      before any instance state exists.
  *   3. `DIVEEOI_DISABLE_FEATURES` / `OPENCODE_DISABLE_FEATURES` — comma-
  *      separated feature names to force off.
  */
@@ -44,6 +45,7 @@ const KNOWN: ReadonlyArray<keyof FeatureFlags> = ["memory", "mcp", "lsp", "profi
 const globalConfigCandidates = (): string[] => {
   const home = process.env.HOME || process.env.USERPROFILE || ""
   const configDirs = [
+    path.join(home, ".config", "diveeoi"),
     path.join(home, ".config", "opencode"),
     path.join(home, ".diveeagent"),
   ]
