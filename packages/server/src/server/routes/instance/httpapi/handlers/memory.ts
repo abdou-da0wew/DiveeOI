@@ -1,6 +1,7 @@
 import { Effect, Layer } from "effect"
 import { HttpRouter, HttpServerResponse } from "effect/unstable/http"
 import { LayerNode } from "@diveeoi/db/effect/layer-node"
+import { Features } from "@/features"
 import { SessionMemoryIntegration } from "@/session/memory"
 import { MemoryScheduler } from "@/session/memory-scheduler"
 import { ServerAuth } from "@/server/auth"
@@ -42,6 +43,8 @@ const memoryExtractRouteBase = HttpRouter.use((router) =>
   Layer.provide(authorizationRouterMiddleware.layer.pipe(Layer.provide(ServerAuth.Config.defaultLayer))),
 )
 
-export const memoryExtractRoute = memoryExtractRouteBase.pipe(
-  Layer.provideMerge(LayerNode.buildLayer(MemoryScheduler.node)),
-)
+// When the memory feature is disabled the route is never registered at all —
+// the endpoint 404s instead of invoking the stub services.
+export const memoryExtractRoute = Features.flags.memory
+  ? memoryExtractRouteBase.pipe(Layer.provideMerge(LayerNode.buildLayer(MemoryScheduler.node)))
+  : Layer.empty

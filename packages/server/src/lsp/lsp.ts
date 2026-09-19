@@ -7,6 +7,7 @@ import path from "path"
 import { pathToFileURL, fileURLToPath } from "url"
 import * as LSPServer from "./server"
 import { Config } from "@/config/config"
+import { Features } from "@/features"
 import { Process } from "@/util/process"
 import { spawn as lspspawn } from "./launch"
 import { Effect, Layer, Context, Schema } from "effect"
@@ -498,14 +499,40 @@ export const layer = Layer.effect(
   }),
 )
 
-export const defaultLayer = layer.pipe(
-  Layer.provide(Config.defaultLayer),
-  Layer.provide(RuntimeFlags.defaultLayer),
-  Layer.provide(EventV2Bridge.defaultLayer),
+// Disabled feature: no language-server processes are spawned and no client
+// state is kept. Tool/editor call sites get empty results.
+const disabledLayer = Layer.succeed(
+  Service,
+  Service.of({
+    init: () => Effect.void,
+    status: () => Effect.succeed([]),
+    hasClients: () => Effect.succeed(false),
+    touchFile: () => Effect.void,
+    diagnostics: () => Effect.succeed({}),
+    hover: () => Effect.succeed(undefined),
+    definition: () => Effect.succeed([]),
+    references: () => Effect.succeed([]),
+    implementation: () => Effect.succeed([]),
+    documentSymbol: () => Effect.succeed([]),
+    workspaceSymbol: () => Effect.succeed([]),
+    prepareCallHierarchy: () => Effect.succeed([]),
+    incomingCalls: () => Effect.succeed([]),
+    outgoingCalls: () => Effect.succeed([]),
+  }),
 )
+
+export const defaultLayer = Features.flags.lsp
+  ? layer.pipe(
+      Layer.provide(Config.defaultLayer),
+      Layer.provide(RuntimeFlags.defaultLayer),
+      Layer.provide(EventV2Bridge.defaultLayer),
+    )
+  : disabledLayer
 
 export * as Diagnostic from "./diagnostic"
 
-export const node = LayerNode.make(layer, [Config.node, RuntimeFlags.node, FSUtil.node, EventV2Bridge.node])
+export const node = Features.flags.lsp
+  ? LayerNode.make(layer, [Config.node, RuntimeFlags.node, FSUtil.node, EventV2Bridge.node])
+  : LayerNode.make(disabledLayer, [])
 
 export * as LSP from "./lsp"

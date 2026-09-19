@@ -40,6 +40,7 @@ import { WorkspaceV2 } from "@diveeoi/db/workspace"
 import { SessionID, MessageID, PartID } from "./schema"
 
 import { SessionMemoryIntegration } from "./memory"
+import { Features } from "@/features"
 import { MemoryConfig, Memory } from "@diveeoi/memory"
 import { Effect, Layer, Option, Context, Schema, Types } from "effect"
 import { AbsolutePath, NonNegativeInt, optionalOmitUndefined } from "@diveeoi/db/schema"
@@ -1159,6 +1160,13 @@ export function* listGlobal(input?: {
   }
 }
 
-export const node = LayerNode.make(layer, [BackgroundJob.node, RuntimeFlags.node, Database.node, EventV2Bridge.node, Memory.node])
+export const node = LayerNode.make(layer, [
+  BackgroundJob.node,
+  RuntimeFlags.node,
+  Database.node,
+  EventV2Bridge.node,
+  // The memory service graph is only built when the feature is enabled.
+  ...(Features.flags.memory ? [Memory.node] : []),
+])
 
 export * as Session from "./session"
