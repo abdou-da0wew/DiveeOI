@@ -6,7 +6,7 @@
   "license": "MIT",
   "private": true,
   "scripts": {
-    "typecheck": "systemd-run --user --scope -p MemoryMax=1.8G tsgo --noEmit"
+    "typecheck": "tsgo --noEmit"
   },
   "exports": {
     ".": "./src/index.ts"

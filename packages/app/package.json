@@ -12,7 +12,7 @@
     "./index.css": "./src/index.css"
   },
   "scripts": {
-    "typecheck": "systemd-run --user --scope -p MemoryMax=1.8G tsgo -b",
+    "typecheck": "tsgo -b",
     "start": "vite",
     "dev": "vite",
     "build": "vite build",
