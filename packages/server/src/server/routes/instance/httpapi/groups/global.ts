@@ -53,6 +53,30 @@ export const GlobalUpgradeInput = Schema.Struct({
   target: Schema.optional(Schema.String),
 })
 
+const GlobalFeaturesState = Schema.Struct({
+  features: Schema.Struct({
+    memory: Schema.Boolean,
+    mcp: Schema.Boolean,
+    lsp: Schema.Boolean,
+    profiler: Schema.Boolean,
+  }),
+  envDisabled: Schema.mutable(Schema.Array(Schema.String)),
+  lspEnabled: Schema.Boolean,
+  lspServers: Schema.mutable(
+    Schema.Array(
+      Schema.Struct({
+        id: Schema.String,
+        extensions: Schema.mutable(Schema.Array(Schema.String)),
+        disabled: Schema.Boolean,
+      }),
+    ),
+  ),
+}).annotate({ identifier: "GlobalFeaturesState" })
+
+const GlobalRestartResult = Schema.Struct({
+  started: Schema.Boolean,
+}).annotate({ identifier: "GlobalRestartResult" })
+
 const GlobalUpgradeResult = Schema.Union([
   Schema.Struct({
     success: Schema.Literal(true),
@@ -70,6 +94,8 @@ export const GlobalPaths = {
   config: "/global/config",
   dispose: "/global/dispose",
   upgrade: "/global/upgrade",
+  features: "/global/features",
+  restart: "/global/restart",
 } as const
 
 export const GlobalApi = HttpApi.make("global").add(
@@ -131,6 +157,26 @@ export const GlobalApi = HttpApi.make("global").add(
           identifier: "global.upgrade",
           summary: "Upgrade opencode",
           description: "Upgrade opencode to the specified version or latest if not specified.",
+        }),
+      ),
+      HttpApiEndpoint.get("featuresGet", GlobalPaths.features, {
+        success: described(GlobalFeaturesState, "Effective feature flags and LSP servers"),
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "global.features.get",
+          summary: "Get feature flags",
+          description:
+            "Get the effective startup feature flags, environment overrides, and the built-in LSP server list with their disabled state.",
+        }),
+      ),
+      HttpApiEndpoint.post("restart", GlobalPaths.restart, {
+        success: described(GlobalRestartResult, "Restart accepted"),
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "global.restart",
+          summary: "Restart the server",
+          description:
+            "Restart the server process in place. The current process exits after responding; clients should poll the health endpoint until it responds again.",
         }),
       ),
     )

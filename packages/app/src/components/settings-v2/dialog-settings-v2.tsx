@@ -11,6 +11,7 @@ import { SettingsModelsV2 } from "./models"
 import "./settings-v2.css"
 import { SettingsServersV2 } from "./servers"
 import { SettingsLlmV2 } from "./llm"
+import { SettingsFeaturesV2 } from "./features"
 export const DialogSettings: Component = () => {
   const language = useLanguage()
   const platform = usePlatform()
@@ -43,6 +44,10 @@ export const DialogSettings: Component = () => {
                       <Icon name="server" />
                       {language.t("status.popover.tab.servers")}
                     </TabsV2.Trigger>
+                    <TabsV2.Trigger value="features">
+                      <Icon name="task" />
+                      {language.t("settings.tab.features")}
+                    </TabsV2.Trigger>
                     <TabsV2.Trigger value="llm">
                       <Icon name="brain" />
                       {language.t("settings.tab.llm")}
@@ -73,6 +78,9 @@ export const DialogSettings: Component = () => {
         </TabsV2.Content>
         <TabsV2.Content value="servers" class="settings-v2-panel">
           <SettingsServersV2 />
+        </TabsV2.Content>
+        <TabsV2.Content value="features" class="settings-v2-panel">
+          <SettingsFeaturesV2 />
         </TabsV2.Content>
         <TabsV2.Content value="llm" class="settings-v2-panel">
           <SettingsLlmV2 />

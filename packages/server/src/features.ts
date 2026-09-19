@@ -110,4 +110,7 @@ export const flags: FeatureFlags = resolve()
 
 export const enabled = (name: keyof FeatureFlags): boolean => flags[name]
 
+/** Features force-disabled via DIVEEOI_DISABLE_FEATURES / OPENCODE_DISABLE_FEATURES (config cannot re-enable these). */
+export const envDisabled: ReadonlyArray<keyof FeatureFlags> = readEnvDisabled()
+
 export * as Features from "./features"
