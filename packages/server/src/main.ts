@@ -1,5 +1,9 @@
-import "@diveeoi/profiler"
 import { Effect, ManagedRuntime } from "effect"
+import { Features } from "./features"
+
+// The profiler is a startup feature: its module (and writer fiber) is only
+// loaded when enabled. Actual activation stays gated by DIVEEOI_PROFILER.
+if (Features.flags.profiler) await import("@diveeoi/profiler")
 import { AdaptiveResourceService, defaultLayer as AdaptiveResourceDefaultLayer } from "@diveeoi/db/adaptive"
 import { handleCLI } from "./cli/index"
 import { Server } from "./server/server"

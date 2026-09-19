@@ -3,6 +3,7 @@ import { Session } from "@/session/session"
 import { SessionID } from "@/session/schema"
 import { Effect, Layer, Scope, Context } from "effect"
 import { Config } from "@/config/config"
+import { Features } from "@/features"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ShareNext } from "./share-next"
 import { SessionMemoryIntegration } from "@/session/memory"
@@ -77,7 +78,9 @@ export const node = LayerNode.make(layer, [
   Session.node,
   ShareNext.node,
   RuntimeFlags.node,
-  Memory.node,
+  // The real memory graph is only built when the feature is enabled; the
+  // integration stub still satisfies the service requirement when it is not.
+  ...(Features.flags.memory ? [Memory.node] : []),
   SessionMemoryIntegration.node,
 ])
 

@@ -29,7 +29,7 @@ import { Provider } from "@/provider/provider"
 
 import { WebSearchTool } from "./websearch"
 import { getCtx7Defs } from "@/setup/ctx7"
-import * as MemoryTools from "./memory"
+import { Features } from "@/features"
 import { Memory } from "@diveeoi/memory"
 import { SessionMemoryIntegration } from "@/session/memory"
 import { MemoryScheduler } from "@/session/memory-scheduler"
@@ -113,15 +113,35 @@ export const layer = Layer.effect(
     const greptool = yield* GrepTool
     const agent = yield* Agent.Service
 
-    // Memory tools
-    const memoryRetrieve = yield* MemoryTools.MemoryRetrieveTool
-    const memoryCreate = yield* MemoryTools.MemoryCreateTool
-    const memoryUpdate = yield* MemoryTools.MemoryUpdateTool
-    const memoryDelete = yield* MemoryTools.MemoryDeleteTool
-    const memoryLink = yield* MemoryTools.MemoryLinkTool
-    const memoryConsolidate = yield* MemoryTools.MemoryConsolidateTool
-    const memoryStats = yield* MemoryTools.MemoryStatsTool
-    const memoryToggle = yield* MemoryTools.MemoryToggleTool
+    // Memory tools — dynamically imported so a disabled memory feature never
+    // loads the tool wrappers or the @diveeoi/memory package at all.
+    const memoryTools: Tool.Def[] = !Features.flags.memory
+      ? []
+      : yield* Effect.promise(() => import("./memory")).pipe(
+          Effect.flatMap((MemoryTools) =>
+            Effect.all({
+              retrieve: Tool.init(MemoryTools.MemoryRetrieveTool),
+              create: Tool.init(MemoryTools.MemoryCreateTool),
+              update: Tool.init(MemoryTools.MemoryUpdateTool),
+              delete: Tool.init(MemoryTools.MemoryDeleteTool),
+              link: Tool.init(MemoryTools.MemoryLinkTool),
+              consolidate: Tool.init(MemoryTools.MemoryConsolidateTool),
+              stats: Tool.init(MemoryTools.MemoryStatsTool),
+              toggle: Tool.init(MemoryTools.MemoryToggleTool),
+            }).pipe(
+              Effect.map((tools) => [
+                tools.retrieve,
+                tools.create,
+                tools.update,
+                tools.delete,
+                tools.link,
+                tools.consolidate,
+                tools.stats,
+                tools.toggle,
+              ]),
+            ),
+          ),
+        )
 
     const ctx7Defs = yield* getCtx7Defs().pipe(
       Effect.catch(() => Effect.succeed([] as Tool.Def[])),
@@ -258,15 +278,8 @@ export const layer = Layer.effect(
           tool.todo,
           tool.search,
           tool.export,
-          // Memory tools
-          memory.retrieve,
-          memory.create,
-          memory.update,
-          memory.delete,
-          memory.link,
-          memory.consolidate,
-          memory.stats,
-          memory.toggle,
+          // Memory tools (empty when the memory feature is disabled)
+          ...memoryTools,
           ...ctx7Defs,
         ]
         const taskDef: TaskDef = tool.task
@@ -430,9 +443,15 @@ export const defaultLayer = Layer.suspend(() =>
     .pipe(
       Layer.provide(Database.defaultLayer),
       Layer.provide(RuntimeFlags.defaultLayer),
-      Layer.provide(Memory.defaultLayer),
-      Layer.provide(SessionMemoryIntegration.defaultLayer),
-      Layer.provide(MemoryScheduler.defaultLayer),
+      // The memory stack (MemoryService graph, extractor, scheduler) is only
+      // provided — and therefore only built — when the feature is enabled.
+      ...(Features.flags.memory
+        ? [
+            Layer.provide(Memory.defaultLayer),
+            Layer.provide(SessionMemoryIntegration.defaultLayer),
+            Layer.provide(MemoryScheduler.defaultLayer),
+          ]
+        : []),
       Layer.provide(Ripgrep.defaultLayer),
     ),
 )
@@ -536,9 +555,7 @@ export const node = LayerNode.make(layer, [
   RuntimeFlags.node,
   adaptiveNode,
   Database.node,
-  Memory.node,
-  SessionMemoryIntegration.node,
-  MemoryScheduler.node,
+  ...(Features.flags.memory ? [Memory.node, SessionMemoryIntegration.node, MemoryScheduler.node] : []),
   Ripgrep.node,
 ])
 

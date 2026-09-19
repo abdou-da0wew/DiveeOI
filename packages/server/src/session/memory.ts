@@ -4,6 +4,7 @@ import { MemoryConfig } from "@diveeoi/memory"
 import { SessionID } from "@diveeoi/memory/schema"
 import { MemoryError } from "@diveeoi/memory/schema"
 import { Config } from "@/config/config"
+import { Features } from "@/features"
 import { Database } from "@diveeoi/db/database/database"
 import { Context, Effect, Layer } from "effect"
 
@@ -87,18 +88,29 @@ const makeSessionMemoryIntegration = Effect.gen(function* () {
   return { initializeSessionMemory, extractSessionMemory, loadSessionContext }
 })
 
-export const SessionMemoryIntegrationLive = Layer.effect(
+// When the memory feature is disabled the real implementation never builds:
+// no MemoryService, no extractor, no MemoryConfig. Consumers keep compiling
+// against the same Service type and get no-ops at runtime.
+const disabledLayer = Layer.succeed(
   Service,
-  makeSessionMemoryIntegration
-).pipe(
-  Layer.provide(MemoryConfig.defaultLayer),
-  Layer.provide(LayerNode.buildLayer(Memory.node)),
+  Service.of({
+    initializeSessionMemory: () => Effect.void,
+    extractSessionMemory: () => Effect.void,
+    loadSessionContext: () => Effect.succeed(""),
+  }),
 )
+
+export const SessionMemoryIntegrationLive = Features.flags.memory
+  ? Layer.effect(Service, makeSessionMemoryIntegration).pipe(
+      Layer.provide(MemoryConfig.defaultLayer),
+      Layer.provide(LayerNode.buildLayer(Memory.node)),
+    )
+  : disabledLayer
 
 export const defaultLayer = SessionMemoryIntegrationLive
 
-export const node = LayerNode.make(SessionMemoryIntegrationLive, [
-  Memory.node,
-])
+export const node = Features.flags.memory
+  ? LayerNode.make(SessionMemoryIntegrationLive, [Memory.node])
+  : LayerNode.make(disabledLayer, [])
 
 export * as SessionMemoryIntegration from "./memory"

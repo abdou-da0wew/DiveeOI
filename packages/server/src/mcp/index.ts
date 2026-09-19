@@ -17,6 +17,7 @@ import {
   ToolListChangedNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js"
 import { Config } from "@/config/config"
+import { Features } from "@/features"
 import { ConfigMCPV1 } from "@diveeoi/db/v1/config/mcp"
 import { NamedError } from "@diveeoi/db/util/error"
 import { InstallationVersion } from "@diveeoi/db/installation/version"
@@ -926,14 +927,43 @@ export type AuthStatus = "authenticated" | "expired" | "not_authenticated"
 
 // --- Per-service runtime ---
 
-export const defaultLayer = layer.pipe(
-  Layer.provide(McpAuth.defaultLayer),
-  Layer.provide(EventV2Bridge.defaultLayer),
-  Layer.provide(Config.defaultLayer),
-  Layer.provide(CrossSpawnSpawner.defaultLayer),
-  Layer.provide(FSUtil.defaultLayer),
+// Disabled feature: no SDK clients are created, no config-driven connects, no
+// OAuth state. Handlers stay online and report an empty/disabled MCP surface.
+const disabledLayer = Layer.succeed(
+  Service,
+  Service.of({
+    status: () => Effect.succeed({}),
+    clients: () => Effect.succeed({}),
+    tools: () => Effect.succeed({}),
+    prompts: () => Effect.succeed({}),
+    resources: () => Effect.succeed({}),
+    add: () => Effect.succeed({ status: { status: "disabled" } }),
+    connect: () => Effect.fail(new NotFoundError({ message: "MCP feature is disabled" })),
+    disconnect: () => Effect.fail(new NotFoundError({ message: "MCP feature is disabled" })),
+    getPrompt: () => Effect.succeed(undefined),
+    readResource: () => Effect.succeed(undefined),
+    startAuth: () => Effect.fail(new NotFoundError({ message: "MCP feature is disabled" })),
+    authenticate: () => Effect.fail(new NotFoundError({ message: "MCP feature is disabled" })),
+    finishAuth: () => Effect.fail(new NotFoundError({ message: "MCP feature is disabled" })),
+    removeAuth: () => Effect.void,
+    supportsOAuth: () => Effect.fail(new NotFoundError({ message: "MCP feature is disabled" })),
+    hasStoredTokens: () => Effect.succeed(false),
+    getAuthStatus: () => Effect.succeed("not_authenticated"),
+  }),
 )
 
-export const node = LayerNode.make(layer, [CrossSpawnSpawner.node, McpAuth.node, EventV2Bridge.node, Config.node])
+export const defaultLayer = Features.flags.mcp
+  ? layer.pipe(
+      Layer.provide(McpAuth.defaultLayer),
+      Layer.provide(EventV2Bridge.defaultLayer),
+      Layer.provide(Config.defaultLayer),
+      Layer.provide(CrossSpawnSpawner.defaultLayer),
+      Layer.provide(FSUtil.defaultLayer),
+    )
+  : disabledLayer
+
+export const node = Features.flags.mcp
+  ? LayerNode.make(layer, [CrossSpawnSpawner.node, McpAuth.node, EventV2Bridge.node, Config.node])
+  : LayerNode.make(disabledLayer, [])
 
 export * as MCP from "."

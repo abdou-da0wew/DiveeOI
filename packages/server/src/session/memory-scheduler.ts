@@ -1,6 +1,7 @@
 import { Effect, Layer, Context, Schedule, DateTime, Duration, Ref, Fiber, Scope } from "effect"
 import { SessionV1 } from "@diveeoi/db/v1/session"
 import { SessionMemoryIntegration } from "./memory"
+import { Features } from "@/features"
 import { MemoryConfig } from "@diveeoi/memory"
 import { MemoryError } from "@diveeoi/memory/schema"
 import { LayerNode } from "@diveeoi/db/effect/layer-node"
@@ -179,23 +180,37 @@ const makeScheduler = Effect.gen(function* () {
   return { start, stop, extractNow, getNextRun }
 })
 
-export const MemorySchedulerLive = Layer.effect(
+// Disabled feature: no scheduler fiber, no Session dependency, no MemoryConfig.
+const disabledLayer = Layer.succeed(
   MemorySchedulerService,
-  Effect.gen(function* () {
-    const scheduler = yield* makeScheduler
-    yield* scheduler.start()
-    return scheduler
-  })
-).pipe(Layer.provide(MemoryConfig.defaultLayer))
-
-export const defaultLayer = MemorySchedulerLive.pipe(
-  Layer.provide(SessionMemoryIntegration.defaultLayer),
-  Layer.provide(Session.defaultLayer),
+  MemorySchedulerService.of({
+    start: () => Effect.void,
+    stop: () => Effect.void,
+    extractNow: () => Effect.void,
+    getNextRun: () => Effect.succeed(undefined),
+  }),
 )
 
-export const node = LayerNode.make(MemorySchedulerLive, [
-  SessionMemoryIntegration.node,
-  Session.node,
-])
+export const MemorySchedulerLive = Features.flags.memory
+  ? Layer.effect(
+      MemorySchedulerService,
+      Effect.gen(function* () {
+        const scheduler = yield* makeScheduler
+        yield* scheduler.start()
+        return scheduler
+      }),
+    ).pipe(Layer.provide(MemoryConfig.defaultLayer))
+  : disabledLayer
+
+export const defaultLayer = Features.flags.memory
+  ? MemorySchedulerLive.pipe(
+      Layer.provide(SessionMemoryIntegration.defaultLayer),
+      Layer.provide(Session.defaultLayer),
+    )
+  : disabledLayer
+
+export const node = Features.flags.memory
+  ? LayerNode.make(MemorySchedulerLive, [SessionMemoryIntegration.node, Session.node])
+  : LayerNode.make(disabledLayer, [])
 
 export * as MemoryScheduler from "./memory-scheduler"
