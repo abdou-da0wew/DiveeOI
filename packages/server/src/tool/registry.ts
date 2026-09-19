@@ -117,31 +117,39 @@ export const layer = Layer.effect(
     // loads the tool wrappers or the @diveeoi/memory package at all.
     const memoryTools: Tool.Def[] = !Features.flags.memory
       ? []
-      : yield* Effect.promise(() => import("./memory")).pipe(
-          Effect.flatMap((MemoryTools) =>
-            Effect.all({
-              retrieve: Tool.init(MemoryTools.MemoryRetrieveTool),
-              create: Tool.init(MemoryTools.MemoryCreateTool),
-              update: Tool.init(MemoryTools.MemoryUpdateTool),
-              delete: Tool.init(MemoryTools.MemoryDeleteTool),
-              link: Tool.init(MemoryTools.MemoryLinkTool),
-              consolidate: Tool.init(MemoryTools.MemoryConsolidateTool),
-              stats: Tool.init(MemoryTools.MemoryStatsTool),
-              toggle: Tool.init(MemoryTools.MemoryToggleTool),
-            }).pipe(
-              Effect.map((tools) => [
-                tools.retrieve,
-                tools.create,
-                tools.update,
-                tools.delete,
-                tools.link,
-                tools.consolidate,
-                tools.stats,
-                tools.toggle,
-              ]),
-            ),
-          ),
-        )
+      : yield* Effect.gen(function* () {
+          const MemoryTools = yield* Effect.promise(() => import("./memory"))
+          const infos = yield* Effect.all({
+            retrieve: MemoryTools.MemoryRetrieveTool,
+            create: MemoryTools.MemoryCreateTool,
+            update: MemoryTools.MemoryUpdateTool,
+            delete: MemoryTools.MemoryDeleteTool,
+            link: MemoryTools.MemoryLinkTool,
+            consolidate: MemoryTools.MemoryConsolidateTool,
+            stats: MemoryTools.MemoryStatsTool,
+            toggle: MemoryTools.MemoryToggleTool,
+          })
+          const tools = yield* Effect.all({
+            retrieve: Tool.init(infos.retrieve),
+            create: Tool.init(infos.create),
+            update: Tool.init(infos.update),
+            delete: Tool.init(infos.delete),
+            link: Tool.init(infos.link),
+            consolidate: Tool.init(infos.consolidate),
+            stats: Tool.init(infos.stats),
+            toggle: Tool.init(infos.toggle),
+          })
+          return [
+            tools.retrieve,
+            tools.create,
+            tools.update,
+            tools.delete,
+            tools.link,
+            tools.consolidate,
+            tools.stats,
+            tools.toggle,
+          ]
+        })
 
     const ctx7Defs = yield* getCtx7Defs().pipe(
       Effect.catch(() => Effect.succeed([] as Tool.Def[])),
@@ -251,17 +259,6 @@ export const layer = Layer.effect(
           search: Tool.init(websearch),
           question: Tool.init(question),
           export: Tool.init(dbexport),
-        })
-
-        const memory = yield* Effect.all({
-          retrieve: Tool.init(memoryRetrieve),
-          create: Tool.init(memoryCreate),
-          update: Tool.init(memoryUpdate),
-          delete: Tool.init(memoryDelete),
-          link: Tool.init(memoryLink),
-          consolidate: Tool.init(memoryConsolidate),
-          stats: Tool.init(memoryStats),
-          toggle: Tool.init(memoryToggle),
         })
 
         const builtin: Tool.Def[] = [
@@ -445,13 +442,11 @@ export const defaultLayer = Layer.suspend(() =>
       Layer.provide(RuntimeFlags.defaultLayer),
       // The memory stack (MemoryService graph, extractor, scheduler) is only
       // provided — and therefore only built — when the feature is enabled.
-      ...(Features.flags.memory
-        ? [
-            Layer.provide(Memory.defaultLayer),
-            Layer.provide(SessionMemoryIntegration.defaultLayer),
-            Layer.provide(MemoryScheduler.defaultLayer),
-          ]
-        : []),
+      Layer.provide(
+        Features.flags.memory
+          ? [Memory.defaultLayer, SessionMemoryIntegration.defaultLayer, MemoryScheduler.defaultLayer]
+          : [],
+      ),
       Layer.provide(Ripgrep.defaultLayer),
     ),
 )
