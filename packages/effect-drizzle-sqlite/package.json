@@ -7,7 +7,7 @@
   "private": true,
   "scripts": {
     "test": "bun test --timeout 30000 --only-failures",
-    "typecheck": "systemd-run --user --scope -p MemoryMax=1.8G tsgo --noEmit"
+    "typecheck": "tsgo --noEmit"
   },
   "exports": {
     ".": "./src/index.ts",
