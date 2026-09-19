@@ -440,13 +440,11 @@ export const defaultLayer = Layer.suspend(() =>
     .pipe(
       Layer.provide(Database.defaultLayer),
       Layer.provide(RuntimeFlags.defaultLayer),
-      // The memory stack (MemoryService graph, extractor, scheduler) is only
-      // provided — and therefore only built — when the feature is enabled.
-      Layer.provide([
-        ...(Features.flags.memory
-          ? [Memory.defaultLayer, SessionMemoryIntegration.defaultLayer, MemoryScheduler.defaultLayer]
-          : [Layer.empty]),
-      ]),
+      // The memory graph only builds when the feature is enabled; the
+      // integration and scheduler layers degrade to no-op stubs on their own.
+      Layer.provide(Features.flags.memory ? Memory.defaultLayer : Layer.empty),
+      Layer.provide(SessionMemoryIntegration.defaultLayer),
+      Layer.provide(MemoryScheduler.defaultLayer),
       Layer.provide(Ripgrep.defaultLayer),
     ),
 )
