@@ -9,6 +9,7 @@ import { Global } from "@diveeoi/db/global"
 import fsNode from "fs/promises"
 import { Flag } from "@diveeoi/db/flag/flag"
 import { Auth } from "../auth"
+import { Compat } from "../compat"
 import { Env } from "../env"
 import { applyEdits, modify } from "jsonc-parser"
 import { InstallationLocal, InstallationVersion } from "@diveeoi/db/installation/version"
@@ -263,6 +264,14 @@ export const layer = Layer.effect(
             .writeWithDirs(file, JSON.stringify({ $schema: "https://opencode.ai/config.json" }, null, 2))
             .pipe(Effect.catch(() => Effect.void))
         }
+      }
+      // Legacy opencode config dir — lowest priority, only while backward
+      // compatibility is on (see compat.ts). Divee-branded files override it.
+      if (Compat.legacyConfigEnabled) {
+        const legacyDir = Global.Path.legacyConfig
+        result = mergeConfig(result, yield* loadFile(path.join(legacyDir, "config.json"), env))
+        result = mergeConfig(result, yield* loadFile(path.join(legacyDir, "opencode.json"), env))
+        result = mergeConfig(result, yield* loadFile(path.join(legacyDir, "opencode.jsonc"), env))
       }
       result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "config.json"), env))
       result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "opencode.json"), env))

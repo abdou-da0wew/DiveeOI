@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs"
 import path from "node:path"
 import { parse as parseJsonc } from "jsonc-parser"
+import { Compat } from "./compat"
 
 /**
  * Startup feature flags.
@@ -44,10 +45,12 @@ const KNOWN: ReadonlyArray<keyof FeatureFlags> = ["memory", "mcp", "lsp", "profi
 
 const globalConfigCandidates = (): string[] => {
   const home = process.env.HOME || process.env.USERPROFILE || ""
+  // Divee-branded dirs are the primary source; the legacy opencode dir is
+  // consulted last (lowest priority) and only while legacy compatibility is on.
   const configDirs = [
     path.join(home, ".config", "diveeoi"),
-    path.join(home, ".config", "opencode"),
     path.join(home, ".diveeagent"),
+    ...(Compat.legacyConfigEnabled ? [path.join(home, ".config", "opencode")] : []),
   ]
   const files: string[] = []
   for (const dir of configDirs) {
@@ -88,6 +91,8 @@ const readConfigFeatures = (): Partial<FeatureFlags> => {
 }
 
 const readEnvDisabled = (): ReadonlyArray<keyof FeatureFlags> => {
+  // Env fallbacks stay backward compatible unconditionally (same policy as
+  // Flag in @diveeoi/db): DIVEEOI_* first, OPENCODE_* fallback.
   const raw = process.env.DIVEEOI_DISABLE_FEATURES ?? process.env.OPENCODE_DISABLE_FEATURES
   if (!raw) return []
   return raw

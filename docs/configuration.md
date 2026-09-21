@@ -73,6 +73,21 @@ Behavior when disabled:
 
 The web UI exposes these under **Settings → Features** (both v1 and v2 settings dialogs): a toggle per feature plus per-language-server on/off switches. Saving a change PATCHes the global config (`PATCH /global/config`) and then automatically restarts the server in place — the UI shows a "Restarting server…" overlay until the health endpoint answers again, then reloads the page. `GET /global/features` returns the effective flags, any `DIVEEOI_DISABLE_FEATURES` env overrides (shown as locked toggles), and the built-in LSP server list with their disabled state. `POST /global/restart` re-execs the server process (the replacement waits for the old process to release the listen port).
 
+## Backward Compatibility
+
+Backward compatibility with opencode is **on by default**: legacy config files in `~/.config/opencode/` (`config.json`, `opencode.json`, `opencode.jsonc`) are read at the lowest priority (any DiveeOI-branded config overrides them), and `DIVEEOI_*` environment variables fall back to their `OPENCODE_*` counterparts everywhere (`packages/db/src/flag/flag.ts`).
+
+To turn file/directory compatibility off, set it in a **main DiveeOI config file only** — `~/.config/diveeoi/*`, `~/.diveeagent/diveeoi.jsonc`, or an explicit `DIVEEOI_CONFIG` file:
+
+```jsonc
+{
+  // ~/.config/diveeoi/opencode.jsonc
+  "compatibility": { "legacy_config": false }
+}
+```
+
+With `legacy_config: false`, legacy opencode config directories and files are ignored entirely (the first-run migration in `packages/db/src/global.ts` still applies). The switch is deliberately ignored when it appears in a file inherited from opencode — an opencode-origin config can never switch its own compatibility off. `OPENCODE_*` environment fallbacks remain active regardless; unset them to stop using them. Changes require a server restart.
+
 ## Providers
 
 Defined in `packages/db/src/config/*` and runtime in `packages/llm/providers/*`. A provider is typically:
