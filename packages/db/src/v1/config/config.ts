@@ -211,6 +211,16 @@ export const Info = Schema.Struct({
   ).annotate({
     description: "Startup feature flags. Disabled features never load their machinery. Changes require a server restart.",
   }),
+  compatibility: Schema.optional(
+    Schema.Struct({
+      legacy_config: Schema.optional(Schema.Boolean).annotate({
+        description:
+          "Read legacy opencode config files, directories, and OPENCODE_* environment variables (default: true). Only honored when set in a main DiveeOI config file (~/.config/diveeoi/*, ~/.diveeagent/diveeoi.jsonc, or DIVEEOI_CONFIG).",
+      }),
+    }),
+  ).annotate({
+    description: "Backward compatibility switches. Changes require a server restart.",
+  }),
   instructions: Schema.optional(Schema.mutable(Schema.Array(Schema.String))).annotate({
     description: "Additional instruction files or patterns to include",
   }),
