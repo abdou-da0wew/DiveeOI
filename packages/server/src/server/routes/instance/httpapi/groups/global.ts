@@ -71,6 +71,10 @@ const GlobalFeaturesState = Schema.Struct({
       }),
     ),
   ),
+  probes: Schema.Struct({
+    fts5: Schema.String,
+    ssh2: Schema.String,
+  }),
 }).annotate({ identifier: "GlobalFeaturesState" })
 
 const GlobalRestartResult = Schema.Struct({

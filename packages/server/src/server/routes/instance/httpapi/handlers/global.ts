@@ -1,5 +1,6 @@
 import { Config } from "@/config/config"
 import { Features } from "@/features"
+import { Probes } from "@/probes"
 import * as LSPServer from "@/lsp/server"
 import { ServerRestart } from "@/server/restart"
 import { GlobalBus, type GlobalEvent as GlobalBusEvent } from "@/bus/global"
@@ -129,6 +130,7 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
         envDisabled: [...Features.envDisabled],
         lspEnabled: lspConfig !== false,
         lspServers,
+        probes: { ...Probes.probes },
       }
     })
 

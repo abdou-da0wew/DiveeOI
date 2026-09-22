@@ -9,6 +9,7 @@ import { lazy } from "@/util/lazy"
 import type { Node } from "web-tree-sitter"
 
 import { FSUtil } from "@diveeoi/db/fs-util"
+import { useAdaptiveTargets } from "@diveeoi/db/adaptive"
 import { fileURLToPath } from "url"
 import { Config } from "@/config/config"
 import { RuntimeFlags } from "@/effect/runtime-flags"
@@ -352,6 +353,10 @@ export const ShellTool = Tool.define(
     const plugin = yield* Plugin.Service
     const flags = yield* RuntimeFlags.Service
     const defaultTimeoutMs = flags.bashDefaultTimeoutMs ?? 2 * 60 * 1000
+    // Metadata flush cadence is tier-tuned: bounded DB writes per second instead
+    // of one per stdout chunk (the dominant cost of verbose commands — a real
+    // terminal renders, we used to persist; see draft-10 P10).
+    const flushMs = yield* useAdaptiveTargets((targets) => targets.shellMetadataFlushMs)
 
     const cygpath = Effect.fn("ShellTool.cygpath")(function* (shell: string, text: string) {
       const lines = yield* spawner
@@ -446,10 +451,11 @@ export const ShellTool = Tool.define(
       const limits = yield* trunc.limits()
       const burstCfg = (yield* config.get()).tool?.burst
       const keep = limits.maxBytes * 2
-      let full = ""
-      let last = ""
       const list: Chunk[] = []
       let used = 0
+      let total = 0
+      let dirty = false
+      let lastFlushAt = 0
       let file = ""
       let sink: ReturnType<typeof createWriteStream> | undefined
       let cut = false
@@ -462,6 +468,33 @@ export const ShellTool = Tool.define(
         strategy: burstCfg?.strategy ?? "truncate",
         action: burstCfg?.action ?? "truncate",
       })
+
+      // The live preview is rebuilt from the ring tail at flush time — no running
+      // string concatenation per chunk, and ctx.metadata fires at most once per
+      // flushMs (plus forced flushes on spill/abort/completion).
+      const previewFromRing = () => {
+        const parts: string[] = []
+        let bytes = 0
+        for (let i = list.length - 1; i >= 0; i--) {
+          const text = list[i]!.text
+          parts.push(text)
+          bytes += Buffer.byteLength(text, "utf-8")
+          if (bytes >= MAX_METADATA_LENGTH) break
+        }
+        return preview(parts.reverse().join(""))
+      }
+      const flushMetadata = (force = false) => {
+        if (!dirty && !force) return Effect.void
+        if (!force && Date.now() - lastFlushAt < flushMs) return Effect.void
+        dirty = false
+        lastFlushAt = Date.now()
+        return ctx.metadata({
+          metadata: {
+            output: previewFromRing(),
+            description: input.description,
+          },
+        })
+      }
 
       const closeSink = Effect.fnUntraced(function* () {
         const stream = sink
@@ -508,14 +541,7 @@ export const ShellTool = Tool.define(
                 aborted = true
                 return handle.kill({ forceKillAfter: "1 seconds" }).pipe(
                   Effect.catch(() => Effect.void),
-                  Effect.andThen(
-                    ctx.metadata({
-                      metadata: {
-                        output: last,
-                        description: input.description,
-                      },
-                    }),
-                  ),
+                  Effect.andThen(flushMetadata(true)),
                 )
               }
               if (burstAction === "truncate" && !cut) {
@@ -523,6 +549,7 @@ export const ShellTool = Tool.define(
               }
               list.push({ text: chunk, size })
               used += size
+              total += size
               while (used > keep && list.length > 1) {
                 const item = list.shift()
                 if (!item) break
@@ -530,40 +557,27 @@ export const ShellTool = Tool.define(
                 cut = true
               }
 
-              last = preview(last + chunk)
-
               if (file) {
                 sink?.write(chunk)
-              } else {
-                full += chunk
-                if (Buffer.byteLength(full, "utf-8") > limits.maxBytes) {
-                  return trunc.write(full).pipe(
-                    Effect.andThen((next) =>
-                      Effect.sync(() => {
-                        file = next
-                        cut = true
-                        sink = createWriteStream(next, { flags: "a" })
-                        full = ""
-                      }),
-                    ),
-                    Effect.andThen(
-                      ctx.metadata({
-                        metadata: {
-                          output: last,
-                          description: input.description,
-                        },
-                      }),
-                    ),
-                  )
-                }
+                return Effect.void
+              }
+              if (total > limits.maxBytes) {
+                // Spill: the ring still holds the entire output (maxBytes < keep),
+                // so drain it to the truncation file and append from here on.
+                return trunc.write(list.map((item) => item.text).join("")).pipe(
+                  Effect.andThen((next) =>
+                    Effect.sync(() => {
+                      file = next
+                      cut = true
+                      sink = createWriteStream(next, { flags: "a" })
+                    }),
+                  ),
+                  Effect.andThen(flushMetadata(true)),
+                )
               }
 
-              return ctx.metadata({
-                metadata: {
-                  output: last,
-                  description: input.description,
-                },
-              })
+              dirty = true
+              return flushMetadata()
             }),
           )
 
@@ -628,7 +642,7 @@ export const ShellTool = Tool.define(
       return {
         title: input.description,
         metadata: {
-          output: last || preview(output),
+          output: previewFromRing() || preview(output),
           exit: code,
           description: input.description,
           truncated: cut,

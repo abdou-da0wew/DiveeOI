@@ -11,10 +11,19 @@ import { fileLogger, runID } from "./observability/logging"
 const app = "diveeoi"
 const legacyApp = "opencode"
 
-const data = path.join(xdgData!, app)
-const cache = path.join(xdgCache!, app)
-const config = path.join(xdgConfig!, app)
-const state = path.join(xdgState!, app)
+// Windows: XDG env vars are unset and xdg-basedir would fall back to dot-folders in
+// the user profile. Prefer the native %APPDATA%/%LOCALAPPDATA% locations; posix keeps
+// the XDG layout.
+const isWindows = process.platform === "win32"
+const baseData = (isWindows && process.env.LOCALAPPDATA) || xdgData
+const baseCache = (isWindows && process.env.LOCALAPPDATA) || xdgCache
+const baseConfig = (isWindows && process.env.APPDATA) || xdgConfig
+const baseState = (isWindows && process.env.LOCALAPPDATA) || xdgState
+
+const data = path.join(baseData!, app)
+const cache = path.join(baseCache!, app)
+const config = path.join(baseConfig!, app)
+const state = path.join(baseState!, app)
 const tmp = path.join(os.tmpdir(), app)
 
 // Legacy paths for backward compatibility
