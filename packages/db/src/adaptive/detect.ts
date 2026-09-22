@@ -72,7 +72,7 @@ const readVmStat: Effect.Effect<string, Error, never> = Effect.tryPromise({
   catch: (cause) => new Error("Failed to read vm_stat", { cause }),
 })
 
-const readRootRotational = Effect.fn("Adaptive.readRootRotational")(function* () {
+const readRootRotational: Effect.Effect<"hdd" | "ssd" | undefined, never, never> = Effect.gen(function* () {
   // /proc/mounts: `<device> <mountpoint> <fstype> ...`. Find the device backing `/`,
   // strip partition digits, and read its rotational flag (1 = spinning disk).
   const mounts = yield* Effect.tryPromise({
