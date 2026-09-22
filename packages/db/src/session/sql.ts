@@ -197,3 +197,117 @@ export const SessionContextEpochTable = sqliteTable("session_context_epoch", {
   replacement_seq: integer(),
   revision: integer().notNull().default(0),
 })
+
+// Agent foundations (draft-10 P0): linktree anchors + persisted tasks.
+// `session_content_fts` is a FTS5 virtual table — no drizzle mapping; the anchor
+// service accesses it through raw SQL.
+
+export const SessionAnchorTable = sqliteTable(
+  "session_anchor",
+  {
+    id: text().primaryKey(),
+    session_id: text()
+      .$type<SessionSchema.ID>()
+      .notNull()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    epoch: integer().notNull(),
+    root_ref: text().notNull(),
+    tree_json: text({ mode: "json" }).notNull().$type<AnchorTree>(),
+    token_estimate: integer(),
+    degraded: integer().notNull().default(0),
+    ...Timestamps,
+  },
+  (table) => [index("session_anchor_session_idx").on(table.session_id, table.epoch)],
+)
+
+export const SessionAnchorRefTable = sqliteTable(
+  "session_anchor_ref",
+  {
+    anchor_id: text()
+      .notNull()
+      .references(() => SessionAnchorTable.id, { onDelete: "cascade" }),
+    ref: text().notNull(),
+    section: text().notNull(),
+    label: text().notNull(),
+    ordinal: integer().notNull(),
+  },
+  (table) => [index("session_anchor_ref_anchor_idx").on(table.anchor_id)],
+)
+
+export const AgentTaskTable = sqliteTable(
+  "agent_task",
+  {
+    id: text().primaryKey(),
+    session_id: text()
+      .$type<SessionSchema.ID>()
+      .notNull()
+      .unique()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    parent_session_id: text().$type<SessionSchema.ID>(),
+    prompt: text().notNull(),
+    provider_id: text(),
+    model_id: text(),
+    status: text().notNull().default("queued"),
+    auto_run: integer().notNull().default(0),
+    subagent_types: text({ mode: "json" }).$type<string[]>(),
+    event_hooks: text({ mode: "json" }).$type<TaskHook[]>(),
+    last_heartbeat: integer(),
+    checkpoint_anchor_id: text(),
+    worktree: text(),
+    error: text(),
+    ...Timestamps,
+  },
+  (table) => [index("agent_task_status_idx").on(table.status, table.auto_run)],
+)
+
+export const AgentTaskCallTable = sqliteTable(
+  "agent_task_call",
+  {
+    task_id: text()
+      .notNull()
+      .references(() => AgentTaskTable.id, { onDelete: "cascade" }),
+    seq: integer().notNull(),
+    tool: text().notNull(),
+    args_hash: text().notNull(),
+    status: text().notNull(),
+    result_ref: text(),
+    started_at: integer(),
+    committed_at: integer(),
+  },
+  (table) => [primaryKey({ columns: [table.task_id, table.seq] })],
+)
+
+export const AgentTaskEventTable = sqliteTable(
+  "agent_task_event",
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    task_id: text()
+      .notNull()
+      .references(() => AgentTaskTable.id, { onDelete: "cascade" }),
+    trigger: text().notNull(),
+    action: text().notNull(),
+    payload: text(),
+    status: text(),
+    result: text(),
+    fired_at: integer().notNull(),
+  },
+  (table) => [index("agent_task_event_task_idx").on(table.task_id, table.fired_at)],
+)
+
+export type AnchorSection = "objective" | "decisions" | "files" | "open_questions" | "status" | "open_todos"
+
+export interface AnchorTree {
+  objective: { ref: string }
+  decisions: Array<{ ref: string; label: string }>
+  files: Array<{ ref: string; label: string }>
+  open_questions: Array<{ ref: string; label: string }>
+  status: { ref: string; label: string }
+  open_todos?: Array<{ content: string }>
+}
+
+export interface TaskHook {
+  trigger: "on_complete" | "on_fail" | "on_timeout" | "on_output_match"
+  action: "run_command" | "notify" | "webhook" | "create_task"
+  payload: string
+  pattern?: string
+}

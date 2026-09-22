@@ -11,6 +11,7 @@ export interface SystemResources {
   availableMemoryMB: number // MemAvailable on Linux, physmem - wired on macOS, os.freemem elsewhere
   cpuCores: number
   platform: Platform
+  storageHint: "hdd" | "ssd" | "unknown"
 }
 
 const mapPlatform = (platform: NodeJS.Platform): Platform => {
@@ -71,12 +72,42 @@ const readVmStat: Effect.Effect<string, Error, never> = Effect.tryPromise({
   catch: (cause) => new Error("Failed to read vm_stat", { cause }),
 })
 
+const readRootRotational = Effect.fn("Adaptive.readRootRotational")(function* () {
+  // /proc/mounts: `<device> <mountpoint> <fstype> ...`. Find the device backing `/`,
+  // strip partition digits, and read its rotational flag (1 = spinning disk).
+  const mounts = yield* Effect.tryPromise({
+    try: () => readFile("/proc/mounts", "utf8"),
+    catch: () => new Error("no /proc/mounts"),
+  }).pipe(Effect.orElseSucceed(() => ""))
+  const line = mounts.split("\n").find((entry) => {
+    const fields = entry.split(/\s+/)
+    return fields[1] === "/" && fields[0].startsWith("/dev/")
+  })
+  const device = line?.split(/\s+/)[0]?.replace(/^\/dev\//, "") ?? ""
+  const disk = device.replace(/(.+?)(\d+)$/, "$1") || device
+  if (!disk) return undefined
+  const raw = yield* Effect.tryPromise({
+    try: () => readFile(`/sys/block/${disk}/queue/rotational`, "utf8"),
+    catch: () => new Error("no rotational file"),
+  }).pipe(Effect.orElseSucceed(() => ""))
+  const value = raw.trim()
+  if (value === "1") return "hdd" as const
+  if (value === "0") return "ssd" as const
+  return undefined
+})
+
 const detectInternal = Effect.fn("Adaptive.detect")(function* () {
   const platform = mapPlatform(process.platform)
+  const storage: SystemResources["storageHint"] =
+    platform === "linux"
+      ? ((yield* readRootRotational) ?? "unknown")
+      : platform === "darwin"
+        ? "ssd"
+        : "unknown"
   if (platform === "linux") {
     const memInfo = yield* readMemInfo
     const { totalMemoryMB, availableMemoryMB } = parseMemInfo(memInfo)
-    return { totalMemoryMB, availableMemoryMB, cpuCores: cpus().length, platform }
+    return { totalMemoryMB, availableMemoryMB, cpuCores: cpus().length, platform, storageHint: storage }
   }
   if (platform === "darwin") {
     const memSizeOutput = yield* readMemSize
@@ -90,6 +121,7 @@ const detectInternal = Effect.fn("Adaptive.detect")(function* () {
       availableMemoryMB: Math.round(availableBytes / 1024 / 1024),
       cpuCores: cpus().length,
       platform,
+      storageHint: storage,
     }
   }
   return {
@@ -97,6 +129,7 @@ const detectInternal = Effect.fn("Adaptive.detect")(function* () {
     availableMemoryMB: Math.round(freemem() / 1024 / 1024),
     cpuCores: cpus().length,
     platform,
+    storageHint: storage,
   }
 })
 
@@ -105,6 +138,7 @@ const fallback = (): SystemResources => ({
   availableMemoryMB: 1024,
   cpuCores: cpus().length,
   platform: mapPlatform(process.platform),
+  storageHint: "unknown",
 })
 
 export const detectSystemResources: Effect.Effect<SystemResources, never, never> = detectInternal().pipe(

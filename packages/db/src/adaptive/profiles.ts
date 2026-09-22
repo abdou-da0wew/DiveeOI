@@ -17,6 +17,16 @@ export interface AdaptiveTargets {
   sqliteCacheMB: number
   llmRequestTimeoutMs: number
   dbQueryTimeoutMs: number
+  // Agent subsystems (draft-10)
+  maxConcurrentTasks: number
+  heartbeatIntervalMs: number
+  watchdogStallMs: number
+  ftsBatchRows: number
+  anchorCacheTTLms: number
+  anchorCheckpointEveryToolCalls: number
+  ftsOptimizeDebounceMs: number
+  shellMetadataFlushMs: number
+  todoReminderEveryToolCalls: number
 }
 
 // Hysteresis thresholds (prevent oscillation)
@@ -52,13 +62,106 @@ const BASE_TARGETS: AdaptiveTargets = {
   sqliteCacheMB: 64,
   llmRequestTimeoutMs: 60000,
   dbQueryTimeoutMs: 5000,
+  maxConcurrentTasks: 2,
+  heartbeatIntervalMs: 45000,
+  watchdogStallMs: 240000,
+  ftsBatchRows: 2000,
+  anchorCacheTTLms: 300000,
+  anchorCheckpointEveryToolCalls: 15,
+  ftsOptimizeDebounceMs: 300000,
+  shellMetadataFlushMs: 250,
+  todoReminderEveryToolCalls: 8,
 }
 
 const PROFILE_MULTIPLIERS: Record<ResourceProfile, Partial<AdaptiveTargets>> = {
-  comfortable: { rssTargetMB: 700, heapTargetMB: 400, gcIntervalMs: 60000, maxToolConcurrency: 8, maxLLMStreamBuffer: 200, maxSSEQueueSize: 1000, maxWSConnections: 1000, ptyTicketCapacity: 5000, ptyTicketTTLMs: 120000, cacheTTLMs: 1800000, sqliteCacheMB: 128 },
-  balanced: { rssTargetMB: 500, heapTargetMB: 300, gcIntervalMs: 30000, maxToolConcurrency: 4, maxLLMStreamBuffer: 100, maxSSEQueueSize: 500, maxWSConnections: 500, ptyTicketCapacity: 2000, ptyTicketTTLMs: 60000, cacheTTLMs: 600000, sqliteCacheMB: 64 },
-  constrained: { rssTargetMB: 350, heapTargetMB: 200, gcIntervalMs: 15000, maxToolConcurrency: 2, maxLLMStreamBuffer: 50, maxSSEQueueSize: 200, maxWSConnections: 200, ptyTicketCapacity: 500, ptyTicketTTLMs: 30000, cacheTTLMs: 120000, sqliteCacheMB: 16 },
-  critical: { rssTargetMB: 250, heapTargetMB: 150, gcIntervalMs: 8000, maxToolConcurrency: 1, maxLLMStreamBuffer: 25, maxSSEQueueSize: 100, maxWSConnections: 100, ptyTicketCapacity: 200, ptyTicketTTLMs: 15000, cacheTTLMs: 60000, sqliteCacheMB: 8 },
+  comfortable: {
+    rssTargetMB: 700,
+    heapTargetMB: 400,
+    gcIntervalMs: 60000,
+    maxToolConcurrency: 8,
+    maxLLMStreamBuffer: 200,
+    maxSSEQueueSize: 1000,
+    maxWSConnections: 1000,
+    ptyTicketCapacity: 5000,
+    ptyTicketTTLMs: 120000,
+    cacheTTLMs: 1800000,
+    sqliteCacheMB: 128,
+    maxConcurrentTasks: 4,
+    heartbeatIntervalMs: 30000,
+    watchdogStallMs: 180000,
+    ftsBatchRows: 5000,
+    anchorCacheTTLms: 600000,
+    anchorCheckpointEveryToolCalls: 10,
+    ftsOptimizeDebounceMs: 120000,
+    shellMetadataFlushMs: 150,
+    todoReminderEveryToolCalls: 6,
+  },
+  balanced: {
+    rssTargetMB: 500,
+    heapTargetMB: 300,
+    gcIntervalMs: 30000,
+    maxToolConcurrency: 4,
+    maxLLMStreamBuffer: 100,
+    maxSSEQueueSize: 500,
+    maxWSConnections: 500,
+    ptyTicketCapacity: 2000,
+    ptyTicketTTLMs: 60000,
+    cacheTTLMs: 600000,
+    sqliteCacheMB: 64,
+    maxConcurrentTasks: 2,
+    heartbeatIntervalMs: 45000,
+    watchdogStallMs: 240000,
+    ftsBatchRows: 2000,
+    anchorCacheTTLms: 300000,
+    anchorCheckpointEveryToolCalls: 15,
+    ftsOptimizeDebounceMs: 300000,
+    shellMetadataFlushMs: 250,
+    todoReminderEveryToolCalls: 8,
+  },
+  constrained: {
+    rssTargetMB: 350,
+    heapTargetMB: 200,
+    gcIntervalMs: 15000,
+    maxToolConcurrency: 2,
+    maxLLMStreamBuffer: 50,
+    maxSSEQueueSize: 200,
+    maxWSConnections: 200,
+    ptyTicketCapacity: 500,
+    ptyTicketTTLMs: 30000,
+    cacheTTLMs: 120000,
+    sqliteCacheMB: 16,
+    maxConcurrentTasks: 1,
+    heartbeatIntervalMs: 60000,
+    watchdogStallMs: 300000,
+    ftsBatchRows: 500,
+    anchorCacheTTLms: 120000,
+    anchorCheckpointEveryToolCalls: 0,
+    ftsOptimizeDebounceMs: 600000,
+    shellMetadataFlushMs: 500,
+    todoReminderEveryToolCalls: 10,
+  },
+  critical: {
+    rssTargetMB: 250,
+    heapTargetMB: 150,
+    gcIntervalMs: 8000,
+    maxToolConcurrency: 1,
+    maxLLMStreamBuffer: 25,
+    maxSSEQueueSize: 100,
+    maxWSConnections: 100,
+    ptyTicketCapacity: 200,
+    ptyTicketTTLMs: 15000,
+    cacheTTLMs: 60000,
+    sqliteCacheMB: 8,
+    maxConcurrentTasks: 1,
+    heartbeatIntervalMs: 90000,
+    watchdogStallMs: 300000,
+    ftsBatchRows: 250,
+    anchorCacheTTLms: 60000,
+    anchorCheckpointEveryToolCalls: 0,
+    ftsOptimizeDebounceMs: 900000,
+    shellMetadataFlushMs: 750,
+    todoReminderEveryToolCalls: 12,
+  },
 }
 
 export const computeTargets = (sys: SystemResources): AdaptiveTargets => {

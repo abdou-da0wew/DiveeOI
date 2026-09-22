@@ -1119,6 +1119,10 @@ export interface Interface {
     query: string[],
   ) => Effect.Effect<{ providerID: ProviderV2.ID; modelID: string } | undefined>
   readonly getSmallModel: (providerID: ProviderV2.ID) => Effect.Effect<Model | undefined>
+  readonly getRoleModel: (
+    role: "compaction" | "memory" | "title" | "summary",
+    providerID: ProviderV2.ID,
+  ) => Effect.Effect<Model | undefined>
   readonly defaultModel: () => Effect.Effect<{ providerID: ProviderV2.ID; modelID: ModelV2.ID }, DefaultModelError>
 }
 
@@ -1928,7 +1932,32 @@ export const layer = Layer.effect(
       }
     })
 
-    return Service.of({ list, getProvider, getModel, getLanguage, closest, getSmallModel, defaultModel })
+    // Background LLM roles resolve per call (never cached as names): an explicit
+    // models.background.<role> override wins; a removed/renamed model warns and
+    // falls through to the small-model chain; the session model is the caller's
+    // fallback. No hardcoded model names anywhere in this chain.
+    const getRoleModel = Effect.fn("Provider.getRoleModel")(function* (
+      role: "compaction" | "memory" | "title" | "summary",
+      providerID: ProviderV2.ID,
+    ) {
+      const cfg = yield* config.get()
+      const configured = cfg.models?.background?.[role]
+      if (configured) {
+        const parsed = parseModel(configured)
+        const model = yield* getModel(parsed.providerID, parsed.modelID).pipe(
+          Effect.catchTag("ProviderModelNotFoundError", () =>
+            Effect.logWarning("configured background model is not in the catalog, falling back", {
+              role,
+              model: configured,
+            }).pipe(Effect.as(undefined)),
+          ),
+        )
+        if (model) return model
+      }
+      return yield* getSmallModel(providerID)
+    })
+
+    return Service.of({ list, getProvider, getModel, getLanguage, closest, getSmallModel, getRoleModel, defaultModel })
   }),
 )
 

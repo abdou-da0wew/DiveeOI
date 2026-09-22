@@ -77,6 +77,21 @@ export const Info = Schema.Struct({
   small_model: Schema.optional(Schema.String).annotate({
     description: "Small model to use for tasks like title generation in the format of provider/model",
   }),
+  models: Schema.optional(
+    Schema.Struct({
+      background: Schema.optional(
+        Schema.Struct({
+          compaction: Schema.optional(Schema.String),
+          memory: Schema.optional(Schema.String),
+          title: Schema.optional(Schema.String),
+          summary: Schema.optional(Schema.String),
+        }),
+      ),
+    }),
+  ).annotate({
+    description:
+      "Model overrides for background LLM roles, each in provider/model format. Resolution per role: models.background.<role> -> small_model -> the session's model. No model names are hardcoded; removed/renamed models fall back down that chain with a warning.",
+  }),
   default_agent: Schema.optional(Schema.String).annotate({
     description:
       "Default agent to use when none is specified. Must be a primary agent. Falls back to 'build' if not set or if the specified agent is invalid.",
