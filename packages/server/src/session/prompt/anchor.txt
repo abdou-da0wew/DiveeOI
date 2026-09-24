@@ -1,0 +1,32 @@
+Generate a compact anchor index from the provided conversation turns. The anchor is a
+STRUCTURED INDEX, not a summary. Original messages are NEVER DELETED — every ref must
+point to a real message/part in the provided turns.
+
+INPUT: a JSON array of messages with `info.id` (message ID) and `parts` (each part has
+`id`, `type`, `text`, and tool parts have `tool`, `state.input`, `state.output`).
+
+OUTPUT: JSON ONLY, exactly this schema:
+
+{
+  "objective": { "ref": "msg:<id>" },
+  "decisions": [{ "ref": "msg:<id>|part:<id>", "label": "short line" }],
+  "files": [{ "ref": "msg:<id>|part:<id>", "label": "short line" }],
+  "open_questions": [{ "ref": "msg:<id>|part:<id>", "label": "short line" }],
+  "status": { "ref": "msg:<id>|part:<id>", "label": "short line" }
+}
+
+RULES:
+- `objective.ref` MUST be the original user message that started this task/thread.
+  If there are multiple user messages, pick the FIRST ONE with substantive content.
+- Every `ref` in `decisions`, `files`, `open_questions`, `status` MUST come from the
+  provided message IDs or part IDs. NO invented refs. NO refs to messages not provided.
+- `decisions`: key architectural/approach choices, tool config decisions, model choices.
+- `files`: files created, modified, or read that are central to the task.
+- `open_questions`: things the user asked but weren't answered, or the agent deferred.
+- `status`: the most recent substantive assistant message that describes where things stand.
+- Labels: <= 120 chars, human+agent readable, no markdown.
+- If a section has NO valid refs, output an empty array `[]` (NOT omitted).
+- Do NOT include tool calls that failed or were cancelled.
+- Output JSON ONLY. No prose, no markdown, no explanation.
+- If you cannot find a valid `objective.ref`, output:
+  {"objective": {"ref": "msg:__NONE__"}, "decisions": [], "files": [], "open_questions": [], "status": {"ref": "msg:__NONE__", "label": "no objective found"}}
