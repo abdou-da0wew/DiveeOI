@@ -7,11 +7,10 @@ import type { AdaptiveTargets } from "./profiles"
 export const useAdaptiveTargets = <A, E, R>(
   f: (targets: AdaptiveTargets) => Effect.Effect<A, E, R>
 ): Effect.Effect<A, E, R | AdaptiveResourceService> =>
-  Effect.gen(function* () {
-    const { getCurrentTargets } = yield* AdaptiveResourceService
-    const targets = yield* getCurrentTargets()
-    return yield* f(targets)
-  })
+  Effect.flatMap(
+    AdaptiveResourceService,
+    ({ getCurrentTargets }) => getCurrentTargets().pipe(Effect.flatMap(f))
+  )
 
 // Create resource with adaptive config (for caches, queues, semaphores created at runtime)
 export const withAdaptiveConfig = <Config, A, E, R>(
