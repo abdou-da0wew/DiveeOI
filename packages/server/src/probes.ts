@@ -65,8 +65,10 @@ export const detect: Effect.Effect<Probes> = Effect.gen(function* () {
   return { fts5, ssh2 }
 })
 
-export const probes: Probes = await Effect.runPromise(detect).pipe(
-  Effect.catch(() => Effect.succeed<Probes>({ fts5: "unavailable", ssh2: "unavailable" })),
+export const probes: Probes = await Effect.runPromise(
+  detect.pipe(
+    Effect.catch(() => Effect.succeed<Probes>({ fts5: "unavailable", ssh2: "unavailable" })),
+  ),
 )
 
 export * as Probes from "./probes"
