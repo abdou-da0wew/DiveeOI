@@ -106,12 +106,28 @@ export const layer = Layer.effect(
     })
 
     const markDone = Effect.fn("SessionReminder.markDone")(function* (id: string) {
+      const row = yield* db
+        .select({ session_id: ReminderTable.session_id })
+        .from(ReminderTable)
+        .where(eq(ReminderTable.id, id))
+        .all()
+        .pipe(Effect.orDie)
       yield* db
         .update(ReminderTable)
         .set({ done: 1 })
         .where(eq(ReminderTable.id, id))
         .run()
         .pipe(Effect.orDie)
+      // P9 bugfix: mirror the server-layer fix — markDone must publish
+      // reminder.updated so the UI and anchor open_todos consumers see the
+      // change. add() publishes; markDone() now matches.
+      const sessionID = row[0]?.session_id
+      if (sessionID !== undefined) {
+        yield* events.publish(Event.Updated, {
+          sessionID,
+          reminders: yield* list(sessionID),
+        })
+      }
     })
 
     const remove = Effect.fn("SessionReminder.remove")(function* (id: string) {

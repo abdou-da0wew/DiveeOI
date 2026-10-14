@@ -186,6 +186,14 @@ export const Info = Schema.Struct({
       }),
     }),
   ).annotate({ description: "LLM configuration for tool format, burst limiting, output filtering, and compaction" }),
+  todo: Schema.optional(
+    Schema.Struct({
+      completion_gate: Schema.optional(Schema.Literals(["nudge", "off", "block"] as const)).annotate({
+        description:
+          "What to do when the agent tries to finish a turn with pending todos (draft-10 P9). nudge (default): inject one final reminder and continue; off: do nothing; block: refuse the finish and require explicit completion/cancellation/deferral. Auto-run tasks default to block so unfinished todos fail the task.",
+      }),
+    }),
+  ).annotate({ description: "Todo system behavior (draft-10 P9)" }),
   builtin: Schema.optional(
     Schema.Struct({
       ctx7: Schema.optional(

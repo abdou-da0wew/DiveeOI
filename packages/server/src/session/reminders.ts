@@ -109,12 +109,26 @@ export const layer = Layer.effect(
     })
 
     const markDone = Effect.fn("SessionReminder.markDone")(function* (id: string) {
+      const row = yield* db
+        .select({ session_id: ReminderTable.session_id })
+        .from(ReminderTable)
+        .where(eq(ReminderTable.id, id))
+        .all()
+        .pipe(Effect.orDie)
       yield* db
         .update(ReminderTable)
         .set({ done: 1 })
         .where(eq(ReminderTable.id, id))
         .run()
         .pipe(Effect.orDie)
+      // P9 bugfix: markDone never published reminder.updated, so the UI never
+      // re-rendered and downstream consumers (anchor open_todos, watchdog stall
+      // detection) never saw the change. add() publishes; markDone() now matches.
+      const sessionID = row[0]?.session_id
+      if (sessionID !== undefined) {
+        const reminders = yield* list(sessionID)
+        yield* events.publish(Event.Updated, { sessionID, reminders })
+      }
     })
 
     const remove = Effect.fn("SessionReminder.remove")(function* (id: string) {

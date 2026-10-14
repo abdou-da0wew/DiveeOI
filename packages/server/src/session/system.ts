@@ -25,6 +25,7 @@ import { LocationServiceMap } from "@diveeoi/db/location-layer"
 import { PluginBoot } from "@diveeoi/db/plugin/boot"
 import { Reference } from "@diveeoi/db/reference"
 import { Reminders } from "./reminders"
+import { Todo as SessionTodo } from "./todo"
 import { SessionID } from "./schema"
 import { ContextBudget } from "./context-budget"
 import { IdentityLoader } from "./identity-loader"
@@ -73,6 +74,7 @@ export const layer = Layer.effect(
     const skill = yield* Skill.Service
     const locations = yield* LocationServiceMap
     const reminderService = yield* Reminders.Service
+    const todoService = yield* SessionTodo.Service
     const identityLoader = yield* IdentityLoader.Service
     const contextBudget = yield* ContextBudget.Service
     const skillMentions = yield* SkillMentions.Service
@@ -101,6 +103,13 @@ export const layer = Layer.effect(
 
         const reminders = yield* reminderService.list(sessionID)
         const remindersBlock = reminderService.format(reminders, tier)
+
+        // P9: todos were persisted and emitted `todo.updated` events but never
+        // re-injected into the agent's context — the agent wrote todos and
+        // promptly forgot them. The static block here is the system-prompt half
+        // of the fix; in-turn nudges (dynamic) are appended in prompt.ts.
+        const todos = yield* todoService.get(sessionID)
+        const todosBlock = todoService.format(todos, tier)
 
         const references = yield* Effect.gen(function* () {
           yield* (yield* PluginBoot.Service).wait()
@@ -180,6 +189,7 @@ export const layer = Layer.effect(
           ...envParts,
           ...(identityBlock ? [identityBlock] : []),
           ...(remindersBlock ? [remindersBlock] : []),
+          ...(todosBlock ? [todosBlock] : []),
           ...(skillsBlock ? [skillsBlock] : []),
           ...(btwBlock ? [btwBlock] : []),
           ...(memoryContext ? [memoryContext] : []),
@@ -204,6 +214,7 @@ export const defaultLayer = layer.pipe(
   Layer.provide(Skill.defaultLayer),
   Layer.provide(LocationServiceMap.layer),
   Layer.provide(Reminders.defaultLayer),
+  Layer.provide(SessionTodo.defaultLayer),
   Layer.provide(IdentityLoader.layer),
   Layer.provide(ContextBudget.layer),
   Layer.provide(SkillMentions.layer),
@@ -215,6 +226,7 @@ export const node = LayerNode.make(layer, [
   Skill.node,
   locationServiceMapNode,
   Reminders.node,
+  SessionTodo.node,
   IdentityLoader.node,
   contextBudgetNode,
   skillMentionsNode,
