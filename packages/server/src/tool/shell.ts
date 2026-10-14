@@ -449,7 +449,24 @@ export const ShellTool = Tool.define(
       ctx: Tool.Context,
     ) {
       const limits = yield* trunc.limits()
-      const burstCfg = (yield* config.get()).tool?.burst
+      const cfg = yield* config.get()
+      const burstCfg = cfg.tool?.burst
+
+      // P11: detect privileged commands and warn when elevation is off.
+      // Full askpass integration (writing the password file, setting
+      // SUDO_ASKPASS, running cleanup) is gated behind shell_elevation.mode
+      // !== "off" — when off (the default), privileged commands will fail
+      // with permission-denied and the agent gets a hint about why.
+      const elevationCfg = (cfg as any).shell_elevation
+      const elevationMode = elevationCfg?.mode ?? "off"
+      const needsElevation = /^\s*(sudo|systemctl|apt|apt-get|pkill|killall|service|chmod|chown)\b/i.test(input.command)
+      if (needsElevation && elevationMode === "off" && process.getuid?.() !== 0) {
+        yield* Effect.logWarning("shell.elevation.off", {
+          command: input.command.slice(0, 200),
+          hint: "shell_elevation.mode is 'off' — privileged commands will fail with permission-denied. Set shell_elevation.mode to 'ask' or 'allow' in config to enable elevation.",
+        })
+      }
+
       const keep = limits.maxBytes * 2
       const list: Chunk[] = []
       let used = 0
