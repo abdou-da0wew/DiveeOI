@@ -23,6 +23,7 @@ import { EventV2 } from "@diveeoi/db/event"
 import { Wildcard } from "@/util/wildcard"
 import { SessionID } from "@/session/schema"
 import { Tracer } from "@/effect/tracer"
+import { CircuitBreaker } from "./model-fallback"
 import { Auth } from "@/auth"
 import { EffectBridge } from "@/effect/bridge"
 import { RuntimeFlags } from "@/effect/runtime-flags"
@@ -55,6 +56,14 @@ export type StreamRequest = StreamInput & {
 
 export interface Interface {
   readonly stream: (input: StreamInput) => Stream.Stream<LLMEvent, unknown>
+  /**
+   * P2: per-process circuit breaker keyed by `${providerID}:${modelID}`. Three
+   * consecutive stream failures opens the breaker for 5 minutes; a success
+   * resets it. The runner consults this when picking the next model to try
+   * after a rotation-worthy failure. Optional so test mocks don't have to
+   * stub it — when absent the runner skips rotation.
+   */
+  readonly breaker?: CircuitBreaker
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/LLM") {}
@@ -90,6 +99,12 @@ const live: Layer.Layer<
     // the Auth service it read from, so a map at module scope would keep serving one layer's
     // credentials (including a cached `undefined`) to every other Auth instance in the process.
     const providerAuthCache = new Map<string, Auth.Info | undefined>()
+
+    // P2: per-process circuit breaker keyed by `${providerID}:${modelID}`.
+    // Three consecutive failures opens the breaker for 5 minutes; a success
+    // resets it. Used by the runner's rotation logic (prompt.ts) to skip
+    // persistently failing models when picking the next candidate.
+    const modelFallback = new CircuitBreaker()
 
     const run = Effect.fn("LLM.run")(function* (input: StreamRequest) {
       yield* Tracer.info("llm.stream.start", {
@@ -388,17 +403,31 @@ const live: Layer.Layer<
             // Adapter seam: both runtimes expose the same LLMEvent stream. Native
             // already returns one; AI SDK streams are converted here.
             const state = LLMAISDK.adapterState()
+            // P2: track per-model failures so the runner's rotation logic can
+            // skip persistently failing models. recordSuccess on stream end,
+            // recordFailure on stream error. The breaker lives on the LLM
+            // service (per-process), so a restart resets it (acceptable —
+            // transient failures are likely resolved by then).
             return Stream.fromAsyncIterable(result.result.fullStream, (e) =>
               e instanceof Error ? e : new Error(String(e)),
             ).pipe(
               Stream.mapEffect((event) => LLMAISDK.toLLMEvents(state, event)),
               Stream.flatMap((events) => Stream.fromIterable(events)),
+              Stream.tapError((err) =>
+                Effect.sync(() => {
+                  modelFallback.recordFailure(input.model.providerID, input.model.id)
+                  void err
+                }),
+              ),
+              Stream.tap(() =>
+                Effect.sync(() => modelFallback.recordSuccess(input.model.providerID, input.model.id)),
+              ),
             )
           }),
         ),
       )
 
-    return Service.of({ stream })
+    return Service.of({ stream, breaker: modelFallback })
   }),
 )
 
