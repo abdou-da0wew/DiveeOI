@@ -12,6 +12,7 @@ import "./settings-v2.css"
 import { SettingsServersV2 } from "./servers"
 import { SettingsLlmV2 } from "./llm"
 import { SettingsFeaturesV2 } from "./features"
+import { SettingsTasksV2 } from "./tasks"
 export const DialogSettings: Component = () => {
   const language = useLanguage()
   const platform = usePlatform()
@@ -60,6 +61,10 @@ export const DialogSettings: Component = () => {
                       <Icon name="models" />
                       {language.t("settings.models.title")}
                     </TabsV2.Trigger>
+                    <TabsV2.Trigger value="tasks">
+                      <Icon name="task" />
+                      {language.t("settings.tab.tasks")}
+                    </TabsV2.Trigger>
                   </div>
                 </div>
               </div>
@@ -90,6 +95,9 @@ export const DialogSettings: Component = () => {
         </TabsV2.Content>
         <TabsV2.Content value="models" class="settings-v2-panel">
           <SettingsModelsV2 />
+        </TabsV2.Content>
+        <TabsV2.Content value="tasks" class="settings-v2-panel">
+          <SettingsTasksV2 />
         </TabsV2.Content>
       </TabsV2>
     </Dialog>
