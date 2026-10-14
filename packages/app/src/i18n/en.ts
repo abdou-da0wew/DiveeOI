@@ -1133,4 +1133,14 @@ export const dict = {
   "session.anchor.footer":
     "This is the agent's index of the conversation, not the conversation. It can still read every original message.",
   "session.anchor.tooltip": "Show the agent's working memory",
+  "tasks.title": "Tasks",
+  "tasks.new": "New task",
+  "tasks.promptPlaceholder": "Describe the task for the agent to perform autonomously...",
+  "tasks.autoRun": "Auto-run (start immediately)",
+  "tasks.create": "Create",
+  "tasks.empty": "No tasks yet. Create one to run an autonomous agent in the background.",
+  "tasks.pause": "Pause",
+  "tasks.resume": "Resume",
+  "tasks.cancel": "Cancel",
+  "settings.tab.tasks": "Tasks",
 }
