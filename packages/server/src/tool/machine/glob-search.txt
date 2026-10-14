@@ -1,0 +1,14 @@
+Fast file search by glob pattern.
+
+A thin wrapper over the existing glob tool with a clearer name and an
+explicit `limit` parameter (default 100). Returns newline-separated match
+paths (relative to `cwd`, which defaults to the session working directory).
+
+Examples:
+- `glob_search({ pattern: "**/*.ts" })` — all TypeScript files in the
+  project.
+- `glob_search({ pattern: "src/**/*.test.ts", limit: 50 })` — first 50 test
+  files under `src/`.
+
+Auto-approved (read-only). Uses the same FSUtil + ripgrep machinery the
+existing glob tool uses, so results are consistent.

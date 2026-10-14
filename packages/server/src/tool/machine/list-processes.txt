@@ -1,0 +1,11 @@
+List running processes on the host machine.
+
+Returns the top processes sorted by CPU usage (default), memory usage, or
+PID. On Linux and macOS uses `ps -eo pid,pcpu,pmem,comm --sort=...`; on
+Windows uses `tasklist /fo csv`. The result is a JSON array of
+`{pid, cpu, memory, command}` rows.
+
+Use this tool to investigate what's consuming resources, find a process to
+kill, or check if a particular service is running. The tool is read-only —
+to actually terminate a process, use `kill_process` (which requires
+approval).

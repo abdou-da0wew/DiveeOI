@@ -1,0 +1,11 @@
+Cross-platform desktop notification.
+
+Sends a desktop notification to the user. On Linux uses `notify-send`, on
+macOS uses `osascript display notification`, on Windows uses PowerShell toast
+XML. Headless boxes (no notify-send installed) return a graceful no-op
+rather than failing — the agent can proceed without blocking on user
+attention.
+
+Use this tool when you want to alert the user about a long-running task
+completing, a permission prompt waiting, or any state change the user should
+know about. Do not use it for normal output that belongs in the conversation.

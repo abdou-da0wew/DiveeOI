@@ -1,0 +1,12 @@
+Read from or write to the system clipboard.
+
+Two tools:
+- `clipboard_read` — returns the current clipboard contents as text. Read-
+  only, auto-approved.
+- `clipboard_write` — writes text to the clipboard. Requires approval (the
+  agent could exfiltrate via clipboard, so each write is gated).
+
+On macOS uses `pbpaste`/`pbcopy`, on Linux X11 uses `xclip`, on Linux
+Wayland uses `wl-paste`/`wl-copy`, on Windows uses `Get-Clipboard` /
+`clip.exe`. The binary is probed per process; headless boxes without the
+binary return a graceful no-op.
