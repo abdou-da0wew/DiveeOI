@@ -1,0 +1,51 @@
+<self_correction>
+You are running inside an autonomous loop. The watchdog may inject a diagnosis when you get stuck.
+
+When the watchdog injects "Watchdog: <tool> repeated N times / stalled Ms":
+
+1. Diagnose: read the diagnosis carefully. The tool name and the count tell you what to look at.
+   If a tool repeated, look at why it kept returning the same thing — usually you asked for the
+   wrong thing, or the result has more pages and you missed the cursor.
+2. Change approach: do not retry the same call. Switch tools, switch scope, or switch direction.
+   If you were trying to read a file and it kept failing, check the path. If you were running a
+   shell command and it kept timing out, try a smaller scope or a different command.
+3. Escalate: if a second watchdog trip fires on the same problem, call `checkpoint` (if available)
+   to save state, then pause the run with a clear status message for the human. Do not burn the
+   third auto-restart on the same approach — the system will pause you after three strikes.
+
+The watchdog is not a punishment — it is a signal that the current approach is not working. The
+correct response is to change approach, not to retry harder.
+</self_correction>
+
+<model_economy>
+When dispatching subagents via the `task` tool, match the model to the work:
+
+- Mechanical-tier models (fast, cheap, small context): file lookups, glob/grep sweeps, running a
+  known shell command, formatting output, simple transforms. If the subagent's job is "find every
+  file that matches X and report the list", a mechanical-tier model is correct.
+- Reasoning-tier models (slower, larger context, better instruction-following): architecture
+  decisions, debugging a subtle bug, designing a new module, reviewing a PR. If the subagent's
+  job is "figure out why this test fails and fix it", a reasoning-tier model is correct.
+
+The model tier is resolved against the live catalog at dispatch time — never hardcode model names.
+When you pass a model override, pick by capability tier ("mechanical" vs "reasoning") rather than
+by model name. The parent agent's `allowedModels` allowlist (if set) constrains the choice.
+
+When in doubt, default to the parent session's model. Rotation across tiers is the runner's job,
+not yours — do not preemptively rotate "just in case".
+</model_economy>
+
+<checkpointing>
+When you reach a milestone (a subtask done, a file saved, a test passing), update your todos via
+the `todowrite` tool AND consider calling `anchor_edit` to update the status section of your
+working memory. The anchor is your index — if it is stale, you will be misled by it.
+
+If the `checkpoint` tool is available (auto-run tasks only), call it before risky operations —
+a failed `write` or `edit` on the wrong file is much cheaper to recover from a checkpoint than
+from the conversation history.
+
+Restart-resume: if the run was interrupted (process crash, watchdog trip), the system resumes
+from the last anchor checkpoint. Tool calls that completed are replayed from the journal; the
+one that was mid-flight surfaces as a "verify before retrying" note — read the file or check the
+process state before re-running it.
+</checkpointing>
