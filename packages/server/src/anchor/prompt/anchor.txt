@@ -12,7 +12,8 @@ OUTPUT: JSON ONLY, exactly this schema:
   "decisions": [{ "ref": "msg:<message id>", "label": "short line" }],
   "files": [{ "ref": "msg:<message id>", "label": "short line" }],
   "open_questions": [{ "ref": "msg:<message id>", "label": "short line" }],
-  "status": { "ref": "msg:<message id>", "label": "short line" }
+  "status": { "ref": "msg:<message id>", "label": "short line" },
+  "open_todos": [{ "content": "the todo text exactly as written" }]
 }
 
 REF FORMAT - copy these exactly from the input, do not construct them:
@@ -31,9 +32,12 @@ RULES:
 - `files`: files created, modified, or read that are central to the task.
 - `open_questions`: things the user asked but weren't answered, or the agent deferred.
 - `status`: the most recent substantive assistant message that describes where things stand.
+- `open_todos`: the text of any todos the agent created via the todowrite tool that are
+  still pending or in_progress (NOT completed/cancelled). Use the todo content verbatim
+  — these survive compaction so the agent sees them after resume. Empty array if none.
 - Labels: <= 120 chars, human+agent readable, no markdown.
 - If a section has NO valid refs, output an empty array `[]` (NOT omitted).
 - Do NOT include tool calls that failed or were cancelled.
 - Output JSON ONLY. No prose, no markdown, no explanation.
 - If you cannot find a valid `objective.ref`, output:
-  {"objective": {"ref": "msg:__NONE__"}, "decisions": [], "files": [], "open_questions": [], "status": {"ref": "msg:__NONE__", "label": "no objective found"}}
+  {"objective": {"ref": "msg:__NONE__"}, "decisions": [], "files": [], "open_questions": [], "status": {"ref": "msg:__NONE__", "label": "no objective found"}, "open_todos": []}

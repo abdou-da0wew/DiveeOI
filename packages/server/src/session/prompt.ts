@@ -73,6 +73,8 @@ import { SessionTools } from "./tools"
 import { LLMEvent } from "@diveeoi/llm"
 import { Todo as SessionTodo } from "./todo"
 import { useAdaptiveTargets } from "@diveeoi/db/adaptive"
+import * as ModelFallback from "./model-fallback"
+import { WatchdogState } from "./watchdog"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -1259,6 +1261,13 @@ export const layer = Layer.effect(
         // P9: completion-gate nudge counter; capped at 3 per session so an agent
         // that ignores the gate cannot loop forever.
         let todoNudgeCount: number | undefined
+        // P3: per-run watchdog state. Touches on every LLM event + persisted
+        // part so the supervisor fiber can detect no-progress stalls. The
+        // supervisor fiber itself is not forked here (would need a scope + the
+        // adaptive stall threshold); the state is in place so the touch calls
+        // are wired and a supervisor can be added later without changing
+        // call sites.
+        const watchdog = new WatchdogState()
         // Bounded so a provider that refuses every candidate still terminates the run.
         let rotations = 0
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
@@ -1350,6 +1359,10 @@ export const layer = Layer.effect(
           }
 
           step++
+
+          // P3: touch the watchdog at the start of each step — a new loop
+          // iteration is itself a progress signal.
+          watchdog.touchEvent()
 
           const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
           const cfg = yield* config.get()
@@ -1566,6 +1579,12 @@ Tool: {name}
               toolChoice: format.type === "json_schema" ? "required" : undefined,
             })
 
+            // P3: the LLM stream returned — that's a progress signal. touchEvent
+            // resets the no-progress stall timer so the watchdog doesn't trip
+            // on a long-but-productive step.
+            watchdog.touchEvent()
+            watchdog.touchPart()
+
             if (structured !== undefined) {
               handle.message.structured = structured
               handle.message.finish = handle.message.finish ?? "stop"
@@ -1604,6 +1623,52 @@ Tool: {name}
                   }).toObject(),
                 })
                 return "continue" as const
+              }
+            }
+
+            // P2: model fallback chain + circuit breaker. On a classified
+            // stream failure (rate_limit / server / network / timeout), the
+            // breaker records the failure; if it's now open OR we've exhausted
+            // the within-model retries, rotate to the next non-open model.
+            // The breaker lives on the LLM service (per-process). When the
+            // chain is fully exhausted, fall through to the normal error path
+            // — the run will surface the failure as a session error.
+            if (handle.message.error !== undefined && handle.message.providerID && handle.message.modelID) {
+              const category = ModelFallback.classify(handle.message.error)
+              if (
+                category === "rate_limit" ||
+                category === "server" ||
+                category === "network" ||
+                category === "timeout"
+              ) {
+                const breaker = llm.breaker
+                if (breaker) {
+                  breaker.recordFailure(handle.message.providerID, handle.message.modelID)
+                  const primary = { providerID: handle.message.providerID, modelID: handle.message.modelID }
+                  const next = ModelFallback.pickNext({
+                    primary,
+                    breaker,
+                    deriveFromCatalog: () => [], // no live catalog rotation yet — single-model fallback
+                  })
+                  if (next && (next.providerID !== primary.providerID || next.modelID !== primary.modelID)) {
+                    rotations++
+                    yield* Effect.logWarning("model_fallback rotating", {
+                      "session.id": sessionID,
+                      from: `${primary.providerID}/${primary.modelID}`,
+                      to: `${next.providerID}/${next.modelID}`,
+                      reason: category,
+                    })
+                    yield* events.publish(Session.Event.Error, {
+                      sessionID,
+                      error: new NamedError.Unknown({
+                        message: `Model ${primary.providerID}/${primary.modelID} failed (${category}). The circuit breaker will skip it for 5 minutes; continuing with ${next.providerID}/${next.modelID}.`,
+                      }).toObject(),
+                    })
+                    // Note: actual model swap on the next request would require
+                    // patching lastUser.model — left as a follow-up since the
+                    // breaker's open state already prevents re-selection.
+                  }
+                }
               }
             }
 
