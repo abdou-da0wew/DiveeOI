@@ -11,6 +11,7 @@ import { SettingsModels } from "./settings-models"
 import { SettingsServers } from "./settings-servers"
 import { SettingsLlm } from "./settings-llm"
 import { SettingsFeatures } from "./settings-features"
+import { TasksPanel } from "./tasks-panel"
 
 export const DialogSettings: Component = () => {
   const language = useLanguage()
@@ -60,6 +61,10 @@ export const DialogSettings: Component = () => {
                       <Icon name="models" />
                       {language.t("settings.models.title")}
                     </Tabs.Trigger>
+                    <Tabs.Trigger value="tasks">
+                      <Icon name="task" />
+                      {language.t("settings.tab.tasks")}
+                    </Tabs.Trigger>
                   </div>
                 </div>
               </div>
@@ -90,6 +95,9 @@ export const DialogSettings: Component = () => {
         </Tabs.Content>
         <Tabs.Content value="models" class="no-scrollbar">
           <SettingsModels />
+        </Tabs.Content>
+        <Tabs.Content value="tasks" class="no-scrollbar">
+          <TasksPanel />
         </Tabs.Content>
       </Tabs>
     </Dialog>
