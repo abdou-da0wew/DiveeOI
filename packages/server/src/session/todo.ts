@@ -7,6 +7,7 @@ import { asc } from "drizzle-orm"
 import { TodoTable } from "@diveeoi/db/session/sql"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { EventV2 } from "@diveeoi/db/event"
+import type { BudgetTier } from "./context-budget"
 
 export const Info = Schema.Struct({
   content: Schema.String.annotate({ description: "Brief description of the task" }),
@@ -30,6 +31,15 @@ export const Event = {
 export interface Interface {
   readonly update: (input: { sessionID: SessionID; todos: Info[] }) => Effect.Effect<void>
   readonly get: (sessionID: SessionID) => Effect.Effect<Info[]>
+  /**
+   * Render the todo list for the system prompt (draft-10 P9).
+   *
+   * Tier-scaled: constrained tiers show only pending high-priority items + a
+   * count of the rest; balanced/comfortable show the full pending list. Empty
+   * list renders to an empty string — the system prompt builder drops empty
+   * blocks.
+   */
+  readonly format: (todos: ReadonlyArray<Info>, tier: BudgetTier) => string
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SessionTodo") {}
@@ -79,7 +89,39 @@ export const layer = Layer.effect(
       }))
     })
 
-    return Service.of({ update, get })
+    // P9: render the todo list into the system prompt. Tier-scaled so a
+    // constrained context budget isn't dominated by a long todo list, while a
+    // generous budget sees the full set the agent wrote.
+    const format = (todos: ReadonlyArray<Info>, tier: BudgetTier): string => {
+      const pending = todos.filter((t) => t.status === "pending" || t.status === "in_progress")
+      if (pending.length === 0) return ""
+      const statusGlyph = (s: string) => (s === "in_progress" ? "[~]" : "[ ]")
+      switch (tier) {
+        case "critically-limited": {
+          const high = pending.filter((t) => t.priority === "high")
+          if (high.length === 0) return ""
+          return `<open_todos>HIGH: ${high.map((t) => t.content).join("; ")} (+${pending.length - high.length} more)</open_todos>`
+        }
+        case "tight": {
+          const high = pending.filter((t) => t.priority === "high")
+          if (high.length === 0) return ""
+          const lines = high.map((t) => `  ${statusGlyph(t.status)} ${t.content}`)
+          if (pending.length > high.length) {
+            lines.push(`  ...and ${pending.length - high.length} lower-priority pending`)
+          }
+          return `<open_todos>\nYou MUST complete or explicitly cancel these before finishing:\n${lines.join("\n")}\n</open_todos>`
+        }
+        case "normal":
+        case "generous":
+        case "unlimited":
+        default: {
+          const lines = pending.map((t) => `  ${statusGlyph(t.status)} ${t.content}`)
+          return `<open_todos>\nYou MUST complete or explicitly cancel these before finishing:\n${lines.join("\n")}\n</open_todos>`
+        }
+      }
+    }
+
+    return Service.of({ update, get, format })
   }),
 )
 

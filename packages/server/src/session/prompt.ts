@@ -71,6 +71,8 @@ import { eq } from "drizzle-orm"
 import { SessionTable } from "@diveeoi/db/session/sql"
 import { SessionTools } from "./tools"
 import { LLMEvent } from "@diveeoi/llm"
+import { Todo as SessionTodo } from "./todo"
+import { useAdaptiveTargets } from "@diveeoi/db/adaptive"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -174,6 +176,7 @@ export const layer = Layer.effect(
     const events = yield* EventV2Bridge.Service
     const flags = yield* RuntimeFlags.Service
     const database = yield* Database.Service
+    const todoService = yield* SessionTodo.Service
     const { db } = database
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
       return {
@@ -1250,6 +1253,12 @@ export const layer = Layer.effect(
         // Consecutive steps that ended in the same repetition diagnosis (draft-10 P3).
         let loopStrikes = 0
         let loopDiagnosis: LoopDiagnosis | undefined
+        // P9: tracks the last injected todo-nudge signature so a pending set that
+        // has not changed since the last nudge does not produce a duplicate nudge.
+        let lastTodoNudgeKey: string | undefined
+        // P9: completion-gate nudge counter; capped at 3 per session so an agent
+        // that ignores the gate cannot loop forever.
+        let todoNudgeCount: number | undefined
         // Bounded so a provider that refuses every candidate still terminates the run.
         let rotations = 0
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
@@ -1296,6 +1305,41 @@ export const layer = Layer.effect(
               })
             }
             yield* Tracer.info("session.loop.exit", { sessionID })
+            // P9 completion gate: if the agent is finishing with pending todos,
+            // honor `todo.completion_gate` (default nudge). `nudge` continues the
+            // loop — the next iteration's system block already includes the static
+            // open_todos block plus the dynamic nudge that fires every N tool
+            // calls, so the model is forced to see them again before finishing.
+            // `off` does nothing; `block` is reserved for auto-run tasks (P4) and
+            // behaves like nudge in interactive sessions. Cap at 3 nudges per
+            // session so an agent that ignores the gate cannot loop forever —
+            // the 4th attempt surfaces a session.error and breaks.
+            const todosAtExit = yield* todoService.get(sessionID).pipe(Effect.catch(() => Effect.succeed([])))
+            const pendingAtExit = todosAtExit.filter(
+              (t) => t.status === "pending" || t.status === "in_progress",
+            )
+            if (pendingAtExit.length > 0) {
+              const cfg = yield* config.get().pipe(Effect.catch(() => Effect.succeed(undefined)))
+              const gate = (cfg as any)?.todo?.completion_gate ?? "nudge"
+              if (gate !== "off") {
+                todoNudgeCount = (todoNudgeCount ?? 0) + 1
+                if (todoNudgeCount > 3) {
+                  yield* events.publish(Session.Event.Error, {
+                    sessionID,
+                    error: new NamedError.Unknown({
+                      message: `Task paused: ${pendingAtExit.length} todos remain unresolved after 3 nudges. Complete, cancel with reason, or defer explicitly.`,
+                    }).toObject(),
+                  })
+                } else {
+                  // Re-enter the loop instead of breaking — the next iteration's
+                  // system block re-renders the open_todos static block plus the
+                  // dynamic nudge (every N tool calls), forcing the agent to see
+                  // them again before any future finish attempt.
+                  step++
+                  continue
+                }
+              }
+            }
             // Extract session memory on exit (fire and forget)
             yield* Effect.forkDetach(
               memory.extractSessionMemory(sessionID, msgs as any).pipe(
@@ -1471,6 +1515,42 @@ Tool: {name}
                 return "break" as const
               }
               system.push(loopMessage(diagnosis))
+            }
+
+            // P9 in-turn todo nudge: every `todoReminderEveryToolCalls` (tier-scaled
+            // 10/8/6) tool calls, re-inject a one-line reminder of pending todos. The
+            // static block in the system prompt is the durable version; this dynamic
+            // nudge is what keeps the agent honest mid-turn — todos get forgotten
+            // between tool results otherwise. Skipped when no pending todos exist or
+            // when the pending set has not changed since the last nudge (no spam).
+            const nudgeEvery = yield* useAdaptiveTargets((t) => Effect.succeed(t.todoReminderEveryToolCalls))
+            const completedToolCalls = msgs.reduce(
+              (acc, m) =>
+                acc +
+                m.parts.filter(
+                  (p) =>
+                    p.type === "tool" &&
+                    typeof p.state === "object" &&
+                    p.state !== null &&
+                    (p.state.status === "completed" || p.state.status === "error"),
+                ).length,
+              0,
+            )
+            if (nudgeEvery > 0 && completedToolCalls > 0 && completedToolCalls % nudgeEvery === 0) {
+              const todos = yield* todoService.get(sessionID).pipe(Effect.catch(() => Effect.succeed([])))
+              const pending = todos.filter((t) => t.status === "pending" || t.status === "in_progress")
+              if (pending.length > 0) {
+                const lastNudgeKey = `__todoNudge_${pending.length}_${pending.map((t) => t.content).join("|")}__`
+                if (lastTodoNudgeKey !== lastNudgeKey) {
+                  lastTodoNudgeKey = lastNudgeKey
+                  const lines = pending.map(
+                    (t) => `  ${t.status === "in_progress" ? "[~]" : "[ ]"} ${t.content}`,
+                  )
+                  system.push(
+                    `<system-reminder>Reminder: ${pending.length} todo${pending.length === 1 ? "" : "s"} still pending:\n${lines.join("\n")}\nComplete, cancel with a stated reason, or explicitly defer before finishing.</system-reminder>`,
+                  )
+                }
+              }
             }
 
             const result = yield* handle.process({
@@ -1907,6 +1987,8 @@ export const node = LayerNode.make(layer, [
   EventV2Bridge.node,
   RuntimeFlags.node,
   Database.node,
+  // P9: todoService is read in the loop for the in-turn nudge + completion gate.
+  SessionTodo.node,
 ])
 
 export * as SessionPrompt from "./prompt"
