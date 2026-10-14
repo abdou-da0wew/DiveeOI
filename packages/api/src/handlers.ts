@@ -29,6 +29,7 @@ import { Prefs } from "@diveeoi/db/prefs"
 import { ProjectCopyHandler } from "./handlers/project-copy"
 import { PrefsHandler } from "./handlers/prefs"
 import { AuthHandler } from "./handlers/auth"
+import { TaskHandler } from "./handlers/task"
 import { UserService } from "@diveeoi/db/auth-user/user"
 
 export const handlers = Layer.mergeAll(
@@ -52,6 +53,7 @@ export const handlers = Layer.mergeAll(
   ProjectCopyHandler,
   PrefsHandler,
   AuthHandler,
+  TaskHandler,
 ).pipe(
   Layer.provide(sessionLocationLayer),
   Layer.provide(locationLayer),

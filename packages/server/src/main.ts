@@ -14,6 +14,8 @@ import { handleCLI } from "./cli/index"
 import { Server } from "./server/server"
 import { DevMonitor } from "./dev/monitor"
 import { checkCtx7Update } from "./setup/ctx7"
+import { bootResume as taskBootResume, defaultLayer as AgentTaskDefaultLayer } from "./task/task"
+import { maybeStart as sshMaybeStart, defaultLayer as SshDefaultLayer } from "./ssh"
 
 // `handleCLI` returns the exit code when argv named a CLI command, or null when
 // it didn't — null falls through to starting the server.
@@ -35,6 +37,30 @@ try {
   // Background ctx7 update check (non-blocking)
   Effect.runFork(
     Effect.catchCause(checkCtx7Update(), (cause) => Effect.logWarning("ctx7 update check failed", { cause })),
+  )
+
+  // P4 boot resume: scan for tasks left in running/queued state by a crashed
+  // process. Stale-heartbeat rows get paused then resumed via journal replay.
+  // Runs in its own runtime so it cannot block startup — a crash-looping task
+  // is logged but the server still serves. The layer provides the adaptive
+  // resource service (for maxConcurrentTasks) and AgentTask (the service
+  // itself); both compose cleanly under the existing AdaptiveResource layer.
+  Effect.runFork(
+    taskBootResume().pipe(
+      Effect.provide(AgentTaskDefaultLayer),
+      Effect.provide(AdaptiveResourceDefaultLayer),
+      Effect.catchCause((cause) => Effect.logWarning("Task boot resume failed", { cause })),
+    ),
+  )
+
+  // P7 SSH server: start if DIVEEOI_SSH_HOST / DIVEEOI_SSH_PASSWORD are
+  // configured and the ssh2 probe passed. No-op when unconfigured or
+  // unavailable — curl via the TaskApi is the guaranteed surface.
+  Effect.runFork(
+    sshMaybeStart().pipe(
+      Effect.provide(SshDefaultLayer),
+      Effect.catchCause((cause) => Effect.logWarning("SSH server start failed", { cause })),
+    ),
   )
 
   // Adaptive GC scheduler: triggers Bun.gc(true) on the interval computed
