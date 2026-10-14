@@ -2,6 +2,8 @@ import * as Tool from "./tool"
 import DESCRIPTION from "./task.txt"
 import { ToolJsonSchema } from "./json-schema"
 import { SessionV1 } from "@diveeoi/db/v1/session"
+import { ModelV2 } from "@diveeoi/db/model"
+import { ProviderV2 } from "@diveeoi/db/provider"
 import { BackgroundJob } from "@/background/job"
 import { Session } from "@/session/session"
 import { SessionID, MessageID } from "../session/schema"
@@ -50,7 +52,20 @@ const BaseParameterFields = {
       "This should only be set if you mean to resume a previous task (you can pass a prior task_id and the task will continue the same subagent session as before instead of creating a fresh one)",
   }),
   command: Schema.optional(Schema.String).annotate({ description: "The command that triggered this task" }),
-  reminders: Schema.optional(Schema.Array(Schema.Struct({
+  // P5: optional model override for this subagent dispatch. Validated against
+  // the parent agent's `allowedModels` glob allowlist (P5) — a mismatch
+  // returns a tool error the LLM can read and recover from (never a crash).
+  // When unset the subagent's configured model (or the parent session's
+  // model) is used, unchanged from current behavior.
+  model: Schema.optional(
+    Schema.Struct({
+      providerID: Schema.String,
+      modelID: Schema.String,
+    }),
+  ).annotate({
+    description:
+      "Optional model override for this subagent, as {providerID, modelID}. Validated against the parent agent's allowedModels; falls back to the subagent's default on mismatch.",
+  }),  reminders: Schema.optional(Schema.Array(Schema.Struct({
     id: Schema.String,
     text: Schema.String,
     createdBy: Schema.String,
@@ -131,6 +146,50 @@ export const TaskTool = Tool.define(
         return yield* Effect.fail(new Error(`Unknown agent type: ${params.subagent_type} is not a valid agent type`))
       }
 
+      // P5: enum-validate the parent agent's `subagentTypes` allowlist (if set)
+      // and the requested model override against `allowedModels`. Both checks
+      // return a tool error the LLM can read and recover from, never a crash.
+      // Look up the parent agent definition (may differ from `next` — next is
+      // the subagent we are dispatching to, the parent is the one that emitted
+      // this tool call). When the parent session has no resolvable agent, skip
+      // the allowlist checks (no-op rather than fail).
+      const parentSession = yield* sessions.get(ctx.sessionID).pipe(
+        Effect.catch(() => Effect.succeed(undefined)),
+      )
+      const parentAgentName = (parentSession as any)?.agent
+      const parentAgent = parentAgentName
+        ? yield* agent.get(parentAgentName).pipe(Effect.catch(() => Effect.succeed(undefined)))
+        : undefined
+
+      if (parentAgent?.subagentTypes && parentAgent.subagentTypes.length > 0) {
+        if (!parentAgent.subagentTypes.includes(params.subagent_type)) {
+          return yield* Effect.fail(
+            new Error(
+              `Subagent type "${params.subagent_type}" is not in the parent agent's allowlist [${parentAgent.subagentTypes.join(", ")}]. Pick one of the allowed types.`,
+            ),
+          )
+        }
+      }
+
+      if (params.model && parentAgent?.allowedModels && parentAgent.allowedModels.length > 0) {
+        const modelRef = `${params.model.providerID}/${params.model.modelID}`
+        const ok = parentAgent.allowedModels.some((pat) => {
+          // Glob match: "provider/*" matches any model under that provider;
+          // "provider/modelID" matches exactly; "*" matches everything.
+          if (pat === "*") return true
+          if (pat.endsWith("/*")) return modelRef.startsWith(pat.slice(0, -1))
+          return pat === modelRef
+        })
+        if (!ok) {
+          return yield* Effect.fail(
+            new Error(
+              `Model "${modelRef}" is not in the parent agent's allowedModels [${parentAgent.allowedModels.join(", ")}]. Falling back to the subagent's default model.`,
+            ),
+          )
+        }
+      }
+      // P5 end
+
       const session = params.task_id
         ? yield* sessions.get(SessionID.make(params.task_id)).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
         : undefined
@@ -177,7 +236,11 @@ export const TaskTool = Tool.define(
       if (msg.info.role !== "assistant") return yield* Effect.fail(new Error("Not an assistant message"))
       const variant = msg.info.variant
 
-      const model = next.model ?? {
+      // P5: prefer the explicit model override when validated above; else the
+      // subagent's configured model; else the parent session's model. The
+      // override path is only reachable when allowedModels was unset or the
+      // model passed validation — failures return earlier.
+      const model = params.model ?? next.model ?? {
         modelID: msg.info.modelID,
         providerID: msg.info.providerID,
       }
@@ -201,9 +264,12 @@ export const TaskTool = Tool.define(
         const result = yield* ops.prompt({
           messageID: MessageID.ascending(),
           sessionID: nextSession.id,
+          // P5: brand the override so it matches the Session model schema —
+          // params.model is plain strings from the LLM, the prompt API wants
+          // the branded ID types.
           model: {
-            modelID: model.modelID,
-            providerID: model.providerID,
+            modelID: ModelV2.ID.make(model.modelID),
+            providerID: ProviderV2.ID.make(model.providerID),
           },
           variant: next.model ? undefined : variant,
           agent: next.name,
