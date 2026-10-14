@@ -1,0 +1,10 @@
+Get system information about the host machine.
+
+Returns CPU count and model, total and available memory, platform, hostname,
+load average, and the storage hint (HDD/SSD/unknown) the adaptive resource
+system has detected. Useful when you need to reason about the host's
+capabilities — e.g. before launching a parallel build, before running a
+memory-heavy tool, or to explain why the agent is running in constrained
+mode.
+
+This tool is read-only and always safe to call.

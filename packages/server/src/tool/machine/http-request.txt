@@ -1,0 +1,15 @@
+Make an HTTP request to a URL.
+
+Returns the response status, headers, and body (as JSON with statusText and
+truncation flag). Body is truncated to 64KB — use `webfetch` for full-content
+fetching with HTML rendering; this tool is for raw HTTP (APIs, webhooks,
+health checks).
+
+Permission is auto-granted for hosts on the default allowlist (loopback,
+RFC1918 private ranges, CGNAT 100.64/10). All other hosts require explicit
+approval — the permission prompt shows the URL so you can see what the agent
+is hitting. In unattended tasks, off-allowlist requests block with
+`awaiting_permission` rather than failing.
+
+The `timeoutMs` parameter defaults to 15 seconds; the request is aborted if
+no response arrives within that window.

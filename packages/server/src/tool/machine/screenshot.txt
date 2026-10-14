@@ -1,0 +1,13 @@
+Capture a screenshot of the host machine's primary screen.
+
+On Linux Wayland uses `grim`, on Linux X11 uses `scrot`, on macOS uses
+`screencapture -x`, on Windows uses PowerShell `CopyFromScreen`. The
+captured PNG is returned as a base64 data URL in the metadata; you can save
+it to disk via the `write` tool if you need persistence.
+
+This tool requires explicit approval each time — it captures whatever is on
+the user's screen, which may include sensitive content. In unattended tasks
+it blocks with `awaiting_permission` rather than failing.
+
+The tool has a 15-second timeout; PowerShell on Windows can take ~1s to
+spawn, so the timeout is generous.

@@ -1,0 +1,14 @@
+Terminate a running process by PID.
+
+On Linux and macOS, sends a POSIX signal (default SIGTERM — graceful; the
+agent can escalate to SIGKILL on a second call). On Windows, runs
+`taskkill /PID <pid> /T /F` (no signals — always force).
+
+This tool requires explicit approval each time. In unattended task sessions
+it blocks with `awaiting_permission` rather than failing the task; the
+human approves via the UI and the run resumes.
+
+Always prefer `kill_process` over running `kill` via the shell tool — this
+tool's permission gate is per-PID and audited, while the shell tool's is
+per-command and harder to reason about. Use `list_processes` first to find
+the PID you need.

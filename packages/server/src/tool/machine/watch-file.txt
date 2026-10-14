@@ -1,0 +1,14 @@
+Watch a file for changes, blocking until it changes or the timeout elapses.
+
+Uses the existing FSUtil watcher abstraction (not raw `fs.watch` — that is
+per-directory on Linux and has platform-specific recursion semantics). The
+watch is scoped to the call; on completion or timeout the watcher is
+released.
+
+Useful for "wait until the build finishes" patterns — point this at the
+build's output log and the tool returns when new content is appended. Also
+useful for waiting for a file to appear (the watcher fires on creation too).
+
+Default timeout is 30 seconds; pass `timeoutMs` to extend. The tool returns
+`changed: true` if the file was modified within the window, `false` on
+timeout. Read-only — auto-approved.

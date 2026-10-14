@@ -1,0 +1,9 @@
+Open a URL in the host's default browser.
+
+On Linux uses `xdg-open`, on macOS uses `open`, on Windows uses `cmd /c
+start`. The launch is fire-and-forget — the tool returns immediately rather
+than waiting for the browser window to appear.
+
+Use this to point the user at a build preview, a docs page, or a deployed
+URL. The URL is visible in the tool-call metadata so the user can audit
+what was opened. Low-risk — auto-approved.
