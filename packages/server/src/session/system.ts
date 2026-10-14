@@ -5,6 +5,7 @@ import { Context, Effect, Layer } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 
 import PROMPT_ANCHOR from "./prompt/anchor.txt"
+import PROMPT_AUTONOMY from "./prompt/autonomy.txt"
 import { Features } from "@/features"
 import PROMPT_ANTHROPIC from "./prompt/anthropic.txt"
 import PROMPT_DEFAULT from "./prompt/default.txt"
@@ -180,6 +181,16 @@ export const layer = Layer.effect(
           return PROMPT_ANCHOR
         })()
 
+        // P8b: autonomy prompt (self-correction + model economy + checkpointing).
+        // Ships alongside the anchor block — the two are co-dependent: the
+        // watchdog's diagnosis injection only makes sense if the agent knows
+        // how to respond (self-correction), and model economy only matters
+        // once subagents can be dispatched with overrides (P5). Always
+        // available when the anchor is, since both are autonomy-stack
+        // concerns and disabling the anchor means the user has opted out of
+        // the entire draft-10 autonomous feature set.
+        const autonomyBlock = anchorBlock !== undefined ? PROMPT_AUTONOMY : undefined
+
         const budgetHint = `<budget:token_budget>${tier}:${budgetInfo.remainingTokens}</budget:token_budget>`
 
         const btwBlock = btwResult.found ? BtwCommand.formatForSystem(btwResult.command) : undefined
@@ -194,6 +205,7 @@ export const layer = Layer.effect(
           ...(btwBlock ? [btwBlock] : []),
           ...(memoryContext ? [memoryContext] : []),
           ...(anchorBlock ? [anchorBlock] : []),
+          ...(autonomyBlock ? [autonomyBlock] : []),
         ]
 
         return {

@@ -141,6 +141,20 @@ export const Info = Schema.Struct({
       ).annotate({ description: "Shell burst rate limiting configuration" }),
     }),
   ).annotate({ description: "Tool configuration" }),
+  shell_elevation: Schema.optional(
+    Schema.Struct({
+      mode: Schema.optional(Schema.Literals(["off", "ask", "allow"] as const)).annotate({
+        description:
+          "Privilege elevation mode (draft-10 P11). off (default): elevation disabled, privileged commands fail with permission-denied. ask: each elevated command prompts the user via the existing permission UI. allow: auto-approve elevation for the session (still logged).",
+      }),
+      ttl_s: Schema.optional(Schema.Number).annotate({
+        description: "In-process credential cache TTL in seconds (default 900 = 15 min). After TTL, the cached password is cleared and the next elevation re-reads the keyring/param.",
+      }),
+      sudo_password_credential: Schema.optional(Schema.String).annotate({
+        description: "Credential store key for the sudo password (optional). When set, the elevation module reads the password from the DiveeOI credential service instead of the tool-call param or OS keyring.",
+      }),
+    }),
+  ).annotate({ description: "Shell privilege elevation configuration (draft-10 P11)" }),
   llm: Schema.optional(
     Schema.Struct({
       format: Schema.optional(Schema.Literals(["json", "toon"] as const)).annotate({ description: "Tool format for LLM calls (json or toon)" }),
