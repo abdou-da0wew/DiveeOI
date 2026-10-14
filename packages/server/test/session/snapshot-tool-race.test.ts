@@ -17,6 +17,13 @@ import { LayerNode } from "@diveeoi/db/effect/layer-node"
 import fs from "fs/promises"
 import path from "path"
 import { Session } from "@/session/session"
+import { Agent } from "@/agent/agent"
+import { Command } from "@/command"
+import { Config } from "@/config/config"
+import { Permission } from "@/permission"
+import { Provider } from "@/provider/provider"
+import { SessionProcessor } from "@/session/processor"
+import { SessionRunState } from "@/session/run-state"
 import { SessionPrompt } from "../../src/session/prompt"
 import { SessionSummary } from "../../src/session/summary"
 import { MessageV2 } from "../../src/session/message-v2"
@@ -24,6 +31,7 @@ import { SessionV1 } from "@diveeoi/db/v1/session"
 import { Database } from "@diveeoi/db/database/database"
 import { SessionProjector } from "@diveeoi/db/session/projector"
 import { provideTmpdirServer } from "../fixture/fixture"
+import { TestAmbient } from "../lib/ambient"
 import { testEffect } from "../lib/effect"
 import { TestLLMServer } from "../lib/llm-server"
 
@@ -83,6 +91,18 @@ const root = LayerNode.group([
   Database.node,
   CrossSpawnSpawner.node,
   LayerNode.make(TestLLMServer.layer, []),
+  // See test/lib/ambient: these nodes must be in the GROUP, not provided afterwards -
+  // buildLayer's layer is opaque, so Layer.provideMerge cannot inject into it.
+  ...TestAmbient.ambientWithClientsNodes,
+  // SessionPrompt.layer does not close over these; SessionTools.resolve and ToolRegistry read
+  // them per call, so they have to be in the runtime context the group exposes.
+  Agent.node,
+  Command.node,
+  Config.node,
+  Permission.node,
+  Provider.node,
+  SessionProcessor.node,
+  SessionRunState.node,
 ])
 const it = testEffect(
   LayerNode.buildLayer(root, {

@@ -283,6 +283,174 @@ export default {
       `)
       yield* tx.run(`CREATE INDEX \`preference_scope_idx\` ON \`preference\` (\`scope\`);`)
       yield* tx.run(`CREATE INDEX \`todo_session_idx\` ON \`todo\` (\`session_id\`);`)
+      // ---- reminder ----
+      // Mirrored from migrations/20260926000000_repair_missing_tables so fresh installs are
+      // correct from the start: DatabaseMigration.apply marks every migration as applied
+      // when it seeds an empty database, so a table that only exists in a migration gets
+      // marked done without ever being created.
+      yield* tx.run(`
+        CREATE TABLE \`reminder\` (
+          \`id\` text PRIMARY KEY,
+          \`session_id\` text NOT NULL,
+          \`text\` text NOT NULL,
+          \`created_by\` text NOT NULL DEFAULT 'agent',
+          \`priority\` text NOT NULL DEFAULT 'medium',
+          \`tags\` text,
+          \`done\` integer NOT NULL DEFAULT 0,
+          \`time_created\` integer NOT NULL,
+          \`time_updated\` integer NOT NULL,
+          CONSTRAINT \`fk_reminder_session_id_session_id_fk\` FOREIGN KEY (\`session_id\`) REFERENCES \`session\`(\`id\`) ON DELETE CASCADE
+        );
+      
+      `)
+      // ---- user ----
+      // Mirrored from migrations/20260926000000_repair_missing_tables so fresh installs are
+      // correct from the start: DatabaseMigration.apply marks every migration as applied
+      // when it seeds an empty database, so a table that only exists in a migration gets
+      // marked done without ever being created.
+      yield* tx.run(`
+        CREATE TABLE \`user\` (
+          \`id\` text PRIMARY KEY,
+          \`email\` text NOT NULL UNIQUE,
+          \`password_hash\` text NOT NULL,
+          \`role\` text NOT NULL DEFAULT 'user',
+          \`verified\` integer NOT NULL DEFAULT 0,
+          \`username\` text NOT NULL DEFAULT '',
+          \`message_count\` integer NOT NULL DEFAULT 0,
+          \`created_at\` integer NOT NULL,
+          \`updated_at\` integer NOT NULL
+        );
+      
+      `)
+      // ---- verification_token ----
+      // Mirrored from migrations/20260926000000_repair_missing_tables so fresh installs are
+      // correct from the start: DatabaseMigration.apply marks every migration as applied
+      // when it seeds an empty database, so a table that only exists in a migration gets
+      // marked done without ever being created.
+      yield* tx.run(`
+        CREATE TABLE \`verification_token\` (
+          \`id\` text PRIMARY KEY,
+          \`user_id\` text NOT NULL REFERENCES \`user\`(\`id\`) ON DELETE CASCADE,
+          \`token\` text NOT NULL UNIQUE,
+          \`type\` text NOT NULL,
+          \`expires_at\` integer NOT NULL,
+          \`used\` integer NOT NULL DEFAULT 0
+        );
+      
+      `)
+      // ---- session_anchor ----
+      // Mirrored from migrations/20260926000000_repair_missing_tables so fresh installs are
+      // correct from the start: DatabaseMigration.apply marks every migration as applied
+      // when it seeds an empty database, so a table that only exists in a migration gets
+      // marked done without ever being created.
+      yield* tx.run(`
+        CREATE TABLE \`session_anchor\` (
+          \`id\` text PRIMARY KEY,
+          \`session_id\` text NOT NULL,
+          \`epoch\` integer NOT NULL,
+          \`root_ref\` text NOT NULL,
+          \`tree_json\` text NOT NULL,
+          \`token_estimate\` integer,
+          \`degraded\` integer NOT NULL DEFAULT 0,
+          \`time_created\` integer NOT NULL,
+          CONSTRAINT \`fk_session_anchor_session_id_session_id_fk\` FOREIGN KEY (\`session_id\`) REFERENCES \`session\`(\`id\`) ON DELETE CASCADE
+        );
+      
+      `)
+      // ---- session_anchor_ref ----
+      // Mirrored from migrations/20260926000000_repair_missing_tables so fresh installs are
+      // correct from the start: DatabaseMigration.apply marks every migration as applied
+      // when it seeds an empty database, so a table that only exists in a migration gets
+      // marked done without ever being created.
+      yield* tx.run(`
+        CREATE TABLE \`session_anchor_ref\` (
+          \`anchor_id\` text NOT NULL,
+          \`ref\` text NOT NULL,
+          \`section\` text NOT NULL,
+          \`label\` text NOT NULL,
+          \`ordinal\` integer NOT NULL,
+          CONSTRAINT \`fk_session_anchor_ref_anchor_id_session_anchor_id_fk\` FOREIGN KEY (\`anchor_id\`) REFERENCES \`session_anchor\`(\`id\`) ON DELETE CASCADE
+        );
+      
+      `)
+      // ---- session_content_fts ----
+      // Mirrored from migrations/20260926000000_repair_missing_tables so fresh installs are
+      // correct from the start: DatabaseMigration.apply marks every migration as applied
+      // when it seeds an empty database, so a table that only exists in a migration gets
+      // marked done without ever being created.
+      yield* tx.run(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS \`session_content_fts\` USING fts5(
+          session_id UNINDEXED, ref UNINDEXED, text,
+          tokenize = 'unicode61 remove_diacritics 2'
+        );
+      
+      `)
+      // ---- agent_task_call ----
+      // Mirrored from migrations/20260926000000_repair_missing_tables so fresh installs are
+      // correct from the start: DatabaseMigration.apply marks every migration as applied
+      // when it seeds an empty database, so a table that only exists in a migration gets
+      // marked done without ever being created.
+      yield* tx.run(`
+        CREATE TABLE \`agent_task_call\` (
+          \`task_id\` text NOT NULL,
+          \`seq\` integer NOT NULL,
+          \`tool\` text NOT NULL,
+          \`args_hash\` text NOT NULL,
+          \`status\` text NOT NULL,
+          \`result_ref\` text,
+          \`started_at\` integer,
+          \`committed_at\` integer,
+          PRIMARY KEY (\`task_id\`, \`seq\`),
+          CONSTRAINT \`fk_agent_task_call_task_id_agent_task_id_fk\` FOREIGN KEY (\`task_id\`) REFERENCES \`agent_task\`(\`id\`) ON DELETE CASCADE
+        );
+      
+      `)
+      // ---- agent_task ----
+      // Mirrored from migrations/20260926000000_repair_missing_tables so fresh installs are
+      // correct from the start: DatabaseMigration.apply marks every migration as applied
+      // when it seeds an empty database, so a table that only exists in a migration gets
+      // marked done without ever being created.
+      yield* tx.run(`
+        CREATE TABLE \`agent_task\` (
+          \`id\` text PRIMARY KEY,
+          \`session_id\` text NOT NULL UNIQUE,
+          \`parent_session_id\` text,
+          \`prompt\` text NOT NULL,
+          \`provider_id\` text,
+          \`model_id\` text,
+          \`status\` text NOT NULL DEFAULT 'queued',
+          \`auto_run\` integer NOT NULL DEFAULT 0,
+          \`subagent_types\` text,
+          \`event_hooks\` text,
+          \`last_heartbeat\` integer,
+          \`checkpoint_anchor_id\` text,
+          \`worktree\` text,
+          \`error\` text,
+          \`time_created\` integer NOT NULL,
+          \`time_updated\` integer NOT NULL,
+          CONSTRAINT \`fk_agent_task_session_id_session_id_fk\` FOREIGN KEY (\`session_id\`) REFERENCES \`session\`(\`id\`) ON DELETE CASCADE
+        );
+      
+      `)
+      // ---- agent_task_event ----
+      // Mirrored from migrations/20260926000000_repair_missing_tables so fresh installs are
+      // correct from the start: DatabaseMigration.apply marks every migration as applied
+      // when it seeds an empty database, so a table that only exists in a migration gets
+      // marked done without ever being created.
+      yield* tx.run(`
+        CREATE TABLE \`agent_task_event\` (
+          \`id\` integer PRIMARY KEY AUTOINCREMENT,
+          \`task_id\` text NOT NULL,
+          \`trigger\` text NOT NULL,
+          \`action\` text NOT NULL,
+          \`payload\` text,
+          \`status\` text,
+          \`result\` text,
+          \`fired_at\` integer NOT NULL,
+          CONSTRAINT \`fk_agent_task_event_task_id_agent_task_id_fk\` FOREIGN KEY (\`task_id\`) REFERENCES \`agent_task\`(\`id\`) ON DELETE CASCADE
+        );
+      
+      `)
     })
   },
 } satisfies Omit<DatabaseMigration.Migration, "id">

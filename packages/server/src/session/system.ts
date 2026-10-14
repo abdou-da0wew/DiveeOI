@@ -4,6 +4,8 @@ import { Context, Effect, Layer } from "effect"
 
 import { InstanceState } from "@/effect/instance-state"
 
+import PROMPT_ANCHOR from "./prompt/anchor.txt"
+import { Features } from "@/features"
 import PROMPT_ANTHROPIC from "./prompt/anthropic.txt"
 import PROMPT_DEFAULT from "./prompt/default.txt"
 import PROMPT_BEAST from "./prompt/beast.txt"
@@ -160,6 +162,15 @@ export const layer = Layer.effect(
           }
         }
 
+        // The anchor block explains how to recover compacted history. It is only worth its tokens
+        // when the tools it names are actually reachable, so it follows the same permission gate
+        // the tools themselves are subject to.
+        const anchorBlock = (() => {
+          if (!Features.flags.anchor) return undefined
+          if (Permission.disabled(["search_memory", "recall_context"], agent.permission).size > 0) return undefined
+          return PROMPT_ANCHOR
+        })()
+
         const budgetHint = `<budget:token_budget>${tier}:${budgetInfo.remainingTokens}</budget:token_budget>`
 
         const btwBlock = btwResult.found ? BtwCommand.formatForSystem(btwResult.command) : undefined
@@ -172,6 +183,7 @@ export const layer = Layer.effect(
           ...(skillsBlock ? [skillsBlock] : []),
           ...(btwBlock ? [btwBlock] : []),
           ...(memoryContext ? [memoryContext] : []),
+          ...(anchorBlock ? [anchorBlock] : []),
         ]
 
         return {

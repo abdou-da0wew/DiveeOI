@@ -2,6 +2,7 @@ import { LayerNode } from "@diveeoi/db/effect/layer-node"
 import { PermissionV1 } from "@diveeoi/db/v1/permission"
 import { Image } from "@/image/image"
 import { SessionV1 } from "@diveeoi/db/v1/session"
+import { ProviderFreeTier } from "@/provider/free-tier"
 import { Cause, Deferred, Effect, Exit, Layer, Context, Scope, Schema } from "effect"
 import * as Stream from "effect/Stream"
 import { Agent } from "@/agent/agent"
@@ -924,6 +925,15 @@ export const layer = Layer.effect(
         })
         const error = parse(e)
         yield* flushV2Fragments()
+        // Learn from free-tier refusals: if the gateway says this model needs a key (or has
+        // been retired), record it so the next turn rotates instead of failing the same way.
+        // See @/provider/free-tier for why this is discovered at runtime rather than listed.
+        if (input.model && ProviderFreeTier.learn(e, String(input.model.providerID), input.model.id)) {
+          yield* Effect.logWarning("model refused by the free tier, marking unusable", {
+            sessionID: input.sessionID,
+            model: `${input.model.providerID}/${input.model.id}`,
+          })
+        }
         if (SessionV1.ContextOverflowError.isInstance(error)) {
           if ((yield* config.get()).compaction?.auto === false && !ctx.assistantMessage.summary) {
             ctx.assistantMessage.error = error

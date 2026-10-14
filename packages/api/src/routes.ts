@@ -1,7 +1,6 @@
 import { Database } from "@diveeoi/db/database/database"
 import { EventV2 } from "@diveeoi/db/event"
 import { LocationServiceMap } from "@diveeoi/db/location-layer"
-import { MailService } from "@diveeoi/db/mail/mail"
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http"
 import { JwtAuth } from "./middleware/jwt"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
@@ -38,7 +37,6 @@ export const webHandler = () =>
   HttpRouter.toWebHandler(
     routes.pipe(
       Layer.provide(HttpServer.layerServices),
-      Layer.provide(MailService.defaultLayer),
     ) as Layer.Layer<never, never, never>,
     { disableLogger: true },
   )

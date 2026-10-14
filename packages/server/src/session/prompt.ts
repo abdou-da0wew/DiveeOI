@@ -18,6 +18,14 @@ import { Instruction } from "./instruction"
 import { SessionMemoryIntegration } from "./memory"
 import { Plugin } from "../plugin"
 import MAX_STEPS from "../session/prompt/max-steps.txt"
+import { diagnoseLoop, loopMessage, LOOP_FATAL_AFTER, type LoopDiagnosis } from "./loop-guard"
+import { ProviderFreeTier } from "@/provider/free-tier"
+
+/** How many times one run may swap a model that the free tier refused. */
+const MAX_FREE_TIER_ROTATIONS = 3
+
+const LOOP_STOP_NOTICE =
+  "No further tool calls will be executed for this turn. Respond with text only: state what you were trying to do, what the repeated call returned, and what you recommend doing instead."
 import { ToolRegistry } from "@/tool/registry"
 import { MCP } from "../mcp"
 import { LSP } from "@/lsp/lsp"
@@ -653,11 +661,36 @@ export const layer = Layer.effect(
       )
     })
 
+    /**
+     * Resolve the model for a step, rotating away from one the gateway refuses.
+     *
+     * A free-price model can still require a key (or be retired upstream) while it is still
+     * listed in the catalog - see @/provider/free-tier. Dying there loses the whole turn, so
+     * when the process has learned that a model is unusable we substitute the provider's
+     * cheapest routable model for the rest of the run and say so on the event bus.
+     */
     const getModel = Effect.fn("SessionPrompt.getModel")(function* (
       providerID: ProviderV2.ID,
       modelID: ModelV2.ID,
       sessionID: SessionID,
     ) {
+      if (!ProviderFreeTier.isRoutable(String(providerID), String(modelID))) {
+        const replacement = yield* provider.getSmallModel(providerID)
+        if (replacement && replacement.id !== modelID) {
+          yield* Effect.logWarning("model needs a key, rotating", {
+            "session.id": sessionID,
+            from: `${providerID}/${modelID}`,
+            to: `${replacement.providerID}/${replacement.id}`,
+          })
+          yield* events.publish(Session.Event.Error, {
+            sessionID,
+            error: new NamedError.Unknown({
+              message: `Model ${providerID}/${modelID} is unavailable without an API key. Using ${replacement.providerID}/${replacement.id} instead.`,
+            }).toObject(),
+          })
+          return replacement
+        }
+      }
       const exit = yield* provider.getModel(providerID, modelID).pipe(Effect.exit)
       if (Exit.isSuccess(exit)) return exit.value
       const err = Cause.squash(exit.cause)
@@ -1214,6 +1247,11 @@ export const layer = Layer.effect(
         const ctx = yield* InstanceState.context
         let structured: unknown
         let step = 0
+        // Consecutive steps that ended in the same repetition diagnosis (draft-10 P3).
+        let loopStrikes = 0
+        let loopDiagnosis: LoopDiagnosis | undefined
+        // Bounded so a provider that refuses every candidate still terminates the run.
+        let rotations = 0
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
         const memory = yield* SessionMemoryIntegration.Service
 
@@ -1408,6 +1446,33 @@ Tool: {name}
   Args:
     | {key}: {value}`)
             }
+            // Repetition guard: a stuck model re-issues the same call forever, which burns
+            // free-tier quota until the provider rate-limits. Diagnose from the persisted tool
+            // history, tell the model once, and stop the run if it ignores that.
+            const diagnosis = diagnoseLoop(msgs)
+            loopStrikes = diagnosis && loopDiagnosis?.hash === diagnosis.hash ? loopStrikes + 1 : diagnosis ? 1 : 0
+            loopDiagnosis = diagnosis
+            if (diagnosis) {
+              yield* Effect.logWarning("session.loop.repetition", {
+                "session.id": sessionID,
+                tool: diagnosis.tool,
+                consecutive: diagnosis.consecutive,
+                window: diagnosis.window,
+                strikes: loopStrikes,
+              })
+              if (loopStrikes >= LOOP_FATAL_AFTER) {
+                system.push(loopMessage(diagnosis), LOOP_STOP_NOTICE)
+                yield* events.publish(Session.Event.Error, {
+                  sessionID,
+                  error: new NamedError.Unknown({
+                    message: `Stopped: \`${diagnosis.tool}\` repeated ${diagnosis.consecutive} times with identical arguments and did not change approach.`,
+                  }).toObject(),
+                })
+                return "break" as const
+              }
+              system.push(loopMessage(diagnosis))
+            }
+
             const result = yield* handle.process({
               user: lastUser,
               agent,
@@ -1426,6 +1491,40 @@ Tool: {name}
               handle.message.finish = handle.message.finish ?? "stop"
               yield* sessions.updateMessage(handle.message)
               return "break" as const
+            }
+
+            // A free-price model can still be refused by the gateway (needs a key, or retired
+            // upstream) while it remains listed in the catalog. Dying there loses the whole turn,
+            // so record the refusal and retry this step on a model that answers. Bounded, so a
+            // provider that refuses every candidate still terminates. See @/provider/free-tier.
+            if (
+              rotations < MAX_FREE_TIER_ROTATIONS &&
+              handle.message.error !== undefined &&
+              ProviderFreeTier.classify(handle.message.error) !== undefined &&
+              handle.message.providerID &&
+              handle.message.modelID
+            ) {
+              const failed = { providerID: handle.message.providerID, modelID: handle.message.modelID }
+              ProviderFreeTier.markKeyRequired(failed.providerID, failed.modelID)
+              const replacement = yield* provider
+                .getSmallModel(failed.providerID as never)
+                .pipe(Effect.catch(() => Effect.succeed(undefined)))
+              if (replacement && replacement.id !== failed.modelID) {
+                rotations++
+                yield* Effect.logWarning("free tier refused the model, rotating", {
+                  "session.id": sessionID,
+                  from: `${failed.providerID}/${failed.modelID}`,
+                  to: `${replacement.providerID}/${replacement.id}`,
+                  attempt: rotations,
+                })
+                yield* events.publish(Session.Event.Error, {
+                  sessionID,
+                  error: new NamedError.Unknown({
+                    message: `${failed.providerID}/${failed.modelID} is not available on the free tier. Continuing with ${replacement.providerID}/${replacement.id}.`,
+                  }).toObject(),
+                })
+                return "continue" as const
+              }
             }
 
             const finished = handle.message.finish && !["tool-calls", "unknown"].includes(handle.message.finish)
@@ -1468,6 +1567,7 @@ Tool: {name}
             Effect.onInterrupt(() => finalizeInterruptedAssistant),
           )
           if (outcome === "break") break
+
           continue
         }
 

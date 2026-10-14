@@ -20,6 +20,7 @@ import { testEffect } from "../lib/effect"
 import { Tool } from "@/tool/tool"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { InstanceStore } from "@/project/instance-store"
+import { AdaptiveResourceService, defaultLayer as AdaptiveResourceDefaultLayer } from "@diveeoi/db/adaptive"
 
 const shellLayer = Layer.mergeAll(
   CrossSpawnSpawner.defaultLayer,
@@ -29,6 +30,7 @@ const shellLayer = Layer.mergeAll(
   Config.defaultLayer,
   Agent.defaultLayer,
   RuntimeFlags.defaultLayer,
+  AdaptiveResourceDefaultLayer,
   testInstanceStoreLayer,
 )
 const it = testEffect(shellLayer)
@@ -1143,10 +1145,13 @@ describe("tool.shell abort", () => {
     runIn(
       projectRoot,
       Effect.gen(function* () {
+        // Metadata writes are debounced by the adaptive shell flush interval (draft-10 P10), so the
+        // command has to outlive more than one interval to observe progressive updates.
+        const { shellMetadataFlushMs } = yield* (yield* AdaptiveResourceService).getCurrentTargets()
         const updates: string[] = []
         const result = yield* run(
           {
-            command: `echo first && sleep 0.1 && echo second`,
+            command: `echo first && sleep ${(shellMetadataFlushMs * 2) / 1000} && echo second`,
             description: "Streaming test",
           },
           {

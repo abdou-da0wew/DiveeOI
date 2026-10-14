@@ -6,11 +6,13 @@ import { afterEach, describe, expect } from "bun:test"
 import path from "path"
 import { pathToFileURL } from "url"
 import type { Permission } from "../../src/permission"
+import { Agent } from "@/agent/agent"
 import type { Tool } from "@/tool/tool"
 import { SkillTool } from "../../src/tool/skill"
 import { ToolRegistry } from "@/tool/registry"
 import { disposeAllInstances, TestInstance } from "../fixture/fixture"
 import { SessionID, MessageID } from "../../src/session/schema"
+import { TestAmbient } from "../lib/ambient"
 import { testEffect } from "../lib/effect"
 
 const baseCtx: Omit<Tool.Context, "ask"> = {
@@ -29,7 +31,13 @@ afterEach(async () => {
 
 const node = CrossSpawnSpawner.defaultLayer
 
-const it = testEffect(Layer.mergeAll(ToolRegistry.defaultLayer, node).pipe(Layer.provide(Ripgrep.defaultLayer)))
+// See test/lib/ambient: ToolRegistry reaches Agent, Skill and LSP at registry-build time, and
+// this hand-built graph does not otherwise provide them.
+const it = testEffect(
+  Layer.mergeAll(ToolRegistry.defaultLayer, Agent.defaultLayer, node, TestAmbient.ambientWithClientsLayer).pipe(
+    Layer.provide(Ripgrep.defaultLayer),
+  ),
+)
 
 describe("tool.skill", () => {
   it.instance("execute returns skill content block with files", () =>

@@ -1,32 +1,19 @@
-Generate a compact anchor index from the provided conversation turns. The anchor is a
-STRUCTURED INDEX, not a summary. Original messages are NEVER DELETED — every ref must
-point to a real message/part in the provided turns.
+<anchor>
+Your context is compacted. What you see marked as "Working memory (anchor)" is an index of this
+conversation, not the conversation itself. It lists what mattered - the objective, decisions, the
+files involved, open questions, where things stand - and every entry carries a ref.
 
-INPUT: a JSON array of messages with `info.id` (message ID) and `parts` (each part has
-`id`, `type`, `text`, and tool parts have `tool`, `state.input`, `state.output`).
+The originals were not deleted. Your job when the anchor is not enough:
 
-OUTPUT: JSON ONLY, exactly this schema:
+- `search_memory` when you do not have a ref. It searches the dropped text and returns refs. Use it
+  BEFORE concluding something was never established, never decided, or never written. If the user
+  refers to something "we set up earlier", the answer is usually still there.
+- `recall_context` when you have a ref and need the exact words. Read a file's original content
+  before editing it based on a one-line label. Read the original of a decision before reversing it.
+- `anchor_edit` when what you have learned changes the index: a decision reversed, a file that
+  turned out not to matter, a question answered. The anchor you were given is already stale in
+  places; correcting it is cheaper than being misled by it.
 
-{
-  "objective": { "ref": "msg:<id>" },
-  "decisions": [{ "ref": "msg:<id>|part:<id>", "label": "short line" }],
-  "files": [{ "ref": "msg:<id>|part:<id>", "label": "short line" }],
-  "open_questions": [{ "ref": "msg:<id>|part:<id>", "label": "short line" }],
-  "status": { "ref": "msg:<id>|part:<id>", "label": "short line" }
-}
-
-RULES:
-- `objective.ref` MUST be the original user message that started this task/thread.
-  If there are multiple user messages, pick the FIRST ONE with substantive content.
-- Every `ref` in `decisions`, `files`, `open_questions`, `status` MUST come from the
-  provided message IDs or part IDs. NO invented refs. NO refs to messages not provided.
-- `decisions`: key architectural/approach choices, tool config decisions, model choices.
-- `files`: files created, modified, or read that are central to the task.
-- `open_questions`: things the user asked but weren't answered, or the agent deferred.
-- `status`: the most recent substantive assistant message that describes where things stand.
-- Labels: <= 120 chars, human+agent readable, no markdown.
-- If a section has NO valid refs, output an empty array `[]` (NOT omitted).
-- Do NOT include tool calls that failed or were cancelled.
-- Output JSON ONLY. No prose, no markdown, no explanation.
-- If you cannot find a valid `objective.ref`, output:
-  {"objective": {"ref": "msg:__NONE__"}, "decisions": [], "files": [], "open_questions": [], "status": {"ref": "msg:__NONE__", "label": "no objective found"}}
+A ref that does not resolve is not evidence that the content is gone - it may be from another
+session. Search before you report something as lost.
+</anchor>

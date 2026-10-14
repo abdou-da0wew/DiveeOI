@@ -63,6 +63,26 @@ export const InitPayload = Schema.Struct({
   providerID: ProviderV2.ID,
   messageID: MessageID,
 })
+/**
+ * Anchor trees are returned as opaque JSON: they are stored verbatim and rendered server-side, and
+ * pinning their shape into the API would make every anchor change a breaking change for clients.
+ */
+const AnchorListResponse = Schema.Struct({
+  anchors: Schema.mutable(
+    Schema.Array(
+      Schema.Struct({
+        id: Schema.String,
+        epoch: Schema.Number,
+        root_ref: Schema.String,
+        tree: Schema.Unknown,
+        token_estimate: Schema.optional(Schema.Number),
+        degraded: Schema.Boolean,
+        created_at: Schema.Number,
+      }),
+    ),
+  ),
+}).annotate({ identifier: "SessionAnchorList" })
+
 export const SummarizePayload = Schema.Struct({
   providerID: ProviderV2.ID,
   modelID: ModelV2.ID,
@@ -82,6 +102,7 @@ export const SessionPaths = {
   get: `${root}/:sessionID`,
   children: `${root}/:sessionID/children`,
   todo: `${root}/:sessionID/todo`,
+  anchor: `${root}/:sessionID/anchor`,
   diff: `${root}/:sessionID/diff`,
   messages: `${root}/:sessionID/message`,
   message: `${root}/:sessionID/message/:messageID`,
@@ -299,6 +320,19 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.unshare",
             summary: "Unshare session",
             description: "Remove the shareable link for a session, making it private again.",
+          }),
+        ),
+        HttpApiEndpoint.get("anchor", SessionPaths.anchor, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          success: described(AnchorListResponse, "Session anchors, newest first"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.anchor.list",
+            summary: "List session anchors",
+            description:
+              "Get the session's working-memory anchors, newest first. An anchor is the structured index that replaces lossy summary compaction; each entry carries a stable ref that resolves to the original message or part.",
           }),
         ),
         HttpApiEndpoint.post("summarize", SessionPaths.summarize, {

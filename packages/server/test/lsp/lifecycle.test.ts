@@ -42,13 +42,16 @@ describe("LSP service lifecycle", () => {
     ),
   )
 
-  it.instance("hasClients() returns false for .ts files in instance when LSP is unset", () =>
+  it.instance("hasClients() returns false for .ts files in instance when lsp is false", () =>
     LSP.Service.use((lsp) =>
       Effect.gen(function* () {
         const result = yield* lsp.hasClients(path.join((yield* TestInstance).directory, "test.ts"))
         expect(result).toBe(false)
       }),
     ),
+    // Built-in servers are on by default in this fork (commit d0ec0cb): only an explicit
+    // `lsp: false` opts out, so the opt-out is what this case has to exercise.
+    { config: { lsp: false } },
   )
 
   it.instance(

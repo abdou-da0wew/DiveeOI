@@ -8,6 +8,7 @@ import { ToolRegistry } from "@/tool/registry"
 import { Tool } from "@/tool/tool"
 import { disposeAllInstances, TestInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
+import { TestAmbient } from "../lib/ambient"
 import { TestConfig } from "../fixture/config"
 import { Config } from "@/config/config"
 import { Plugin } from "@/plugin"
@@ -48,7 +49,7 @@ const brokenPluginLayer = Layer.succeed(
   }),
 )
 
-const root = LayerNode.group([ToolRegistry.node, Agent.node])
+const root = LayerNode.group([ToolRegistry.node, Agent.node, ...TestAmbient.ambientWithClientsNodes])
 const replacements = [
   LayerNode.replace(Config.node, configLayer),
   LayerNode.replace(RuntimeFlags.node, RuntimeFlags.layer()),

@@ -3,6 +3,7 @@ import { defaultLayer as AdaptiveResourceDefaultLayer, useAdaptiveTargets } from
 import { httpClient } from "@diveeoi/db/effect/layer-node-platform"
 import { LogLevel } from "effect"
 import { Ripgrep } from "@diveeoi/db/ripgrep"
+import { Anchor } from "@/anchor/anchor"
 import { DbExportTool } from "./db-export"
 import { Session } from "@/session/session"
 import { QuestionTool } from "./question"
@@ -151,6 +152,25 @@ export const layer = Layer.effect(
           ]
         })
 
+    // Anchor tools — likewise dynamically imported so a disabled anchor feature never loads
+    // the tool wrappers or pulls in the anchor service.
+    const anchorTools: Tool.Def[] = !Features.flags.anchor
+      ? []
+      : yield* Effect.gen(function* () {
+          const AnchorTools = yield* Effect.promise(() => import("./anchor"))
+          const infos = yield* Effect.all({
+            search: AnchorTools.SearchMemoryTool,
+            recall: AnchorTools.RecallContextTool,
+            edit: AnchorTools.AnchorEditTool,
+          })
+          const tools = yield* Effect.all({
+            search: Tool.init(infos.search),
+            recall: Tool.init(infos.recall),
+            edit: Tool.init(infos.edit),
+          })
+          return [tools.search, tools.recall, tools.edit]
+        })
+
     const ctx7Defs = yield* getCtx7Defs().pipe(
       Effect.catch(() => Effect.succeed([] as Tool.Def[])),
     )
@@ -277,6 +297,7 @@ export const layer = Layer.effect(
           tool.export,
           // Memory tools (empty when the memory feature is disabled)
           ...memoryTools,
+          ...anchorTools,
           ...ctx7Defs,
         ]
         const taskDef: TaskDef = tool.task
@@ -445,6 +466,8 @@ export const defaultLayer = Layer.suspend(() =>
       Layer.provide(Features.flags.memory ? Memory.defaultLayer : Layer.empty),
       Layer.provide(SessionMemoryIntegration.defaultLayer),
       Layer.provide(MemoryScheduler.defaultLayer),
+      // Same for anchors: no Anchor service is constructed when the feature is off.
+      Layer.provide(Features.flags.anchor ? Anchor.defaultLayer : Layer.empty),
       Layer.provide(Ripgrep.defaultLayer),
     ),
 )
@@ -549,6 +572,7 @@ export const node = LayerNode.make(layer, [
   adaptiveNode,
   Database.node,
   ...(Features.flags.memory ? [Memory.node, SessionMemoryIntegration.node, MemoryScheduler.node] : []),
+  ...(Features.flags.anchor ? [Anchor.node] : []),
   Ripgrep.node,
 ])
 

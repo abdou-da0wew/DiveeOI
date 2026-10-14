@@ -19,6 +19,7 @@ import { Truncate } from "@/tool/truncate"
 import { ToolRegistry } from "@/tool/registry"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { disposeAllInstances } from "../fixture/fixture"
+import { TestAmbient } from "../lib/ambient"
 import { testEffect } from "../lib/effect"
 import { ProviderV2 } from "@diveeoi/db/provider"
 import { ModelV2 } from "@diveeoi/db/model"
@@ -46,6 +47,9 @@ const layer = (flags: Partial<RuntimeFlags.Info> = {}) =>
     ToolRegistry.defaultLayer,
     Database.defaultLayer,
     RuntimeFlags.layer(flags),
+    // See test/lib/ambient: ToolRegistry reaches Skill and LSP at registry-build time, and
+    // this hand-built graph does not otherwise provide them.
+    TestAmbient.ambientWithClientsLayer,
   ).pipe(Layer.provide(Ripgrep.defaultLayer))
 
 const it = testEffect(layer())

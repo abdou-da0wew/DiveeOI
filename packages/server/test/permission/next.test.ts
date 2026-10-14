@@ -10,6 +10,8 @@ import { InstanceBootstrap } from "../../src/project/bootstrap-service"
 import { InstanceStore } from "../../src/project/instance-store"
 import { TestInstance, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
+import { TestAmbient } from "../lib/ambient"
+import { Config } from "@/config/config"
 import { MessageID, SessionID } from "../../src/session/schema"
 
 const events = EventV2Bridge.defaultLayer
@@ -20,7 +22,7 @@ const env = Layer.mergeAll(
   CrossSpawnSpawner.defaultLayer,
   InstanceStore.defaultLayer.pipe(Layer.provide(noopBootstrap)),
 )
-const it = testEffect(env)
+const it = testEffect(Layer.provideMerge(env, Layer.mergeAll(TestAmbient.ambientWithClientsLayer, Config.defaultLayer)))
 
 const rejectAll = (message?: string) =>
   Effect.gen(function* () {

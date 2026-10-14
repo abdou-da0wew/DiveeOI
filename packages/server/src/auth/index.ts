@@ -75,6 +75,9 @@ export const layer = Layer.effect(
       const data = yield* all()
       if (norm !== key) delete data[key]
       delete data[norm + "/"]
+      // Fresh installs have no data dir yet; writing auth.json before it exists
+      // fails with ENOENT instead of creating it.
+      yield* fsys.ensureDir(path.dirname(file)).pipe(Effect.orDie)
       yield* fsys
         .writeJson(file, { ...data, [norm]: info }, 0o600)
         .pipe(Effect.mapError(fail("Failed to write auth data")))
@@ -85,6 +88,7 @@ export const layer = Layer.effect(
       const data = yield* all()
       delete data[key]
       delete data[norm]
+      yield* fsys.ensureDir(path.dirname(file)).pipe(Effect.orDie)
       yield* fsys.writeJson(file, data, 0o600).pipe(Effect.mapError(fail("Failed to write auth data")))
     })
 

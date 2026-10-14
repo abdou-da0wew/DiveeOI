@@ -12,6 +12,7 @@ import { LLMClient, RequestExecutor, WebSocketExecutor } from "@diveeoi/llm/rout
 import type { LLMClientService } from "@diveeoi/llm/route"
 import { GitLabWorkflowLanguageModel } from "gitlab-ai-provider"
 import { ProviderTransform } from "@/provider/transform"
+import { ProviderUserAgent } from "@/provider/user-agent"
 import { Config } from "@/config/config"
 import type { Agent } from "@/agent/agent"
 import type { MessageV2 } from "./message-v2"
@@ -30,8 +31,6 @@ import * as OtelTracer from "@effect/opentelemetry/Tracer"
 import { LLMAISDK } from "./llm/ai-sdk"
 import { LLMNativeRuntime } from "./llm/native-runtime"
 import { LLMRequestPrep } from "./llm/request"
-
-const providerAuthCache = new Map<string, Auth.Info | undefined>()
 
 export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
 
@@ -71,6 +70,7 @@ const live: Layer.Layer<
   | Plugin.Service
   | Permission.Service
   | EventV2Bridge.Service
+  | ProviderUserAgent.Service
   | LLMClientService
   | RuntimeFlags.Service
 > = Layer.effect(
@@ -84,6 +84,12 @@ const live: Layer.Layer<
     const events = yield* EventV2Bridge.Service
     const llmClient = yield* LLMClient.Service
     const flags = yield* RuntimeFlags.Service
+    const userAgent = yield* ProviderUserAgent.Service
+
+    // Per-LLM-layer memo of `auth.get`, not a module-level map: the cache is only as valid as
+    // the Auth service it read from, so a map at module scope would keep serving one layer's
+    // credentials (including a cached `undefined`) to every other Auth instance in the process.
+    const providerAuthCache = new Map<string, Auth.Info | undefined>()
 
     const run = Effect.fn("LLM.run")(function* (input: StreamRequest) {
       yield* Tracer.info("llm.stream.start", {
@@ -96,10 +102,12 @@ const live: Layer.Layer<
       })
 
       const providerID = input.model.providerID
+      // Only memoize a hit. Caching a miss would pin "not signed in" for the life of the layer
+      // and a later `auth.set` would never be observed.
       const authEffect = providerAuthCache.has(providerID)
         ? Effect.succeed(providerAuthCache.get(providerID))
         : auth.get(providerID).pipe(
-            Effect.tap((info) => Effect.sync(() => providerAuthCache.set(providerID, info))),
+            Effect.tap((info) => Effect.sync(() => info && providerAuthCache.set(providerID, info))),
           )
       const [language, cfg, item, info] = yield* Effect.all(
         [
@@ -119,6 +127,7 @@ const live: Layer.Layer<
         plugin,
         flags,
         isWorkflow,
+        userAgent: ProviderUserAgent.resolveWith(userAgent),
       })
 
       // Wire up toolExecutor for DWS workflow models so that tool calls
@@ -393,7 +402,11 @@ const live: Layer.Layer<
   }),
 )
 
-export const layer = live.pipe(Layer.provide(Permission.defaultLayer), Layer.provide(EventV2Bridge.defaultLayer))
+export const layer = live.pipe(
+  Layer.provide(Permission.defaultLayer),
+  Layer.provide(EventV2Bridge.defaultLayer),
+  Layer.provide(ProviderUserAgent.defaultLayer),
+)
 
 export const defaultLayer = Layer.suspend(() =>
   layer.pipe(
@@ -417,6 +430,7 @@ export const node = LayerNode.make(layer, [
   Plugin.node,
   Permission.node,
   EventV2Bridge.node,
+  ProviderUserAgent.node,
   llmClient,
   RuntimeFlags.node,
 ])

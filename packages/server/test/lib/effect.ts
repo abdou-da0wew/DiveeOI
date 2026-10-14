@@ -128,6 +128,19 @@ const make = <R, E>(testLayer: Layer.Layer<R, E>, liveLayer: Layer.Layer<R, E>, 
   return { effect, live, instance }
 }
 
+/**
+ * Ambient MCP server suppression.
+ *
+ * DiveeOI auto-registers a `context-mode` MCP server whenever that package resolves
+ * (src/setup/context-mode.ts). It is a real dependency of this workspace, so it joins the live
+ * MCP state of every test and silently breaks any assertion that counts tools, prompts or
+ * resources - which is exactly how it presented: 18 failures in test/mcp/lifecycle.test.ts that
+ * looked like product bugs and were not. The product already exposes
+ * DIVEEOI_CONTEXT_MODE_DISABLED for this, and no test covers context-mode itself, so the harness
+ * turns it off once here rather than every MCP test rediscovering it.
+ */
+process.env.DIVEEOI_CONTEXT_MODE_DISABLED ??= "1"
+
 // Test environment with TestClock and TestConsole
 const testEnv = Layer.mergeAll(TestConsole.layer, TestClock.layer())
 

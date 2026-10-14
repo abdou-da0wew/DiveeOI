@@ -15,8 +15,10 @@ import { Server } from "./server/server"
 import { DevMonitor } from "./dev/monitor"
 import { checkCtx7Update } from "./setup/ctx7"
 
-const handled = await handleCLI(process.argv.slice(2))
-if (handled) process.exit(0)
+// `handleCLI` returns the exit code when argv named a CLI command, or null when
+// it didn't — null falls through to starting the server.
+const cliExit = await handleCLI(process.argv.slice(2))
+if (cliExit !== null) process.exit(cliExit)
 
 const port = parseInt(process.env.PORT || "4097", 10)
 const host = process.env.HOST || "0.0.0.0"

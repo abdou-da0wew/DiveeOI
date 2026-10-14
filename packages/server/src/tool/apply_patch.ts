@@ -125,7 +125,10 @@ export const ApplyPatchTool = Tool.define(
                 source.text,
               )
               newContent = fileUpdate.content
-              bom = fileUpdate.bom
+              // `source.text` already has the BOM stripped, so deriveNewContentsFromChunks
+              // cannot observe it and always reports `bom: false`. Carry `source.bom` forward
+              // or every patch to a BOM file silently strips its byte-order mark.
+              bom = source.bom || fileUpdate.bom
             } catch (error) {
               return yield* Effect.fail(new Error(`apply_patch verification failed: ${error}`))
             }

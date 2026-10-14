@@ -1,0 +1,12 @@
+export const DESCRIPTION = `Rewrite part of your own working memory.
+
+The anchor is the short index of this session you carry across compactions: the objective, the
+decisions, the files, the open questions, the current status. When you learn something that
+changes it - a decision is reversed, a file turns out not to matter, a question gets answered, the
+task moves on - correct it here rather than relying on a summary that is already stale.
+
+Keep it short. This replaces the whole anchor every time, and every entry is context you pay for
+on every turn. Prefer cutting entries that are no longer relevant over adding new ones.
+
+References must be refs you were shown. Entries are read by a human too, so write labels that make
+sense out of context.`

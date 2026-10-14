@@ -30,6 +30,39 @@ function printVersion() {
   }
 }
 
+// The command groups this CLI implements, with the one-line summary shown for
+// each subcommand. Single source of truth for three things: the top-level
+// help, the per-group `--help` output, and the "Available: ..." hint printed
+// when an unknown subcommand is passed. Adding a subcommand means adding it
+// here as well as in the handler switch, otherwise help silently drifts.
+const GROUPS = {
+  mcp: {
+    summary: "Inspect the configured MCP servers",
+    commands: {
+      list: "List configured MCP servers from config file",
+      validate: "Validate MCP server configurations",
+    },
+  },
+  config: {
+    summary: "Inspect or reset the config file",
+    commands: {
+      path: "Show config file location",
+      validate: "Validate config file syntax",
+      reset: "Remove config file (factory reset)",
+    },
+  },
+  db: {
+    summary: "Inspect or reset the database file",
+    commands: {
+      path: "Show database file location",
+      entries: "Count rows across all tables",
+      reset: "Delete the database file",
+    },
+  },
+} as const
+
+type Group = keyof typeof GROUPS
+
 function printHelp() {
   console.log(`${c.bold("DiveeOI")} ${c.dim(version)}`)
   console.log()
@@ -45,35 +78,43 @@ function printHelp() {
   console.log(`    ${c.green("help")}, ${c.green("-h")}, ${c.green("--help")}`)
   console.log(`      Show this help`)
   console.log()
-  console.log(`    ${c.green("mcp")} ${c.dim("list")}`)
-  console.log(`      List configured MCP servers from config file`)
-  console.log()
-  console.log(`    ${c.green("mcp")} ${c.dim("validate")}`)
-  console.log(`      Validate MCP server configurations`)
-  console.log()
-  console.log(`    ${c.green("config")} ${c.dim("path")}`)
-  console.log(`      Show config file location`)
-  console.log()
-  console.log(`    ${c.green("config")} ${c.dim("validate")}`)
-  console.log(`      Validate config file syntax`)
-  console.log()
-  console.log(`    ${c.green("config")} ${c.dim("reset")}`)
-  console.log(`      Remove config file (factory reset)`)
-  console.log()
-  console.log(`    ${c.green("db")} ${c.dim("path")}`)
-  console.log(`      Show database file location`)
-  console.log()
-  console.log(`    ${c.green("db")} ${c.dim("entries")}`)
-  console.log(`      Count rows across all tables`)
-  console.log()
-  console.log(`    ${c.green("db")} ${c.dim("reset")}`)
-  console.log(`      Delete the database file`)
-  console.log()
+  for (const group of Object.keys(GROUPS) as Group[]) {
+    for (const [cmd, description] of Object.entries(GROUPS[group].commands)) {
+      console.log(`    ${c.green(group)} ${c.dim(cmd)}`)
+      console.log(`      ${description}`)
+      console.log()
+    }
+  }
   console.log(`  ${c.cyan("OPTIONS")}`)
   console.log()
   console.log(`    ${c.dim("(no options)")}`)
   console.log(`      Start the server (default)`)
   console.log()
+}
+
+// `diveeoi <group> --help` lists one group's subcommands. Answering `--help`
+// with "Unknown subcommand" is a broken CLI, so this is part of the contract
+// rather than a nicety.
+function printGroupHelp(group: Group) {
+  console.log(`${c.bold("DiveeOI")} ${c.cyan(group)} ${c.dim(GROUPS[group].summary)}`)
+  console.log()
+  console.log(`  ${c.cyan("USAGE")}`)
+  console.log()
+  console.log(`    ${c.bold("diveeoi")} ${c.green(group)} ${c.dim("<subcommand>")}`)
+  console.log()
+  console.log(`  ${c.cyan("COMMANDS")}`)
+  console.log()
+  for (const [cmd, description] of Object.entries(GROUPS[group].commands)) {
+    console.log(`    ${c.green(cmd)}`)
+    console.log(`      ${description}`)
+    console.log()
+  }
+}
+
+function unknownSubcommand(group: Group, cmd: string) {
+  console.error(`  ${c.red(`Unknown ${group} subcommand: ${cmd}`)}`)
+  console.log(`  ${c.dim(`Available: ${Object.keys(GROUPS[group].commands).join(", ")}`)}`)
+  return 1
 }
 
 function configPath(): string {
@@ -178,18 +219,18 @@ function validateMCP(servers: Record<string, any>): boolean {
   return valid
 }
 
-async function handleMCP(sub: string[]) {
+async function handleMCP(sub: string[]): Promise<number> {
   const cmd = sub[0] || "list"
   const conf = readConfig()
   const mcpServers = conf?.mcp || conf?.MCP || {}
   if (typeof mcpServers !== "object" || Array.isArray(mcpServers)) {
     console.log(`  ${c.yellow("No MCP configuration found in config file.")}`)
-    return
+    return 0
   }
 
   if (sub.includes("--json") || sub.includes("-j")) {
     console.log(JSON.stringify(mcpServers, null, 2))
-    return
+    return 0
   }
 
   switch (cmd) {
@@ -197,69 +238,68 @@ async function handleMCP(sub: string[]) {
       console.log(`${c.bold("MCP Servers")} ${c.dim(`(${Object.keys(mcpServers).length} configured)`)}`)
       console.log()
       printMCPTable(mcpServers)
-      break
+      return 0
     case "validate":
       console.log(`${c.bold("Validating MCP configurations...")}`)
       console.log()
       const ok = validateMCP(mcpServers)
       console.log()
       console.log(ok ? `  ${c.green("All configurations valid.")}` : `  ${c.red("Some configurations have issues.")}`)
-      break
+      return ok ? 0 : 1
     default:
-      console.error(`  ${c.red(`Unknown mcp subcommand: ${cmd}`)}`)
-      console.log(`  ${c.dim("Available: list, validate")}`)
+      return unknownSubcommand("mcp", cmd)
   }
 }
 
-async function handleConfig(sub: string[]) {
+async function handleConfig(sub: string[]): Promise<number> {
   const cmd = sub[0] || "path"
 
   switch (cmd) {
     case "path":
       console.log(`${c.bold("Config file path")}`)
       console.log(`  ${configPath()}`)
-      break
+      return 0
     case "validate":
       console.log(`${c.bold("Validating config file...")}`)
       const p = configPath()
       if (!existsSync(p)) {
         console.log(`  ${c.yellow("No config file found at:")}`)
         console.log(`  ${p}`)
-        break
+        return 0
       }
       try {
         const raw = readFileSync(p, "utf-8")
         JSON.parse(raw)
         console.log(`  ${c.green("✓")} Valid JSON at ${p}`)
+        return 0
       } catch (e: any) {
         console.log(`  ${c.red("✗")} Invalid config: ${e.message}`)
+        return 1
       }
-      break
     case "reset":
       const target = configPath()
       if (!existsSync(target)) {
         console.log(`  ${c.yellow("No config file to reset.")}`)
-        break
+        return 0
       }
       const backup = target + ".bak"
       try {
-        const data = readFileSync(target)
         const dirName = dirname(target)
-        if (!existsSync(dirName)) return
+        if (!existsSync(dirName)) return 0
         unlinkSync(target)
         console.log(`  ${c.green("✓")} Removed ${target}`)
         console.log(`  ${c.dim("Backup saved to:")} ${backup}`)
+        return 0
       } catch (e: any) {
         console.log(`  ${c.red("✗")} Failed: ${e.message}`)
+        return 1
       }
-      break
     default:
-      console.error(`  ${c.red(`Unknown config subcommand: ${cmd}`)}`)
-      console.log(`  ${c.dim("Available: path, validate, reset")}`)
+      return unknownSubcommand("config", cmd)
   }
 }
 
-async function handleDB(sub: string[]) {
+async function handleDB(sub: string[]): Promise<number> {
   const cmd = sub[0] || "path"
   const db_file = dbPath()
 
@@ -268,21 +308,21 @@ async function handleDB(sub: string[]) {
       console.log(`${c.bold("Database file path")}`)
       console.log(`  ${db_file === ":memory:" ? c.yellow(":memory:") : db_file}`)
       console.log(`  ${c.dim("exists:")}  ${existsSync(db_file) ? c.green("yes") : c.yellow("no")}`)
-      break
+      return 0
 
     case "entries": {
       console.log(`${c.bold("Database entries")}  ${c.dim(db_file)}`)
       console.log()
       if (!existsSync(db_file)) {
         console.log(`  ${c.yellow("Database file does not exist.")}`)
-        break
+        return 0
       }
       try {
         const db = new Database(db_file)
         const tables = db.query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as { name: string }[]
         if (tables.length === 0) {
           console.log(`  ${c.yellow("No tables found.")}`)
-          break
+          return 0
         }
         const nameW = Math.max(...tables.map((t) => t.name.length), 5)
         const sep = `  ${c.dim("+-" + "-".repeat(nameW) + "-+----------+")}`
@@ -300,16 +340,17 @@ async function handleDB(sub: string[]) {
         console.log(`  ${c.dim("|")} ${c.bold("TOTAL".padEnd(nameW))} ${c.dim("|")} ${c.bold(String(total).padStart(8))} ${c.dim("|")}`)
         console.log(sep)
         db.close()
+        return 0
       } catch (e: any) {
         console.log(`  ${c.red("✗")} DB error: ${e.message}`)
+        return 1
       }
-      break
     }
 
     case "reset":
       if (!existsSync(db_file)) {
         console.log(`  ${c.yellow("No database file to reset.")}`)
-        break
+        return 0
       }
       try {
         unlinkSync(db_file)
@@ -318,51 +359,65 @@ async function handleDB(sub: string[]) {
         const shm = db_file + "-shm"
         if (existsSync(wal)) unlinkSync(wal)
         if (existsSync(shm)) unlinkSync(shm)
+        return 0
       } catch (e: any) {
         console.log(`  ${c.red("✗")} Failed: ${e.message}`)
+        return 1
       }
-      break
 
     default:
-      console.error(`  ${c.red(`Unknown db subcommand: ${cmd}`)}`)
-      console.log(`  ${c.dim("Available: path, entries, reset")}`)
+      return unknownSubcommand("db", cmd)
   }
 }
 
-export async function handleCLI(rawArgs: string[]): Promise<boolean> {
+const HELP_FLAGS = new Set(["-h", "--help", "help"])
+const TOP_LEVEL = new Set(["-v", "--version", "version", ...Object.keys(GROUPS)])
+
+// Returns the process exit code when argv named a CLI command, or `null` when it
+// did not — `null` is the signal to fall through to starting the server. An
+// unrecognised command is a usage error and must exit non-zero: exiting 0 makes
+// `diveeoi acp` look like it succeeded, which silently passes scripts and tests
+// that only check the exit status.
+export async function handleCLI(rawArgs: string[]): Promise<number | null> {
   const args = rawArgs.filter((a) => a !== "--use-system-ca" && !a.startsWith("--user-agent=") && a !== "--")
-  if (args.length === 0) return false
+  if (args.length === 0) return null
 
   const cmd = args[0]
+
+  // `-h` / `--help` / `help` prints help instead of running a command. A group
+  // prints its own subcommand list; a bare help flag (or a top-level command
+  // with no dedicated help) prints the top-level help. An unknown command keeps
+  // its error even with a help flag, so a typo isn't hidden behind help text.
+  if (args.some((a) => HELP_FLAGS.has(a))) {
+    if (cmd in GROUPS) {
+      printGroupHelp(cmd as Group)
+      return 0
+    }
+    if (HELP_FLAGS.has(cmd) || TOP_LEVEL.has(cmd)) {
+      printHelp()
+      return 0
+    }
+  }
 
   switch (cmd) {
     case "-v":
     case "--version":
     case "version":
       printVersion()
-      return true
-
-    case "-h":
-    case "--help":
-    case "help":
-      printHelp()
-      return true
+      return 0
 
     case "mcp":
-      await handleMCP(args.slice(1))
-      return true
+      return handleMCP(args.slice(1))
 
     case "config":
-      await handleConfig(args.slice(1))
-      return true
+      return handleConfig(args.slice(1))
 
     case "db":
-      await handleDB(args.slice(1))
-      return true
+      return handleDB(args.slice(1))
 
     default:
       console.error(`${c.red("Unknown command:")} ${c.bold(cmd)}`)
       console.log(`  ${c.dim("Run 'diveeoi help' for available commands.")}`)
-      return true
+      return 1
   }
 }

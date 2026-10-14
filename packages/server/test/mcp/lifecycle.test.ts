@@ -7,6 +7,7 @@ import type { MCP as MCPNS } from "../../src/mcp/index"
 import { testEffect } from "../lib/effect"
 import { TestInstance } from "../fixture/fixture"
 
+
 // --- Mock infrastructure ---
 
 // Per-client state for controlling mock behavior

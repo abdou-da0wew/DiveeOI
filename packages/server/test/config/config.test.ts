@@ -1,6 +1,7 @@
 import { test, expect, describe, afterEach, beforeEach, spyOn } from "bun:test"
 import { ConfigV1 } from "@diveeoi/db/v1/config/config"
 import { Cause, Effect, Exit, Layer, Option } from "effect"
+import * as TestConsole from "effect/testing/TestConsole"
 import { NamedError } from "@diveeoi/db/util/error"
 import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/unstable/http"
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
@@ -323,7 +324,9 @@ it.effect("creates global jsonc config with schema when no global configs exist"
     Effect.gen(function* () {
       yield* Config.use.get().pipe(provideInstanceEffect(dir))
 
-      const content = yield* FSUtil.use.readFileString(path.join(dir, "opencode.jsonc"))
+      // The seeded filename follows the Divee-branded candidate order, which ranks ahead of the
+      // inherited opencode names so a fork-native file wins discovery.
+      const content = yield* FSUtil.use.readFileString(path.join(dir, "diveeoi.jsonc"))
       expect(content).toContain('"$schema": "https://opencode.ai/config.json"')
     }).pipe(Effect.provide(testInstanceStoreLayer), Effect.provide(CrossSpawnSpawner.defaultLayer)),
   ),
@@ -399,7 +402,7 @@ it.effect("updates global config and omits empty shell key in jsonc", () =>
 
       const file = path.join(dir, "opencode.jsonc")
       const writtenConfig = yield* FSUtil.use.readFileString(file)
-      const parsed = ConfigParse.schema(ConfigV1.Info, ConfigParse.jsonc(writtenConfig, file), file)
+      const parsed = ConfigParse.schema(ConfigV1.Info, ConfigParse.jsoncStrict(writtenConfig, file), file)
       expect(writtenConfig).not.toContain('"shell"')
       expect(parsed.shell).toBeUndefined()
       expect(parsed.model).toBe("test/model")
@@ -474,6 +477,41 @@ it.instance("loads JSONC config file", () =>
     const config = yield* Config.use.get()
     expect(config.model).toBe("test/model")
     expect(config.username).toBe("testuser")
+  }),
+)
+
+it.instance("discovers a diveeoi.json project config", () =>
+  // Regression: project-file discovery was hardcoded to the "opencode" name, so a diveeoi.json
+  // was silently ignored and every setting in it had no effect.
+  Effect.gen(function* () {
+    const test = yield* TestInstance
+    yield* writeConfigEffect(test.directory, {
+      $schema: "https://opencode.ai/config.json",
+      model: "diveeoi/model",
+      username: "divee",
+    }, "diveeoi.json")
+    const config = yield* Config.use.get()
+    expect(config.model).toBe("diveeoi/model")
+    expect(config.username).toBe("divee")
+  }),
+)
+
+it.instance("diveeoi.json overrides opencode.json in the same directory", () =>
+  Effect.gen(function* () {
+    const test = yield* TestInstance
+    yield* writeConfigEffect(test.directory, {
+      $schema: "https://opencode.ai/config.json",
+      model: "opencode/model",
+      username: "inherited",
+    }, "opencode.json")
+    yield* writeConfigEffect(test.directory, {
+      $schema: "https://opencode.ai/config.json",
+      model: "diveeoi/model",
+    }, "diveeoi.json")
+    const config = yield* Config.use.get()
+    expect(config.model).toBe("diveeoi/model")
+    // Unset keys still fall through to the lower-precedence file.
+    expect(config.username).toBe("inherited")
   }),
 )
 
@@ -607,24 +645,34 @@ accountTokenIt.instance("resolves env templates in account config with account t
   }),
 )
 
-it.instance("validates config schema and throws on invalid fields", () =>
+// Config loading is deliberately lenient (docs/configuration.md "Schema"):
+// `loadConfig` decodes through `ConfigParse.schemaLenient`, so an unknown top-level key is dropped
+// rather than failing the load, and valid sibling keys still take effect. Strict validation is
+// still available and still exercised - `ConfigParse.schema` still rejects unrecognized keys, see
+// "config parser preserves permission order while rejecting unknown top-level keys" below.
+it.instance("drops unknown config fields but keeps valid ones", () =>
   Effect.gen(function* () {
     const test = yield* TestInstance
     yield* writeConfigEffect(test.directory, {
       $schema: "https://opencode.ai/config.json",
-      invalid_field: "should cause error",
+      model: "valid/model",
+      invalid_field: "should be dropped",
     })
-    const exit = yield* Config.use.get().pipe(Effect.exit)
-    expect(Exit.isFailure(exit)).toBe(true)
+    const config = yield* Config.use.get()
+    expect(config.model).toBe("valid/model")
+    expect((config as Record<string, unknown>).invalid_field).toBeUndefined()
   }),
 )
 
-it.instance("throws error for invalid JSON", () =>
+it.instance("loads with partial data and warns on invalid JSON", () =>
   Effect.gen(function* () {
     const test = yield* TestInstance
     yield* FSUtil.use.writeWithDirs(path.join(test.directory, "opencode.json"), "{ invalid json }")
-    const exit = yield* Config.use.get().pipe(Effect.exit)
-    expect(Exit.isFailure(exit)).toBe(true)
+    const config = yield* Config.use.get()
+    // The malformed file contributes nothing, but the load still succeeds.
+    expect(config.$schema).toBe("https://opencode.ai/config.json")
+    const logs = yield* TestConsole.logLines
+    expect(logs).toContain("config parse warnings (continuing with partial data)")
   }),
 )
 
@@ -1936,7 +1984,7 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
 test("parseManagedPlist strips MDM metadata keys", async () => {
   const config = ConfigParse.schema(
     ConfigV1.Info,
-    ConfigParse.jsonc(
+    ConfigParse.jsoncStrict(
       await ConfigManaged.parseManagedPlist(
         JSON.stringify({
           PayloadDisplayName: "OpenCode Managed",
@@ -1964,7 +2012,7 @@ test("parseManagedPlist strips MDM metadata keys", async () => {
 test("parseManagedPlist parses server settings", async () => {
   const config = ConfigParse.schema(
     ConfigV1.Info,
-    ConfigParse.jsonc(
+    ConfigParse.jsoncStrict(
       await ConfigManaged.parseManagedPlist(
         JSON.stringify({
           $schema: "https://opencode.ai/config.json",
@@ -1984,7 +2032,7 @@ test("parseManagedPlist parses server settings", async () => {
 test("parseManagedPlist parses permission rules", async () => {
   const config = ConfigParse.schema(
     ConfigV1.Info,
-    ConfigParse.jsonc(
+    ConfigParse.jsoncStrict(
       await ConfigManaged.parseManagedPlist(
         JSON.stringify({
           $schema: "https://opencode.ai/config.json",
@@ -2014,7 +2062,7 @@ test("parseManagedPlist parses permission rules", async () => {
 test("parseManagedPlist parses enabled_providers", async () => {
   const config = ConfigParse.schema(
     ConfigV1.Info,
-    ConfigParse.jsonc(
+    ConfigParse.jsoncStrict(
       await ConfigManaged.parseManagedPlist(
         JSON.stringify({
           $schema: "https://opencode.ai/config.json",
@@ -2031,7 +2079,7 @@ test("parseManagedPlist parses enabled_providers", async () => {
 test("parseManagedPlist handles empty config", async () => {
   const config = ConfigParse.schema(
     ConfigV1.Info,
-    ConfigParse.jsonc(
+    ConfigParse.jsoncStrict(
       await ConfigManaged.parseManagedPlist(JSON.stringify({ $schema: "https://opencode.ai/config.json" })),
       "test:mobileconfig",
     ),

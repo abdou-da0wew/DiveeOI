@@ -1,4 +1,5 @@
 import { LayerNode } from "@diveeoi/db/effect/layer-node"
+import { ProviderFreeTier } from "./free-tier"
 import os from "os"
 import { ConfigV1 } from "@diveeoi/db/v1/config/config"
 import fuzzysort from "fuzzysort"
@@ -46,7 +47,10 @@ function wrapSSE(res: Response, ms: number, ctl: AbortController) {
         const id = setTimeout(() => {
           const err = new ProviderError.ResponseStreamError("SSE read timed out")
           ctl.abort(err)
-          void reader.cancel(err)
+          // `ctl.abort` errors the underlying body, so this cancel() rejects with the same
+          // error. Swallow it: `reject(err)` below is the path that surfaces it to the caller,
+          // and an unhandled rejection here would take the process down instead.
+          reader.cancel(err).catch(() => {})
           reject(err)
         }, ms)
 
@@ -177,15 +181,24 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         },
       }),
     opencode: Effect.fnUntraced(function* (input: Info) {
+      // Config first: loading the instance config is what publishes a signed-in Console's
+      // access token as OPENCODE_CONSOLE_TOKEN, so reading env before config would race it.
+      const providerConfig = (yield* dep.config()).provider?.["opencode"]?.options?.apiKey
       const env = yield* dep.env()
+
       const hasKey = iife(() => {
         if (input.env.some((item) => env[item])) return true
         return false
       })
-      const ok =
-        hasKey ||
-        Boolean(yield* dep.auth(input.id)) ||
-        Boolean((yield* dep.config()).provider?.["opencode"]?.options?.apiKey)
+      const explicit = hasKey || Boolean(yield* dep.auth(input.id)) || Boolean(providerConfig)
+
+      // A Console sign-in issues a token for exactly this gateway. Without wiring it in here,
+      // signing in would unlock the console-managed providers but leave Zen itself on the
+      // anonymous "public" key, which is what the free tier refuses. An explicit key always
+      // wins: the user named it, so do not second-guess them with a session token.
+      const consoleToken = env["OPENCODE_CONSOLE_TOKEN"]
+      const token = explicit ? undefined : consoleToken
+      const ok = explicit || Boolean(consoleToken)
 
       if (!ok) {
         for (const [key, value] of Object.entries(input.models)) {
@@ -196,7 +209,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
 
       return {
         autoload: Object.keys(input.models).length > 0,
-        options: ok ? {} : { apiKey: "public" },
+        options: ok ? (token ? { apiKey: token } : {}) : { apiKey: "public" },
       }
     }),
     openai: () =>
@@ -1869,6 +1882,9 @@ export const layer = Layer.effect(
         : providerID.startsWith("github-copilot")
           ? ["gpt-5-mini", "claude-haiku-4.5", ...defaultPriority]
           : defaultPriority
+      const routable = new Set(
+        Object.keys(provider.models).filter((id) => ProviderFreeTier.isRoutable(String(providerID), id)),
+      )
       for (const item of priority) {
         if (providerID === ProviderV2.ID.amazonBedrock) {
           const crossRegionPrefixes = ["global.", "us.", "eu."]
@@ -1890,12 +1906,15 @@ export const layer = Layer.effect(
           if (unprefixed) return provider.models[unprefixed]
         } else {
           for (const model of Object.keys(provider.models)) {
-            if (model.includes(item)) return provider.models[model]
+            if (routable.has(model) && model.includes(item)) return provider.models[model]
           }
         }
       }
 
-      return undefined
+      // No priority match (or every match needs a key): fall back to the best remaining
+      // routable model for this provider so background work still has somewhere to go.
+      const [fallback] = ProviderFreeTier.rankForUse(Object.values(provider.models), String(providerID))
+      return fallback
     })
 
     const defaultModel = Effect.fn("Provider.defaultModel")(function* () {
@@ -1924,7 +1943,10 @@ export const layer = Layer.effect(
 
       const provider = Object.values(s.providers).find((p) => !cfg.provider || Object.keys(cfg.provider).includes(p.id))
       if (!provider) return yield* new NoProvidersError()
-      const [model] = sort(Object.values(provider.models))
+      // Automatic selection must not hand out a model the gateway refuses. Rank by reachability
+      // first, then capability: on the anonymous tier every model costs nothing, so the curated
+      // display order would otherwise put a key-required model in front. See ./free-tier.
+      const [model] = ProviderFreeTier.rankForUse(Object.values(provider.models), String(provider.id))
       if (!model) return yield* new NoModelsError({ providerID: provider.id })
       return {
         providerID: provider.id,

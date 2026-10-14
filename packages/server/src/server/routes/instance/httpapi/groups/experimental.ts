@@ -47,6 +47,63 @@ export const ConsoleSwitchPayload = Schema.Struct({
   orgID: OrgID,
 })
 
+export class ConsoleApiError extends Schema.ErrorClass<ConsoleApiError>("ConsoleApiError")(
+  {
+    name: Schema.Literal("ConsoleApiError"),
+    data: Schema.Struct({ message: Schema.String }),
+  },
+  { httpApiStatus: 400 },
+) {}
+
+export const ConsoleLoginPayload = Schema.Struct({
+  /** Console origin. Defaults to the hosted OpenCode Console. */
+  server: Schema.optional(Schema.String),
+})
+
+/**
+ * A started device authorization.
+ *
+ * `attemptID` is the only handle the client keeps: it is enough to poll or cancel, and it
+ * carries none of the secrets involved. Delays are plain milliseconds so the browser does not
+ * have to reconstruct a `Duration`.
+ */
+const ConsoleLoginResponse = Schema.Struct({
+  attemptID: Schema.String,
+  /** The short code the user types into the console. */
+  userCode: Schema.String,
+  /** Where the user goes to approve, already carrying the code. */
+  verificationURL: Schema.String,
+  server: Schema.String,
+  intervalMs: NonNegativeInt,
+  expiresInMs: NonNegativeInt,
+}).annotate({ identifier: "ConsoleLogin" })
+
+export const ConsolePollPayload = Schema.Struct({ attemptID: Schema.String })
+export const ConsoleCancelPayload = Schema.Struct({ attemptID: Schema.String })
+
+/**
+ * One poll of a device authorization.
+ *
+ * `status: "pending" | "slow"` means keep going; anything else is terminal. `nextPollMs` is
+ * supplied so the server owns the cadence (including the RFC 8628 `slow_down` margin) instead
+ * of every client reimplementing it.
+ */
+const ConsolePollResponse = Schema.Struct({
+  status: Schema.Union([
+    Schema.Literal("pending"),
+    Schema.Literal("slow"),
+    Schema.Literal("expired"),
+    Schema.Literal("denied"),
+    Schema.Literal("error"),
+    Schema.Literal("success"),
+  ]),
+  email: Schema.optional(Schema.String),
+  message: Schema.optional(Schema.String),
+  nextPollMs: NonNegativeInt,
+}).annotate({ identifier: "ConsolePoll" })
+
+export const ConsoleLogoutPayload = Schema.Struct({ accountID: AccountID })
+
 const ToolIDs = Schema.Array(Schema.String).annotate({ identifier: "ToolIDs" })
 const ToolListItem = Schema.Struct({
   id: Schema.String,
@@ -92,6 +149,10 @@ export const ExperimentalPaths = {
   console: "/experimental/console",
   consoleOrgs: "/experimental/console/orgs",
   consoleSwitch: "/experimental/console/switch",
+  consoleLogin: "/experimental/console/login",
+  consolePoll: "/experimental/console/poll",
+  consoleCancel: "/experimental/console/cancel",
+  consoleLogout: "/experimental/console/logout",
   tool: "/experimental/tool",
   toolIDs: "/experimental/tool/ids",
   worktree: "/experimental/worktree",
@@ -147,6 +208,60 @@ export const ExperimentalApi = HttpApi.make("experimental")
             identifier: "experimental.console.switchOrg",
             summary: "Switch active Console org",
             description: "Persist a new active Console account/org selection for the current local OpenCode state.",
+          }),
+        ),
+        HttpApiEndpoint.post("consoleLogin", ExperimentalPaths.consoleLogin, {
+          query: WorkspaceRoutingQuery,
+          // Nothing is required to start a sign-in, and the client sends no body at all when it
+          // wants the default Console. A bare struct payload would then fail to decode with
+          // "Expected object, got undefined", so the body is explicitly optional.
+          payload: [HttpApiSchema.NoContent, ConsoleLoginPayload],
+          success: described(ConsoleLoginResponse, "Device authorization started"),
+          error: ConsoleApiError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "experimental.console.login",
+            summary: "Start Console sign-in",
+            description:
+              "Begin an RFC 8628 device authorization against the Console and return the user code plus the URL to approve it at. Poll `consolePoll` with the returned attempt ID until it reports a terminal status.",
+          }),
+        ),
+        HttpApiEndpoint.post("consolePoll", ExperimentalPaths.consolePoll, {
+          query: WorkspaceRoutingQuery,
+          payload: ConsolePollPayload,
+          success: described(ConsolePollResponse, "Device authorization status"),
+          error: ConsoleApiError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "experimental.console.poll",
+            summary: "Check Console sign-in status",
+            description:
+              "Advance a pending device authorization by one step. A `pending` or `slow` result is retryable after `nextPollMs`; every other status is terminal. On success the account is persisted, made active, and its remote provider config is applied.",
+          }),
+        ),
+        HttpApiEndpoint.post("consoleCancel", ExperimentalPaths.consoleCancel, {
+          query: WorkspaceRoutingQuery,
+          payload: ConsoleCancelPayload,
+          success: described(Schema.Boolean, "Attempt discarded"),
+          error: ConsoleApiError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "experimental.console.cancel",
+            summary: "Cancel Console sign-in",
+            description: "Discard a pending device authorization attempt.",
+          }),
+        ),
+        HttpApiEndpoint.post("consoleLogout", ExperimentalPaths.consoleLogout, {
+          query: WorkspaceRoutingQuery,
+          payload: ConsoleLogoutPayload,
+          success: described(Schema.Boolean, "Signed out"),
+          error: ConsoleApiError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "experimental.console.logout",
+            summary: "Sign out of a Console account",
+            description:
+              "Remove a stored Console account and its tokens, then rebuild the instance config so the providers it managed stop being offered.",
           }),
         ),
         HttpApiEndpoint.get("tool", ExperimentalPaths.tool, {

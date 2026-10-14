@@ -1,7 +1,6 @@
 import { describe, expect } from "bun:test"
 import { Effect, Layer } from "effect"
 import type { Agent } from "../../src/agent/agent"
-import { NamedError } from "@diveeoi/db/util/error"
 import { Skill } from "../../src/skill"
 import { Permission } from "../../src/permission"
 import { testEffect } from "../lib/effect"
@@ -51,6 +50,8 @@ const it = testEffect(
       },
       all: () => Effect.succeed(skills),
       dirs: () => Effect.succeed([]),
+      // Deliberately unsorted (the `skills` array is in declaration order) so this case fails if
+      // Skill.fmt ever stops sorting on its own.
       available: () => Effect.succeed(skills),
     }),
   ),
@@ -65,9 +66,9 @@ describe("session.system", () => {
 
       expect(output).toBe(Skill.fmt(list, { verbose: false }))
 
-      const alpha = output.indexOf("<name>alpha-skill</name>")
-      const middle = output.indexOf("<name>middle-skill</name>")
-      const zeta = output.indexOf("<name>zeta-skill</name>")
+      const alpha = output.indexOf("- **alpha-skill**:")
+      const middle = output.indexOf("- **middle-skill**:")
+      const zeta = output.indexOf("- **zeta-skill**:")
 
       expect(alpha).toBeGreaterThan(-1)
       expect(middle).toBeGreaterThan(alpha)

@@ -47,9 +47,9 @@ export type Event =
   | EventSessionNextCompactionDelta
   | EventSessionNextCompactionEnded
   | EventMessagePartDelta
+  | EventModelsDevRefreshed
   | EventSessionDiff
   | EventSessionError
-  | EventModelsDevRefreshed
   | EventPermissionAsked
   | EventPermissionReplied
   | EventPermissionV2Asked
@@ -80,6 +80,7 @@ export type Event =
   | EventQuestionAsked
   | EventQuestionReplied
   | EventQuestionRejected
+  | EventAnchorCreated
   | EventSessionCompacted
   | EventLspUpdated
   | EventVcsBranchUpdated
@@ -1215,6 +1216,13 @@ export type GlobalEvent = {
       }
     | {
         id: string
+        type: "models-dev.refreshed"
+        properties: {
+          [key: string]: unknown
+        }
+      }
+    | {
+        id: string
         type: "session.diff"
         properties: {
           sessionID: string
@@ -1235,13 +1243,6 @@ export type GlobalEvent = {
             | ContextOverflowError
             | ContentFilterError
             | ApiError
-        }
-      }
-    | {
-        id: string
-        type: "models-dev.refreshed"
-        properties: {
-          [key: string]: unknown
         }
       }
     | {
@@ -1553,6 +1554,16 @@ export type GlobalEvent = {
         properties: {
           sessionID: string
           requestID: string
+        }
+      }
+    | {
+        id: string
+        type: "anchor.created"
+        properties: {
+          sessionID: string
+          anchorID: string
+          epoch: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+          degraded: boolean
         }
       }
     | {
@@ -1967,6 +1978,14 @@ export type Config = {
   enabled_providers?: Array<string>
   model?: string
   small_model?: string
+  models?: {
+    background?: {
+      compaction?: string
+      memory?: string
+      title?: string
+      summary?: string
+    }
+  }
   default_agent?: string
   username?: string
   mode?: {
@@ -2089,6 +2108,15 @@ export type Config = {
               }
             }
       }
+  features?: {
+    memory?: boolean
+    mcp?: boolean
+    lsp?: boolean
+    profiler?: boolean
+  }
+  compatibility?: {
+    legacy_config?: boolean
+  }
   instructions?: Array<string>
   layout?: LayoutConfig
   permission?: PermissionConfig
@@ -2119,6 +2147,30 @@ export type Config = {
     mcp_timeout?: number
     policies?: Array<ConfigV2ExperimentalPolicy>
   }
+}
+
+export type GlobalFeaturesState = {
+  features: {
+    memory: boolean
+    mcp: boolean
+    lsp: boolean
+    profiler: boolean
+  }
+  envDisabled: Array<string>
+  lspEnabled: boolean
+  lspServers: Array<{
+    id: string
+    extensions: Array<string>
+    disabled: boolean
+  }>
+  probes: {
+    fts5: string
+    ssh2: string
+  }
+}
+
+export type GlobalRestartResult = {
+  started: boolean
 }
 
 export type Model = {
@@ -2230,6 +2282,29 @@ export type ConsoleState = {
 
 export type EffectHttpApiErrorInternalServerError = {
   _tag: "InternalServerError"
+}
+
+export type ConsoleLogin = {
+  attemptID: string
+  userCode: string
+  verificationURL: string
+  server: string
+  intervalMs: number
+  expiresInMs: number
+}
+
+export type ConsoleApiError = {
+  name: "ConsoleApiError"
+  data: {
+    message: string
+  }
+}
+
+export type ConsolePoll = {
+  status: "pending" | "slow" | "expired" | "denied" | "error" | "success"
+  email?: string
+  message?: string
+  nextPollMs: number
 }
 
 export type ToolListItem = {
@@ -3034,6 +3109,18 @@ export type Session7 = {
     snapshot?: string
     diff?: string
   }
+}
+
+export type SessionAnchorList = {
+  anchors: Array<{
+    id: string
+    epoch: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    root_ref: string
+    tree: unknown
+    token_estimate?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    degraded: boolean
+    created_at: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }>
 }
 
 export type TextPartInput = {
@@ -5327,6 +5414,14 @@ export type EventMessagePartDelta = {
   }
 }
 
+export type EventModelsDevRefreshed = {
+  id: string
+  type: "models-dev.refreshed"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
 export type EventSessionDiff = {
   id: string
   type: "session.diff"
@@ -5350,14 +5445,6 @@ export type EventSessionError = {
       | ContextOverflowError
       | ContentFilterError
       | ApiError
-  }
-}
-
-export type EventModelsDevRefreshed = {
-  id: string
-  type: "models-dev.refreshed"
-  properties: {
-    [key: string]: unknown
   }
 }
 
@@ -5644,6 +5731,17 @@ export type EventQuestionRejected = {
   properties: {
     sessionID: string
     requestID: string
+  }
+}
+
+export type EventAnchorCreated = {
+  id: string
+  type: "anchor.created"
+  properties: {
+    sessionID: string
+    anchorID: string
+    epoch: number | "NaN" | "Infinity" | "-Infinity"
+    degraded: boolean
   }
 }
 
@@ -6045,6 +6143,56 @@ export type GlobalUpgradeResponses = {
 
 export type GlobalUpgradeResponse = GlobalUpgradeResponses[keyof GlobalUpgradeResponses]
 
+export type GlobalFeaturesGetData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/global/features"
+}
+
+export type GlobalFeaturesGetErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GlobalFeaturesGetError = GlobalFeaturesGetErrors[keyof GlobalFeaturesGetErrors]
+
+export type GlobalFeaturesGetResponses = {
+  /**
+   * Effective feature flags and LSP servers
+   */
+  200: GlobalFeaturesState
+}
+
+export type GlobalFeaturesGetResponse = GlobalFeaturesGetResponses[keyof GlobalFeaturesGetResponses]
+
+export type GlobalRestartData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/global/restart"
+}
+
+export type GlobalRestartErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GlobalRestartError = GlobalRestartErrors[keyof GlobalRestartErrors]
+
+export type GlobalRestartResponses = {
+  /**
+   * Restart accepted
+   */
+  200: GlobalRestartResult
+}
+
+export type GlobalRestartResponse = GlobalRestartResponses[keyof GlobalRestartResponses]
+
 export type EventSubscribeData = {
   body?: never
   path?: never
@@ -6280,6 +6428,129 @@ export type ExperimentalConsoleSwitchOrgResponses = {
 
 export type ExperimentalConsoleSwitchOrgResponse =
   ExperimentalConsoleSwitchOrgResponses[keyof ExperimentalConsoleSwitchOrgResponses]
+
+export type ExperimentalConsoleLoginData = {
+  body?: {
+    server?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/console/login"
+}
+
+export type ExperimentalConsoleLoginErrors = {
+  /**
+   * ConsoleApiError | InvalidRequestError
+   */
+  400: ConsoleApiError | InvalidRequestError
+}
+
+export type ExperimentalConsoleLoginError = ExperimentalConsoleLoginErrors[keyof ExperimentalConsoleLoginErrors]
+
+export type ExperimentalConsoleLoginResponses = {
+  /**
+   * Device authorization started
+   */
+  200: ConsoleLogin
+}
+
+export type ExperimentalConsoleLoginResponse =
+  ExperimentalConsoleLoginResponses[keyof ExperimentalConsoleLoginResponses]
+
+export type ExperimentalConsolePollData = {
+  body?: {
+    attemptID: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/console/poll"
+}
+
+export type ExperimentalConsolePollErrors = {
+  /**
+   * ConsoleApiError | InvalidRequestError
+   */
+  400: ConsoleApiError | InvalidRequestError
+}
+
+export type ExperimentalConsolePollError = ExperimentalConsolePollErrors[keyof ExperimentalConsolePollErrors]
+
+export type ExperimentalConsolePollResponses = {
+  /**
+   * Device authorization status
+   */
+  200: ConsolePoll
+}
+
+export type ExperimentalConsolePollResponse = ExperimentalConsolePollResponses[keyof ExperimentalConsolePollResponses]
+
+export type ExperimentalConsoleCancelData = {
+  body?: {
+    attemptID: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/console/cancel"
+}
+
+export type ExperimentalConsoleCancelErrors = {
+  /**
+   * ConsoleApiError | InvalidRequestError
+   */
+  400: ConsoleApiError | InvalidRequestError
+}
+
+export type ExperimentalConsoleCancelError = ExperimentalConsoleCancelErrors[keyof ExperimentalConsoleCancelErrors]
+
+export type ExperimentalConsoleCancelResponses = {
+  /**
+   * Attempt discarded
+   */
+  200: boolean
+}
+
+export type ExperimentalConsoleCancelResponse =
+  ExperimentalConsoleCancelResponses[keyof ExperimentalConsoleCancelResponses]
+
+export type ExperimentalConsoleLogoutData = {
+  body?: {
+    accountID: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/console/logout"
+}
+
+export type ExperimentalConsoleLogoutErrors = {
+  /**
+   * ConsoleApiError | InvalidRequestError
+   */
+  400: ConsoleApiError | InvalidRequestError
+}
+
+export type ExperimentalConsoleLogoutError = ExperimentalConsoleLogoutErrors[keyof ExperimentalConsoleLogoutErrors]
+
+export type ExperimentalConsoleLogoutResponses = {
+  /**
+   * Signed out
+   */
+  200: boolean
+}
+
+export type ExperimentalConsoleLogoutResponse =
+  ExperimentalConsoleLogoutResponses[keyof ExperimentalConsoleLogoutResponses]
 
 export type ToolListData = {
   body?: never
@@ -8774,6 +9045,40 @@ export type SessionShareResponses = {
 }
 
 export type SessionShareResponse = SessionShareResponses[keyof SessionShareResponses]
+
+export type SessionAnchorListData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/anchor"
+}
+
+export type SessionAnchorListErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionAnchorListError = SessionAnchorListErrors[keyof SessionAnchorListErrors]
+
+export type SessionAnchorListResponses = {
+  /**
+   * Session anchors, newest first
+   */
+  200: SessionAnchorList
+}
+
+export type SessionAnchorListResponse = SessionAnchorListResponses[keyof SessionAnchorListResponses]
 
 export type SessionSummarizeData = {
   body?: {

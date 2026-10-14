@@ -3,6 +3,7 @@ import { Button } from "@diveeoi/ui/button"
 import { DropdownMenu } from "@diveeoi/ui/dropdown-menu"
 import { Icon } from "@diveeoi/ui/icon"
 import { IconButton } from "@diveeoi/ui/icon-button"
+import { useDialog } from "@diveeoi/ui/context/dialog"
 import { Keybind } from "@diveeoi/ui/keybind"
 import { Spinner } from "@diveeoi/ui/spinner"
 import { showToast } from "@/utils/toast"
@@ -139,6 +140,7 @@ export function SessionHeader() {
   const language = useLanguage()
   const settings = useSettings()
   const sync = useSync()
+  const dialog = useDialog()
   const terminal = useTerminal()
   const { params, view } = useSessionLayout()
 
@@ -238,6 +240,16 @@ export function SessionHeader() {
     reviewKeybind: command.keybind("review.toggle"),
     reviewOpened: view().reviewPanel.opened(),
     onReviewToggle: () => view().reviewPanel.toggle(),
+    anchorLabel: language.t("session.anchor.tooltip"),
+    onAnchor: () => {
+      const sessionID = params.id
+      if (!sessionID) return
+      // Imported lazily: the panel pulls in the anchor client surface, which the header does not
+      // otherwise need, and a header is on the hot path for every session view.
+      void import("@/components/dialog-session-anchor").then((x) =>
+        dialog.show(() => <x.DialogSessionAnchor sessionID={sessionID} />),
+      )
+    },
   }))
 
   const selectApp = (app: OpenApp) => {
@@ -517,6 +529,8 @@ type SessionHeaderV2ActionsState = {
   statusVisible: boolean
   statusLabel: string
   reviewLabel: string
+  anchorLabel: string
+  onAnchor: () => void
   reviewKeybind: string
   reviewOpened: boolean
   onReviewToggle: () => void
@@ -530,6 +544,17 @@ function SessionHeaderV2Actions(props: { state: SessionHeaderV2ActionsState }) {
           <StatusPopoverV2 />
         </Tooltip>
       </Show>
+      <Tooltip placement="bottom" value={props.state.anchorLabel}>
+        <IconButtonV2
+          type="button"
+          variant="ghost-muted"
+          size="large"
+          class="!w-9 shrink-0"
+          onClick={props.state.onAnchor}
+          aria-label={props.state.anchorLabel}
+          icon={<IconV2 name="list-bullet" />}
+        />
+      </Tooltip>
       <TooltipKeybind title={props.state.reviewLabel} keybind={props.state.reviewKeybind}>
         <IconButtonV2
           type="button"

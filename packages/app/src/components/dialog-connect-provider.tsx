@@ -9,9 +9,10 @@ import { ProviderIcon } from "@diveeoi/ui/provider-icon"
 import { Spinner } from "@diveeoi/ui/spinner"
 import { TextField } from "@diveeoi/ui/text-field"
 import { showToast } from "@/utils/toast"
-import { createEffect, createMemo, createResource, Match, onCleanup, onMount, Switch } from "solid-js"
+import { createEffect, createMemo, createResource, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { Link } from "@/components/link"
+import { ConsoleDeviceLogin } from "@/components/console-device-login"
 import { useServerSDK } from "@/context/server-sdk"
 import { useServerSync } from "@/context/server-sync"
 import { useLanguage } from "@/context/language"
@@ -424,6 +425,7 @@ export function DialogConnectProvider(props: { provider: string }) {
         <Switch>
           <Match when={provider().id === "opencode"}>
             <div class="flex flex-col gap-4">
+              <ConsoleDeviceLogin onSuccess={() => complete()} />
               <div class="text-14-regular text-text-base">{language.t("provider.connect.opencodeZen.line1")}</div>
               <div class="text-14-regular text-text-base">{language.t("provider.connect.opencodeZen.line2")}</div>
               <div class="text-14-regular text-text-base">

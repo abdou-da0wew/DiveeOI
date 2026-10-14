@@ -170,7 +170,7 @@ describe("tool.write", () => {
   })
 
   describe("file permissions", () => {
-    it.instance("sets file permissions when writing sensitive data", () =>
+    it.instance("writes with the process umask and does not chmod", () =>
       Effect.gen(function* () {
         const test = yield* TestInstance
         const filepath = path.join(test.directory, "sensitive.json")
@@ -178,7 +178,10 @@ describe("tool.write", () => {
 
         if (process.platform !== "win32") {
           const stats = yield* Effect.promise(() => fs.stat(filepath))
-          expect(stats.mode & 0o777).toBe(0o644)
+          // WriteTool delegates to FSUtil.writeWithDirs, which never chmods, so the mode is
+          // exactly what the process umask allows out of 0o666. Assert that relationship rather
+          // than a literal 0o644, which only holds under umask 022 and fails under e.g. 002.
+          expect(stats.mode & 0o777).toBe(0o666 & ~process.umask())
         }
       }),
     )

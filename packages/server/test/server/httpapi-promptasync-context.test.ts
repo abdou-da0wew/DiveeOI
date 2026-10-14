@@ -36,6 +36,7 @@ import { resetDatabase } from "../fixture/db"
 import { disposeAllInstances, tmpdirScoped } from "../fixture/fixture"
 import { workspaceLayerWithRuntimeFlags } from "../fixture/workspace"
 import { testEffect } from "../lib/effect"
+import { TestAmbient } from "../lib/ambient"
 
 const testStateLayer = Layer.effectDiscard(
   Effect.gen(function* () {
@@ -53,6 +54,7 @@ const workspaceLayer = workspaceLayerWithRuntimeFlags({ experimentalWorkspaces: 
 
 const it = testEffect(
   Layer.mergeAll(
+    TestAmbient.ambientLayer,
     testStateLayer,
     NodeHttpServer.layerTest,
     NodeServices.layer,

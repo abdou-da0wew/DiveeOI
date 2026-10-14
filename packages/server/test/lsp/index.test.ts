@@ -51,7 +51,7 @@ describe("lsp.spawn", () => {
     { config: { lsp: true } },
   )
 
-  it.instance("does not spawn builtin LSP for files inside instance when LSP is unset", () =>
+  it.instance("does not spawn builtin LSP when lsp is explicitly false", () =>
     LSP.Service.use((lsp) =>
       Effect.gen(function* () {
         const dir = (yield* TestInstance).directory
@@ -69,6 +69,9 @@ describe("lsp.spawn", () => {
         }
       }),
     ),
+    // Built-in servers are on by default in this fork (commit d0ec0cb): only an explicit
+    // `lsp: false` opts out, so the opt-out is what this case has to exercise.
+    { config: { lsp: false } },
   )
 
   it.instance(

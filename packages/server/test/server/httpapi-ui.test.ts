@@ -49,6 +49,15 @@ function restoreEnv(key: string, value: string | undefined) {
   process.env[key] = value
 }
 
+/** Space-separated sources of a single CSP directive, ignoring source ordering within it. */
+function sourceList(csp: string, directive: string) {
+  const line = csp
+    .split(";")
+    .map((part) => part.trim().split(/\s+/))
+    .find(([name]) => name === directive)
+  return line?.slice(1) ?? []
+}
+
 function app(input?: { password?: string; username?: string }) {
   const handler = HttpRouter.toWebHandler(
     HttpApiApp.routes.pipe(
@@ -346,8 +355,12 @@ describe("HttpApi UI fallback", () => {
       ).pipe(Effect.map(HttpServerResponse.toWeb))
 
       const csp = response.headers.get("content-security-policy") ?? ""
-      expect(csp).toContain("script-src 'self' 'wasm-unsafe-eval'")
-      expect(csp).toContain(`'sha256-${createHash("sha256").update(script).digest("base64")}'`)
+      // Assert on the script-src source list rather than one contiguous run: the directive also
+      // carries 'unsafe-inline' for the app's own inline bootstrap, and the test's actual claim is
+      // that 'wasm-unsafe-eval' and the theme preload hash are both allowed sources.
+      expect(sourceList(csp, "script-src")).toContain("'wasm-unsafe-eval'")
+      expect(sourceList(csp, "script-src")).toContain("'self'")
+      expect(sourceList(csp, "script-src")).toContain(`'sha256-${createHash("sha256").update(script).digest("base64")}'`)
       expect(csp).toContain("connect-src * data:")
     }),
   )

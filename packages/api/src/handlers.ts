@@ -30,7 +30,6 @@ import { ProjectCopyHandler } from "./handlers/project-copy"
 import { PrefsHandler } from "./handlers/prefs"
 import { AuthHandler } from "./handlers/auth"
 import { UserService } from "@diveeoi/db/auth-user/user"
-import { MailService } from "@diveeoi/db/mail/mail"
 
 export const handlers = Layer.mergeAll(
   HealthHandler,
@@ -65,5 +64,4 @@ export const handlers = Layer.mergeAll(
   Layer.provide(Credential.defaultLayer),
   Layer.provide(Prefs.defaultLayer),
   Layer.provide(UserService.layer),
-  Layer.provide(MailService.defaultLayer),
 )

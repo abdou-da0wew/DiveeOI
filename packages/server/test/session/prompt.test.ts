@@ -2,6 +2,10 @@ import { NodeFileSystem } from "@effect/platform-node"
 import { ConfigV1 } from "@diveeoi/db/v1/config/config"
 import { SessionV1 } from "@diveeoi/db/v1/session"
 import { Database } from "@diveeoi/db/database/database"
+import { CrossSpawnSpawner } from "@diveeoi/db/cross-spawn-spawner"
+import { Ripgrep } from "@diveeoi/db/ripgrep"
+import { Truncate } from "@/tool/truncate"
+import { TestAmbient } from "../lib/ambient"
 import { eq } from "drizzle-orm"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { FetchHttpClient } from "effect/unstable/http"
@@ -46,9 +50,6 @@ import { SystemPrompt } from "../../src/session/system"
 import { Shell } from "@diveeoi/db/shell"
 import { Snapshot } from "../../src/snapshot"
 import { ToolRegistry } from "@/tool/registry"
-import { Truncate } from "@/tool/truncate"
-import { CrossSpawnSpawner } from "@diveeoi/db/cross-spawn-spawner"
-import { Ripgrep } from "@diveeoi/db/ripgrep"
 import { Format } from "../../src/format"
 import { TestInstance } from "../fixture/fixture"
 import { awaitWithTimeout, pollWithTimeout, testEffect } from "../lib/effect"
@@ -182,6 +183,10 @@ function makePrompt(input?: { processor?: "blocking" }) {
     status,
     Database.defaultLayer,
     EventV2Bridge.defaultLayer,
+    // See test/lib/ambient: this hand-built graph does not reach the services the compaction and
+    // system-prompt layers need at build time, and without them the whole graph fails to
+    // construct, failing every test in the file before its first assertion.
+    TestAmbient.ambientWithClientsLayer,
   ).pipe(Layer.provideMerge(infra))
   const question = Question.layer.pipe(Layer.provideMerge(deps))
   const todo = Todo.layer.pipe(Layer.provideMerge(deps))

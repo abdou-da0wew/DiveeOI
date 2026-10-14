@@ -1,4 +1,5 @@
-import { Cause, Context, Effect, Layer, Schema, Stream } from "effect"
+import { Context, Effect, Layer, Random, Schema, Stream, Schedule } from "effect"
+import * as Cause from "effect/Cause"
 import * as Option from "effect/Option"
 import { Auth, type Auth as AuthDef } from "./auth"
 import { Endpoint, type EndpointPatch } from "./endpoint"
@@ -10,7 +11,8 @@ import { WebSocketExecutor } from "./transport"
 import type { Protocol } from "./protocol"
 import { applyCachePolicy } from "../cache-policy"
 import * as ProviderShared from "../protocols/shared"
-import type { LLMError, LLMEvent, PreparedRequestOf, ProtocolID, ProviderOptions } from "../schema"
+import type { PreparedRequestOf, ProtocolID, ProviderOptions } from "../schema"
+import { LLMError, LLMEvent } from "../schema"
 import {
   GenerationOptions,
   HttpOptions,
@@ -18,13 +20,52 @@ import {
   LLMResponse,
   Model,
   ModelLimits,
-  LLMError as LLMErrorClass,
   PreparedRequest,
   ProviderID,
   mergeGenerationOptions,
   mergeHttpOptions,
   mergeProviderOptions,
 } from "../schema"
+
+// Stream retry configuration
+const STREAM_MAX_RETRIES = 3
+const STREAM_BASE_DELAY_MS = 1000
+const STREAM_MAX_DELAY_MS = 30_000
+
+const streamRetryableError = (error: LLMError): boolean => {
+  if (error.retryable === true) return true
+  // Check for specific retryable error reasons
+  if (error.reason._tag === "ProviderInternal" || error.reason._tag === "RateLimit") return true
+  // Check for 503, 429, 504, 529 in the message
+  const message = error.message.toLowerCase()
+  if (message.includes("503") || message.includes("429") || message.includes("504") || message.includes("529") || message.includes("temporarily overloaded")) return true
+  return false
+}
+
+const streamRetryDelayMs = (attempt: number) =>
+  Random.nextBetween(
+    Math.min(1000 * 2 ** attempt * 0.8, 30_000),
+    Math.min(1000 * 2 ** attempt * 1.2, 30_000),
+  ).pipe(Effect.map((delay) => Math.round(delay)))
+
+const withStreamRetry = (
+  streamFactory: () => Stream.Stream<LLMEvent, LLMError>,
+  maxRetries: number,
+): Stream.Stream<LLMEvent, LLMError> => {
+  // Use Effect's retry on the stream factory
+  return Stream.unwrap(
+    Effect.gen(function* () {
+      const stream = yield* Effect.retry(
+        Effect.sync(streamFactory),
+        Schedule.recurs(STREAM_MAX_RETRIES).pipe(
+          Schedule.addDelay((attempt) => streamRetryDelayMs(attempt)),
+          
+        )
+      )
+      return stream
+    })
+  )
+}
 
 export interface RouteBody<Body> {
   /** Schema for the validated provider-native body sent as the JSON request. */
@@ -212,7 +253,7 @@ export interface MakeTransportInput<Body, Prepared, Frame, Event, State> {
 
 const streamError = (route: string, message: string, cause: Cause.Cause<unknown>) => {
   const failed = cause.reasons.find(Cause.isFailReason)?.error
-  if (failed instanceof LLMErrorClass) return failed
+  if (failed instanceof LLMError) return failed
   return ProviderShared.eventError(route, message, Cause.pretty(cause))
 }
 
@@ -394,12 +435,10 @@ const streamRequestWith = (runtime: TransportRuntime) => {
     Stream.unwrap(
       Effect.gen(function* () {
         const compiled = yield* compile(request)
-        return compiled.route.streamPrepared(compiled.prepared, compiled.request, runtime).pipe(
-          Stream.catch((error) =>
-            encryptedContentFailure(error) && hasReplayableReasoning(request)
-              ? run(stripReasoningParts(request))
-              : Stream.fail(error),
-          ),
+        // Wrap the stream with retry logic for transient failures (503, 429, 504, etc.)
+        return withStreamRetry(
+          () => compiled.route.streamPrepared(compiled.prepared, compiled.request, runtime),
+          STREAM_MAX_RETRIES
         )
       }),
     )
