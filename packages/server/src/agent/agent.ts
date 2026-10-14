@@ -51,6 +51,20 @@ export const Info = Schema.Struct({
       providerID: ProviderV2.ID,
     }),
   ),
+  // P5: explicit allowlist of model glob patterns ("provider/*" or
+  // "provider/modelID") that this agent may run on. When unset (the default)
+  // behavior is unchanged — the agent inherits the parent session's model.
+  // When set, the resolver validates every model override against the list
+  // and falls back to the parent model on mismatch (with a logged warning)
+  // rather than crashing the run. Resolution happens at call time so a
+  // config edit takes effect on the next dispatch.
+  allowedModels: Schema.optional(Schema.Array(Schema.String)),
+  // P5: enum-validated allowlist of subagent types this agent may spawn via
+  // the `task` tool. Empty/missing means "any subagent in the registry".
+  // When set, the task tool's `subagent_type` arg is validated against this
+  // list and a tool error is returned to the LLM on mismatch (the model can
+  // read and recover, never a crash).
+  subagentTypes: Schema.optional(Schema.Array(Schema.String)),
   variant: Schema.optional(Schema.String),
   prompt: Schema.optional(Schema.String),
   options: Schema.Record(Schema.String, Schema.Unknown),
