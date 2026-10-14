@@ -26,6 +26,13 @@ import { Compat } from "./compat"
 export interface FeatureFlags {
   /** Session memory: extraction, scheduler, memory tools, memory routes. */
   readonly memory: boolean
+  /**
+   * Session anchors: the linktree that replaces lossy summary compaction, plus the
+   * recall/search/edit tools. Deliberately separate from `memory` - anchors are lossless
+   * history of this conversation, while memory is cross-session knowledge, and either can be
+   * useful without the other.
+   */
+  readonly anchor: boolean
   /** MCP: client connections, MCP-backed prompts/resources/tools. */
   readonly mcp: boolean
   /** LSP: language server clients and diagnostics. */
@@ -36,12 +43,13 @@ export interface FeatureFlags {
 
 const DEFAULTS: FeatureFlags = {
   memory: true,
+  anchor: true,
   mcp: true,
   lsp: true,
   profiler: true,
 }
 
-const KNOWN: ReadonlyArray<keyof FeatureFlags> = ["memory", "mcp", "lsp", "profiler"]
+const KNOWN: ReadonlyArray<keyof FeatureFlags> = ["memory", "anchor", "mcp", "lsp", "profiler"]
 
 const globalConfigCandidates = (): string[] => {
   const home = process.env.HOME || process.env.USERPROFILE || ""

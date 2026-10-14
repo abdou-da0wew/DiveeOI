@@ -13,6 +13,9 @@ export * as MemoryModule from "./memory"
 export { MemoryService } from "./memory"
 export { SessionService } from "./session"
 export { ExtractorService } from "./extractor"
+export { ExtractionModels } from "./extraction-models"
+export type { ExtractionModel, ExtractionModelResolver } from "./extraction-models"
+import type { ExtractionModelResolver } from "./extraction-models"
 export { GraphService } from "./graph"
 export { MemoryConfig, defaultMemoryConfig } from "./config"
 export { MemoryError } from "./schema"
@@ -31,7 +34,10 @@ import { SessionLive } from "./session"
 import { RecallLive } from "./recall"
 import { ConsolidationLive } from "./consolidation"
 import { MemoryConfig } from "./config"
+import { ExtractionModels } from "./extraction-models"
+import { Effect, Layer } from "effect"
 import { Database } from "@diveeoi/db/database/database"
+import { ModelsDev } from "@diveeoi/db/models-dev"
 import { LLMClient } from "@diveeoi/llm"
 import { RequestExecutor } from "@diveeoi/llm/route"
 import * as MemoryModule from "./memory"
@@ -46,7 +52,18 @@ const llmClient = LayerNode.make(LLMClient.layer, [requestExecutor])
 const indexer = LayerNode.make(IndexerLive, [database, memoryConfig])
 const nodeSvc = LayerNode.make(NodeLive, [indexer, memoryConfig])
 const graph = LayerNode.make(GraphLive, [indexer, memoryConfig])
-const extractor = LayerNode.make(ExtractorLive, [llmClient, memoryConfig, indexer])
+// Extraction models are a background role resolved by the host through the Provider service
+// (draft-10 §0d). Standalone/test composition gets the no-op resolver: extraction is skipped
+// rather than calling a hardcoded endpoint.
+const modelsDev = ModelsDev.node
+// Candidates are derived from the live catalog, so a retired model drops out on its own.
+// The server replaces this node with a Provider-backed resolver that honours the user's
+// credentials and `models.background.memory`.
+const extractionModels = LayerNode.make(
+  Layer.effect(ExtractionModels, Effect.map(Effect.service(ModelsDev.Service), ExtractionModels.from)),
+  [modelsDev],
+)
+const extractor = LayerNode.make(ExtractorLive, [llmClient, memoryConfig, indexer, extractionModels])
 const memory = LayerNode.make(MemoryLive, [nodeSvc, indexer, graph, extractor, database, memoryConfig])
 const session = LayerNode.make(SessionLive, [memory, memoryConfig])
 const recall = LayerNode.make(RecallLive, [graph, memoryConfig])
@@ -61,7 +78,18 @@ export const MemoryLayer = LayerNode.buildLayer(
 export const CoreMemoryLayer = LayerNode.buildLayer(LayerNode.group([nodeSvc, indexer, graph]))
 
 // LayerNode for server composition
-export const MemoryNode = LayerNode.make(MemoryLayer, [database, llmClient, requestExecutor, memoryConfig])
+export const MemoryNode = LayerNode.make(MemoryLayer, [
+  database,
+  llmClient,
+  requestExecutor,
+  memoryConfig,
+  modelsDev,
+  extractionModels,
+])
+/** Replacement seam: the server provides Provider-backed extraction models. */
+export const withExtractionModels = (implementation: Layer.Layer<ExtractionModelResolver>) =>
+  LayerNode.replace(extractionModels, implementation as unknown as Layer.Layer<ExtractionModels>)
+export { extractionModels }
 
 // Standard node export for server layer composition
 export const node = MemoryNode
@@ -75,6 +103,7 @@ export const Memory = {
   MemoryNode,
   TestMemoryLayer: MemoryLayer,
   defaultLayer: MemoryLayer,
+  withExtractionModels,
 } as const
 
 // Test layer alias

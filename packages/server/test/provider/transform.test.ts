@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import { ProviderTransform } from "@/provider/transform"
+import { ProviderUserAgent } from "@/provider/user-agent"
 import { LLMRequestPrep } from "@/session/llm/request"
 import { ProviderV2 } from "@diveeoi/db/provider"
 import { ModelV2 } from "@diveeoi/db/model"
@@ -394,7 +395,7 @@ describe("ProviderTransform.options - gpt-5 textVerbosity", () => {
         } as any,
         flags: { outputTokenMax: 32_000, client: "test" } as any,
         isWorkflow: false,
-      }),
+      }).pipe(Effect.provide(ProviderUserAgent.defaultLayer)),
     )
     expect(result.params.options.reasoningEffort).toBe("high")
     expect(result.params.options.reasoningSummary).toBeUndefined()

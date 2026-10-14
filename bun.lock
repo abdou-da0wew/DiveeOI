@@ -177,6 +177,7 @@
         "@types/semver": "catalog:",
         "@types/turndown": "5.0.5",
         "@types/which": "3.0.4",
+        "@typescript/native-preview": "catalog:",
         "drizzle-kit": "catalog:",
       },
     },
@@ -258,6 +259,7 @@
         "@diveeoi/http-recorder": "workspace:*",
         "@tsconfig/bun": "catalog:",
         "@types/bun": "catalog:",
+        "@typescript/native-preview": "catalog:",
         "yaml": "^2.5.1",
       },
     },
@@ -299,6 +301,7 @@
         "@tsconfig/bun": "catalog:",
         "@types/bun": "catalog:",
         "@types/node": "catalog:",
+        "@typescript/native-preview": "catalog:",
       },
     },
     "packages/script": {

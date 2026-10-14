@@ -4,14 +4,12 @@ import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { Api } from "../api"
 import { ConflictError, InvalidRequestError, UnauthorizedError } from "../errors"
 import { JwtAuth } from "../middleware/jwt"
-import { MailService } from "@diveeoi/db/mail/mail"
 import { UserService } from "@diveeoi/db/auth-user/user"
 
 export const AuthHandler = HttpApiBuilder.group(Api, "server.auth", (handlers) =>
   Effect.gen(function* () {
     const jwtAuth = yield* JwtAuth.Service
     const userService = yield* UserService.Service
-    const mailService = yield* MailService.Service
 
     return handlers
       .handle("auth.register", Effect.fn(function* (ctx) {
@@ -35,7 +33,7 @@ export const AuthHandler = HttpApiBuilder.group(Api, "server.auth", (handlers) =
           "verify_email",
           Date.now() + 24 * 60 * 60 * 1000,
         )
-        yield* mailService.sendVerificationEmail(email, token)
+        // Email verification disabled - no mail service
         return {
           user: {
             id: user.id,
@@ -145,7 +143,7 @@ export const AuthHandler = HttpApiBuilder.group(Api, "server.auth", (handlers) =
           "verify_email",
           Date.now() + 24 * 60 * 60 * 1000,
         )
-        yield* mailService.sendVerificationEmail(email, token)
+        // Email verification disabled - no mail service
         return { ok: true as const }
       }))
       .handle("auth.updateProfile", Effect.fn(function* (ctx) {

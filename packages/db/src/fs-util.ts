@@ -35,6 +35,11 @@ export namespace FSUtil {
     readonly readDirectoryEntries: (path: string) => Effect.Effect<DirEntry[], Error>
     readonly findUp: (target: string, start: string, stop?: string) => Effect.Effect<string[], Error>
     readonly up: (options: { targets: string[]; start: string; stop?: string }) => Effect.Effect<string[], Error>
+    readonly groupUp: (options: {
+      targets: string[]
+      start: string
+      stop?: string
+    }) => Effect.Effect<{ path: string; target: string }[], Error>
     readonly globUp: (pattern: string, start: string, stop?: string) => Effect.Effect<string[], Error>
     readonly glob: (pattern: string, options?: Glob.Options) => Effect.Effect<string[], Error>
     readonly globMatch: (pattern: string, filepath: string) => boolean
@@ -159,6 +164,35 @@ export namespace FSUtil {
         return result
       })
 
+      // Same walk as `up`, but the result is ordered nearest-directory-first instead of furthest, with
+      // the directory each match was found in. Callers that merge need that ordering: `up`'s order
+      // would let a file in a nearer directory be overridden by one further up the tree.
+      //
+      // Reversal is per directory, not over the flat list - reversing the flat list would also flip
+      // the order of matches inside one directory, silently inverting the caller's target
+      // precedence (which is how brand names are ranked).
+      const groupUp = Effect.fn("FileSystem.groupUp")(function* (options: {
+        targets: string[]
+        start: string
+        stop?: string
+      }) {
+        const groups: { path: string; target: string }[][] = []
+        let current = options.start
+        while (true) {
+          const matches: { path: string; target: string }[] = []
+          for (const target of options.targets) {
+            const search = join(current, target)
+            if (yield* fs.exists(search)) matches.push({ path: current, target })
+          }
+          if (matches.length > 0) groups.push(matches)
+          if (options.stop === current) break
+          const parent = dirname(current)
+          if (parent === current) break
+          current = parent
+        }
+        return groups.toReversed().flat()
+      })
+
       const globUp = Effect.fn("FileSystem.globUp")(function* (pattern: string, start: string, stop?: string) {
         const result: string[] = []
         let current = start
@@ -188,6 +222,7 @@ export namespace FSUtil {
         writeWithDirs,
         findUp,
         up,
+        groupUp,
         globUp,
         glob,
         globMatch: Glob.match,

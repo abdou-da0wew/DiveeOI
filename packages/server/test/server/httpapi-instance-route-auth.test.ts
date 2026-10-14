@@ -8,6 +8,7 @@ import { ServerAuth } from "../../src/server/auth"
 import { PtyID } from "@diveeoi/db/pty/schema"
 import { resetDatabase } from "../fixture/db"
 import { disposeAllInstances, tmpdir } from "../fixture/fixture"
+import { TestAmbient } from "../lib/ambient"
 
 function app(input: { password?: string; username?: string }) {
   const handler = HttpRouter.toWebHandler(

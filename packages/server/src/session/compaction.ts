@@ -12,7 +12,7 @@ import { Plugin } from "@/plugin"
 import { Config } from "@/config/config"
 import { NotFoundError } from "@/storage/storage"
 
-import { Effect, Layer, Context } from "effect"
+import { Effect, Layer, Context, Option } from "effect"
 import * as DateTime from "effect/DateTime"
 import { InstanceState } from "@/effect/instance-state"
 import { isOverflow as overflow, usable } from "./overflow"
@@ -25,6 +25,8 @@ import { ProviderV2 } from "@diveeoi/db/provider"
 import { ModelV2 } from "@diveeoi/db/model"
 import { EventV2 } from "@diveeoi/db/event"
 import { buildPrompt, verifyCompact } from "@diveeoi/db/session/compaction"
+import { Anchor } from "@/anchor/anchor"
+import { Features } from "@/features"
 
 export const Event = {
   Compacted: EventV2.define({
@@ -174,6 +176,8 @@ export const layer = Layer.effect(
     const provider = yield* Provider.Service
     const events = yield* EventV2Bridge.Service
     const flags = yield* RuntimeFlags.Service
+    // Resolved optionally so this layer builds whether or not the anchor feature is on.
+    const anchor = Option.getOrUndefined(yield* Effect.serviceOption(Anchor.Service))
 
     const isOverflow = Effect.fn("SessionCompaction.isOverflow")(function* (input: {
       tokens: SessionV1.Assistant["tokens"]
@@ -541,6 +545,84 @@ export const layer = Layer.effect(
           },
         )
         if (summary) yield* verifyCompact(summary)
+
+        // Everything compacted out of the context is indexed before it leaves, so the agent can
+        // still find it. Best-effort: a failure here costs searchability, not the compaction.
+        if (anchor) {
+          yield* anchor
+            .index({ sessionID: input.sessionID, messages: selected.head })
+            .pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("SessionCompaction: content indexing failed", {
+                  sessionID: input.sessionID,
+                  error: String(error),
+                }).pipe(Effect.asVoid),
+              ),
+            )
+        }
+
+        if (anchor) {
+          // The anchor is generated from the same range that was just summarised and is prepended
+          // to the summary, so the next request sees a stable index of the dropped history above
+          // the prose summary. Any failure leaves the summary untouched - never worse than before.
+          const generated = yield* anchor
+            .generate({
+              sessionID: input.sessionID,
+              messages: selected.head,
+              model: { providerID: model.providerID, modelID: model.id },
+            })
+            .pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("SessionCompaction: anchor generation failed", {
+                  sessionID: input.sessionID,
+                  error: String(error),
+                }).pipe(Effect.as(undefined)),
+              ),
+            )
+
+          if (generated) {
+            const latest = yield* anchor.getLatest(input.sessionID).pipe(Effect.catch(() => Effect.succeed(undefined)))
+            yield* anchor
+              .create({
+                sessionID: input.sessionID,
+                epoch: (latest?.epoch ?? -1) + 1,
+                rootRef: generated.tree.objective.ref,
+                tree: generated.tree,
+                degraded: generated.degraded,
+              })
+              .pipe(
+                Effect.catch((error) =>
+                  Effect.logWarning("SessionCompaction: anchor persist failed", {
+                    sessionID: input.sessionID,
+                    error: String(error),
+                  }).pipe(Effect.asVoid),
+                ),
+              )
+
+            // Prepended, not appended: the anchor has to occupy a prefix-stable position or the
+            // prompt cache for it is lost on every compaction.
+            yield* session
+              .updatePart({
+                id: PartID.ascending(),
+                messageID: msg.id,
+                sessionID: msg.sessionID,
+                type: "text",
+                synthetic: true,
+                text: Anchor.render(generated.tree),
+                time: { start: Date.now(), end: Date.now() },
+              })
+              .pipe(
+                Effect.catch((error) =>
+                  Effect.logWarning("SessionCompaction: anchor part not attached", {
+                    sessionID: input.sessionID,
+                    messageID: msg.id,
+                    error: String(error),
+                  }).pipe(Effect.asVoid),
+                ),
+              )
+          }
+        }
+
         if (flags.experimentalEventSystem) {
           if (summary)
             yield* events.publish(SessionEvent.Compaction.Ended, {
@@ -609,6 +691,7 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(Config.defaultLayer),
     Layer.provide(RuntimeFlags.defaultLayer),
     Layer.provide(EventV2Bridge.defaultLayer),
+    Layer.provide(Features.flags.anchor ? Anchor.defaultLayer : Layer.empty),
   ),
 )
 
@@ -621,6 +704,7 @@ export const node = LayerNode.make(layer, [
   Provider.node,
   EventV2Bridge.node,
   RuntimeFlags.node,
+  ...(Features.flags.anchor ? [Anchor.node] : []),
 ])
 
 export * as SessionCompaction from "./compaction"

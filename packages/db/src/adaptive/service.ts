@@ -5,6 +5,7 @@ import { detectSystemResources } from "./detect"
 import type { SystemResources } from "./detect"
 import { computeProfile, computeTargets, interpolateTargets } from "./profiles"
 import type { AdaptiveTargets, ResourceProfile } from "./profiles"
+import { Flag } from "../flag/flag"
 
 export interface AdaptiveResourceService {
   readonly targets: Ref.Ref<AdaptiveTargets>
@@ -23,33 +24,40 @@ export const layer = Layer.effect(AdaptiveResourceService, Effect.gen(function* 
   const profileRef = yield* Ref.make(computeProfile(initial))
   const lastSystemRef = yield* Ref.make<SystemResources | null>(initial)
 
+  // Check if adaptive resource management is disabled via flag
+  const disabled = Flag.OPENCODE_DISABLE_ADAPTIVE_RESOURCE
+
   const subscribers = new Set<(t: AdaptiveTargets) => void>()
   const notify = (t: AdaptiveTargets) => { for (const fn of subscribers) fn(t) }
 
-  const updater = Effect.gen(function* () {
-    while (true) {
-      yield* Effect.sleep("90 seconds")
-      const sys = yield* detectSystemResources
-      const freshProfile = computeProfile(sys)
-      const prevProfile = yield* Ref.get(profileRef)
-      const prevTargets = yield* Ref.get(targetsRef)
-      const freshTargets = computeTargets(sys)
-      // Smooth interpolation when profile is unchanged; snap when it flips
-      const target = freshProfile === prevProfile
-        ? interpolateTargets(prevTargets, freshTargets, 0.3)
-        : freshTargets
-      yield* Ref.set(lastSystemRef, sys)
-      yield* Ref.set(profileRef, freshProfile)
-      yield* Ref.set(targetsRef, target)
-      yield* Effect.sync(() => notify(target))
-      yield* Effect.logInfo("Adaptive targets updated", { profile: freshProfile, rssTargetMB: target.rssTargetMB, heapTargetMB: target.heapTargetMB, gcIntervalMs: target.gcIntervalMs })
-    }
-  }).pipe(
-    Effect.catchCause((cause) => Effect.logError("Adaptive updater error", { cause })),
-    Effect.forever,
-  )
+  if (!disabled) {
+    const updater = Effect.gen(function* () {
+      while (true) {
+        yield* Effect.sleep("90 seconds")
+        const sys = yield* detectSystemResources
+        const freshProfile = computeProfile(sys)
+        const prevProfile = yield* Ref.get(profileRef)
+        const prevTargets = yield* Ref.get(targetsRef)
+        const freshTargets = computeTargets(sys)
+        // Smooth interpolation when profile is unchanged; snap when it flips
+        const target = freshProfile === prevProfile
+          ? interpolateTargets(prevTargets, freshTargets, 0.3)
+          : freshTargets
+        yield* Ref.set(lastSystemRef, sys)
+        yield* Ref.set(profileRef, freshProfile)
+        yield* Ref.set(targetsRef, target)
+        yield* Effect.sync(() => notify(target))
+        yield* Effect.logInfo("Adaptive targets updated", { profile: freshProfile, rssTargetMB: target.rssTargetMB, heapTargetMB: target.heapTargetMB, gcIntervalMs: target.gcIntervalMs })
+      }
+    }).pipe(
+      Effect.catchCause((cause) => Effect.logError("Adaptive updater error", { cause })),
+      Effect.forever,
+    )
 
-  yield* Effect.forkScoped(updater)
+    yield* Effect.forkScoped(updater)
+  } else {
+    yield* Effect.logInfo("Adaptive resource management disabled via flag")
+  }
 
   return {
     targets: targetsRef,

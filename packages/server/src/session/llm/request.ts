@@ -8,6 +8,7 @@ import type { Agent } from "@/agent/agent"
 import type { MessageV2 } from "../message-v2"
 import type { Provider } from "@/provider/provider"
 import { ProviderTransform } from "@/provider/transform"
+import { ProviderUserAgent } from "@/provider/user-agent"
 import { SystemPrompt } from "../system"
 import { InstallationVersion } from "@diveeoi/db/installation/version"
 import { Effect, Record } from "effect"
@@ -15,6 +16,9 @@ import { jsonSchema, tool as aiTool, type ModelMessage, type Tool } from "ai"
 import type { Plugin } from "@/plugin"
 import { mergeDeep } from "remeda"
 
+// Fallback only. The Zen gateway rejects any User-Agent whose version segment does not parse,
+// which includes this `opencode/local` shape used by dev builds - so the opencode provider path
+// awaits the resolved User-Agent below and this constant is never what reaches the gateway.
 const USER_AGENT = `opencode/${InstallationVersion}`
 
 type PrepareInput = {
@@ -33,6 +37,11 @@ type PrepareInput = {
   readonly plugin: Plugin.Interface
   readonly flags: RuntimeFlags.Info
   readonly isWorkflow: boolean
+  /**
+   * Gateway User-Agent effect, supplied by the caller for the opencode provider. Optional so
+   * non-opencode providers - and unit tests that do not exercise the gateway - can omit it.
+   */
+  readonly userAgent?: Effect.Effect<string>
 }
 
 export type Prepared = {
@@ -168,6 +177,16 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
     ? (yield* InstanceState.context).project.id
     : undefined
 
+  // The Zen gateway gates anonymous inference on the version in this header, so it cannot be the
+  // locally compiled-in value - see @/provider/user-agent for the measured floor and the reason
+  // the version comes from the registry instead of a constant here. Passed in rather than yielded
+  // so this stays a pure function of its input.
+  const userAgent = input.userAgent
+    ? yield* input.userAgent
+    : input.model.providerID.startsWith("opencode")
+      ? yield* Effect.fail(new Error("opencode provider requires a resolved gateway User-Agent"))
+      : USER_AGENT
+
   return {
     system,
     messages,
@@ -181,7 +200,7 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
             "x-opencode-session": input.sessionID,
             "x-opencode-request": input.user.id,
             "x-opencode-client": input.flags.client,
-            "User-Agent": USER_AGENT,
+            "User-Agent": userAgent,
           }
         : {
             "x-session-affinity": input.sessionID,

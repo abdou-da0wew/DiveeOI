@@ -14,7 +14,7 @@ import { Env } from "../env"
 import { applyEdits, modify } from "jsonc-parser"
 import { InstallationLocal, InstallationVersion } from "@diveeoi/db/installation/version"
 import { existsSync } from "fs"
-import { Account } from "@/account/account"
+import { Account, type AccessToken } from "@/account/account"
 import { isRecord } from "@/util/record"
 import type { ConsoleState } from "@diveeoi/db/v1/config/console-state"
 import { FSUtil } from "@diveeoi/db/fs-util"
@@ -129,6 +129,7 @@ export interface Interface {
   readonly update: (config: Info) => Effect.Effect<void>
   readonly updateGlobal: (config: Info) => Effect.Effect<{ info: Info; changed: boolean }>
   readonly invalidate: () => Effect.Effect<void>
+  readonly refresh: () => Effect.Effect<void>
   readonly directories: () => Effect.Effect<string[]>
   readonly waitForDependencies: () => Effect.Effect<void>
 }
@@ -138,8 +139,10 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/Co
 export const use = serviceUse(Service)
 
 function globalConfigFile() {
-  const candidates = ["opencode.jsonc", "opencode.json", "config.json"].map((file) =>
-    path.join(Global.Path.config, file),
+  // Divee-branded names first so a fork-native file wins; the opencode names stay as fallbacks
+  // for setups migrated from upstream.
+  const candidates = ["diveeoi.jsonc", "diveeoi.json", "opencode.jsonc", "opencode.json", "config.json"].map(
+    (file) => path.join(Global.Path.config, file),
   )
   for (const file of candidates) {
     if (existsSync(file)) return file
@@ -274,6 +277,10 @@ export const layer = Layer.effect(
         result = mergeConfig(result, yield* loadFile(path.join(legacyDir, "opencode.jsonc"), env))
       }
       result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "config.json"), env))
+      // Divee-branded global files first: later merges win, so these take precedence over the
+      // opencode-named files that follow.
+      result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "diveeoi.json"), env))
+      result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "diveeoi.jsonc"), env))
       result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "opencode.json"), env))
       result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "opencode.jsonc"), env))
 
@@ -428,7 +435,11 @@ export const layer = Layer.effect(
         }
 
         if (!Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
-          for (const file of yield* ConfigPaths.files("opencode", ctx.directory, ctx.worktree).pipe(Effect.orDie)) {
+          // Two brand names, one walk. `ConfigPaths.files` returns nearest-directory-last, so the
+          // list has to be ordered per directory rather than per brand - otherwise a diveeoi.json
+          // in the project root would be overridden by an opencode.json further up the tree.
+          const projectFiles = yield* ConfigPaths.projectFiles(ctx.directory, ctx.worktree).pipe(Effect.orDie)
+          for (const file of projectFiles) {
             yield* merge(file, yield* loadFile(file, authEnv), "local")
           }
         }
@@ -447,7 +458,8 @@ export const layer = Layer.effect(
 
         for (const dir of directories) {
           if (dir.endsWith(".opencode") || dir === Flag.OPENCODE_CONFIG_DIR) {
-            for (const file of ["opencode.json", "opencode.jsonc"]) {
+            // opencode-named first so a Divee-branded file in the same directory wins the merge.
+            for (const file of ["opencode.json", "opencode.jsonc", "diveeoi.json", "diveeoi.jsonc"]) {
               const source = path.join(dir, file)
               yield* Effect.logDebug(`loading config from ${source}`)
               yield* merge(source, yield* loadFile(source, authEnv))
@@ -502,44 +514,58 @@ export const layer = Layer.effect(
         const activeAccount = Option.getOrUndefined(
           yield* accountSvc.active().pipe(Effect.catch(() => Effect.succeed(Option.none()))),
         )
-        if (activeAccount?.active_org_id) {
+        if (activeAccount) {
           const accountID = activeAccount.id
-          const orgID = activeAccount.active_org_id
           const url = activeAccount.url
-          yield* Effect.gen(function* () {
-            const [configOpt, tokenOpt] = yield* Effect.all(
-              [accountSvc.config(accountID, orgID), accountSvc.token(accountID)],
-              { concurrency: 2 },
-            )
-            if (Option.isSome(tokenOpt)) {
-              process.env["OPENCODE_CONSOLE_TOKEN"] = tokenOpt.value
-              yield* env.set("OPENCODE_CONSOLE_TOKEN", tokenOpt.value)
-            }
+          // The token and the org config are fetched independently. Publishing the token is
+          // what makes the signed-in account authenticate against Zen itself, and a personal
+          // account has no orgs at all, so gating the token on `active_org_id` (as this used
+          // to) left exactly the free-tier user signed in and still anonymous.
+          const orgID = activeAccount.active_org_id
 
-            if (Option.isSome(configOpt)) {
-              const source = `${url}/api/config`
-              const next = yield* loadConfig(JSON.stringify(configOpt.value), {
-                dir: path.dirname(source),
-                source,
-              })
-              for (const providerID of Object.keys(next.provider ?? {})) {
-                consoleManagedProviders.add(providerID)
+          const token = yield* accountSvc
+            .token(accountID)
+            .pipe(
+              Effect.catch((err) =>
+                Effect.logDebug("failed to resolve console token", { error: String(err) }).pipe(
+                  Effect.as(Option.none<AccessToken>()),
+                ),
+              ),
+            )
+          if (Option.isSome(token)) {
+            process.env["OPENCODE_CONSOLE_TOKEN"] = token.value
+            yield* env.set("OPENCODE_CONSOLE_TOKEN", token.value)
+          }
+
+          if (orgID) {
+            yield* Effect.gen(function* () {
+              const configOpt = yield* accountSvc
+                .config(accountID, orgID)
+                .pipe(
+                  Effect.catch((err) =>
+                    Effect.logDebug("failed to fetch remote account config", { error: String(err) }).pipe(
+                      Effect.as(Option.none<Record<string, unknown>>()),
+                    ),
+                  ),
+                )
+              if (Option.isSome(configOpt)) {
+                const source = `${url}/api/config`
+                const next = yield* loadConfig(JSON.stringify(configOpt.value), {
+                  dir: path.dirname(source),
+                  source,
+                })
+                for (const providerID of Object.keys(next.provider ?? {})) {
+                  consoleManagedProviders.add(providerID)
+                }
+                yield* merge(source, next, "global")
               }
-              yield* merge(source, next, "global")
-            }
-          }).pipe(
-            Effect.withSpan("Config.loadActiveOrgConfig"),
-            Effect.catch((err) =>
-              Effect.logDebug("failed to fetch remote account config", {
-                error: err instanceof Error ? err.message : String(err),
-              }),
-            ),
-          )
+            }).pipe(Effect.withSpan("Config.loadActiveOrgConfig"))
+          }
         }
 
         const managedDir = ConfigManaged.managedConfigDir()
         if (existsSync(managedDir)) {
-          for (const file of ["opencode.json", "opencode.jsonc"]) {
+          for (const file of ["opencode.json", "opencode.jsonc", "diveeoi.json", "diveeoi.jsonc"]) {
             const source = path.join(managedDir, file)
             yield* merge(source, yield* loadFile(source), "global")
           }
@@ -658,6 +684,20 @@ export const layer = Layer.effect(
       yield* invalidateGlobal
     })
 
+    /**
+     * Drop the whole per-instance state, not just the global config cache.
+     *
+     * `invalidate` only clears the cached global config, so anything folded into the
+     * per-instance state at load time survives it - notably the console-managed provider
+     * config fetched from the signed-in account (see `loadInstanceState`). Signing in or
+     * switching orgs changes that remote config, so the instance state has to be rebuilt for
+     * the new providers to appear.
+     */
+    const refresh = Effect.fn("Config.refresh")(function* () {
+      yield* invalidateGlobal
+      yield* InstanceState.invalidate(state)
+    })
+
     const updateGlobal = Effect.fn("Config.updateGlobal")(function* (config: Info) {
       const file = globalConfigFile()
       const before = (yield* readConfigFile(file)) ?? "{}"
@@ -690,6 +730,7 @@ export const layer = Layer.effect(
       update,
       updateGlobal,
       invalidate,
+      refresh,
       directories,
       waitForDependencies,
     })

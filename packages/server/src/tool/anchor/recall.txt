@@ -1,0 +1,9 @@
+export const DESCRIPTION = `Retrieve the verbatim text of earlier parts in this session by reference.
+
+Compaction replaces old messages with an anchor tree: a short index of what mattered, kept as
+stable references. The originals are never deleted, so any ref still resolves to exactly what was
+said. Use this whenever an anchor label is not enough to act on - before editing a file you only
+know by summary, before contradicting something "we decided earlier", or when a ref is marked as
+an open question.
+
+Search first if you do not have a ref: search_memory finds refs by content.`

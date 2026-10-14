@@ -8,10 +8,10 @@ import { pathToFileURL } from "url"
 import { parseArgs } from "util"
 
 const root = path.resolve(import.meta.dirname, "../../..")
-const snapshot = path.join(root, "packages/core/schema.json")
-const tsDir = path.join(root, "packages/core/src/database/migration")
-const registry = path.join(root, "packages/core/src/database/migration.gen.ts")
-const schema = path.join(root, "packages/core/src/database/schema.gen.ts")
+const snapshot = path.join(root, "packages/db/schema.json")
+const tsDir = path.join(root, "packages/db/src/database/migration")
+const registry = path.join(root, "packages/db/src/database/migration.gen.ts")
+const schema = path.join(root, "packages/db/src/database/schema.gen.ts")
 const args = parseArgs({
   args: process.argv.slice(2),
   options: {
@@ -28,7 +28,7 @@ if (args.values.check) {
 await generate()
 
 async function generate() {
-  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-core-migration-"))
+  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "diveeoi-db-migration-"))
   const incremental = path.join(temporary, "incremental")
   const full = path.join(temporary, "full")
   try {
@@ -60,7 +60,7 @@ async function generate() {
 }
 
 async function check() {
-  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-core-migration-check-"))
+  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "diveeoi-db-migration-check-"))
   const incremental = path.join(temporary, "incremental")
   const full = path.join(temporary, "full")
   try {
@@ -70,19 +70,19 @@ async function check() {
     await drizzle(temporary, incremental)
     if ((await generatedMigrations(incremental)).length > 0) {
       throw new Error(
-        "Core schema has ungenerated database migrations. Run `bun script/migration.ts` from packages/core.",
+        "Database schema has ungenerated database migrations. Run `bun script/migration.ts` from packages/db.",
       )
     }
 
     await fs.mkdir(full)
     await drizzle(temporary, full, "schema")
     if ((await Bun.file(schema).text()) !== renderSchema(await generatedSql(full))) {
-      throw new Error("Current database schema is stale. Run `bun script/migration.ts` from packages/core.")
+      throw new Error("Current database schema is stale. Run `bun script/migration.ts` from packages/db.")
     }
 
     const migrations = await typescriptMigrations()
     if ((await Bun.file(registry).text()) !== renderRegistry(migrations)) {
-      throw new Error("Database migration registry is stale. Run `bun script/migration.ts` from packages/core.")
+      throw new Error("Database migration registry is stale. Run `bun script/migration.ts` from packages/db.")
     }
   } finally {
     await fs.rm(temporary, { recursive: true, force: true })
@@ -93,13 +93,13 @@ async function drizzle(temporary: string, output: string, name?: string) {
   const config = path.join(temporary, `${path.basename(output)}.config.ts`)
   await Bun.write(
     config,
-    `import config from ${JSON.stringify(pathToFileURL(path.join(root, "packages/core/drizzle.config.ts")).href)}
+    `import config from ${JSON.stringify(pathToFileURL(path.join(root, "packages/db/drizzle.config.ts")).href)}
 
 export default { ...config, out: ${JSON.stringify(output)} }
 `,
   )
   await $`bun drizzle-kit generate --config ${config} ${name ? ["--name", name] : []}`.cwd(
-    path.join(root, "packages/core"),
+    path.join(root, "packages/db"),
   )
 }
 

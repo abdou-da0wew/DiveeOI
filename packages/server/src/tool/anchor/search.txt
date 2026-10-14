@@ -1,0 +1,9 @@
+export const DESCRIPTION = `Search this session's earlier content, including text that compaction has dropped.
+
+The anchor tree is an index, not the memory - it says what mattered, not what was said. This tool
+searches the underlying content and returns references, so you can read the exact original with
+recall_context.
+
+Use it BEFORE concluding that something was never established, never decided, or never written. If
+the user refers to something "we set up earlier" or a decision from a previous stretch of work, the
+answer is very likely still here even though it is no longer in your context.`

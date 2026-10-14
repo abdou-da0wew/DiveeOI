@@ -17,6 +17,7 @@ import { Todo } from "@/session/todo"
 import { MessageID, PartID, SessionID } from "@/session/schema"
 import { NamedError } from "@diveeoi/db/util/error"
 import { Cause, Effect, Option, Schema, Scope } from "effect"
+import { Anchor } from "@/anchor/anchor"
 import * as Stream from "effect/Stream"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiError, HttpApiSchema } from "effect/unstable/httpapi"
@@ -58,6 +59,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const todoSvc = yield* Todo.Service
     const summary = yield* SessionSummary.Service
     const events = yield* EventV2Bridge.Service
+    // Optional so this route layer still builds when the anchor feature is off.
+    const anchorSvc = Option.getOrUndefined(yield* Effect.serviceOption(Anchor.Service))
     const scope = yield* Scope.Scope
 
     const list = Effect.fn("SessionHttpApi.list")(function* (ctx: { query: typeof ListQuery.Type }) {
@@ -268,6 +271,26 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       return yield* requireSession(ctx.params.sessionID)
     })
 
+    const anchor = Effect.fn("SessionHttpApi.anchor")(function* (ctx: { params: { sessionID: SessionID } }) {
+      yield* requireSession(ctx.params.sessionID)
+      // Absent until the first compaction, which is a normal state rather than a 404: the panel
+      // renders as "no anchor yet" and a client should not have to special-case an error.
+      const rows = anchorSvc
+        ? yield* anchorSvc.list(ctx.params.sessionID).pipe(Effect.catch(() => Effect.succeed([])))
+        : []
+      return {
+        anchors: rows.map((row) => ({
+          id: row.id,
+          epoch: row.epoch,
+          root_ref: row.root_ref,
+          tree: row.tree_json,
+          ...(row.token_estimate === undefined ? {} : { token_estimate: row.token_estimate }),
+          degraded: row.degraded,
+          created_at: row.created_at,
+        })),
+      }
+    })
+
     const summarize = Effect.fn("SessionHttpApi.summarize")(function* (ctx: {
       params: { sessionID: SessionID }
       payload: typeof SummarizePayload.Type
@@ -425,6 +448,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("init", init)
       .handle("share", share)
       .handle("unshare", unshare)
+      .handle("anchor", anchor)
       .handle("summarize", summarize)
       .handle("prompt", prompt)
       .handle("promptAsync", promptAsync)

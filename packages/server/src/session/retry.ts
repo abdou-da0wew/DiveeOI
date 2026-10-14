@@ -1,5 +1,6 @@
 import type { NamedError } from "@diveeoi/db/util/error"
 import { SessionV1 } from "@diveeoi/db/v1/session"
+import { ProviderFreeTier } from "@/provider/free-tier"
 import { Cause, Clock, Duration, Effect, Schedule } from "effect"
 import { MessageV2 } from "./message-v2"
 import { iife } from "@/util/iife"
@@ -68,6 +69,9 @@ export function delay(attempt: number, error?: SessionV1.APIError) {
 export function retryable(error: Err, provider: string) {
   // context overflow errors should not be retried
   if (SessionV1.ContextOverflowError.isInstance(error)) return undefined
+  // "this free model needs a key" is not a transient failure: retrying the same model can
+  // never succeed. Record it so selection stops choosing it, and let the runner rotate.
+  if (ProviderFreeTier.classify(error) !== undefined) return undefined
   if (SessionV1.APIError.isInstance(error)) {
     const status = error.data.statusCode
     // 5xx errors are transient server failures and should always be retried,

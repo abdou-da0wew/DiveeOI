@@ -31,10 +31,18 @@ import type {
   EventTuiToastShow,
   ExperimentalCapabilitiesGetErrors,
   ExperimentalCapabilitiesGetResponses,
+  ExperimentalConsoleCancelErrors,
+  ExperimentalConsoleCancelResponses,
   ExperimentalConsoleGetErrors,
   ExperimentalConsoleGetResponses,
   ExperimentalConsoleListOrgsErrors,
   ExperimentalConsoleListOrgsResponses,
+  ExperimentalConsoleLoginErrors,
+  ExperimentalConsoleLoginResponses,
+  ExperimentalConsoleLogoutErrors,
+  ExperimentalConsoleLogoutResponses,
+  ExperimentalConsolePollErrors,
+  ExperimentalConsolePollResponses,
   ExperimentalConsoleSwitchOrgResponses,
   ExperimentalControlPlaneMoveSessionErrors,
   ExperimentalControlPlaneMoveSessionResponses,
@@ -84,8 +92,12 @@ import type {
   GlobalDisposeResponses,
   GlobalEventErrors,
   GlobalEventResponses,
+  GlobalFeaturesGetErrors,
+  GlobalFeaturesGetResponses,
   GlobalHealthErrors,
   GlobalHealthResponses,
+  GlobalRestartErrors,
+  GlobalRestartResponses,
   GlobalUpgradeErrors,
   GlobalUpgradeResponses,
   InstanceDisposeErrors,
@@ -173,6 +185,8 @@ import type {
   QuestionV2Reply,
   SessionAbortErrors,
   SessionAbortResponses,
+  SessionAnchorListErrors,
+  SessionAnchorListResponses,
   SessionChildrenErrors,
   SessionChildrenResponses,
   SessionCommandErrors,
@@ -796,6 +810,170 @@ export class Console extends HeyApiClient {
       },
     })
   }
+
+  /**
+   * Start Console sign-in
+   *
+   * Begin an RFC 8628 device authorization against the Console and return the user code plus the URL to approve it at. Poll `consolePoll` with the returned attempt ID until it reports a terminal status.
+   */
+  public login<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      server?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "server" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ExperimentalConsoleLoginResponses,
+      ExperimentalConsoleLoginErrors,
+      ThrowOnError
+    >({
+      url: "/experimental/console/login",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Check Console sign-in status
+   *
+   * Advance a pending device authorization by one step. A `pending` or `slow` result is retryable after `nextPollMs`; every other status is terminal. On success the account is persisted, made active, and its remote provider config is applied.
+   */
+  public poll<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      attemptID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "attemptID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ExperimentalConsolePollResponses,
+      ExperimentalConsolePollErrors,
+      ThrowOnError
+    >({
+      url: "/experimental/console/poll",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Cancel Console sign-in
+   *
+   * Discard a pending device authorization attempt.
+   */
+  public cancel<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      attemptID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "attemptID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ExperimentalConsoleCancelResponses,
+      ExperimentalConsoleCancelErrors,
+      ThrowOnError
+    >({
+      url: "/experimental/console/cancel",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Sign out of a Console account
+   *
+   * Remove a stored Console account and its tokens, then rebuild the instance config so the providers it managed stop being offered.
+   */
+  public logout<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      accountID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "accountID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ExperimentalConsoleLogoutResponses,
+      ExperimentalConsoleLogoutErrors,
+      ThrowOnError
+    >({
+      url: "/experimental/console/logout",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
 }
 
 export class Session extends HeyApiClient {
@@ -1311,6 +1489,20 @@ export class Config extends HeyApiClient {
   }
 }
 
+export class Features extends HeyApiClient {
+  /**
+   * Get feature flags
+   *
+   * Get the effective startup feature flags, environment overrides, and the built-in LSP server list with their disabled state.
+   */
+  public get<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<GlobalFeaturesGetResponses, GlobalFeaturesGetErrors, ThrowOnError>({
+      url: "/global/features",
+      ...options,
+    })
+  }
+}
+
 export class Global extends HeyApiClient {
   /**
    * Get health
@@ -1372,9 +1564,26 @@ export class Global extends HeyApiClient {
     })
   }
 
+  /**
+   * Restart the server
+   *
+   * Restart the server process in place. The current process exits after responding; clients should poll the health endpoint until it responds again.
+   */
+  public restart<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).post<GlobalRestartResponses, GlobalRestartErrors, ThrowOnError>({
+      url: "/global/restart",
+      ...options,
+    })
+  }
+
   private _config?: Config
   get config(): Config {
     return (this._config ??= new Config({ client: this.client }))
+  }
+
+  private _features?: Features
+  get features(): Features {
+    return (this._features ??= new Features({ client: this.client }))
   }
 }
 
@@ -3364,6 +3573,40 @@ export class Provider extends HeyApiClient {
   }
 }
 
+export class Anchor extends HeyApiClient {
+  /**
+   * List session anchors
+   *
+   * Get the session's working-memory anchors, newest first. An anchor is the structured index that replaces lossy summary compaction; each entry carries a stable ref that resolves to the original message or part.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionAnchorListResponses, SessionAnchorListErrors, ThrowOnError>({
+      url: "/session/{sessionID}/anchor",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class Session2 extends HeyApiClient {
   /**
    * List sessions
@@ -4329,6 +4572,11 @@ export class Session2 extends HeyApiClient {
       ...options,
       ...params,
     })
+  }
+
+  private _anchor?: Anchor
+  get anchor(): Anchor {
+    return (this._anchor ??= new Anchor({ client: this.client }))
   }
 }
 

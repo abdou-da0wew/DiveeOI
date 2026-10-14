@@ -159,7 +159,7 @@ exports[`tool parameters JSON Schema (wire shape) lsp 1`] = `
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "character": {
-      "description": "The character offset (1-based, as shown in editors)",
+      "description": "The character offset (1-based, as shown in editors). Required by position-based operations.",
       "maximum": 9007199254740991,
       "minimum": 1,
       "type": "integer",
@@ -169,7 +169,7 @@ exports[`tool parameters JSON Schema (wire shape) lsp 1`] = `
       "type": "string",
     },
     "line": {
-      "description": "The line number (1-based, as shown in editors)",
+      "description": "The line number (1-based, as shown in editors). Required by position-based operations.",
       "maximum": 9007199254740991,
       "minimum": 1,
       "type": "integer",
@@ -177,6 +177,7 @@ exports[`tool parameters JSON Schema (wire shape) lsp 1`] = `
     "operation": {
       "description": "The LSP operation to perform",
       "enum": [
+        "diagnostics",
         "goToDefinition",
         "findReferences",
         "hover",
@@ -197,8 +198,6 @@ exports[`tool parameters JSON Schema (wire shape) lsp 1`] = `
   "required": [
     "operation",
     "filePath",
-    "line",
-    "character",
   ],
   "type": "object",
 }
@@ -334,6 +333,48 @@ exports[`tool parameters JSON Schema (wire shape) task 1`] = `
     "prompt": {
       "description": "The task for the agent to perform",
       "type": "string",
+    },
+    "reminders": {
+      "description": "Reminders to pass to the subagent. These will be injected into the subagent's system prompt as <reminders> blocks. The subagent should check these before acting.",
+      "items": {
+        "properties": {
+          "createdAt": {
+            "type": "number",
+          },
+          "createdBy": {
+            "type": "string",
+          },
+          "done": {
+            "type": "boolean",
+          },
+          "id": {
+            "type": "string",
+          },
+          "priority": {
+            "type": "string",
+          },
+          "tags": {
+            "items": {
+              "type": "string",
+            },
+            "type": "array",
+          },
+          "text": {
+            "type": "string",
+          },
+        },
+        "required": [
+          "id",
+          "text",
+          "createdBy",
+          "priority",
+          "tags",
+          "done",
+          "createdAt",
+        ],
+        "type": "object",
+      },
+      "type": "array",
     },
     "subagent_type": {
       "description": "The type of specialized agent to use for this task",

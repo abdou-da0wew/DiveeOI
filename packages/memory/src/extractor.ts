@@ -1,10 +1,11 @@
 import { Effect, Layer, Context, Option } from "effect"
 import { LLMClient, LLM } from "@diveeoi/llm"
-import { OpenAICompatible } from "@diveeoi/llm/providers"
 import type { LLMClientShape } from "@diveeoi/llm/route"
 import type { MemoryNode, MemoryNodeID, MemoryType, LinkType } from "./schema"
 import { MemoryError, SessionID, ExtractedMemory } from "./schema"
 import { MemoryConfig } from "./config"
+import { ExtractionModels } from "./extraction-models"
+import type { ExtractionModel } from "./extraction-models"
 import { IndexerService } from "./indexer"
 import { AbsolutePath } from "@diveeoi/db/schema"
 
@@ -12,8 +13,21 @@ import { AbsolutePath } from "@diveeoi/db/schema"
  * LLM-based memory extraction from session messages
  */
 export interface ExtractorService {
-  readonly extractFromMessages: (messages: MemoryMessage[], sessionId: string, existingNodes: MemoryNode[]) => Effect.Effect<ExtractedMemory[], MemoryError>
-  readonly extractFromSession: (sessionId: string, messages: MemoryMessage[], path: string) => Effect.Effect<{ nodes: MemoryNode[]; links: Array<{ sourceId: MemoryNodeID; targetId: MemoryNodeID; type: LinkType }> }, MemoryError>
+  // Candidates are resolved from the live catalog at call time (draft-10 §0d); the resolver
+  // closes the catalog requirement at layer build, so callers stay requirement-free.
+  readonly extractFromMessages: (
+    messages: MemoryMessage[],
+    sessionId: string,
+    existingNodes: MemoryNode[],
+  ) => Effect.Effect<ExtractedMemory[], MemoryError>
+  readonly extractFromSession: (
+    sessionId: string,
+    messages: MemoryMessage[],
+    path: string,
+  ) => Effect.Effect<
+    { nodes: MemoryNode[]; links: Array<{ sourceId: MemoryNodeID; targetId: MemoryNodeID; type: LinkType }> },
+    MemoryError
+  >
 }
 
 export const ExtractorService = Context.Service<ExtractorService, ExtractorService>()("@diveeoi/memory/ExtractorService")
@@ -52,53 +66,20 @@ function extractJsonFromMarkdown(text: string): string {
   return text.trim()
 }
 
-/**
- * Multi-LLM fallback configuration for extraction.
- * Uses zen opencode provider: https://opencode.ai/zen/v1/chat/completions
- * API key: "public"
- * 
- * Models in fallback order:
- * 1. big-pickle (primary)
- * 2. deepseek-v4-flash-free (high variation)
- * 3. mimo-v2.5-free (high variation)
- */
-const ZEN_BASE_URL = "https://opencode.ai/zen/v1"
-const ZEN_API_KEY = "public"
-
-const EXTRACTION_MODELS = [
-  { name: "big-pickle", temperature: 0.1 },
-  { name: "deepseek-v4-flash-free", temperature: 0.3 },
-  { name: "mimo-v2.5-free", temperature: 0.3 },
-] as const
-
-interface ExtractionModelConfig {
-  readonly name: string
-  readonly temperature: number
-}
-
-/**
- * Create an openai-compatible model for the zen endpoint.
- */
-const createZenModel = (modelName: string) => {
-  const facade = OpenAICompatible.configure({
-    baseURL: ZEN_BASE_URL,
-    apiKey: ZEN_API_KEY,
-    provider: "zen"
-  })
-  return facade.model(modelName)
-}
+// Candidate models are resolved at call time by the host (see ./extraction-models): the live
+// catalog supplies the ids, so a retired model drops out on its own instead of 404ing here.
 
 /**
  * Try extraction with a specific model, returning the parsed result or failing.
  */
 const tryExtractWithModel = (
   llmClient: LLMClientShape,
-  modelConfig: ExtractionModelConfig,
+  modelConfig: ExtractionModel,
   prompt: string,
   systemPrompt: string
 ): Effect.Effect<ExtractedMemory[], MemoryError> =>
   Effect.gen(function* () {
-    const model = createZenModel(modelConfig.name)
+    const model = modelConfig.model
 
     const request = LLM.request({
       model,
@@ -173,11 +154,17 @@ const tryExtractWithModel = (
  */
 const extractWithFallback = (
   llmClient: LLMClientShape,
+  models: Effect.Effect<ReadonlyArray<ExtractionModel>, never>,
   prompt: string,
   systemPrompt: string
 ): Effect.Effect<ExtractedMemory[], MemoryError> =>
   Effect.gen(function* () {
-    for (const modelConfig of EXTRACTION_MODELS) {
+    const available = yield* models
+    if (available.length === 0) {
+      yield* Effect.logDebug("memory extraction skipped: no extraction model available")
+      return []
+    }
+    for (const modelConfig of available) {
       try {
         const result = yield* tryExtractWithModel(llmClient, modelConfig, prompt, systemPrompt)
         return result
@@ -194,12 +181,13 @@ const extractWithFallback = (
 const makeExtractor = Effect.gen(function* () {
   const llmClient = yield* LLMClient.Service
   const indexer = yield* IndexerService
+  const models = yield* ExtractionModels
 
-  const extractFromMessages = (
+  const extractFromMessages: ExtractorService["extractFromMessages"] = (
     messages: MemoryMessage[],
     sessionId: string,
     existingNodes: MemoryNode[]
-  ): Effect.Effect<ExtractedMemory[], MemoryError> =>
+  ) =>
     Effect.gen(function* () {
       let totalChars = 0
       const truncatedMessages: string[] = []
@@ -235,7 +223,7 @@ ${relevantMessages}
 Extract memories as valid JSON array:`
 
       // Try extraction with fallback models
-      const extracted = yield* extractWithFallback(llmClient, prompt, EXTRACTION_SYSTEM_PROMPT)
+      const extracted = yield* extractWithFallback(llmClient, models.models, prompt, EXTRACTION_SYSTEM_PROMPT)
 
       // Now resolve links against existing + new nodes
       const results: ExtractedMemory[] = []
@@ -295,11 +283,11 @@ Extract memories as valid JSON array:`
     path: AbsolutePath
   }
 
-  const extractFromSession = (
+  const extractFromSession: ExtractorService["extractFromSession"] = (
     sessionId: string,
     messages: MemoryMessage[],
     path: string
-  ): Effect.Effect<{ nodes: MemoryNode[]; links: Array<{ sourceId: MemoryNodeID; targetId: MemoryNodeID; type: LinkType }> }, MemoryError> =>
+  ) =>
     Effect.gen(function* () {
       const existingNodes = yield* indexer.getRecentNodes(100)
 

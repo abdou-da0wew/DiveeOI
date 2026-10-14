@@ -96,6 +96,8 @@ import { providerHandlers } from "./handlers/provider"
 import { ptyConnectHandlers, ptyHandlers } from "./handlers/pty"
 import { questionHandlers } from "./handlers/question"
 import { sessionHandlers } from "./handlers/session"
+import { Anchor } from "@/anchor/anchor"
+import { Features } from "@/features"
 import { memoryExtractRoute } from "./handlers/memory"
 import { syncHandlers } from "./handlers/sync"
 import { themeRoute as rawThemeRoute } from "./handlers/themes"
@@ -241,6 +243,10 @@ const app = LayerNode.group([
   SessionRunState.node,
   SessionProcessor.node,
   SessionCompaction.node,
+  // Explicit rather than inherited from SessionCompaction: the anchor route reads the service
+  // with Effect.serviceOption, and relying on transitive hoisting would silently yield an empty
+  // list if that graph ever changes.
+  ...(Features.flags.anchor ? [Anchor.node] : []),
   SessionRevert.node,
   SessionSummary.node,
   SessionPrompt.node,

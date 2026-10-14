@@ -356,7 +356,7 @@ export const ShellTool = Tool.define(
     // Metadata flush cadence is tier-tuned: bounded DB writes per second instead
     // of one per stdout chunk (the dominant cost of verbose commands — a real
     // terminal renders, we used to persist; see draft-10 P10).
-    const flushMs = yield* useAdaptiveTargets((targets) => targets.shellMetadataFlushMs)
+    const flushMs = yield* useAdaptiveTargets((targets) => Effect.succeed(targets.shellMetadataFlushMs))
 
     const cygpath = Effect.fn("ShellTool.cygpath")(function* (shell: string, text: string) {
       const lines = yield* spawner
@@ -483,9 +483,27 @@ export const ShellTool = Tool.define(
         }
         return preview(parts.reverse().join(""))
       }
+      // Leading-edge throttle alone drops the tail: a command that finishes printing and then
+      // blocks (sleep, a prompt, a network read) leaves `dirty` set with no further chunk to
+      // trip the check, so the last output never reaches the UI. A pending trailing timer
+      // guarantees the preview converges on the ring tail.
+      let pendingFlush: ReturnType<typeof setTimeout> | undefined
       const flushMetadata = (force = false) => {
         if (!dirty && !force) return Effect.void
-        if (!force && Date.now() - lastFlushAt < flushMs) return Effect.void
+        if (pendingFlush) {
+          if (!force) return Effect.void
+          clearTimeout(pendingFlush)
+          pendingFlush = undefined
+        }
+        if (!force && Date.now() - lastFlushAt < flushMs) {
+          if (!pendingFlush) {
+            pendingFlush = setTimeout(() => {
+              pendingFlush = undefined
+              void Effect.runPromise(flushMetadata()).catch(() => {})
+            }, flushMs - (Date.now() - lastFlushAt))
+          }
+          return Effect.void
+        }
         dirty = false
         lastFlushAt = Date.now()
         return ctx.metadata({
@@ -497,6 +515,10 @@ export const ShellTool = Tool.define(
       }
 
       const closeSink = Effect.fnUntraced(function* () {
+        if (pendingFlush) {
+          clearTimeout(pendingFlush)
+          pendingFlush = undefined
+        }
         const stream = sink
         if (!stream) return
         sink = undefined
@@ -559,7 +581,11 @@ export const ShellTool = Tool.define(
 
               if (file) {
                 sink?.write(chunk)
-                return Effect.void
+                // The ring above already absorbed the chunk; keep republishing the preview
+                // after the spill too. Returning without marking dirty here freezes the
+                // running metadata at whatever the forced spill flush happened to capture.
+                dirty = true
+                return flushMetadata()
               }
               if (total > limits.maxBytes) {
                 // Spill: the ring still holds the entire output (maxBytes < keep),

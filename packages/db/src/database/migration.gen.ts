@@ -43,5 +43,6 @@ export const migrations = (
     import("./migration/20260729000002_add_username_message_count"),
     import("./migration/20260918000001_heal_preference_table"),
     import("./migration/20260922000001_agent_foundations"),
+    import("./migration/20260926000000_repair_missing_tables"),
   ])
 ).map((module) => module.default) satisfies DatabaseMigration.Migration[]

@@ -31,6 +31,7 @@ import { withFixedWorkspaceID } from "../fixture/flag"
 import { workspaceLayerWithRuntimeFlags } from "../fixture/workspace"
 import { waitGlobalBusEvent } from "./global-bus"
 import { testEffect } from "../lib/effect"
+import { TestAmbient } from "../lib/ambient"
 
 const testStateLayer = Layer.effectDiscard(
   Effect.gen(function* () {
@@ -48,6 +49,7 @@ const workspaceLayer = workspaceLayerWithRuntimeFlags({ experimentalWorkspaces: 
 
 const it = testEffect(
   Layer.mergeAll(
+    TestAmbient.ambientLayer,
     testStateLayer,
     NodeHttpServer.layerTest,
     NodeServices.layer,

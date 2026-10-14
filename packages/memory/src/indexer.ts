@@ -21,11 +21,12 @@ export const MemoryIndexSchema = {
       path TEXT NOT NULL
     );
   `,
-  // Add new columns for multi-project support (idempotent)
+  // Columns added after the original CREATE, for multi-project support. Paired with the column
+  // name so init can check the table instead of pattern-matching a driver error message.
   nodesAlterColumns: [
-    `ALTER TABLE memory_nodes ADD COLUMN project_id TEXT;`,
-    `ALTER TABLE memory_nodes ADD COLUMN project_root TEXT;`,
-    `ALTER TABLE memory_nodes ADD COLUMN file_exists INTEGER DEFAULT 1;`,
+    { column: "project_id", sql: `ALTER TABLE memory_nodes ADD COLUMN project_id TEXT;` },
+    { column: "project_root", sql: `ALTER TABLE memory_nodes ADD COLUMN project_root TEXT;` },
+    { column: "file_exists", sql: `ALTER TABLE memory_nodes ADD COLUMN file_exists INTEGER DEFAULT 1;` },
   ],
   links: `
     CREATE TABLE IF NOT EXISTS memory_links (
@@ -110,7 +111,7 @@ export interface IndexerService {
 
 export const IndexerService = Context.Service<IndexerService, IndexerService>()("@diveeoi/memory/IndexerService")
 
-const makeIndexer = Effect.gen(function* () {
+const makeIndexer: Effect.Effect<IndexerService, never, Database.Service | MemoryConfig> = Effect.gen(function* () {
   const { db } = yield* Database.Service
   const config = yield* MemoryConfig
 
@@ -119,28 +120,44 @@ const makeIndexer = Effect.gen(function* () {
 
   const initialize = (): Effect.Effect<void, MemoryError> =>
     Effect.gen(function* () {
+      // Order matters: tables -> additive columns -> indexes.
+      // idx_memory_nodes_project / idx_memory_nodes_orphaned reference columns that only
+      // exist after the ALTERs below, so creating indexes first aborts init on any database
+      // created before those columns were added (which then never receives them at all).
       yield* mapDbError(db.run(MemoryIndexSchema.nodes))
       yield* mapDbError(db.run(MemoryIndexSchema.links))
       yield* mapDbError(db.run(MemoryIndexSchema.sessionMemories))
       yield* mapDbError(db.run(MemoryIndexSchema.projects))
-      for (const idx of MemoryIndexSchema.indexes) {
-        yield* mapDbError(db.run(idx))
+
+      // Additive columns are idempotent, and idempotence is decided by looking at the table
+      // rather than by catching "duplicate column name": SQLite errors do not survive
+      // stringification (String(sqlError) is "[object Object]"), so a text match on the error
+      // silently never fires and the second init of a process fails outright. Asking the table
+      // what it already has is deterministic and independent of how the driver reports errors.
+      const existing = yield* db
+        .all<{ name: string }>(sql.raw("PRAGMA table_info(memory_nodes)"))
+        .pipe(mapDbError)
+      const columns = new Set(existing.map((row) => row.name))
+      for (const { column, sql } of MemoryIndexSchema.nodesAlterColumns) {
+        if (columns.has(column)) continue
+        yield* mapDbError(db.run(sql))
       }
-      for (const idx of MemoryIndexSchema.projectsIndexes) {
-        yield* mapDbError(db.run(idx))
-      }
-      // Add new columns if they don't exist (idempotent ALTER TABLE)
-      // SQLite ignores "duplicate column" errors, so we catch them
-      for (const alter of MemoryIndexSchema.nodesAlterColumns) {
-        yield* mapDbError(db.run(alter)).pipe(
-          Effect.catch(() => Effect.void) // ignore "duplicate column" errors
+
+      for (const idx of [...MemoryIndexSchema.indexes, ...MemoryIndexSchema.projectsIndexes]) {
+        // A single unusable index must not take the rest of init (or the readiness signal) down.
+        yield* db.run(idx).pipe(
+          Effect.catch((error) => Effect.logWarning("memory indexer: index not created", { index: idx, error })),
         )
       }
+
       // Enable foreign keys
       yield* mapDbError(db.run(`PRAGMA foreign_keys = ON`))
       // Signal that init is complete
       yield* Deferred.succeed(ready, undefined)
-    })
+    }).pipe(
+      // Never leave waiters hanging: a failed init must fail the readiness gate too.
+      Effect.onError((cause) => Deferred.failCause(ready, cause).pipe(Effect.ignore)),
+    )
 
   const isReady = (): Effect.Effect<boolean> =>
     Deferred.isDone(ready)
@@ -174,6 +191,14 @@ const makeIndexer = Effect.gen(function* () {
   // Transaction helper
   const mapDbError = <A, E>(effect: Effect.Effect<A, E>): Effect.Effect<A, MemoryError> =>
     effect.pipe(Effect.mapError((err) => new MemoryError({ cause: err })))
+
+  /**
+   * Guard for every data method: the schema is created by a background init fiber, so a
+   * request that arrives before it finishes would otherwise query a half-built schema
+   * ("no such table" / "no such column").
+   */
+  const afterReady = <A>(effect: Effect.Effect<A, MemoryError>): Effect.Effect<A, MemoryError> =>
+    waitForReady().pipe(Effect.andThen(effect))
 
   const withTransaction = <A, E>(effect: Effect.Effect<A, E>): Effect.Effect<A, MemoryError> =>
     mapDbError(db.transaction(() => effect))
@@ -472,33 +497,34 @@ const getLinkedNodes = (nodeId: MemoryNodeID, depth: number): Effect.Effect<Memo
     isReady,
     waitForReady,
     initialize,
-    upsertNode,
-    deleteNode,
-    getNode,
-    getNodes,
-    upsertLink,
-    deleteLink,
-    getLinks,
-    getBacklinks,
-    getNodesBySession,
-    getNodesByType,
-    getNodesByProject,
-    searchNodes,
-    bindSession,
-    getSessionRoot,
-    getSessionNodes,
-    getRecentNodes,
-    getLinkedNodes,
-    countNodes,
-    countLinks,
-    countSessions,
-    rebuildIndex,
+    // Every data method waits for schema init; see `afterReady`.
+    upsertNode: (node) => afterReady(upsertNode(node)),
+    deleteNode: (nodeId) => afterReady(deleteNode(nodeId)),
+    getNode: (nodeId) => afterReady(getNode(nodeId)),
+    getNodes: (ids) => afterReady(getNodes(ids)),
+    upsertLink: (sourceId, targetId, type) => afterReady(upsertLink(sourceId, targetId, type)),
+    deleteLink: (sourceId, targetId) => afterReady(deleteLink(sourceId, targetId)),
+    getLinks: (nodeId) => afterReady(getLinks(nodeId)),
+    getBacklinks: (nodeId) => afterReady(getBacklinks(nodeId)),
+    getNodesBySession: (sessionId) => afterReady(getNodesBySession(sessionId)),
+    getNodesByType: (type) => afterReady(getNodesByType(type)),
+    getNodesByProject: (projectId) => afterReady(getNodesByProject(projectId)),
+    searchNodes: (query, limit) => afterReady(searchNodes(query, limit)),
+    bindSession: (sessionId, rootNodeId) => afterReady(bindSession(sessionId, rootNodeId)),
+    getSessionRoot: (sessionId) => afterReady(getSessionRoot(sessionId)),
+    getSessionNodes: (sessionId) => afterReady(getSessionNodes(sessionId)),
+    getRecentNodes: (limit, since) => afterReady(getRecentNodes(limit, since)),
+    getLinkedNodes: (nodeId, depth) => afterReady(getLinkedNodes(nodeId, depth)),
+    countNodes: () => afterReady(countNodes()),
+    countLinks: () => afterReady(countLinks()),
+    countSessions: () => afterReady(countSessions()),
+    rebuildIndex: () => afterReady(rebuildIndex()),
     // Multi-project
-    registerProject,
-    listProjects,
-    getOrphanedNodes,
-    verifyFileExists,
-    markOrphaned,
+    registerProject: (rootPath, memoryDir, name) => afterReady(registerProject(rootPath, memoryDir, name)),
+    listProjects: () => afterReady(listProjects()),
+    getOrphanedNodes: () => afterReady(getOrphanedNodes()),
+    verifyFileExists: (nodeId) => afterReady(verifyFileExists(nodeId)),
+    markOrphaned: (nodeId) => afterReady(markOrphaned(nodeId)),
   }
 })
 
