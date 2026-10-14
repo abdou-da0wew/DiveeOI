@@ -299,6 +299,9 @@ export const layer = Layer.effect(
           ...memoryTools,
           ...anchorTools,
           ...ctx7Defs,
+          // P6 machine tools are registered as lazy tools below — they
+          // resolve ChildProcessSpawner/FSUtil/Ripgrep at init and would
+          // widen the state-initializer R type if eagerly loaded here.
         ]
         const taskDef: TaskDef = tool.task
         const readDef: ReadDef = tool.read
@@ -315,6 +318,75 @@ export const layer = Layer.effect(
                 const mod: any = yield* Effect.promise(() => import("./apply_patch"))
                 const info = yield* (mod.ApplyPatchTool as Effect.Effect<Tool.Info>)
                 return yield* Tool.init(info)
+              }),
+            },
+            // P6 machine tools — lazy-loaded so the ChildProcessSpawner /
+            // FSUtil / Ripgrep service deps stay scoped to each tool's init
+            // and don't widen the registry's state-initializer R type.
+            {
+              init: Effect.gen(function* () {
+                const mod: any = yield* Effect.promise(() => import("./machine/notify"))
+                return yield* Tool.init(yield* (mod.NotifyTool as Effect.Effect<Tool.Info>))
+              }),
+            },
+            {
+              init: Effect.gen(function* () {
+                const mod: any = yield* Effect.promise(() => import("./machine/system-info"))
+                return yield* Tool.init(yield* (mod.SystemInfoTool as Effect.Effect<Tool.Info>))
+              }),
+            },
+            {
+              init: Effect.gen(function* () {
+                const mod: any = yield* Effect.promise(() => import("./machine/list-processes"))
+                return yield* Tool.init(yield* (mod.ListProcessesTool as Effect.Effect<Tool.Info>))
+              }),
+            },
+            {
+              init: Effect.gen(function* () {
+                const mod: any = yield* Effect.promise(() => import("./machine/kill-process"))
+                return yield* Tool.init(yield* (mod.KillProcessTool as Effect.Effect<Tool.Info>))
+              }),
+            },
+            {
+              init: Effect.gen(function* () {
+                const mod: any = yield* Effect.promise(() => import("./machine/http-request"))
+                return yield* Tool.init(yield* (mod.HttpRequestTool as Effect.Effect<Tool.Info>))
+              }),
+            },
+            {
+              init: Effect.gen(function* () {
+                const mod: any = yield* Effect.promise(() => import("./machine/screenshot"))
+                return yield* Tool.init(yield* (mod.ScreenshotTool as Effect.Effect<Tool.Info>))
+              }),
+            },
+            {
+              init: Effect.gen(function* () {
+                const mod: any = yield* Effect.promise(() => import("./machine/clipboard"))
+                return yield* Tool.init(yield* (mod.ClipboardReadTool as Effect.Effect<Tool.Info>))
+              }),
+            },
+            {
+              init: Effect.gen(function* () {
+                const mod: any = yield* Effect.promise(() => import("./machine/clipboard"))
+                return yield* Tool.init(yield* (mod.ClipboardWriteTool as Effect.Effect<Tool.Info>))
+              }),
+            },
+            {
+              init: Effect.gen(function* () {
+                const mod: any = yield* Effect.promise(() => import("./machine/watch-file"))
+                return yield* Tool.init(yield* (mod.WatchFileTool as Effect.Effect<Tool.Info>))
+              }),
+            },
+            {
+              init: Effect.gen(function* () {
+                const mod: any = yield* Effect.promise(() => import("./machine/open-url"))
+                return yield* Tool.init(yield* (mod.OpenUrlTool as Effect.Effect<Tool.Info>))
+              }),
+            },
+            {
+              init: Effect.gen(function* () {
+                const mod: any = yield* Effect.promise(() => import("./machine/glob-search"))
+                return yield* Tool.init(yield* (mod.GlobSearchTool as Effect.Effect<Tool.Info>))
               }),
             },
           ].concat(

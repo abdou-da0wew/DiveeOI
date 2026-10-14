@@ -105,6 +105,7 @@ import { tuiHandlers } from "./handlers/tui"
 import { workspaceHandlers } from "./handlers/workspace"
 import { handlers } from "@diveeoi/api/handlers"
 import { schemaErrorLayer as v2SchemaErrorLayer } from "@diveeoi/api/middleware/schema-error"
+import { taskServiceLayer } from "./task-service-layer"
 import { instanceContextLayer } from "./middleware/instance-context"
 import { workspaceRoutingLayer } from "./middleware/workspace-routing"
 import { disposeMiddleware, traceMiddleware } from "./lifecycle"
@@ -176,6 +177,7 @@ const instanceRoutes = instanceApiRoutes.pipe(
 )
 const serverRoutes = HttpApiBuilder.layer(Api).pipe(
   Layer.provide(handlers),
+  Layer.provide(taskServiceLayer),
   Layer.provide(PluginPtyEnvironment.layer),
   Layer.provide(JwtAuth.defaultLayer),
   Layer.provide([serverHttpApiAuthLayer, v2SchemaErrorLayer]),
