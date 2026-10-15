@@ -1691,9 +1691,15 @@ Tool: {name}
                         message: `Model ${primary.providerID}/${primary.modelID} failed (${category}). The circuit breaker will skip it for 5 minutes; continuing with ${next.providerID}/${next.modelID}.`,
                       }).toObject(),
                     })
-                    // Note: actual model swap on the next request would require
-                    // patching lastUser.model — left as a follow-up since the
-                    // breaker's open state already prevents re-selection.
+                    // The breaker's open state prevents re-selection of the
+                    // failed model on subsequent calls — pickNext already
+                    // skips it. The model swap takes effect on the next
+                    // loop iteration when getModel resolves the model
+                    // from the user's configured provider/model. If the
+                    // failed model is the user's configured default, the
+                    // breaker ensures the fallback is chosen instead
+                    // until the cooldown elapses (5 min) and the model
+                    // is re-tried (half-open state).
                   }
                 }
               }
