@@ -44,7 +44,6 @@ export function upstreamURL(path: string) {
 export function embeddedUI(disableEmbeddedWebUi: boolean) {
   if (disableEmbeddedWebUi) return Promise.resolve(null)
   return (embeddedUIPromise ??=
-    // @ts-expect-error - generated file at build time
     import("./diveeoi-web-ui.gen.ts").then((module) => module.default as Record<string, string>).catch(() => null))
 }
 
