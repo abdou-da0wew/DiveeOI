@@ -1,5 +1,4 @@
 import { For, Show, createResource, createSignal, type Component } from "solid-js"
-import { useServerSDK } from "@/context/server-sdk"
 import { useServer } from "@/context/server"
 import { authTokenFromCredentials } from "@/utils/server"
 import { useLanguage } from "@/context/language"
@@ -48,10 +47,13 @@ function relativeTime(ts: number | undefined): string {
 }
 
 export const TasksPanel: Component = () => {
-  const serverSDK = useServerSDK()
   const server = useServer()
   const language = useLanguage()
 
+  // Build auth headers from the server connection. When the server has no
+  // password configured, returns empty headers (the server allows anonymous
+  // access in that case). Uses relative URLs so the SPA works regardless of
+  // whether it's served from the same origin or via a proxy.
   const authHeaders = (): Record<string, string> => {
     const current = server.current
     if (!current || current.type !== "http") return {}
@@ -64,7 +66,7 @@ export const TasksPanel: Component = () => {
 
   const fetchTasks = async (): Promise<TaskInfo[]> => {
     try {
-      const res = await fetch(`${serverSDK().url}/api/v1/tasks`, {
+      const res = await fetch(`/api/v1/tasks`, {
         headers: authHeaders(),
       })
       if (!res.ok) return []
@@ -86,7 +88,7 @@ export const TasksPanel: Component = () => {
     if (!prompt) return
     setCreating(true)
     try {
-      await fetch(`${serverSDK().url}/api/v1/tasks`, {
+      await fetch(`/api/v1/tasks`, {
         method: "POST",
         headers: { ...authHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ prompt, autoRun: autoRun() }),
@@ -101,12 +103,12 @@ export const TasksPanel: Component = () => {
 
   const actionTask = async (id: string, action: "cancel" | "pause" | "resume") => {
     if (action === "cancel") {
-      await fetch(`${serverSDK().url}/api/v1/tasks/${id}`, {
+      await fetch(`/api/v1/tasks/${id}`, {
         method: "DELETE",
         headers: authHeaders(),
       })
     } else {
-      await fetch(`${serverSDK().url}/api/v1/tasks/${id}/${action}`, {
+      await fetch(`/api/v1/tasks/${id}/${action}`, {
         method: "POST",
         headers: authHeaders(),
       })
