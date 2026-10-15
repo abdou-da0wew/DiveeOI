@@ -1277,7 +1277,7 @@ export const layer = Layer.effect(
         // FiberId, which we don't have at this point. The stall is logged
         // so the operator can see it; the watchdog state + touch calls
         // are the foundation for the full interrupt-and-restart path.
-        const supervisorFiber = yield* Effect.fork(
+        const supervisorFiber = yield* Effect.forkScoped(
           Effect.gen(function* () {
             const thresholds = yield* Watchdog.adaptiveThresholds()
             yield* Effect.forever(
