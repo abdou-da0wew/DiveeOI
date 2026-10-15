@@ -22,6 +22,8 @@ import { Discovery } from "@/skill/discovery"
 import { Question } from "@/question"
 import { Permission } from "@/permission"
 import { Todo } from "@/session/todo"
+import { RemoteSession } from "@/ssh-client"
+import { LocalFS } from "@/tool/local-fs"
 import { Session } from "@/session/session"
 import { SessionStatus } from "@/session/status"
 import { SessionRunState } from "@/session/run-state"
@@ -76,6 +78,8 @@ export const AppLayer = Layer.mergeAll(
   Question.defaultLayer,
   Permission.defaultLayer,
   Todo.defaultLayer,
+  RemoteSession.defaultLayer,
+  LocalFS.layer,
   Session.defaultLayer,
   SessionStatus.defaultLayer,
   BackgroundJob.defaultLayer,
