@@ -252,7 +252,7 @@ export function SessionHeader() {
     },
     // Remote/local toggle (draft-10 remote sessions)
     remoteLabel: language.t("session.remote.tooltip"),
-    isRemote: false,
+    isRemote: false, // TODO: wire from session.metadata.remote once the sync context exposes it
     onToggleRemote: () => {
       const sessionID = params.id
       if (!sessionID) return
