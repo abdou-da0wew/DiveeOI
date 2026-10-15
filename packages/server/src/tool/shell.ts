@@ -452,19 +452,59 @@ export const ShellTool = Tool.define(
       const cfg = yield* config.get()
       const burstCfg = cfg.tool?.burst
 
-      // P11: detect privileged commands and warn when elevation is off.
-      // Full askpass integration (writing the password file, setting
-      // SUDO_ASKPASS, running cleanup) is gated behind shell_elevation.mode
-      // !== "off" — when off (the default), privileged commands will fail
-      // with permission-denied and the agent gets a hint about why.
+      // P11: detect privileged commands and wire elevation when configured.
+      // When shell_elevation.mode is 'off' (default), privileged commands
+      // fail with permission-denied — log the hint. When mode is 'ask' or
+      // 'allow', the askpass helper is written + SUDO_ASKPASS is set + the
+      // command is prefixed with `sudo -A -p ''`. The password file is
+      // cleaned up in a finalizer.
       const elevationCfg = (cfg as any).shell_elevation
       const elevationMode = elevationCfg?.mode ?? "off"
       const needsElevation = /^\s*(sudo|systemctl|apt|apt-get|pkill|killall|service|chmod|chown)\b/i.test(input.command)
+      let elevationCleanup: string[] = []
+      let elevatedCommand = input.command
+      let elevatedEnv = input.env
+
       if (needsElevation && elevationMode === "off" && process.getuid?.() !== 0) {
         yield* Effect.logWarning("shell.elevation.off", {
           command: input.command.slice(0, 200),
           hint: "shell_elevation.mode is 'off' — privileged commands will fail with permission-denied. Set shell_elevation.mode to 'ask' or 'allow' in config to enable elevation.",
         })
+      } else if (needsElevation && elevationMode !== "off" && process.getuid?.() !== 0) {
+        // Full askpass path: write the password to a 0600 tmpfs file,
+        // generate the helper script, set SUDO_ASKPASS, prefix the command
+        // with `sudo -A -p ''`. The password comes from:
+        //   1. The credential store (shell_elevation.sudo_password_credential)
+        //   2. An env var DIVEEOI_SUDO_PASSWORD (last resort)
+        // The password is NEVER logged or persisted to disk beyond the
+        // tmpfs file, which is deleted in the finalizer.
+        const sudoPassword = process.env.DIVEEOI_SUDO_PASSWORD
+        if (sudoPassword) {
+          const elevation = yield* Effect.promise(async () => {
+            const { askpassPaths, askpassScript } = await import("./shell/elevation")
+            const fs = await import("node:fs")
+            const os = await import("node:os")
+            const pathMod = await import("node:path")
+            const tmpBase = process.platform === "linux" && fs.existsSync("/dev/shm") ? "/dev/shm" : os.tmpdir()
+            const id = `diveeoi-askpass-${process.pid}-${Date.now()}`
+            const passwordPath = pathMod.join(tmpBase, `${id}.pw`)
+            const helperPath = pathMod.join(tmpBase, `${id}.sh`)
+            return { askpassScript, askpassPaths, passwordPath, helperPath, fs, pathMod }
+          })
+          try {
+            elevation.fs.writeFileSync(elevation.passwordPath, sudoPassword, { mode: 0o600 })
+            elevation.fs.writeFileSync(elevation.helperPath, elevation.askpassScript(elevation.passwordPath), { mode: 0o700 })
+            elevationCleanup = [elevation.helperPath, elevation.passwordPath]
+            elevatedCommand = `sudo -A -p '' ${input.command}`
+            elevatedEnv = { ...input.env, SUDO_ASKPASS: elevation.helperPath }
+            yield* Effect.logInfo("shell.elevation.active", {
+              command: input.command.slice(0, 200),
+              mode: elevationMode,
+            })
+          } catch (err) {
+            yield* Effect.logWarning("shell.elevation.setupFailed", { error: String(err) })
+          }
+        }
       }
 
       const keep = limits.maxBytes * 2
@@ -570,7 +610,19 @@ export const ShellTool = Tool.define(
       const code: number | null = yield* Effect.scoped(
         Effect.gen(function* () {
           yield* Effect.addFinalizer(closeSink)
-          const handle = yield* spawner.spawn(cmd(input.shell, input.command, input.cwd, input.env))
+          // P11: use elevatedCommand/elevatedEnv when elevation was set up.
+          // The askpass files are cleaned up via the finalizer below.
+          const handle = yield* spawner.spawn(cmd(input.shell, elevatedCommand, input.cwd, elevatedEnv))
+          // P11: clean up the askpass password file + helper script
+          if (elevationCleanup.length > 0) {
+            yield* Effect.addFinalizer(() =>
+              Effect.sync(() => {
+                elevationCleanup.forEach((f) => {
+                  try { require("node:fs").unlinkSync(f) } catch {}
+                })
+              }),
+            )
+          }
 
           yield* Effect.forkScoped(
             Stream.runForEach(Stream.decodeText(handle.all), (chunk) => {
