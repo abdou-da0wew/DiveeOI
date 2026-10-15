@@ -250,6 +250,16 @@ export function SessionHeader() {
         dialog.show(() => <x.DialogSessionAnchor sessionID={sessionID} />),
       )
     },
+    // Remote/local toggle (draft-10 remote sessions)
+    remoteLabel: language.t("session.remote.tooltip"),
+    isRemote: false,
+    onToggleRemote: () => {
+      const sessionID = params.id
+      if (!sessionID) return
+      void import("@/components/dialog-session-remote").then((x) =>
+        dialog.show(() => <x.DialogSessionRemote sessionID={sessionID} />),
+      )
+    },
   }))
 
   const selectApp = (app: OpenApp) => {
@@ -534,6 +544,10 @@ type SessionHeaderV2ActionsState = {
   reviewKeybind: string
   reviewOpened: boolean
   onReviewToggle: () => void
+  // Remote/local toggle (draft-10 remote sessions)
+  remoteLabel: string
+  isRemote: boolean
+  onToggleRemote: () => void
 }
 
 function SessionHeaderV2Actions(props: { state: SessionHeaderV2ActionsState }) {
@@ -544,6 +558,20 @@ function SessionHeaderV2Actions(props: { state: SessionHeaderV2ActionsState }) {
           <StatusPopoverV2 />
         </Tooltip>
       </Show>
+      {/* Remote/local toggle — placed before the anchor button since it
+          answers "what environment am I in" before "what am I doing". */}
+      <Tooltip placement="bottom" value={props.state.remoteLabel}>
+        <IconButtonV2
+          type="button"
+          variant="ghost-muted"
+          size="large"
+          class="!w-9 shrink-0"
+          state={props.state.isRemote ? "pressed" : undefined}
+          onClick={props.state.onToggleRemote}
+          aria-label={props.state.remoteLabel}
+          icon={<IconV2 name={props.state.isRemote ? "cloud" : "server"} />}
+        />
+      </Tooltip>
       <Tooltip placement="bottom" value={props.state.anchorLabel}>
         <IconButtonV2
           type="button"
