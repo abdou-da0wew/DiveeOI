@@ -15,6 +15,8 @@ export interface LoadInput {
   directory: string
   worktree?: string
   project?: Project.Info
+  /** Remote session config — when present, boot uses the remote context. */
+  remote?: import("@/ssh-client").RemoteConfig
 }
 
 export interface Interface {
@@ -42,10 +44,29 @@ export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootst
     const scope = yield* Scope.Scope
     const cache = new Map<string, Entry>()
 
+    // Remote sessions get a composite cache key so two remotes with the same
+    // path on different hosts don't collide.
+    const cacheKey = (input: { directory: string; remote?: import("@/ssh-client").RemoteConfig }) =>
+      input.remote ? `remote:${input.remote.host}:${input.remote.port}:${input.directory}` : input.directory
+
     const boot = (input: LoadInput & { directory: string }) =>
       Effect.gen(function* () {
-        const ctx: InstanceContext =
-          input.project && input.worktree
+        // Remote session: construct an InstanceContext from the remote config
+        // instead of reading the local filesystem. directory/worktree are the
+        // remote paths; project is synthetic.
+        const ctx: InstanceContext = input.remote
+          ? {
+              directory: input.directory,
+              worktree: input.directory,
+              project: {
+                id: `remote:${input.remote.host}:${input.remote.port}` as any,
+                worktree: input.directory,
+                time: { created: 0, updated: 0 },
+                sandboxes: [],
+              },
+              remote: input.remote,
+            }
+          : input.project && input.worktree
             ? {
                 directory: input.directory,
                 worktree: input.worktree,
