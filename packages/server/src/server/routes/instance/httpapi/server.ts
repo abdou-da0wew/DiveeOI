@@ -99,6 +99,7 @@ import { sessionHandlers } from "./handlers/session"
 import { Anchor } from "@/anchor/anchor"
 import { Features } from "@/features"
 import { memoryExtractRoute } from "./handlers/memory"
+import { remoteProbeRoute } from "./handlers/remote"
 import { syncHandlers } from "./handlers/sync"
 import { themeRoute as rawThemeRoute } from "./handlers/themes"
 import { tuiHandlers } from "./handlers/tui"
@@ -287,6 +288,7 @@ return Layer.mergeAll(
     docRoute,
     themeRoute,
     memoryExtractRoute,
+    remoteProbeRoute,
     uiRoute,
   ).pipe(
     Layer.provide([
