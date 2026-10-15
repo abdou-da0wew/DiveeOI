@@ -27,6 +27,10 @@ export function parameterSchema(description: string) {
       description: `The working directory to run the command in. Defaults to the current directory. Use this instead of 'cd' commands.`,
     }),
     description: Schema.String.annotate({ description }),
+    ctx_local: Schema.optional(Schema.Boolean).annotate({
+      description:
+        "Remote sessions: when true, run this command on the LOCAL machine instead of the remote SSH host. Defaults to false (remote).",
+    }),
   })
 }
 

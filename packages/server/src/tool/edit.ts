@@ -53,6 +53,7 @@ export const Parameters = Schema.Struct({
   replaceAll: Schema.optional(Schema.Boolean).annotate({
     description: "Replace all occurrences of oldString (default false)",
   }),
+  ctx_local: Schema.optional(Schema.Boolean).annotate({ description: "Remote sessions: when true, operate on the LOCAL machine instead of the remote SSH host. Defaults to false (remote)." }),
 })
 
 export const EditTool = Tool.define(

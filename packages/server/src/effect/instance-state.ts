@@ -15,7 +15,7 @@ export const context = Effect.gen(function* () {
   const ctx = yield* InstanceRef
   if (!ctx) {
     yield* Effect.logWarning("InstanceState.context called without InstanceRef")
-    return { directory: process.cwd(), worktree: process.cwd(), project: { id: "startup" as any, worktree: process.cwd(), time: { created: 0, updated: 0 }, sandboxes: [] } }
+    return { directory: process.cwd(), worktree: process.cwd(), project: { id: "startup" as any, worktree: process.cwd(), time: { created: 0, updated: 0 }, sandboxes: [] }, remote: undefined } as InstanceContext
   }
   return ctx
 })

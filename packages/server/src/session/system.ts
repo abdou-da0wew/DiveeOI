@@ -125,11 +125,23 @@ export const layer = Layer.effect(
             `You are powered by the model named ${model.api.id}. The exact model ID is ${model.providerID}/${model.api.id}`,
             `Here is some useful information about the environment you are running in:`,
             `<env>`,
-            `  Working directory: ${ctx.directory}`,
-            `  Workspace root folder: ${ctx.worktree}`,
-            `  Is directory a git repo: ${"vcs" in ctx.project && ctx.project.vcs === "git" ? "yes" : "no"}`,
-            `  Platform: ${process.platform}`,
-            `  Today's date: ${new Date().toDateString()}`,
+            ...(ctx.remote
+              ? [
+                  `  Working directory: ${ctx.directory} (remote: ${ctx.remote.user}@${ctx.remote.host})`,
+                  `  Workspace root folder: ${ctx.worktree}`,
+                  `  Is directory a git repo: ${"vcs" in ctx.project && ctx.project.vcs === "git" ? "yes" : "no"}`,
+                  `  Platform: ${ctx.remote.platform ?? "linux"}`,
+                  `  Remote host: ${ctx.remote.host}:${ctx.remote.port}`,
+                  `  Today's date: ${new Date().toDateString()}`,
+                  `  NOTE: You are on a REMOTE SSH session. All file/shell operations run on ${ctx.remote.host}. Use ctx_local=true on any tool call to run it on the LOCAL machine instead.`,
+                ]
+              : [
+                  `  Working directory: ${ctx.directory}`,
+                  `  Workspace root folder: ${ctx.worktree}`,
+                  `  Is directory a git repo: ${"vcs" in ctx.project && ctx.project.vcs === "git" ? "yes" : "no"}`,
+                  `  Platform: ${process.platform}`,
+                  `  Today's date: ${new Date().toDateString()}`,
+                ]),
             `</env>`,
           ].join("\n"),
         ]

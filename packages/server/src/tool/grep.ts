@@ -15,6 +15,7 @@ export const Parameters = Schema.Struct({
   include: Schema.optional(Schema.String).annotate({
     description: 'File pattern to include in the search (e.g. "*.js", "*.{ts,tsx}")',
   }),
+  ctx_local: Schema.optional(Schema.Boolean).annotate({ description: "Remote sessions: when true, operate on the LOCAL machine instead of the remote SSH host. Defaults to false (remote)." }),
 })
 
 export const GrepTool = Tool.define(

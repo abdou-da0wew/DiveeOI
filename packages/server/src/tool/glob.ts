@@ -12,6 +12,7 @@ export const Parameters = Schema.Struct({
   path: Schema.optional(Schema.String).annotate({
     description: `The directory to search in. If not specified, the current working directory will be used. IMPORTANT: Omit this field to use the default directory. DO NOT enter "undefined" or "null" - simply omit it for the default behavior. Must be a valid directory path if provided.`,
   }),
+  ctx_local: Schema.optional(Schema.Boolean).annotate({ description: "Remote sessions: when true, operate on the LOCAL machine instead of the remote SSH host. Defaults to false (remote)." }),
 })
 
 export const GlobTool = Tool.define(
