@@ -65,3 +65,5 @@ packages/*/build/
 # Runtime data
 .divee/
 videos/
+dist-old/
+packages/app/dist/
