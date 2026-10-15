@@ -9,7 +9,7 @@ import { Spinner } from "@diveeoi/ui/spinner"
 import { showToast } from "@/utils/toast"
 import { Tooltip, TooltipKeybind } from "@diveeoi/ui/tooltip"
 import { getFilename } from "@diveeoi/db/util/path"
-import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, For, onMount, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Portal } from "solid-js/web"
 import { useCommand } from "@/context/command"
@@ -17,6 +17,8 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { usePlatform } from "@/context/platform"
 import { useServer } from "@/context/server"
+import { useServerSDK } from "@/context/server-sdk"
+import { authTokenFromCredentials } from "@/utils/server"
 import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
@@ -136,6 +138,7 @@ export function SessionHeader() {
   const layout = useLayout()
   const command = useCommand()
   const server = useServer()
+  const serverSDK = useServerSDK()
   const platform = usePlatform()
   const language = useLanguage()
   const settings = useSettings()
@@ -143,6 +146,33 @@ export function SessionHeader() {
   const dialog = useDialog()
   const terminal = useTerminal()
   const { params, view } = useSessionLayout()
+
+  // Remote session state: fetch the session's metadata to check if it has
+  // a remote config. This is a lightweight GET that the session header
+  // does on mount + when the session ID changes.
+  const authHeaders = (): Record<string, string> => {
+    const current = server.current
+    if (!current || current.type !== "http") return {}
+    const http = current.http
+    if (!http.password) return {}
+    return { Authorization: `Basic ${authTokenFromCredentials({ username: http.username, password: http.password })}` }
+  }
+  const [remoteState] = createResource(
+    () => params.id,
+    async (sessionID) => {
+      try {
+        const res = await fetch(`${serverSDK().url}/api/session/${sessionID}`, {
+          headers: authHeaders(),
+        })
+        if (!res.ok) return { isRemote: false }
+        const json = await res.json()
+        const metadata = json.data?.metadata ?? json.metadata ?? {}
+        return { isRemote: !!(metadata && metadata.remote) }
+      } catch {
+        return { isRemote: false }
+      }
+    },
+  )
 
   const projectDirectory = createMemo(() => decode64(params.dir) ?? "")
   const project = createMemo(() => {
@@ -252,7 +282,7 @@ export function SessionHeader() {
     },
     // Remote/local toggle (draft-10 remote sessions)
     remoteLabel: language.t("session.remote.tooltip"),
-    isRemote: false, // TODO: wire from session.metadata.remote once the sync context exposes it
+    isRemote: remoteState()?.isRemote ?? false,
     onToggleRemote: () => {
       const sessionID = params.id
       if (!sessionID) return

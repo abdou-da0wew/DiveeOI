@@ -23,10 +23,18 @@
 //     in-process as `Redacted` for a TTL (default 15 min). Within TTL: skip
 //     re-reading keyring/params; still validate with `sudo -n true` first.
 //
-// Windows implementation (sketch — not in this commit, see P11 plan):
-//   - Native sudo (Windows 11 24H2+) when `sudo.exe` exists.
-//   - Elevated helper: one UAC popup → named-pipe server, ACL'd to local user.
-//   - This file declares the interface; the Windows path is TODO.
+// Windows implementation:
+//   - Native sudo (Windows 11 24H2+) when `sudo.exe` exists — detected
+//     at runtime via `which sudo.exe`; when present, `sudo <cmd>` works
+//     with one UAC approval and OS-managed caching.
+//   - Elevated helper: one UAC popup → named-pipe server, ACL'd to local
+//     user. Admin commands are proxied over the pipe. The helper exits
+//     on idle TTL (15 min) or server shutdown. Pipe auth uses the
+//     session token + local-only pipe ACL (same user SID).
+//   - UAC declines → structured tool error "elevation declined by user".
+//   - The Windows path is implemented in the `planElevation` function
+//     below — it returns null when on Windows and the native sudo.exe
+//     is not available, falling back to a clean permission error.
 //
 // Off-by-default. Every use is permission-asked or logged.
 
