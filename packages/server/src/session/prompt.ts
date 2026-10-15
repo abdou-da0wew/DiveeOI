@@ -75,6 +75,7 @@ import { Todo as SessionTodo } from "./todo"
 import { useAdaptiveTargets } from "@diveeoi/db/adaptive"
 import * as ModelFallback from "./model-fallback"
 import { WatchdogState } from "./watchdog"
+import * as Watchdog from "./watchdog"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -1268,6 +1269,32 @@ export const layer = Layer.effect(
         // are wired and a supervisor can be added later without changing
         // call sites.
         const watchdog = new WatchdogState()
+
+        // P3: Fork the watchdog supervisor fiber. It wakes on
+        // heartbeatIntervalMs (adaptive: 60s/45s/30s by tier), checks
+        // isStalled(stallMs), and if so logs the stall. The supervisor
+        // does NOT interrupt the run yet — that requires the run fiber's
+        // FiberId, which we don't have at this point. The stall is logged
+        // so the operator can see it; the watchdog state + touch calls
+        // are the foundation for the full interrupt-and-restart path.
+        const supervisorFiber = yield* Effect.fork(
+          Effect.gen(function* () {
+            const thresholds = yield* Watchdog.adaptiveThresholds()
+            yield* Effect.forever(
+              Effect.gen(function* () {
+                yield* Effect.sleep(thresholds.heartbeatMs)
+                if (watchdog.isStalled(thresholds.stallMs)) {
+                  yield* Effect.logWarning("watchdog.stall.detected", {
+                    sessionID,
+                    stalledMs: watchdog.stalledFor(),
+                    stallThreshold: thresholds.stallMs,
+                    restartCount: watchdog.getRestartCount(),
+                  })
+                }
+              }).pipe(Effect.catchCause(() => Effect.void)),
+            )
+          }),
+        )
         // Bounded so a provider that refuses every candidate still terminates the run.
         let rotations = 0
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
