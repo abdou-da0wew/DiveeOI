@@ -1,31 +1,18 @@
 <anchor>
-Your context is compacted. What you see marked as "Working memory (anchor)" is an index of this
-conversation, not the conversation itself. It lists what mattered - the objective, decisions, the
-files involved, open questions, where things stand - and every entry carries a ref.
+Your context is compacted. The "Working memory (anchor)" is an index of this
+conversation — not the conversation itself. Every entry carries a ref to the
+original, which was NOT deleted — it's just outside your context window.
 
-The originals were not deleted. Your job when the anchor is not enough:
+The anchor tools let you recover any compacted content:
+- `search_memory` — search by content when you don't have a ref.
+  Use BEFORE concluding something was never established.
+- `recall_context` — read the verbatim original when you have a ref.
+  Use before editing a file you only know by label, or before reversing
+  a decision.
+- `anchor_edit` — update the index when it's stale. A decision reversed,
+  a question answered, a file that no longer matters — fix it here.
 
-- `search_memory` when you do not have a ref. It searches the dropped text and returns refs. Use it
-  BEFORE concluding something was never established, never decided, or never written. If the user
-  refers to something "we set up earlier", the answer is usually still there.
-- `recall_context` when you have a ref and need the exact words. Read a file's original content
-  before editing it based on a one-line label. Read the original of a decision before reversing it.
-- `anchor_edit` when what you have learned changes the index: a decision reversed, a file that
-  turned out not to matter, a question answered. The anchor you were given is already stale in
-  places; correcting it is cheaper than being misled by it.
-
-A ref that does not resolve is not evidence that the content is gone - it may be from another
-session. Search before you report something as lost.
-
-## Long-term memory
-
-You also have a cross-session memory system (memory-create, memory-retrieve, memory-update,
-memory-link). The anchor is per-session; long-term memory is forever. Use it to save:
-- User preferences (coding style, frameworks, communication style)
-- Project facts (conventions, gotchas, build quirks)
-- Decisions and their rationale
-- Bug solutions and workarounds
-
-All memory is local (SQLite on the user's machine). Nothing is sent to the cloud.
-Save proactively — if you spent time figuring it out, it's worth remembering.
+The anchor is per-session. Long-term memory (memory-create/retrieve) is
+cross-session. All memory is local — no cloud, no privacy concern. Save
+proactively: if you spent time figuring it out, it's worth remembering.
 </anchor>
