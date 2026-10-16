@@ -38,15 +38,19 @@ const createEmbeddedWebUIBundle = async () => {
     .map((file) => file.replaceAll("\\", "/"))
     .filter((file) => !file.endsWith(".map"))
     .sort()
-  const imports = files.map((file, i) => {
-    const spec = path.relative(dir, path.join(dist, file)).replaceAll("\\", "/")
-    return `import file_${i} from ${JSON.stringify(spec.startsWith(".") ? spec : `./${spec}`)} with { type: "file" };`
-  })
-  const entries = files.map((file, i) => `  ${JSON.stringify(file)}: file_${i},`)
+  // Embed file contents as base64 so they work in compiled binaries
+  // where the original file paths don't exist on disk.
+  const entries: string[] = []
+  for (const file of files) {
+    const fullPath = path.join(dist, file)
+    const content = Bun.file(fullPath)
+    const bytes = new Uint8Array(await content.arrayBuffer())
+    const base64 = Buffer.from(bytes).toString("base64")
+    entries.push(`  ${JSON.stringify(file)}: Buffer.from(${JSON.stringify(base64)}, "base64"),`)
+  }
   return [
-    `// Import all files as file_$i with type: "file"`,
-    ...imports,
-    `// Export with original mappings`,
+    `// Embedded Web UI files as base64 buffers`,
+    `import { Buffer } from "node:buffer"`,
     `export default {`,
     ...entries,
     `}`,

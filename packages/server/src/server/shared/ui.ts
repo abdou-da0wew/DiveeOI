@@ -63,15 +63,24 @@ function embeddedUIResponse(file: string, body: Uint8Array) {
 export function serveEmbeddedUIEffect(
   requestPath: string,
   fs: FSUtil.Interface,
-  embeddedWebUI: Record<string, string>,
+  embeddedWebUI: Record<string, string | Uint8Array | Buffer>,
 ) {
-  const file = embeddedWebUI[requestPath.replace(/^\//, "")] ?? embeddedWebUI["index.html"] ?? null
+  const key = requestPath.replace(/^\//, "") || "index.html"
+  const file = embeddedWebUI[key] ?? embeddedWebUI["index.html"] ?? null
   if (!file) return Effect.succeed(notFound())
 
-  return fs.readFile(file).pipe(
-    Effect.map((body) => embeddedUIResponse(file, body)),
-    Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(notFound())),
-  )
+  // The embedded UI map can contain either:
+  // 1. A string path (dev mode — read from disk via fs.readFile)
+  // 2. A Uint8Array/Buffer (compiled binary — contents embedded directly)
+  if (typeof file === "string") {
+    return fs.readFile(file).pipe(
+      Effect.map((body) => embeddedUIResponse(file, body)),
+      Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(notFound())),
+    )
+  }
+  // Compiled binary: serve from the embedded buffer directly
+  const body = file instanceof Uint8Array ? file : new Uint8Array(file)
+  return Effect.succeed(embeddedUIResponse(key, body))
 }
 
 export function serveUIEffect(
