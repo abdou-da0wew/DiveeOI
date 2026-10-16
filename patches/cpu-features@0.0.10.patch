@@ -1,0 +1,19 @@
+diff --git a/lib/index.js b/lib/index.js
+index bc3cff2..3e60474 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1,5 +1,13 @@
+ 'use strict';
+ 
+-const binding = require('../build/Release/cpufeatures.node');
++let binding;
++try {
++  binding = require('../build/Release/cpufeatures.node');
++} catch {
++  // Fallback: return a no-op when the native addon is unavailable
++  // (e.g. in Bun compiled binaries where libuv NAPI functions crash).
++  // ssh2 wraps this in try/catch too, so undefined is safe.
++  binding = { getCPUInfo: () => undefined };
++}
+ 
+ module.exports = binding.getCPUInfo;

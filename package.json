@@ -121,7 +121,8 @@
     "effect@4.0.0-beta.74": "patches/effect@4.0.0-beta.74.patch",
     "@ff-labs/fff-bun@0.9.3": "patches/@ff-labs%2Ffff-bun@0.9.3.patch",
     "@ai-sdk/xai@3.0.82": "patches/@ai-sdk%2Fxai@3.0.82.patch",
-    "@ai-sdk/google@3.0.73": "patches/@ai-sdk%2Fgoogle@3.0.73.patch"
+    "@ai-sdk/google@3.0.73": "patches/@ai-sdk%2Fgoogle@3.0.73.patch",
+    "cpu-features@0.0.10": "patches/cpu-features@0.0.10.patch"
   },
   "dependencies": {
     "@types/ssh2": "1.15.6",
