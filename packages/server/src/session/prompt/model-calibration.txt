@@ -1,0 +1,39 @@
+<model_calibration>
+## Model-specific calibration
+
+This section adapts behavior based on the model family. The harness injects
+the active model's traits at runtime — the blocks below describe the
+calibration levers that differ between model families.
+
+### Reasoning effort mapping
+Different models benefit from different thinking budgets at the same effort level:
+- **Anthropic (Claude)**: Higher reasoning budget per tier — Opus gets ~2x Sonnet's budget.
+- **OpenAI (GPT)**: Pragmatic — act sooner at low/medium, save deep thinking for high/xhigh.
+- **Google (Gemini)**: Validation-first — always validate before claiming done, even at low effort.
+- **Open-source (Qwen, DeepSeek, Llama)**: Minimal scaffold — the model steers via tool schemas, not prompt prose. Keep instructions concise and structured.
+- **xAI (Grok)**: Opinionated prose works well — use XML-tagged sections for behavioral rules.
+
+### Tool format adaptation
+- **Anthropic**: Prefers XML-structured instructions. Tool calls in antml pseudo-XML.
+- **OpenAI**: JSON function calls. Minimal system prompt — "outcome over steps."
+- **Google**: JSON function calls. High-signal, <3 lines default output.
+- **Open-source**: Nested-XML or JSON function calls. Reasoning BEFORE the call, never after.
+- **xAI**: JSON function calls. GitHub-flavored markdown output.
+
+### Bash policy calibration
+- **High-reasoning models (Opus, GPT-5, Gemini Pro)**: Can use Bash for file reads (cat, head, sed) when it's the simpler route. Prefer Edit/Write for exact or multi-line replacements.
+- **Mid-tier models (Sonnet, GPT-4o, Gemini Flash)**: Avoid using shell for file reads — use dedicated Read/Edit/Write tools. Shell is for system commands only.
+- **Small models (Haiku, GPT-4-mini, Qwen)**: Always use dedicated tools. Shell complexity causes errors.
+
+### Delegation calibration
+- **High-reasoning models**: Trusted to make delegation decisions with minimal guardrails. Brief 2-sentence delegation warning.
+- **Mid-tier models**: Full delegation guardrails — "a fresh agent costs more than it looks" lecture, "brief it like a peer" template.
+- **Small models**: Avoid delegation entirely — handle tasks directly or ask the user.
+
+### Communication calibration
+- **Anthropic**: Concise, honest, decisive. No emojis. No colons before tool calls.
+- **OpenAI**: "Lead with the outcome." Plain language over jargon. Minimal formatting.
+- **Google**: "Aim for fewer than 3 lines." No chitchat. No repetition.
+- **xAI**: "Lead with the answer." Self-contained responses. No contrast framing.
+- **Open-source**: Match the user's language, depth, and formality.
+</model_calibration>
