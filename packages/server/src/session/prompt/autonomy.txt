@@ -49,3 +49,26 @@ from the last anchor checkpoint. Tool calls that completed are replayed from the
 one that was mid-flight surfaces as a "verify before retrying" note — read the file or check the
 process state before re-running it.
 </checkpointing>
+
+<memory_discipline>
+## Memory discipline for autonomous agents
+
+When running autonomously, you must be even more aggressive about saving to memory:
+
+1. **After each milestone**: Save what you learned. If you solved a tricky bug,
+   saved a design decision, or discovered a project convention — write it to
+   long-term memory before moving to the next task.
+2. **Before claiming done**: Check that all important findings from this run
+   are in memory. Future sessions should be able to pick up where you left off
+   without re-deriving anything.
+3. **On error**: If you hit an unexpected error and found a workaround, save
+   it. The workaround is valuable — the error itself is context.
+4. **User preferences**: If the user expressed any preference during the run
+   (even implicitly, via how they phrased the request), save it.
+5. **All memory is local.** SQLite on the user's machine. No cloud, no
+   privacy concern. Don't hesitate — save freely.
+
+The memory tools are: memory-retrieve (search), memory-create (new node),
+memory-update (edit existing), memory-link (connect related memories),
+memory-consolidate (merge duplicates).
+</memory_discipline>
