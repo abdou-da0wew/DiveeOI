@@ -2033,6 +2033,14 @@ export type Config = {
       action?: "warn" | "truncate" | "abort"
     }
   }
+  shell_elevation?: {
+    mode?: "off" | "ask" | "allow"
+    /**
+     * In-process credential cache TTL in seconds (default 900 = 15 min). After TTL, the cached password is cleared and the next elevation re-reads the keyring/param.
+     */
+    ttl_s?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    sudo_password_credential?: string
+  }
   llm?: {
     format?: "json" | "toon"
     burst?: {
@@ -2062,6 +2070,9 @@ export type Config = {
     }
     max_tool_output?: number
     parallel_tool_calls?: boolean
+  }
+  todo?: {
+    completion_gate?: "nudge" | "off" | "block"
   }
   builtin?: {
     ctx7?: {
@@ -2529,6 +2540,8 @@ export type Agent = {
     modelID: string
     providerID: string
   }
+  allowedModels?: Array<string>
+  subagentTypes?: Array<string>
   variant?: string
   prompt?: string
   options: {
@@ -3442,6 +3455,11 @@ export type PrefsSetResponse = {
     name: string
     value: string
   }
+}
+
+export type TaskNotFoundError = {
+  _tag: "TaskNotFoundError"
+  id: string
 }
 
 export type EffectHttpApiErrorForbidden = {
@@ -4888,6 +4906,42 @@ export type ReferenceInfo = {
 
 export type ProjectCopyCopy = {
   directory: string
+}
+
+export type AgentTaskCreateBody = {
+  prompt: string
+  model?: {
+    providerID: string
+    modelID: string
+  }
+  autoRun?: boolean
+  subagentTypes?: Array<string>
+  parentSessionID?: string
+}
+
+export type AgentTaskInfo = {
+  id: string
+  sessionID: string
+  parentSessionID?: string
+  prompt: string
+  providerID?: string
+  modelID?: string
+  status: string
+  autoRun: boolean
+  subagentTypes?: Array<string>
+  lastHeartbeat?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  checkpointAnchorID?: string
+  worktree?: string
+  error?: string
+  createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+}
+
+export type AgentTaskUpdateBody = {
+  prompt?: string
+  modelID?: string
+  providerID?: string
+  subagentTypes?: Array<string>
 }
 
 export type EventPluginAdded = {
@@ -12583,6 +12637,241 @@ export type V2AuthUpdateProfileResponses = {
 }
 
 export type V2AuthUpdateProfileResponse = V2AuthUpdateProfileResponses[keyof V2AuthUpdateProfileResponses]
+
+export type V2TaskListData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/api/v1/tasks"
+}
+
+export type V2TaskListErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2TaskListError = V2TaskListErrors[keyof V2TaskListErrors]
+
+export type V2TaskListResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data: Array<AgentTaskInfo>
+  }
+}
+
+export type V2TaskListResponse = V2TaskListResponses[keyof V2TaskListResponses]
+
+export type V2TaskCreateData = {
+  body: AgentTaskCreateBody
+  path?: never
+  query?: never
+  url: "/api/v1/tasks"
+}
+
+export type V2TaskCreateErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2TaskCreateError = V2TaskCreateErrors[keyof V2TaskCreateErrors]
+
+export type V2TaskCreateResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data: AgentTaskInfo
+  }
+}
+
+export type V2TaskCreateResponse = V2TaskCreateResponses[keyof V2TaskCreateResponses]
+
+export type V2TaskCancelData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: "/api/v1/tasks/{id}"
+}
+
+export type V2TaskCancelErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2TaskCancelError = V2TaskCancelErrors[keyof V2TaskCancelErrors]
+
+export type V2TaskCancelResponses = {
+  /**
+   * Success
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type V2TaskCancelResponse = V2TaskCancelResponses[keyof V2TaskCancelResponses]
+
+export type V2TaskGetData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: "/api/v1/tasks/{id}"
+}
+
+export type V2TaskGetErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * TaskNotFoundError
+   */
+  500: TaskNotFoundError
+}
+
+export type V2TaskGetError = V2TaskGetErrors[keyof V2TaskGetErrors]
+
+export type V2TaskGetResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data: AgentTaskInfo
+  }
+}
+
+export type V2TaskGetResponse = V2TaskGetResponses[keyof V2TaskGetResponses]
+
+export type V2TaskUpdateData = {
+  body: AgentTaskUpdateBody
+  path: {
+    id: string
+  }
+  query?: never
+  url: "/api/v1/tasks/{id}"
+}
+
+export type V2TaskUpdateErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * TaskNotFoundError
+   */
+  500: TaskNotFoundError
+}
+
+export type V2TaskUpdateError = V2TaskUpdateErrors[keyof V2TaskUpdateErrors]
+
+export type V2TaskUpdateResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data: AgentTaskInfo
+  }
+}
+
+export type V2TaskUpdateResponse = V2TaskUpdateResponses[keyof V2TaskUpdateResponses]
+
+export type V2TaskPauseData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: "/api/v1/tasks/{id}/pause"
+}
+
+export type V2TaskPauseErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2TaskPauseError = V2TaskPauseErrors[keyof V2TaskPauseErrors]
+
+export type V2TaskPauseResponses = {
+  /**
+   * Success
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type V2TaskPauseResponse = V2TaskPauseResponses[keyof V2TaskPauseResponses]
+
+export type V2TaskResumeData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: "/api/v1/tasks/{id}/resume"
+}
+
+export type V2TaskResumeErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2TaskResumeError = V2TaskResumeErrors[keyof V2TaskResumeErrors]
+
+export type V2TaskResumeResponses = {
+  /**
+   * Success
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type V2TaskResumeResponse = V2TaskResumeResponses[keyof V2TaskResumeResponses]
 
 export type PtyConnectData = {
   body?: never
