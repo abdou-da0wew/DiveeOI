@@ -4,6 +4,8 @@ import { client } from "./client.gen.js"
 import { buildClientParams, type Client, type Options as Options2, type TDataShape } from "./client/index.js"
 import type {
   AgentPartInput,
+  AgentTaskCreateBody,
+  AgentTaskUpdateBody,
   AppAgentsErrors,
   AppAgentsResponses,
   AppLogErrors,
@@ -395,6 +397,20 @@ import type {
   V2SessionWaitResponses,
   V2SkillListErrors,
   V2SkillListResponses,
+  V2TaskCancelErrors,
+  V2TaskCancelResponses,
+  V2TaskCreateErrors,
+  V2TaskCreateResponses,
+  V2TaskGetErrors,
+  V2TaskGetResponses,
+  V2TaskListErrors,
+  V2TaskListResponses,
+  V2TaskPauseErrors,
+  V2TaskPauseResponses,
+  V2TaskResumeErrors,
+  V2TaskResumeResponses,
+  V2TaskUpdateErrors,
+  V2TaskUpdateResponses,
   VcsApplyErrors,
   VcsApplyResponses,
   VcsDiffErrors,
@@ -7195,6 +7211,143 @@ export class Auth3 extends HeyApiClient {
   }
 }
 
+export class Task extends HeyApiClient {
+  /**
+   * List tasks
+   */
+  public list<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<V2TaskListResponses, V2TaskListErrors, ThrowOnError>({
+      url: "/api/v1/tasks",
+      ...options,
+    })
+  }
+
+  /**
+   * Create an autonomous task
+   *
+   * Creates a child session + agent_task row. When autoRun is true the task starts immediately; otherwise it stays paused until resumed.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters: {
+      agentTaskCreateBody: AgentTaskCreateBody
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ key: "agentTaskCreateBody", map: "body" }] }])
+    return (options?.client ?? this.client).post<V2TaskCreateResponses, V2TaskCreateErrors, ThrowOnError>({
+      url: "/api/v1/tasks",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Cancel a task
+   */
+  public cancel<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "id" }] }])
+    return (options?.client ?? this.client).delete<V2TaskCancelResponses, V2TaskCancelErrors, ThrowOnError>({
+      url: "/api/v1/tasks/{id}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get a task by id
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "id" }] }])
+    return (options?.client ?? this.client).get<V2TaskGetResponses, V2TaskGetErrors, ThrowOnError>({
+      url: "/api/v1/tasks/{id}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Update a task's prompt/model/subagentTypes
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      agentTaskUpdateBody: AgentTaskUpdateBody
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { key: "agentTaskUpdateBody", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<V2TaskUpdateResponses, V2TaskUpdateErrors, ThrowOnError>({
+      url: "/api/v1/tasks/{id}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Pause a running task
+   */
+  public pause<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "id" }] }])
+    return (options?.client ?? this.client).post<V2TaskPauseResponses, V2TaskPauseErrors, ThrowOnError>({
+      url: "/api/v1/tasks/{id}/pause",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Resume a paused task
+   */
+  public resume<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "id" }] }])
+    return (options?.client ?? this.client).post<V2TaskResumeResponses, V2TaskResumeErrors, ThrowOnError>({
+      url: "/api/v1/tasks/{id}/resume",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class V2 extends HeyApiClient {
   private _health?: Health
   get health(): Health {
@@ -7289,6 +7442,11 @@ export class V2 extends HeyApiClient {
   private _auth?: Auth3
   get auth(): Auth3 {
     return (this._auth ??= new Auth3({ client: this.client }))
+  }
+
+  private _task?: Task
+  get task(): Task {
+    return (this._task ??= new Task({ client: this.client }))
   }
 }
 
