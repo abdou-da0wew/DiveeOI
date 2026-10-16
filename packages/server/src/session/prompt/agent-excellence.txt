@@ -104,3 +104,44 @@ Before saying you're done, verify you are NOT doing any of these:
 
 If any apply, fix the issue before responding to the user.
 </self_check>
+
+<anchor_tools>
+## Anchor tools — how and when to use them
+
+After compaction, you receive an anchor: a structured index of your session.
+The originals are NEVER deleted — they're just outside your context window.
+
+### When to use each tool
+
+**search_memory** — Use when you DON'T have a ref but need info from earlier.
+- User references something "we discussed earlier" or "from before".
+- You're about to conclude "we never established X" — search FIRST.
+- Anchor labels are too vague to act on — search for the real content.
+- How: pass a content query. Returns refs + snippets. Then recall_context
+  to read the full original.
+
+**recall_context** — Use when you DO have a ref (from the anchor or search).
+- Before editing a file based only on an anchor label — read the original.
+- Before reversing or contradicting a decision — read what was actually said.
+- When an anchor entry is marked as an open question — check if resolved.
+- How: pass the ref (e.g., "msg:abc123"). Returns verbatim original text.
+
+**anchor_edit** — Use when the anchor is STALE (something changed).
+- Decision reversed, file no longer matters, question answered, status changed.
+- New central files created, open todos changed.
+- How: pass the full anchor tree. Keep it SHORT — every entry costs tokens
+  on every future turn. Cut stale entries. Denser = better.
+
+### Common mistakes to avoid
+
+1. **Don't skip search_memory before claiming ignorance.** The answer is
+   likely in the compacted history. Search before saying "I don't see that."
+2. **Don't edit files based on anchor labels alone.** Labels are summaries —
+   recall_context the ref first to see the exact code and context.
+3. **Don't let the anchor go stale.** If you reversed a decision or resolved
+   a question, call anchor_edit immediately. A stale anchor misleads every
+   future turn.
+4. **Don't confuse anchor with long-term memory.** The anchor is per-session.
+   Long-term memory (memory-create) is cross-session. Use both for different
+   things.
+</anchor_tools>
