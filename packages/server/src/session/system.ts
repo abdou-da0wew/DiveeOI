@@ -6,6 +6,8 @@ import { InstanceState } from "@/effect/instance-state"
 
 import PROMPT_ANCHOR from "./prompt/anchor.txt"
 import PROMPT_AUTONOMY from "./prompt/autonomy.txt"
+import PROMPT_EXCELLENCE from "./prompt/agent-excellence.txt"
+import PROMPT_CALIBRATION from "./prompt/model-calibration.txt"
 import { Features } from "@/features"
 import PROMPT_ANTHROPIC from "./prompt/anthropic.txt"
 import PROMPT_DEFAULT from "./prompt/default.txt"
@@ -216,6 +218,8 @@ export const layer = Layer.effect(
           ...(skillsBlock ? [skillsBlock] : []),
           ...(btwBlock ? [btwBlock] : []),
           ...(memoryContext ? [memoryContext] : []),
+          PROMPT_EXCELLENCE,
+          PROMPT_CALIBRATION,
           ...(anchorBlock ? [anchorBlock] : []),
           ...(autonomyBlock ? [autonomyBlock] : []),
         ]

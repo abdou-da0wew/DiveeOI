@@ -1,0 +1,6 @@
+# Normalize line endings to LF on commit regardless of the contributor's editor.
+* text=auto eol=lf
+# Markdown prompt files preserve whitespace for fidelity and raw readability.
+*.md -whitespace
+# Verbatim skill-bundle capture: keep original CRLF bytes past core.autocrlf=input.
+Anthropic/claude-code/skills/morning/assets/fonts/Fraunces-OFL.txt -text
