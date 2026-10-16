@@ -16,4 +16,16 @@ The originals were not deleted. Your job when the anchor is not enough:
 
 A ref that does not resolve is not evidence that the content is gone - it may be from another
 session. Search before you report something as lost.
+
+## Long-term memory
+
+You also have a cross-session memory system (memory-create, memory-retrieve, memory-update,
+memory-link). The anchor is per-session; long-term memory is forever. Use it to save:
+- User preferences (coding style, frameworks, communication style)
+- Project facts (conventions, gotchas, build quirks)
+- Decisions and their rationale
+- Bug solutions and workarounds
+
+All memory is local (SQLite on the user's machine). Nothing is sent to the cloud.
+Save proactively — if you spent time figuring it out, it's worth remembering.
 </anchor>
