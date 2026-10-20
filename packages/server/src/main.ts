@@ -1,4 +1,4 @@
-import { Effect, ManagedRuntime } from "effect"
+import { Effect, ManagedRuntime, Ref } from "effect"
 import { Features } from "./features"
 import { waitForParentExit } from "./server/restart"
 
@@ -25,9 +25,6 @@ if (cliExit !== null) process.exit(cliExit)
 const port = parseInt(process.env.PORT || "4097", 10)
 const host = process.env.HOST || "0.0.0.0"
 const cors = process.env.CORS ? process.env.CORS.split(",").map((s: string) => s.trim()).filter(Boolean) : undefined
-
-// Emergency GC threshold as a multiple of the adaptive profile RSS target.
-const EMERGENCY_RSS_MULTIPLIER = 1.5
 
 try {
   const server = await Server.listen({ port, hostname: host, cors })
@@ -63,34 +60,46 @@ try {
     ),
   )
 
-  // Adaptive GC scheduler: triggers Bun.gc(true) on the interval computed
-  // from the current resource profile. Runs in its own runtime so it does
-  // not depend on the server's AppLayer lifecycle.
+  // Adaptive GC scheduler: only intervenes when the HOST is under memory
+  // pressure. JSC collects on allocation pressure by itself, and `Bun.gc(true)`
+  // is a synchronous full collection — running it unconditionally on a timer
+  // produces periodic multi-millisecond event-loop stalls for no benefit.
+  // Runs in its own runtime so it does not depend on the server's AppLayer
+  // lifecycle.
   const adaptiveRuntime = ManagedRuntime.make(AdaptiveResourceDefaultLayer)
   adaptiveRuntime.runFork(
     Effect.gen(function* () {
       const adaptive = yield* AdaptiveResourceService
+      let lastProfile: string | undefined
+
       yield* Effect.forever(
         Effect.gen(function* () {
           const { gcIntervalMs, rssTargetMB } = yield* adaptive.getCurrentTargets()
           yield* Effect.sleep(gcIntervalMs)
-          // Emergency GC: if RSS exceeds 1.5x the profile target, force a full
-          // collection immediately to relieve OOM pressure.
+
           const usage = process.memoryUsage()
-          if (usage.rss > rssTargetMB * EMERGENCY_RSS_MULTIPLIER * 1024 * 1024) {
-            if (typeof Bun !== "undefined" && Bun.gc) {
-              Bun.gc(true)
-            }
-            yield* Effect.logWarning("Emergency GC", { rss: usage.rss, target: rssTargetMB })
+          const rssMB = usage.rss / 1024 / 1024
+          const profile = yield* adaptive.getCurrentProfile()
+          const system = yield* Ref.get(adaptive.lastSystem)
+
+          // Only force a full collection when the machine itself is short on
+          // memory AND this process is a meaningful part of the pressure.
+          const hostLow =
+            system !== null &&
+            system.availableMemoryMB < Math.max(512, system.totalMemoryMB * 0.1)
+          if (hostLow && rssMB > rssTargetMB) {
+            if (typeof Bun !== "undefined" && Bun.gc) Bun.gc(true)
+            yield* Effect.logWarning("Emergency GC", { rssMB: Math.round(rssMB), target: rssTargetMB, profile })
+          } else if (typeof Bun !== "undefined" && Bun.gc) {
+            // Incremental (non-blocking) collection. `Bun.gc(true)` is a
+            // synchronous full GC; doing that on a timer stalls the event loop.
+            Bun.gc(false)
           }
-          // Observation signal only: actual HTTP backpressure under the critical
-          // profile is not yet implemented (see OPTIMIZATION_PLAN.md 7.2).
-          if ((yield* adaptive.getCurrentProfile()) === "critical") {
-            yield* Effect.logWarning("Adaptive profile critical, degraded mode", { rss: usage.rss, rssTargetMB })
-          }
-          if (typeof Bun !== "undefined" && Bun.gc) {
-            Bun.gc(true)
-            yield* Effect.logDebug("Adaptive GC", { interval: gcIntervalMs })
+
+          // Report the profile only when it actually changes.
+          if (profile !== lastProfile) {
+            lastProfile = profile
+            yield* Effect.logInfo("Adaptive profile changed", { profile, rssMB: Math.round(rssMB), rssTargetMB })
           }
         }).pipe(Effect.catchCause((cause) => Effect.logWarning("Adaptive GC iteration failed", { cause }))),
       )

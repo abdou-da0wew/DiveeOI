@@ -27,6 +27,7 @@ import { FSUtil } from "@diveeoi/db/fs-util"
 import { isRecord } from "@/util/record"
 import { optionalOmitUndefined } from "@diveeoi/db/schema"
 import { ProviderTransform } from "./transform"
+import { Composer } from "./composer"
 import { ProviderV2 } from "@diveeoi/db/provider"
 import { ModelV2 } from "@diveeoi/db/model"
 import { ModelStatus } from "./model-status"
@@ -1081,6 +1082,25 @@ export function toPublicInfo(provider: Info): Info {
   )
 }
 
+// Directory-independent catalog projection. Every project builds the same
+// providers/models from the same models.dev snapshot, so compute it once per
+// snapshot and share it across instances and the HTTP handlers.
+let catalogCache:
+  | {
+      modelsDev: Record<string, ModelsDev.Provider>
+      catalog: Record<string, Info>
+      database: Record<string, Info>
+    }
+  | undefined
+
+export function catalogFor(modelsDev: Record<string, ModelsDev.Provider>) {
+  if (catalogCache?.modelsDev === modelsDev) return catalogCache
+  const catalog = mapValues(modelsDev, fromModelsDevProvider)
+  const database = mapValues(catalog, toPublicInfo)
+  catalogCache = { modelsDev, catalog, database }
+  return catalogCache
+}
+
 export function defaultModelIDs<T extends { models: Record<string, { id: string }> }>(providers: Record<string, T>) {
   return mapValues(providers, (item) => sort(Object.values(item.models))[0].id)
 }
@@ -1310,13 +1330,16 @@ export const layer = Layer.effect(
     const modelsDevSvc = yield* ModelsDev.Service
     const runtimeFlags = yield* RuntimeFlags.Service
 
+    // The models.dev catalog (and its public projection) does not depend on the
+    // project directory. Building it inside per-directory InstanceState made
+    // every directory the UI touched retain two copies of the whole catalog
+    // (~30MB per project). Share one copy per models.dev snapshot instead.
     const state = yield* InstanceState.make<State>(() =>
       Effect.gen(function* () {
         const bridge = yield* EffectBridge.make()
         const cfg = yield* config.get()
         const modelsDev = yield* modelsDevSvc.get()
-        const catalog = mapValues(modelsDev, fromModelsDevProvider)
-        const database = mapValues(catalog, toPublicInfo)
+        const { catalog, database } = catalogFor(modelsDev)
 
         const providers: Record<ProviderV2.ID, Info> = {} as Record<ProviderV2.ID, Info>
         const languages = new Map<string, LanguageModelV3>()
@@ -1634,7 +1657,7 @@ export const layer = Layer.effect(
       }),
     )
 
-    const list = Effect.fn("Provider.list")(() => InstanceState.use(state, (s) => s.providers))
+    const list = Effect.fn("Provider.list")(() => InstanceState.use(state, (s) => Composer.withProvider(s.providers)))
 
     async function resolveSDK(model: Model, s: State, envs: Record<string, string | undefined>) {
       try {
@@ -1771,11 +1794,24 @@ export const layer = Layer.effect(
     }
 
     const getProvider = Effect.fn("Provider.getProvider")((providerID: ProviderV2.ID) =>
-      InstanceState.use(state, (s) => s.providers[providerID]),
+      InstanceState.use(state, (s) => {
+        if (providerID === Composer.PROVIDER_ID) return Composer.provider(s.providers) as Info
+        return s.providers[providerID]
+      }),
     )
 
     const getModel = Effect.fn("Provider.getModel")(function* (providerID: ProviderV2.ID, modelID: ModelV2.ID) {
       const s = yield* InstanceState.get(state)
+
+      // DiveeComposer is synthetic: resolve it to the free model it currently routes to and
+      // hand back a model whose capabilities/limits mirror that target. The name never reaches
+      // a provider — `getLanguage` swaps in the concrete model before the request is built.
+      if (Composer.isComposer(providerID, modelID)) {
+        const model = Composer.model(s.providers)
+        if (!model) return yield* new ModelNotFoundError({ providerID, modelID })
+        return model
+      }
+
       const provider = s.providers[providerID]
       if (!provider) {
         const catalogProvider = s.catalog[providerID]
@@ -1801,6 +1837,42 @@ export const layer = Layer.effect(
     const getLanguage = Effect.fn("Provider.getLanguage")(function* (model: Model) {
       const s = yield* InstanceState.get(state)
       const envs = yield* env.all()
+
+      // DiveeComposer never reaches a provider: swap in the concrete model it routed to and
+      // build the language model from that. The cache key stays the composer id so a turn
+      // keeps the same client even as the router's preference changes.
+      const routed = Composer.targetOf(model)
+      if (routed) {
+        const target = s.providers[routed.providerID]?.models[String(routed.modelID)]
+        if (!target) return yield* new ModelNotFoundError({ modelID: routed.modelID, providerID: routed.providerID })
+        const cacheKey = `${model.providerID}/${model.id}`
+        if (s.models.has(cacheKey)) return s.models.get(cacheKey)!
+        yield* Effect.logInfo("composer.route", {
+          model: Composer.describe(routed),
+          context: target.limit.context,
+        })
+        const provider = s.providers[routed.providerID]
+        return yield* EffectPromise.refineRejection(
+          async () => {
+            const sdk = await resolveSDK(target, s, envs)
+            const language = s.modelLoaders[routed.providerID]
+              ? await s.modelLoaders[routed.providerID](
+                  sdk,
+                  target.api.id,
+                  { ...provider.options, ...target.options },
+                  target,
+                )
+              : sdk.languageModel(target.api.id)
+            s.models.set(cacheKey, language)
+            return language
+          },
+          (cause) =>
+            cause instanceof NoSuchModelError
+              ? new ModelNotFoundError({ modelID: target.id, providerID: target.providerID, cause })
+              : undefined,
+        )
+      }
+
       const key = `${model.providerID}/${model.id}`
       if (s.models.has(key)) return s.models.get(key)!
 
@@ -1935,10 +2007,26 @@ export const layer = Layer.effect(
         Effect.catch(() => Effect.succeed([] as { providerID: ProviderV2.ID; modelID: ModelV2.ID }[])),
       )
       for (const entry of recent) {
+        if (Composer.isComposer(entry.providerID, entry.modelID)) {
+          if (Composer.model(s.providers)) return { providerID: entry.providerID, modelID: entry.modelID }
+          continue
+        }
         const provider = s.providers[entry.providerID]
         if (!provider) continue
         if (!provider.models[entry.modelID]) continue
         return { providerID: entry.providerID, modelID: entry.modelID }
+      }
+
+      // DiveeComposer is the built-in default for the bundled free tier: it always routes to
+      // whatever free model is actually reachable, so a fresh install works without picking
+      // anything. It is not allowed to override a model the user chose (config, recent) or a
+      // model from a provider they configured — and every free model stays selectable as normal.
+      const composer = Composer.model(s.providers)
+      if (composer) {
+        const bundled = Object.values(s.providers).find((p) => String(p.id) === "opencode")
+        if (bundled && (!cfg.provider || Object.keys(cfg.provider).includes(bundled.id))) {
+          return { providerID: Composer.PROVIDER_ID, modelID: Composer.MODEL_ID }
+        }
       }
 
       const provider = Object.values(s.providers).find((p) => !cfg.provider || Object.keys(cfg.provider).includes(p.id))

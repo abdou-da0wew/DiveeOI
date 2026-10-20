@@ -1,6 +1,6 @@
 # DiveeOI
 
-> AI-powered development web app. Chat with AI agents that read, write, and execute code in your projects. Fork of [OpenCode](https://github.com/anomalyco/opencode) — web UI and server only, no TUI.
+> AI-powered development web app. Chat with AI agents that read, write, and execute code in your projects. Self-hosted: the web UI and the server run on your machine, your code stays local, and the only thing that leaves the machine is the LLM traffic you configure.
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue?logo=typescript)](https://www.typescriptlang.org)
 [![Bun](https://img.shields.io/badge/Bun-1.3.14-black?logo=bun)](https://bun.sh)
@@ -113,7 +113,7 @@ DiveeOI/
 └── package.json                # Workspace root (Bun workspaces + Turbo)
 ```
 
-See [`docs/architecture.md`](docs/architecture.md) for the full architecture breakdown, [`docs/optimization.md`](docs/optimization.md) for the adaptive perf system that is the fork's largest change, and [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md) for the exhaustive package map.
+See [`docs/architecture.md`](docs/architecture.md) for the full architecture breakdown, [`docs/optimization.md`](docs/optimization.md) for the adaptive perf system, and [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md) for the exhaustive package map.
 
 ---
 
@@ -142,7 +142,7 @@ See [`docs/architecture.md`](docs/architecture.md) for the full architecture bre
 | [`docs/development.md`](docs/development.md) | Dev workflow, scripts, testing, conventions |
 | [`docs/api.md`](docs/api.md) | HTTP API groups, endpoints, auth, streaming |
 | [`docs/configuration.md`](docs/configuration.md) | Config files, env vars, providers, MCP, themes |
-| [`docs/optimization.md`](docs/optimization.md) | **Memory/speed/adaptive resources — the fork's core perf work** |
+| [`docs/optimization.md`](docs/optimization.md) | **Memory/speed/adaptive resources — the core perf work** |
 | [`docs/deployment.md`](docs/deployment.md) | Building, self-hosting, Docker, production checklist |
 | [`docs/contributing.md`](docs/contributing.md) | How to contribute, code style, PR process |
 | [`DIVEEOI_BRIEF.md`](DIVEEOI_BRIEF.md) | Super detailed project brief — what, why, how, and for whom |
@@ -181,26 +181,29 @@ See [`docs/development.md`](docs/development.md) for the full command reference.
 3. **The agent calls tools** — the LLM emits tool calls (read, edit, shell, etc.), the server executes them under a per-profile `Semaphore` and feeds results back into the loop; memory extraction at turn exit is fire-and-forget so it never stalls the next first token.
 4. **Everything is persisted** — sessions, messages, and events are stored in SQLite with lazy pagination + transparent GZIP (>10KB). The frontend syncs via SSE/WebSocket and renders the timeline in real time. A background `Bun.gc(true)` scheduler + 60s `DevMonitor` keep the process on its RSS/heap targets.
 
-## Performance — Why This Fork Is Fast
+## Performance — Why DiveeOI Is Fast
 
-> **DiveeOI's headline change is not the TUI removal — it is the adaptive optimization stack.** Upstream's server had a 1-5 minute stall on every turn (blocking memory extraction) and a fixed 30s GC/queue footprint that OOM'd constrained hosts. DiveeOI fixes both without deleting any user data.
+> **DiveeOI is built to stay fast on ordinary hardware.** The server adapts to the machine it runs on, keeps its queues bounded, and never blocks the first token on background work.
 
-- **Stall removed**: `prompt.ts` loop exit + compaction stop now `Effect.forkDetach(extractSessionMemory)` instead of `yield*` — first token is never blocked.
+- **No stall on the first token**: `prompt.ts` loop exit + compaction stop fork the memory extraction instead of awaiting it — the first token is never blocked.
 - **Adaptive targets** (`packages/db/src/adaptive`): cross-platform detection → 4 profiles (700→250 MB RSS, 400→150 MB heap, 60→8s GC, 8→1 tool threads, 200→25 stream buffer, 128→8 MB SQLite, etc.) recomputed every 90s with 30% interpolation. Binary ceilings at 1200 MB RSS / 512 MB heap.
 - **All hot queues bounded adaptively**: PTY tickets, WS tracker, SSE event/global queues, LLM stream, DB PRAGMA cache/mmap — each via `useAdaptiveTargets` or `makeAdaptiveLayer` so RSS tracks the profile, not the load.
 - **Profiler**: `packages/profiler` `AsyncLocalStorage` call-tree + gauges + JSONL `.divee/profiler.jsonl` — run with `DIVEEOI_PROFILER=1` to see per-route `durMs/heapDelta/concurrentMax`.
 - **Storage**: zero-deletion — full history stays queryable; disk savings come from GZIP on large tool outputs and paginated `messages({limit,before,after})`.
+- **Project retention you control**: idle projects are released after 10 minutes by default so memory tracks the work in front of you; `performance.keep_projects_warm` (or the **Settings → Features → Performance** switch) keeps them warm instead.
 
 Full phase plan + target table: [`docs/optimization.md`](docs/optimization.md) and `plans/Optimization_1.0/OPTIMIZATION_PLAN.md`.
 
 ---
 
-## Origin
+## DiveeComposer
 
-DiveeOI is a fork of [OpenCode](https://github.com/anomalyco/opencode) by the OpenCode community. The original project includes a terminal UI (TUI) built with OpenTUI. DiveeOI strips the TUI and ships only the web UI + server as a standalone web application.
+DiveeOI ships with a built-in model called **DiveeComposer** — an internal router, not a provider:
 
-- **Upstream**: `anomalyco/opencode`
-- **Fork diff**: TUI/CLI code removed (`src/plugin/tui/`, `src/config/tui*`, `src/cli/`, TUI tests). All web/server functionality preserved and heavily extended — most notably a full adaptive memory/speed stack (`packages/db/src/adaptive`, `packages/profiler`, `main.ts` GC, `prompt.ts` fork-detach, bounded queues everywhere).
+- You pick it like any other model, and it is the default when you have not chosen one.
+- It is never sent to a provider. Each turn it resolves to the best **free** model that is currently reachable (preferring the bundled free tier), and only that concrete model is used for the request.
+- Its capabilities — image/PDF/audio/video input, context window, reasoning, variants — always mirror the model it currently routes to, so the UI enables exactly what the routed model can do.
+- The routing is invisible in the interface but explicit in the logs (`composer.route` in the server log) and in the request itself.
 
 ---
 

@@ -3,6 +3,7 @@ import { PermissionV1 } from "@diveeoi/db/v1/permission"
 import { Image } from "@/image/image"
 import { SessionV1 } from "@diveeoi/db/v1/session"
 import { ProviderFreeTier } from "@/provider/free-tier"
+import { Composer } from "@/provider/composer"
 import { Cause, Deferred, Effect, Exit, Layer, Context, Scope, Schema } from "effect"
 import * as Stream from "effect/Stream"
 import { Agent } from "@/agent/agent"
@@ -928,11 +929,20 @@ export const layer = Layer.effect(
         // Learn from free-tier refusals: if the gateway says this model needs a key (or has
         // been retired), record it so the next turn rotates instead of failing the same way.
         // See @/provider/free-tier for why this is discovered at runtime rather than listed.
-        if (input.model && ProviderFreeTier.learn(e, String(input.model.providerID), input.model.id)) {
+        // Composer turns must learn against the concrete model they routed to — the synthetic
+        // `divee/composer` id must never be marked unusable.
+        const routed = input.model ? Composer.targetOf(input.model) : undefined
+        const subject = routed ?? (input.model ? { providerID: input.model.providerID, modelID: input.model.id } : undefined)
+        if (subject && ProviderFreeTier.learn(e, String(subject.providerID), String(subject.modelID))) {
           yield* Effect.logWarning("model refused by the free tier, marking unusable", {
             sessionID: input.sessionID,
-            model: `${input.model.providerID}/${input.model.id}`,
+            model: `${subject.providerID}/${subject.modelID}`,
+            via: routed ? "divee/composer" : undefined,
           })
+        } else if (routed && !SessionV1.ContextOverflowError.isInstance(error)) {
+          // Transient failure on a routed model: cool it down so the next turn prefers another
+          // free model instead of repeatedly hitting the same one.
+          Composer.recordFailure(String(routed.providerID), String(routed.modelID))
         }
         if (SessionV1.ContextOverflowError.isInstance(error)) {
           if ((yield* config.get()).compaction?.auto === false && !ctx.assistantMessage.summary) {

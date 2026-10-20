@@ -14,7 +14,7 @@ const memoryExtractRouteBase = HttpRouter.use((router) =>
     const sessionMemory = yield* SessionMemoryIntegration.Service
     const scheduler = yield* MemoryScheduler.MemorySchedulerService
 
-    return router.add("POST", `/api/session${sessionIdParam}`, (request) =>
+    return yield* router.add("POST", `/api/session${sessionIdParam}`, (request) =>
       Effect.gen(function* () {
         const routeParams = yield* HttpRouter.params
         const sessionID = routeParams.sessionID ?? ""

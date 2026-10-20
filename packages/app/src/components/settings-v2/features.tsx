@@ -66,6 +66,19 @@ export const SettingsFeaturesV2: Component = () => {
               )}
             </For>
           </SettingsListV2>
+
+          <h3 class="settings-v2-section-title">{language.t("settings.features.section.performance")}</h3>
+          <SettingsListV2>
+            <SettingsRowV2
+              title={language.t("settings.features.keepProjectsWarm")}
+              description={language.t("settings.features.keepProjectsWarmDescription")}
+            >
+              <Switch
+                checked={settings.state.keepProjectsWarm}
+                onChange={(checked) => settings.toggleKeepProjectsWarm(checked)}
+              />
+            </SettingsRowV2>
+          </SettingsListV2>
         </Show>}>
           <div class="settings-v2-servers-status">
             <span>{settings.state.loadError || language.t("settings.features.loadFailed")}</span>

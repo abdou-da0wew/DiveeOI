@@ -248,6 +248,16 @@ export const Info = Schema.Struct({
   ).annotate({
     description: "Startup feature flags. Disabled features never load their machinery. Changes require a server restart.",
   }),
+  performance: Schema.optional(
+    Schema.Struct({
+      keep_projects_warm: Schema.optional(Schema.Boolean).annotate({
+        description:
+          "Keep idle project service graphs (tools, watchers, session runners) in memory for an hour instead of ten minutes, and allow more of them to stay cached. Faster project switching at the cost of higher memory use (default: false). Changes require a server restart.",
+      }),
+    }),
+  ).annotate({
+    description: "Server performance policy. Changes require a server restart.",
+  }),
   compatibility: Schema.optional(
     Schema.Struct({
       legacy_config: Schema.optional(Schema.Boolean).annotate({

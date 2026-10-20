@@ -9,6 +9,7 @@ import { SessionRevert } from "./revert"
 import { Session } from "./session"
 import { Agent } from "../agent/agent"
 import { Provider } from "@/provider/provider"
+import { Composer } from "@/provider/composer"
 
 import { type Tool as AITool, tool, jsonSchema } from "ai"
 import type { JSONSchema7 } from "@ai-sdk/provider"
@@ -680,7 +681,12 @@ export const layer = Layer.effect(
       modelID: ModelV2.ID,
       sessionID: SessionID,
     ) {
-      if (!ProviderFreeTier.isRoutable(String(providerID), String(modelID))) {
+      // DiveeComposer is a router, not a concrete model: it is never "refused by the free
+      // tier" itself, and its own name must not be learned as unusable.
+      if (
+        !Composer.isComposer(providerID, modelID) &&
+        !ProviderFreeTier.isRoutable(String(providerID), String(modelID))
+      ) {
         const replacement = yield* provider.getSmallModel(providerID)
         if (replacement && replacement.id !== modelID) {
           yield* Effect.logWarning("model needs a key, rotating", {
@@ -1626,6 +1632,7 @@ Tool: {name}
             if (
               rotations < MAX_FREE_TIER_ROTATIONS &&
               handle.message.error !== undefined &&
+              !Composer.isComposer(handle.message.providerID as any, handle.message.modelID as any) &&
               ProviderFreeTier.classify(handle.message.error) !== undefined &&
               handle.message.providerID &&
               handle.message.modelID
@@ -1949,6 +1956,10 @@ export const defaultLayer = Layer.suspend(() =>
         RuntimeFlags.defaultLayer,
         EventV2Bridge.defaultLayer,
         SessionMemoryIntegration.defaultLayer,
+        // SessionTodo is used by the system prompt builder; without providing it
+        // here `SessionPrompt.defaultLayer` fails to build ("Service not found:
+        // @opencode/SessionTodo"), which took the whole AppLayer down with it.
+        SessionTodo.defaultLayer,
       ),
     ),
   ),

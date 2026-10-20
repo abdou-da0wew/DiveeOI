@@ -437,7 +437,7 @@ export const SettingsGeneralV2: Component = () => {
           description={
             <>
               {language.t("settings.general.row.theme.description")}{" "}
-              <Link class="settings-v2-link" href="https://opencode.ai/docs/themes/">
+              <Link class="settings-v2-link" href="https://github.com/abdou-da0wew/DiveeOI/blob/main/docs/configuration.md">
                 {language.t("common.learnMore")}
               </Link>
             </>

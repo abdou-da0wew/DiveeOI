@@ -173,9 +173,13 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
     })
   }
 
-  const opencodeProjectID = input.model.providerID.startsWith("opencode")
-    ? (yield* InstanceState.context).project.id
-    : undefined
+  // Gateway identity is a property of the provider that actually serves the request, not of
+  // the model id the user picked. DiveeComposer resolves to a concrete provider (e.g. the
+  // bundled `opencode` free tier), so keying this off `model.providerID` silently dropped the
+  // gateway User-Agent and headers — every routed turn was refused with FreeTierError.
+  const gateway = input.provider.id.startsWith("opencode")
+
+  const opencodeProjectID = gateway ? (yield* InstanceState.context).project.id : undefined
 
   // The Zen gateway gates anonymous inference on the version in this header, so it cannot be the
   // locally compiled-in value - see @/provider/user-agent for the measured floor and the reason
@@ -183,7 +187,7 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
   // so this stays a pure function of its input.
   const userAgent = input.userAgent
     ? yield* input.userAgent
-    : input.model.providerID.startsWith("opencode")
+    : gateway
       ? yield* Effect.fail(new Error("opencode provider requires a resolved gateway User-Agent"))
       : USER_AGENT
 
@@ -194,7 +198,7 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
     params,
     messageTransformOptions: options,
     headers: {
-      ...(input.model.providerID.startsWith("opencode")
+      ...(gateway
         ? {
             ...(opencodeProjectID ? { "x-opencode-project": opencodeProjectID } : {}),
             "x-opencode-session": input.sessionID,

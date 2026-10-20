@@ -1,6 +1,6 @@
 # DiveeOI Project Guide
 
-> **DiveeOI** is a fork of [OpenCode](https://github.com/anomalyco/opencode) that extracts only the web UI and server components into a standalone web application. It is an AI-powered development web app that provides AI chat sessions, MCP (Model Context Protocol), tool definitions, an agent system, authentication, project management, file operations, git integration, and a complete HTTP API.
+> **DiveeOI** is a self-hosted, AI-powered development web app: AI chat sessions, MCP (Model Context Protocol), tool definitions, an agent system, authentication, project management, file operations, git integration, and a complete HTTP API. The web UI and the server are the whole product — one process, one SQLite file, your own machine.
 
 ---
 

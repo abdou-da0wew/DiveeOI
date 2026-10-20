@@ -71,6 +71,9 @@ const GlobalFeaturesState = Schema.Struct({
       }),
     ),
   ),
+  performance: Schema.Struct({
+    keepProjectsWarm: Schema.Boolean,
+  }),
   probes: Schema.Struct({
     fts5: Schema.String,
     ssh2: Schema.String,

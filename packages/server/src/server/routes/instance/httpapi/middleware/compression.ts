@@ -1,4 +1,4 @@
-import { deflateSync, gzipSync } from "node:zlib"
+import { deflate, gzip } from "node:zlib"
 import { Effect } from "effect"
 import { HttpBody, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 
@@ -28,6 +28,16 @@ function pathOf(url: string): string {
   return queryIndex === -1 ? url : url.slice(0, queryIndex)
 }
 
+// Async zlib: the *Sync variants block the event loop for the whole
+// compression. Compression runs on libuv's threadpool instead.
+function compress(encoding: Encoding, input: Uint8Array): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    const done = (error: Error | null, result: Uint8Array) => (error ? reject(error) : resolve(result))
+    if (encoding === "gzip") gzip(input, done)
+    else deflate(input, done)
+  })
+}
+
 export const compressionLayer = HttpRouter.middleware<{ handles: unknown }>()((effect) =>
   Effect.gen(function* () {
     const response = yield* effect
@@ -54,7 +64,8 @@ export const compressionLayer = HttpRouter.middleware<{ handles: unknown }>()((e
     const encoding = pickEncoding(request.headers["accept-encoding"])
     if (!encoding) return response
 
-    const compressed = encoding === "gzip" ? gzipSync(body.body) : deflateSync(body.body)
+    const compressed = yield* Effect.promise(() => compress(encoding, body.body)).pipe(Effect.catch(() => Effect.void))
+    if (!compressed) return response
     return HttpServerResponse.setHeader(
       HttpServerResponse.setBody(response, HttpBody.uint8Array(compressed, contentType)),
       "content-encoding",

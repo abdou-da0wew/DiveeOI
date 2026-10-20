@@ -163,6 +163,33 @@ Server also serves `_opencode/themes` (fetched by `_ExternalThemeLoader` after `
 
 Profiles switch between `balanced` and `critical` (and potentially others) based on RSS vs target.
 
+Full GC only runs when the host itself is short on memory; otherwise the scheduler issues an incremental `Bun.gc(false)` so it never stalls the event loop on a timer.
+
+## Project Retention (`performance.keep_projects_warm`)
+
+Each project the UI touches builds a per-location service graph (tools, watcher, session store, LLM runner) worth tens of megabytes. By default idle graphs are released after **10 minutes** (`LocationServiceMap` idle TTL), each service caches at most **16** per-directory entries, and `InstanceStore` reaps instances idle for **15 minutes** (max 12 retained). This keeps RSS proportional to the projects actually in use.
+
+Trading memory for faster project switching is a one-key opt-in:
+
+```jsonc
+{
+  "performance": { "keep_projects_warm": true }
+}
+```
+
+That raises the idle TTL to 60 minutes and the capacities to 100 entries / 24 instances. `DIVEEOI_KEEP_PROJECTS_WARM=1` (or `0`) overrides the config file. These values are read once at module load in `packages/db/src/startup-settings.ts`, before any layer is built, so a change requires a server restart. The web UI exposes the same switch under **Settings → Features → Performance**; like the other feature toggles it PATCHes the global config and restarts the server.
+
+## DiveeComposer (the built-in model router)
+
+`divee/composer` — shown in the UI as **Divee** → **DiveeComposer** — is a synthetic model, not a provider entry. It is never sent to a provider.
+
+- **It is a default.** With no model configured (and no recently used model), it is what a new session starts with. Every free model stays selectable as normal, both in the model picker and through `cfg.model`.
+- **It routes per turn.** Each turn it resolves to the best *free* model that is currently reachable — preferring the bundled free tier — and only that concrete `provider/model` is used for the request. Models the free tier refuses (or that fail transiently) are skipped automatically, so the router moves on without the user re-picking anything.
+- **Capabilities are dynamic.** The composer mirrors the model it currently routes to: image/PDF/audio/video input, context window, reasoning, tool calling and variants. The UI therefore enables exactly the attachments the routed model can actually handle.
+- **Routing is transparent in the UI, explicit in the logs.** The model chip reads "DiveeComposer"; the server log records the route (`composer.route model="divee/composer -> opencode/<model>"`), and the outgoing provider request carries the real model id.
+
+Implementation: `packages/server/src/provider/composer.ts` (selection, ranking, cooldowns), wired into `provider.ts` (`list`, `getModel`, `getLanguage`), `session/llm.ts` (the request is prepared for the resolved provider) and `session/processor.ts` (failures are learned against the concrete model, never the synthetic id).
+
 ## Observability / Profiler
 
 Enable profiler with env:
@@ -201,6 +228,7 @@ OpenTelemetry is gated behind `cfg.experimental.openTelemetry` and the optional 
     "context7": { "type": "remote", "url": "https://context7.example.com/mcp" }
   },
   "snapshot": true,
+  "performance": { "keep_projects_warm": false },
   "experimental": {
     "openTelemetry": false,
     "mcp_timeout": 30000

@@ -1,0 +1,22 @@
+/* Remote SSH session dialog (dialog-session-remote.tsx) */
+
+.dialog-session-remote-label {
+  font-size: 13px;
+  font-weight: 530;
+  line-height: 1;
+  color: var(--v2-text-text-base);
+}
+
+.dialog-session-remote-test-result {
+  font-size: 11px;
+  font-weight: 440;
+  line-height: 1.4;
+  color: var(--v2-state-fg-success);
+}
+
+.dialog-session-remote-error {
+  font-size: 11px;
+  font-weight: 440;
+  line-height: 1.4;
+  color: var(--v2-state-fg-danger);
+}

@@ -13,7 +13,10 @@ import { authorizationRouterMiddleware } from "../middleware/authorization"
 
 export const remoteProbeRoute = HttpRouter.use((router) =>
   Effect.gen(function* () {
-    return router.add("POST", "/api/v1/remote/probe", () =>
+    // Resolve once at layer build; `use` runs this effect and discards its
+    // value, so the registration below must be yielded, not returned.
+    const svc = yield* RemoteSession.Service
+    yield* router.add("POST", "/api/v1/remote/probe", () =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest
         const bodyText = yield* request.text
@@ -24,7 +27,6 @@ export const remoteProbeRoute = HttpRouter.use((router) =>
           auth: any
           workingDirectory?: string
         }
-        const svc = yield* RemoteSession.Service
         const result = yield* svc.probe({
           host: config.host,
           port: config.port,
@@ -34,7 +36,6 @@ export const remoteProbeRoute = HttpRouter.use((router) =>
         })
         return HttpServerResponse.jsonUnsafe(result)
       }).pipe(
-        Effect.provide(RemoteSession.defaultLayer),
         Effect.catch((err) =>
           Effect.succeed(
             HttpServerResponse.jsonUnsafe({ ok: false, reason: String(err) }, { status: 500 }),
@@ -44,5 +45,6 @@ export const remoteProbeRoute = HttpRouter.use((router) =>
     )
   }),
 ).pipe(
+  Layer.provide(RemoteSession.defaultLayer),
   Layer.provide(authorizationRouterMiddleware.layer.pipe(Layer.provide(ServerAuth.Config.defaultLayer))),
 )
