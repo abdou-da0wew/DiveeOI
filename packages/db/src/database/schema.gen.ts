@@ -11,6 +11,8 @@ export default {
           \`name\` text DEFAULT '' NOT NULL,
           \`branch\` text,
           \`directory\` text,
+          \`source\` text NOT NULL DEFAULT 'user',
+          \`creator_agent\` text,
           \`extra\` text,
           \`project_id\` text NOT NULL,
           \`time_used\` integer NOT NULL,
@@ -426,12 +428,27 @@ export default {
           \`checkpoint_anchor_id\` text,
           \`worktree\` text,
           \`error\` text,
+          \`agent\` text NOT NULL DEFAULT 'build',
+          \`directory\` text,
+          \`source\` text NOT NULL DEFAULT 'user',
+          \`creator_agent\` text,
+          \`big_prompt\` text,
+          \`small_prompt\` text,
+          \`small_provider_id\` text,
+          \`small_model_id\` text,
+          \`schedule\` text,
+          \`next_run_at\` integer,
+          \`last_run_at\` integer,
+          \`run_count\` integer NOT NULL DEFAULT 0,
           \`time_created\` integer NOT NULL,
           \`time_updated\` integer NOT NULL,
           CONSTRAINT \`fk_agent_task_session_id_session_id_fk\` FOREIGN KEY (\`session_id\`) REFERENCES \`session\`(\`id\`) ON DELETE CASCADE
         );
-      
+
       `)
+      yield* tx.run(
+        `CREATE INDEX IF NOT EXISTS \`agent_task_schedule_idx\` ON \`agent_task\` (\`next_run_at\`);`,
+      )
       // ---- agent_task_event ----
       // Mirrored from migrations/20260926000000_repair_missing_tables so fresh installs are
       // correct from the start: DatabaseMigration.apply marks every migration as applied

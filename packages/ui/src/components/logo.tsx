@@ -1,62 +1,29 @@
 import { type ComponentProps } from "solid-js"
+import { DiveeMark } from "./divee-mark"
+import { DiveeWordmark } from "./divee-wordmark"
 
-export const Mark = (props: { class?: string }) => {
-  return (
-    <svg
-      data-component="logo-mark"
-      classList={{ [props.class ?? ""]: !!props.class }}
-      viewBox="0 0 16 20"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path data-slot="logo-logo-mark-shadow" d="M12 16H4V8H12V16Z" fill="var(--icon-weak-base)" />
-      <path data-slot="logo-logo-mark-o" d="M12 4H4V16H12V4ZM16 20H0V0H16V20Z" fill="var(--icon-strong-base)" />
-    </svg>
-  )
+/**
+ * DiveeOI logo assets.
+ *
+ * `Mark` is the compact mark (frame + cursor) for small spaces, `Logo` is the
+ * full lockup with the wordmark, and `Splash` is the large standalone mark for
+ * hero areas. All of them take the current text colour, so they follow the
+ * theme; the mark's accent comes from `--divee-accent`.
+ */
+
+export const Mark = (props: { class?: string; title?: string }) => {
+  return <DiveeMark class={props.class} title={props.title} />
 }
 
 export const Splash = (props: Pick<ComponentProps<"svg">, "ref" | "class">) => {
-  return (
-    <svg
-      ref={props.ref}
-      data-component="logo-splash"
-      classList={{ [props.class ?? ""]: !!props.class }}
-      viewBox="0 0 80 100"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path d="M60 80H20V40H60V80Z" fill="var(--icon-base)" />
-      <path d="M60 20H20V80H60V20ZM80 100H0V0H80V100Z" fill="var(--icon-strong-base)" />
-    </svg>
-  )
+  return <DiveeMark ref={props.ref} class={props.class} />
 }
 
-export const Logo = (props: { class?: string }) => {
+export const Logo = (props: { class?: string; title?: string }) => {
   return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 234 42"
-      fill="none"
-      classList={{ [props.class ?? ""]: !!props.class }}
-    >
-      <g>
-        <path d="M18 30H6V18H18V30Z" fill="var(--icon-weak-base)" />
-        <path d="M18 12H6V30H18V12ZM24 36H0V6H24V36Z" fill="var(--icon-base)" />
-        <path d="M48 30H36V18H48V30Z" fill="var(--icon-weak-base)" />
-        <path d="M36 30H48V12H36V30ZM54 36H36V42H30V6H54V36Z" fill="var(--icon-base)" />
-        <path d="M84 24V30H66V24H84Z" fill="var(--icon-weak-base)" />
-        <path d="M84 24H66V30H84V36H60V6H84V24ZM66 18H78V12H66V18Z" fill="var(--icon-base)" />
-        <path d="M108 36H96V18H108V36Z" fill="var(--icon-weak-base)" />
-        <path d="M108 12H96V36H90V6H108V12ZM114 36H108V12H114V36Z" fill="var(--icon-base)" />
-        <path d="M144 30H126V18H144V30Z" fill="var(--icon-weak-base)" />
-        <path d="M144 12H126V30H144V36H120V6H144V12Z" fill="var(--icon-strong-base)" />
-        <path d="M168 30H156V18H168V30Z" fill="var(--icon-weak-base)" />
-        <path d="M168 12H156V30H168V12ZM174 36H150V6H174V36Z" fill="var(--icon-strong-base)" />
-        <path d="M198 30H186V18H198V30Z" fill="var(--icon-weak-base)" />
-        <path d="M198 12H186V30H198V12ZM204 36H180V6H198V0H204V36Z" fill="var(--icon-strong-base)" />
-        <path d="M234 24V30H216V24H234Z" fill="var(--icon-weak-base)" />
-        <path d="M216 12V18H228V12H216ZM234 24H216V30H234V36H210V6H234V24Z" fill="var(--icon-strong-base)" />
-      </g>
-    </svg>
+    <div class={`flex items-center gap-3 ${props.class ?? ""}`}>
+      <DiveeMark class="size-8 shrink-0" />
+      <DiveeWordmark class="h-7 w-auto" title={props.title} />
+    </div>
   )
 }

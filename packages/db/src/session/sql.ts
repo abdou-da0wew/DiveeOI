@@ -255,6 +255,28 @@ export const AgentTaskTable = sqliteTable(
     checkpoint_anchor_id: text(),
     worktree: text(),
     error: text(),
+    // Which agent runs the task (defaults to "build").
+    agent: text().notNull().default("build"),
+    // The project directory the task belongs to. The runner needs it to
+    // execute the task in the right instance context.
+    directory: text(),
+    // Who made the task: "user" (from the tasks tab) or "agent" (an agent
+    // created it inside a session). `creator_agent` names the agent.
+    source: text().notNull().default("user"),
+    creator_agent: text(),
+    // The long prompt the task runs, and the cheap prompt used for its
+    // side-channel work (summaries, heartbeats, cheap follow-ups).
+    big_prompt: text(),
+    small_prompt: text(),
+    // The model pair: the big model runs the task, the small model does the
+    // cheap side-channel work.
+    small_provider_id: text(),
+    small_model_id: text(),
+    // Cron expression for a recurring task, plus the bookkeeping for it.
+    schedule: text(),
+    next_run_at: integer(),
+    last_run_at: integer(),
+    run_count: integer().notNull().default(0),
     ...Timestamps,
   },
   (table) => [index("agent_task_status_idx").on(table.status, table.auto_run)],

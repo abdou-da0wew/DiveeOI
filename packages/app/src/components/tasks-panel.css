@@ -194,3 +194,67 @@
 .tasks-panel-row-actions button:hover {
   background: var(--color-bg-tertiary);
 }
+
+/* Task form fields: prompt pair, model pair, agent, schedule, hook. */
+.tasks-panel-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tasks-panel-field > span {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-weak);
+}
+
+.tasks-panel-field-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.tasks-panel-field-row > .tasks-panel-field {
+  flex: 1 1 180px;
+}
+
+.tasks-panel-field textarea,
+.tasks-panel-field input,
+.tasks-panel-field select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border-base);
+  border-radius: 6px;
+  background: var(--color-background-base);
+  color: var(--color-text-strong);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.tasks-panel-field textarea {
+  resize: vertical;
+}
+
+.tasks-panel-field select {
+  height: 30px;
+}
+
+.tasks-panel-row-chip {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--color-background-secondary);
+  color: var(--color-text-weak);
+  font-family: var(--font-family-mono);
+  font-size: 10px;
+}
+
+.tasks-panel-row-meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  color: var(--color-text-weak);
+  font-family: var(--font-family-mono);
+  font-size: 10px;
+}

@@ -5,7 +5,6 @@ import { Dialog } from "@diveeoi/ui/dialog"
 import { List } from "@diveeoi/ui/list"
 import { Tag } from "@diveeoi/ui/tag"
 import { ProviderIcon } from "@diveeoi/ui/provider-icon"
-import { DiveeWordmark } from "@diveeoi/ui/divee-wordmark"
 import { DialogConnectProvider } from "./dialog-connect-provider"
 import { useLanguage } from "@/context/language"
 import { DialogCustomProvider } from "./dialog-custom-provider"
@@ -65,16 +64,7 @@ export const DialogSelectProvider: Component = () => {
       >
         {(i) => (
           <div class="px-1.25 w-full flex items-center gap-x-3">
-            <Show
-              when={i.id === "divee"}
-              fallback={<ProviderIcon data-slot="list-item-extra-icon" id={i.id} />}
-            >
-              <DiveeWordmark
-                data-slot="list-item-extra-icon"
-                class="h-4 w-auto shrink-0 text-v2-icon-icon-strong-base"
-                title={i.name}
-              />
-            </Show>
+            <ProviderIcon data-slot="list-item-extra-icon" id={i.id} />
             <span>{i.name}</span>
             <Show when={i.id === "opencode"}>
               <div class="text-14-regular text-text-weak">{language.t("dialog.provider.opencode.tagline")}</div>

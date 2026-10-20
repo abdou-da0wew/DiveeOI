@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DiveeOI Mark 02</title>
+<script src="./vendor/react.js"></script>
+<script src="./vendor/react-dom.js"></script>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@700&amp;family=Geist+Mono:wght@500&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div style="--a: {{accent}}; width: 1280px; height: 720px; box-sizing: border-box; padding: 56px; background: #121212; display: grid; grid-template-columns: 480px 1fr; gap: 48px; font-family: 'Geist Mono', ui-monospace, monospace; color: #8A8F98; font-size: 13px">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><symbol id="dv" viewBox="0 0 64 64"><path d="M12 23V12H32A20 20 0 0 1 32 52H12V41" fill="none" stroke="currentColor" stroke-width="8"></path><path d="M23 23H32A9 9 0 0 1 32 41H23Z" fill="var(--a,#FF5B1F)"></path></symbol></defs></svg>
+<div style="border: 1px solid #2A2A2A; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 40px">
+<svg width="288" height="288" role="img" aria-label="DiveeOI mark" style="color:#EDEDEA"><use href="#dv"></use></svg>
+<div>MARK 02 / OPEN FRAME D + INNER D</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 24px">
+<div style="border: 1px solid #2A2A2A; padding: 32px; display: flex; align-items: center; gap: 20px; height: 120px; position: relative">
+<svg width="64" height="64" role="img" aria-label="Mark" style="color:#EDEDEA"><use href="#dv"></use></svg>
+<div style="font-family: 'Bebas Neue', Impact, sans-serif; font-weight: 400; font-size: 80px; letter-spacing: -3.5px; color: #EDEDEA; line-height: 1">Divee<span style="font-family: 'Bebas Neue', Impact, sans-serif; font-weight: 400; color: #8A8F98; letter-spacing: 0">OI</span></div>
+</div>
+<div style="border: 1px solid #2A2A2A; padding: 32px; display: flex; align-items: flex-end; gap: 40px">
+<svg width="96" height="96" aria-hidden="true" style="color:#EDEDEA"><use href="#dv"></use></svg>
+<svg width="48" height="48" aria-hidden="true" style="color:#EDEDEA"><use href="#dv"></use></svg>
+<svg width="32" height="32" aria-hidden="true" style="color:#EDEDEA"><use href="#dv"></use></svg>
+<svg width="16" height="16" aria-hidden="true" style="color:#EDEDEA"><use href="#dv"></use></svg>
+<div>96 / 48 / 32 / 16 PX</div>
+</div>
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; flex: 1">
+<div style="background: #EDEDEA; color: #121212; display: flex; align-items: center; justify-content: center"><svg width="112" height="112" role="img" aria-label="Mark on light" style="color:#121212"><use href="#dv"></use></svg></div>
+<div style="background: {{accent}}; display: flex; align-items: center; justify-content: center"><svg width="112" height="112" role="img" aria-label="Mark on orange" style="color:#121212; --a:#EDEDEA"><use href="#dv"></use></svg></div>
+</div>
+</div>
+</div>
+<helmet><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700&amp;display=swap"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bebas+Neue:wght@400&amp;display=swap"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&amp;display=swap"></helmet></x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#FF5B1F&quot;},&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:720}}">
+class Component extends DCLogic {
+renderVals() {
+return { accent: this.props.accent ?? '#FF5B1F' };
+}
+}
+</script>
+</body>
+</html>

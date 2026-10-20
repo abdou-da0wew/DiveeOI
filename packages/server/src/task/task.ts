@@ -23,11 +23,15 @@ import { Database } from "@diveeoi/db/database/database"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { EventV2 } from "@diveeoi/db/event"
 import { Session } from "@/session/session"
+import { Provider } from "@/provider/provider"
+import { Composer } from "@/provider/composer"
+import { InstanceState } from "@/effect/instance-state"
 import { SessionID } from "@/session/schema"
 import { Context, Effect, Layer, Schema } from "effect"
-import { eq, desc, inArray } from "drizzle-orm"
+import { eq, desc, inArray, and, isNotNull, lte, sql } from "drizzle-orm"
 import { AgentTaskTable, AgentTaskCallTable, AgentTaskEventTable } from "@diveeoi/db/session/sql"
 import { useAdaptiveTargets } from "@diveeoi/db/adaptive"
+import { TaskSchedule } from "./schedule"
 import { ulid } from "ulid"
 
 /** Task status as persisted in agent_task.status. */
@@ -56,6 +60,26 @@ export const Info = Schema.Struct({
   checkpointAnchorID: Schema.optional(Schema.String),
   worktree: Schema.optional(Schema.String),
   error: Schema.optional(Schema.String),
+  /** Which agent runs the task. */
+  agent: Schema.optional(Schema.String),
+  /** The project directory the task runs in. */
+  directory: Schema.optional(Schema.String),
+  /** Who made the task: "user" or "agent". */
+  source: Schema.optional(Schema.String),
+  /** The agent that made the task, when it was made by an agent. */
+  creatorAgent: Schema.optional(Schema.String),
+  /** The long prompt the task runs; `prompt` is the short form. */
+  bigPrompt: Schema.optional(Schema.String),
+  /** The cheap prompt used for the task's side-channel work. */
+  smallPrompt: Schema.optional(Schema.String),
+  /** The model pair: big model runs the task, small model does the cheap work. */
+  smallProviderID: Schema.optional(Schema.String),
+  smallModelID: Schema.optional(Schema.String),
+  /** Cron expression - the task re-runs on its own. */
+  schedule: Schema.optional(Schema.String),
+  nextRunAt: Schema.optional(Schema.Number),
+  lastRunAt: Schema.optional(Schema.Number),
+  runCount: Schema.optional(Schema.Number),
   createdAt: Schema.Number,
   updatedAt: Schema.Number,
 }).annotate({ identifier: "AgentTask.Info" })
@@ -81,18 +105,73 @@ export interface CreateInput {
     trigger: "on_complete" | "on_fail" | "on_timeout" | "on_output_match"
     action: "run_command" | "notify" | "webhook" | "create_task"
     payload?: unknown
+    pattern?: string
   }>
   readonly parentSessionID?: string
+  /** The project directory the task runs in. */
+  readonly directory?: string
+  /** Who made the task: "user" or "agent". */
+  readonly source?: "user" | "agent"
+  /** The agent that made the task, when it was made by an agent. */
+  readonly creatorAgent?: string
+  /** Let the task generator agent build the task before it runs. */
+  readonly autoGenerate?: boolean
+  /** Which agent runs the task (default "build"). */
+  readonly agent?: string
+  /** The long prompt the task runs. Falls back to `prompt`. */
+  readonly bigPrompt?: string
+  /** The cheap prompt for the task's side-channel work. */
+  readonly smallPrompt?: string
+  /** The small model of the pair (used for summaries and cheap follow-ups). */
+  readonly smallModel?: { providerID: string; modelID: string }
+  /** Cron expression - the task re-runs on its own without being triggered. */
+  readonly schedule?: string
 }
 
 export interface Interface {
   readonly create: (input: CreateInput) => Effect.Effect<Info>
-  readonly update: (id: string, patch: Partial<Pick<Info, "prompt" | "modelID" | "providerID" | "subagentTypes" | "eventHooks">>) => Effect.Effect<Info>
+  readonly update: (
+    id: string,
+    patch: Partial<
+      Pick<
+        Info,
+        | "prompt"
+        | "modelID"
+        | "providerID"
+        | "subagentTypes"
+        | "eventHooks"
+        | "agent"
+        | "bigPrompt"
+        | "smallPrompt"
+        | "smallProviderID"
+        | "smallModelID"
+        | "schedule"
+      >
+    >,
+  ) => Effect.Effect<Info>
   readonly cancel: (id: string) => Effect.Effect<void>
   readonly pause: (id: string) => Effect.Effect<void>
   readonly resume: (id: string) => Effect.Effect<void>
   readonly list: (filter?: { status?: TaskStatus[]; parentSessionID?: string }) => Effect.Effect<Info[]>
   readonly get: (id: string) => Effect.Effect<Info | undefined>
+  /** Move a task to a new status. The runner and the scheduler both use it. */
+  readonly setStatus: (id: string, status: TaskStatus, error?: string) => Effect.Effect<void>
+  /** Record that a task ran (bumps the counter and stamps the run time). */
+  readonly markRun: (id: string) => Effect.Effect<void>
+  /** Set when a scheduled task should next fire. */
+  readonly setNextRun: (id: string, nextRunAt: number | undefined) => Effect.Effect<void>
+  /** Tasks whose schedule is due. */
+  readonly due: (now: number) => Effect.Effect<Info[]>
+  /** The hook audit trail for a task. */
+  readonly events: (id: string) => Effect.Effect<Array<{
+    id: number
+    trigger: string
+    action: string
+    payload: string | null
+    status: string | null
+    result: string | null
+    firedAt: number
+  }>>
   readonly touchHeartbeat: (id: string) => Effect.Effect<void>
   /**
    * Append a tool-call journal row before executing the call. Returns the
@@ -117,20 +196,37 @@ export const layer = Layer.effect(
     const { db } = yield* Database.Service
     const events = yield* EventV2Bridge.Service
     const sessions = yield* Session.Service
+    const providers = yield* Provider.Service
 
     const create = Effect.fn("AgentTask.create")(function* (input: CreateInput) {
       const id = `task_${ulid()}`
       const now = Date.now()
+      // Default to the composer: it is the most reliable free model we have and
+      // it re-resolves to the best reachable model on every run. A task without a
+      // model of its own always goes through the router.
+      const model =
+        input.model ??
+        ({
+          providerID: Composer.PROVIDER_ID,
+          modelID: Composer.MODEL_ID,
+        } as { providerID: string; modelID: string })
+      // Remember the project the task belongs to: the runner executes it later,
+      // outside any request, and needs the right instance context.
+      const context = yield* InstanceState.context.pipe(
+        Effect.map((ctx) => ctx.directory),
+        Effect.catch(() => Effect.succeed(undefined)),
+      )
+      const directory = input.directory ?? context
       // Create the child session that backs this task. The session is the
       // canonical chat surface — the task table is a thin overlay.
       const session = yield* sessions.create({
         parentID: input.parentSessionID ? SessionID.make(input.parentSessionID) : undefined,
         title: input.prompt.slice(0, 80),
         agent: "build",
-        model: input.model
+        model: model
           ? {
-              id: input.model.modelID as never,
-              providerID: input.model.providerID as never,
+              id: model.modelID as never,
+              providerID: model.providerID as never,
             }
           : undefined,
       })
@@ -141,8 +237,8 @@ export const layer = Layer.effect(
           session_id: session.id,
           parent_session_id: input.parentSessionID ?? null,
           prompt: input.prompt,
-          provider_id: input.model?.providerID ?? null,
-          model_id: input.model?.modelID ?? null,
+          provider_id: model?.providerID ?? null,
+          model_id: model?.modelID ?? null,
           status: input.autoRun ? "queued" : "paused",
           auto_run: input.autoRun ? 1 : 0,
           subagent_types: input.subagentTypes ?? null,
@@ -151,6 +247,18 @@ export const layer = Layer.effect(
           checkpoint_anchor_id: null,
           worktree: null,
           error: null,
+          agent: input.agent ?? "build",
+          directory: directory ?? null,
+          source: input.source ?? "user",
+          creator_agent: input.creatorAgent ?? null,
+          big_prompt: input.bigPrompt ?? null,
+          small_prompt: input.smallPrompt ?? null,
+          small_provider_id: input.smallModel?.providerID ?? null,
+          small_model_id: input.smallModel?.modelID ?? null,
+          schedule: input.schedule ?? null,
+          next_run_at: input.schedule ? (TaskSchedule.nextRun(input.schedule, new Date(now))?.getTime() ?? null) : null,
+          last_run_at: null,
+          run_count: 0,
         } as typeof AgentTaskTable.$inferInsert)
         .run()
         .pipe(Effect.orDie)
@@ -159,8 +267,8 @@ export const layer = Layer.effect(
         sessionID: session.id,
         parentSessionID: input.parentSessionID,
         prompt: input.prompt,
-        providerID: input.model?.providerID,
-        modelID: input.model?.modelID,
+        providerID: model?.providerID,
+        modelID: model?.modelID,
         status: input.autoRun ? "queued" : "paused",
         autoRun: input.autoRun ?? false,
         subagentTypes: input.subagentTypes,
@@ -169,6 +277,18 @@ export const layer = Layer.effect(
         checkpointAnchorID: undefined,
         worktree: undefined,
         error: undefined,
+        agent: input.agent ?? "build",
+        directory,
+        source: input.source ?? "user",
+        creatorAgent: input.creatorAgent,
+        bigPrompt: input.bigPrompt,
+        smallPrompt: input.smallPrompt,
+        smallProviderID: input.smallModel?.providerID,
+        smallModelID: input.smallModel?.modelID,
+        schedule: input.schedule,
+        nextRunAt: input.schedule ? TaskSchedule.nextRun(input.schedule, new Date(now))?.getTime() : undefined,
+        lastRunAt: undefined,
+        runCount: 0,
         createdAt: now,
         updatedAt: now,
       }
@@ -182,7 +302,22 @@ export const layer = Layer.effect(
 
     const update = Effect.fn("AgentTask.update")(function* (
       id: string,
-      patch: Partial<Pick<Info, "prompt" | "modelID" | "providerID" | "subagentTypes" | "eventHooks">>,
+      patch: Partial<
+        Pick<
+          Info,
+          | "prompt"
+          | "modelID"
+          | "providerID"
+          | "subagentTypes"
+          | "eventHooks"
+          | "agent"
+          | "bigPrompt"
+          | "smallPrompt"
+          | "smallProviderID"
+          | "smallModelID"
+          | "schedule"
+        >
+      >,
     ) {
       const set: Record<string, unknown> = {}
       if (patch.prompt !== undefined) set.prompt = patch.prompt
@@ -190,6 +325,15 @@ export const layer = Layer.effect(
       if (patch.providerID !== undefined) set.provider_id = patch.providerID
       if (patch.subagentTypes !== undefined) set.subagent_types = patch.subagentTypes
       if (patch.eventHooks !== undefined) set.event_hooks = patch.eventHooks ? JSON.parse(patch.eventHooks) : null
+      if (patch.agent !== undefined) set.agent = patch.agent
+      if (patch.bigPrompt !== undefined) set.big_prompt = patch.bigPrompt
+      if (patch.smallPrompt !== undefined) set.small_prompt = patch.smallPrompt
+      if (patch.smallProviderID !== undefined) set.small_provider_id = patch.smallProviderID
+      if (patch.smallModelID !== undefined) set.small_model_id = patch.smallModelID
+      if (patch.schedule !== undefined) {
+        set.schedule = patch.schedule
+        set.next_run_at = patch.schedule ? (TaskSchedule.nextRun(patch.schedule)?.getTime() ?? null) : null
+      }
       if (Object.keys(set).length > 0) {
         yield* db.update(AgentTaskTable).set(set).where(eq(AgentTaskTable.id, id)).run().pipe(Effect.orDie)
       }
@@ -331,6 +475,53 @@ export const layer = Layer.effect(
         .pipe(Effect.orDie)
     })
 
+    const markRun = Effect.fn("AgentTask.markRun")(function* (id: string) {
+      yield* db
+        .update(AgentTaskTable)
+        .set({ last_run_at: Date.now(), run_count: sql`${AgentTaskTable.run_count} + 1` })
+        .where(eq(AgentTaskTable.id, id))
+        .run()
+        .pipe(Effect.orDie)
+    })
+
+    const setNextRun = Effect.fn("AgentTask.setNextRun")(function* (id: string, nextRunAt: number | undefined) {
+      yield* db
+        .update(AgentTaskTable)
+        .set({ next_run_at: nextRunAt ?? null })
+        .where(eq(AgentTaskTable.id, id))
+        .run()
+        .pipe(Effect.orDie)
+    })
+
+    const due = Effect.fn("AgentTask.due")(function* (now: number) {
+      const rows = yield* db
+        .select()
+        .from(AgentTaskTable)
+        .where(and(isNotNull(AgentTaskTable.schedule), isNotNull(AgentTaskTable.next_run_at), lte(AgentTaskTable.next_run_at, now)))
+        .all()
+        .pipe(Effect.orDie)
+      return rows.map(rowToInfo)
+    })
+
+    const listEvents = Effect.fn("AgentTask.events")(function* (id: string) {
+      const rows = yield* db
+        .select()
+        .from(AgentTaskEventTable)
+        .where(eq(AgentTaskEventTable.task_id, id))
+        .orderBy(desc(AgentTaskEventTable.fired_at))
+        .all()
+        .pipe(Effect.orDie)
+      return rows.map((row) => ({
+        id: row.id,
+        trigger: row.trigger,
+        action: row.action,
+        payload: row.payload ?? null,
+        status: row.status ?? null,
+        result: row.result ?? null,
+        firedAt: row.fired_at,
+      }))
+    })
+
     return Service.of({
       create,
       update,
@@ -339,6 +530,11 @@ export const layer = Layer.effect(
       resume,
       list,
       get,
+      setStatus,
+      markRun,
+      setNextRun,
+      due,
+      events: listEvents,
       touchHeartbeat,
       journalPending,
       journalCommit,
@@ -365,6 +561,18 @@ function rowToInfo(row: typeof AgentTaskTable.$inferSelect): Info {
     checkpointAnchorID: row.checkpoint_anchor_id ?? undefined,
     worktree: row.worktree ?? undefined,
     error: row.error ?? undefined,
+    agent: row.agent ?? undefined,
+    directory: row.directory ?? undefined,
+    source: row.source ?? undefined,
+    creatorAgent: row.creator_agent ?? undefined,
+    bigPrompt: row.big_prompt ?? undefined,
+    smallPrompt: row.small_prompt ?? undefined,
+    smallProviderID: row.small_provider_id ?? undefined,
+    smallModelID: row.small_model_id ?? undefined,
+    schedule: row.schedule ?? undefined,
+    nextRunAt: row.next_run_at ?? undefined,
+    lastRunAt: row.last_run_at ?? undefined,
+    runCount: row.run_count ?? undefined,
     createdAt: row.time_created,
     updatedAt: row.time_updated,
   }
@@ -374,9 +582,10 @@ export const defaultLayer = layer.pipe(
   Layer.provide(EventV2Bridge.defaultLayer),
   Layer.provide(Database.defaultLayer),
   Layer.provide(Session.defaultLayer),
+  Layer.provide(Provider.defaultLayer),
 )
 
-export const node = LayerNode.make(layer, [EventV2Bridge.node, Database.node, Session.node])
+export const node = LayerNode.make(layer, [EventV2Bridge.node, Database.node, Session.node, Provider.node])
 
 /**
  * Boot resume: scan for tasks left in running/queued state by a crashed

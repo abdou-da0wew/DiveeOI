@@ -1,6 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="0" height="0">
   <defs>
+    <symbol viewBox="0 0 64 64" id="divee">
+      <path
+        d="M12 23V12H32A20 20 0 0 1 32 52H12V41"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="8"
+      ></path>
+      <path d="M23 23H32A9 9 0 0 1 32 41H23Z" fill="currentColor"></path>
+    </symbol>
     <symbol viewBox="0 0 40 40" id="zhipuai">
       <path
         d="M20.1312 7.50002L17.4088 11.1913H5.81625L8.5375 7.50002H20.1325H20.1312ZM34.0675 28.81L31.3475 32.5H19.795L22.5125 28.81H34.0675ZM35 7.50002L16.58 32.5H5L23.42 7.50002H35Z"

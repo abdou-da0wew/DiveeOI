@@ -1,3 +1,4 @@
+import { ButtonV2 } from "@diveeoi/ui/v2/button-v2"
 import { Switch } from "@diveeoi/ui/v2/switch-v2"
 import { For, Show, type Component } from "solid-js"
 import { useLanguage } from "@/context/language"
@@ -20,70 +21,77 @@ export const SettingsFeaturesV2: Component = () => {
       </div>
 
       <div class="settings-v2-tab-body">
-        <Show when={settings.state.loadError} fallback={<Show when={!settings.state.loading}>
-          <h3 class="settings-v2-section-title">{language.t("settings.features.section.features")}</h3>
-          <SettingsListV2>
-            <For each={FEATURE_ROWS}>
-              {(row) => (
-                <SettingsRowV2
-                  title={row.title}
-                  description={settings.envDisabled(row.key) ? language.t("settings.features.envDisabled") : row.description}
-                >
-                  <Switch
-                    checked={!settings.envDisabled(row.key) && settings.state.features[row.key]}
-                    disabled={settings.envDisabled(row.key)}
-                    onChange={(checked) => settings.toggleFeature(row.key, checked)}
-                  />
-                </SettingsRowV2>
-              )}
-            </For>
-          </SettingsListV2>
-
-          <h3 class="settings-v2-section-title">{language.t("settings.features.section.lsp")}</h3>
-          <SettingsListV2>
-            <SettingsRowV2
-              title={language.t("settings.features.lsp.master")}
-              description={language.t("settings.features.lsp.masterDescription")}
-            >
-              <Switch
-                checked={settings.state.lspEnabled}
-                disabled={settings.envDisabled("lsp") || !settings.state.features.lsp}
-                onChange={(checked) => settings.toggleLspMaster(checked)}
-              />
-            </SettingsRowV2>
-            <For each={settings.state.lspServers}>
-              {(server) => (
-                <SettingsRowV2
-                  title={server.id}
-                  description={server.extensions.join(", ")}
-                >
-                  <Switch
-                    checked={!server.disabled}
-                    disabled={!settings.state.lspEnabled || settings.envDisabled("lsp") || !settings.state.features.lsp}
-                    onChange={(checked) => settings.toggleLspServer(server.id, !checked)}
-                  />
-                </SettingsRowV2>
-              )}
-            </For>
-          </SettingsListV2>
-
-          <h3 class="settings-v2-section-title">{language.t("settings.features.section.performance")}</h3>
-          <SettingsListV2>
-            <SettingsRowV2
-              title={language.t("settings.features.keepProjectsWarm")}
-              description={language.t("settings.features.keepProjectsWarmDescription")}
-            >
-              <Switch
-                checked={settings.state.keepProjectsWarm}
-                onChange={(checked) => settings.toggleKeepProjectsWarm(checked)}
-              />
-            </SettingsRowV2>
-          </SettingsListV2>
-        </Show>}>
-          <div class="settings-v2-servers-status">
-            <span>{settings.state.loadError || language.t("settings.features.loadFailed")}</span>
+        {/* The list is always rendered: gating it behind the load state left the
+            whole tab blank until the request came back. A failed load now shows
+            the reason and a retry instead of an empty page. */}
+        <Show when={settings.state.loadError}>
+          <div class="settings-v2-servers-status flex items-center gap-3">
+            <span>{settings.state.loadError}</span>
+            <ButtonV2 variant="ghost-muted" onClick={() => settings.reload()}>
+              {language.t("common.retry")}
+            </ButtonV2>
           </div>
         </Show>
+
+        <h3 class="settings-v2-section-title">{language.t("settings.features.section.features")}</h3>
+        <SettingsListV2>
+          <For each={FEATURE_ROWS}>
+            {(row) => (
+              <SettingsRowV2
+                title={row.title}
+                description={settings.envDisabled(row.key) ? language.t("settings.features.envDisabled") : row.description}
+              >
+                <Switch
+                  checked={!settings.envDisabled(row.key) && settings.state.features[row.key]}
+                  disabled={settings.envDisabled(row.key)}
+                  onChange={(checked) => settings.toggleFeature(row.key, checked)}
+                />
+              </SettingsRowV2>
+            )}
+          </For>
+        </SettingsListV2>
+
+        <h3 class="settings-v2-section-title">{language.t("settings.features.section.lsp")}</h3>
+        <SettingsListV2>
+          <SettingsRowV2
+            title={language.t("settings.features.lsp.master")}
+            description={language.t("settings.features.lsp.masterDescription")}
+          >
+            <Switch
+              checked={settings.state.lspEnabled}
+              disabled={settings.envDisabled("lsp") || !settings.state.features.lsp}
+              onChange={(checked) => settings.toggleLspMaster(checked)}
+            />
+          </SettingsRowV2>
+          <For each={settings.state.lspServers}>
+            {(server) => (
+              <SettingsRowV2
+                title={server.id}
+                description={server.extensions.join(", ")}
+              >
+                <Switch
+                  checked={!server.disabled}
+                  disabled={!settings.state.lspEnabled || settings.envDisabled("lsp") || !settings.state.features.lsp}
+                  onChange={(checked) => settings.toggleLspServer(server.id, !checked)}
+                />
+              </SettingsRowV2>
+            )}
+          </For>
+        </SettingsListV2>
+
+        <h3 class="settings-v2-section-title">{language.t("settings.features.section.performance")}</h3>
+        <SettingsListV2>
+          <SettingsRowV2
+            title={language.t("settings.features.keepProjectsWarm")}
+            description={language.t("settings.features.keepProjectsWarmDescription")}
+          >
+            <Switch
+              checked={settings.state.keepProjectsWarm}
+              onChange={(checked) => settings.toggleKeepProjectsWarm(checked)}
+            />
+          </SettingsRowV2>
+        </SettingsListV2>
+
         <Show when={settings.state.error}>
           <div class="settings-v2-servers-status">
             <span>{settings.state.error}</span>

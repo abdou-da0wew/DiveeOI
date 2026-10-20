@@ -1814,6 +1814,20 @@ export const layer = Layer.effect(
       return s.providers[providerID]
     })
 
+    /**
+     * A normal (non-router) model to fall back to. Kept separate from
+     * `defaultModel` so the two do not call each other.
+     */
+    const fallbackModel = Effect.fn("Provider.fallbackModel")(function* () {
+      const cfg = yield* config.get()
+      const s = yield* InstanceState.get(state)
+      const provider = Object.values(s.providers).find((p) => !cfg.provider || Object.keys(cfg.provider).includes(p.id))
+      if (!provider) return undefined
+      const [model] = ProviderFreeTier.rankForUse(Object.values(provider.models), String(provider.id))
+      if (!model) return undefined
+      return { providerID: provider.id, modelID: model.id }
+    })
+
     const getModel = Effect.fn("Provider.getModel")(function* (providerID: ProviderV2.ID, modelID: ModelV2.ID) {
       const s = yield* InstanceState.get(state)
 
@@ -1823,8 +1837,17 @@ export const layer = Layer.effect(
       if (Composer.isComposer(providerID, modelID)) {
         const options = yield* composerOptions()
         const model = Composer.model(s.providers, options)
-        if (!model) return yield* new ModelNotFoundError({ providerID, modelID })
-        return model
+        if (model) return model
+        // The router has nowhere to go (no reachable free model in this
+        // project). Fall back to a normal model instead of failing the turn -
+        // the user picked a router, not a broken model.
+        const fallback = yield* fallbackModel()
+        if (!fallback || (fallback.providerID === providerID && fallback.modelID === modelID)) {
+          return yield* new ModelNotFoundError({ providerID, modelID })
+        }
+        const info = s.providers[fallback.providerID]?.models[String(fallback.modelID)]
+        if (!info) return yield* new ModelNotFoundError({ providerID, modelID })
+        return info
       }
 
       const provider = s.providers[providerID]
@@ -2085,6 +2108,15 @@ export const layer = Layer.effect(
           ),
         )
         if (model) return model
+      }
+      // Background work (memory extraction, compaction) runs on the composer: it
+      // is the most reliable free model we have, and it re-resolves to the best
+      // reachable model on every call.
+      if (role === "memory" || role === "compaction") {
+        const options = yield* composerOptions()
+        const instance = yield* InstanceState.get(state)
+        const composer = Composer.model(instance.providers, options)
+        if (composer) return composer
       }
       return yield* getSmallModel(providerID)
     })

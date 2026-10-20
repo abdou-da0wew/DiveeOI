@@ -79,6 +79,7 @@ export const iconNames = [
   "fastrouter",
   "evroc",
   "digitalocean",
+  "divee",
   "deepseek",
   "deepinfra",
   "cortecs",
