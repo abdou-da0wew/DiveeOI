@@ -5,6 +5,9 @@ import { Iterable, pipe } from "effect"
 import { createMemo } from "solid-js"
 
 export const popularProviders = [
+  // Divee (the built-in model router) leads every list: it is the default model and the
+  // entry the app is built around.
+  "divee",
   "opencode",
   "opencode-go",
   "anthropic",

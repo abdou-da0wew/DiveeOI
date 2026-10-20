@@ -254,6 +254,18 @@ export const Info = Schema.Struct({
         description:
           "Keep idle project service graphs (tools, watchers, session runners) in memory for an hour instead of ten minutes, and allow more of them to stay cached. Faster project switching at the cost of higher memory use (default: false). Changes require a server restart.",
       }),
+      composer: Schema.optional(
+        Schema.Struct({
+          preferred: Schema.optional(Schema.mutable(Schema.Array(Schema.String))).annotate({
+            description:
+              "Similarity list for the DiveeComposer router: glob patterns of model names that should be treated as known-good (e.g. \"deepseek-v4*\", \"glm-5*\"). Matching models are preferred over the built-in ranking.",
+          }),
+          min_tier: Schema.optional(Schema.Finite).annotate({
+            description:
+              "Quality bar (0-5) a model must reach before DiveeComposer routes to it. Below the bar the router still works, it just uses the best model available. Default: 2.",
+          }),
+        }),
+      ).annotate({ description: "DiveeComposer model routing" }),
     }),
   ).annotate({
     description: "Server performance policy. Changes require a server restart.",

@@ -185,10 +185,24 @@ That raises the idle TTL to 60 minutes and the capacities to 100 entries / 24 in
 
 - **It is a default.** With no model configured (and no recently used model), it is what a new session starts with. Every free model stays selectable as normal, both in the model picker and through `cfg.model`.
 - **It routes per turn.** Each turn it resolves to the best *free* model that is currently reachable — preferring the bundled free tier — and only that concrete `provider/model` is used for the request. Models the free tier refuses (or that fail transiently) are skipped automatically, so the router moves on without the user re-picking anything.
-- **Capabilities are dynamic.** The composer mirrors the model it currently routes to: image/PDF/audio/video input, context window, reasoning, tool calling and variants. The UI therefore enables exactly the attachments the routed model can actually handle.
-- **Routing is transparent in the UI, explicit in the logs.** The model chip reads "DiveeComposer"; the server log records the route (`composer.route model="divee/composer -> opencode/<model>"`), and the outgoing provider request carries the real model id.
+- **It picks by quality, not by price.** The catalog carries no quality score, so every free candidate is classified on four signals: a curated **family tier** (the generations that are actually capable), the **variant words** in the name (`pro`/`ultra`/`super` up, `nano`/`lite`/`preview`/`distill` down), the **version lineage** inside a family (the newer generation wins), and the **capabilities** the catalog does report (reasoning, vision, context, output). On top of that, a model that actually finished a turn gets a small boost — the classifier is a prior, live results are evidence.
+- **You can steer it.** `performance.composer.preferred` is a similarity list of glob patterns that outrank the built-in ranking, and `performance.composer.min_tier` sets the quality bar a candidate must clear:
 
-Implementation: `packages/server/src/provider/composer.ts` (selection, ranking, cooldowns), wired into `provider.ts` (`list`, `getModel`, `getLanguage`), `session/llm.ts` (the request is prepared for the resolved provider) and `session/processor.ts` (failures are learned against the concrete model, never the synthetic id).
+  ```jsonc
+  {
+    "performance": {
+      "composer": {
+        "preferred": ["deepseek-v4*", "glm-5*", "kimi-k2*"],
+        "min_tier": 3
+      }
+    }
+  }
+  ```
+
+- **Capabilities are dynamic.** The composer mirrors the model it currently routes to: image/PDF/audio/video input, context window, reasoning, tool calling and variants. The UI therefore enables exactly the attachments the routed model can actually handle.
+- **Routing is transparent in the UI, explicit in the logs.** The model chip reads "DiveeComposer"; the server log records the route and *why* (`composer.route model="divee/composer -> opencode/minimax-m3.1-flash-free" tier=4.2 score=72 why="flash -0.3, reasoning, vision, pdf, context 200k"`), and the outgoing provider request carries the real model id.
+
+Implementation: `packages/server/src/provider/composer.ts` (selection, cooldowns, live evidence) and `packages/server/src/provider/composer-quality.ts` (the classifier), wired into `provider.ts` (`list`, `getModel`, `getLanguage`), `session/llm.ts` (the request is prepared for the resolved provider) and `session/processor.ts` (failures are learned against the concrete model, never the synthetic id).
 
 ## Observability / Profiler
 

@@ -315,6 +315,13 @@ const live: Layer.Layer<
       return {
         type: "ai-sdk" as const,
         result: streamText({
+          onFinish(event) {
+            // A routed (composer) model that actually finished a turn is evidence it works:
+            // the next routing decision gets a small boost for it.
+            if (!routed) return
+            if (event.finishReason === "error") return
+            Composer.recordSuccess(String(routed.providerID), String(routed.modelID))
+          },
           onError(error) {
             bridge.fork(
               Tracer.error("llm.stream.error", {

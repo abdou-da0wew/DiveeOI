@@ -1657,7 +1657,19 @@ export const layer = Layer.effect(
       }),
     )
 
-    const list = Effect.fn("Provider.list")(() => InstanceState.use(state, (s) => Composer.withProvider(s.providers)))
+    // DiveeComposer routing options: the user's similarity list and the quality bar.
+    const composerOptions = Effect.fnUntraced(function* () {
+      const cfg = yield* config.get()
+      const composer = cfg.performance?.composer
+      return {
+        preferred: composer?.preferred ?? [],
+        minTier: composer?.min_tier ?? Composer.DEFAULT_OPTIONS.minTier,
+      } satisfies Composer.Options
+    })
+
+    const list = Effect.fn("Provider.list")(() =>
+      InstanceState.use(state, (s) => Composer.withProvider(s.providers, Composer.DEFAULT_OPTIONS)),
+    )
 
     async function resolveSDK(model: Model, s: State, envs: Record<string, string | undefined>) {
       try {
@@ -1793,12 +1805,14 @@ export const layer = Layer.effect(
       }
     }
 
-    const getProvider = Effect.fn("Provider.getProvider")((providerID: ProviderV2.ID) =>
-      InstanceState.use(state, (s) => {
-        if (providerID === Composer.PROVIDER_ID) return Composer.provider(s.providers) as Info
-        return s.providers[providerID]
-      }),
-    )
+    const getProvider = Effect.fn("Provider.getProvider")(function* (providerID: ProviderV2.ID) {
+      const s = yield* InstanceState.get(state)
+      if (providerID === Composer.PROVIDER_ID) {
+        const options = yield* composerOptions()
+        return Composer.provider(s.providers, options) as Info
+      }
+      return s.providers[providerID]
+    })
 
     const getModel = Effect.fn("Provider.getModel")(function* (providerID: ProviderV2.ID, modelID: ModelV2.ID) {
       const s = yield* InstanceState.get(state)
@@ -1807,7 +1821,8 @@ export const layer = Layer.effect(
       // hand back a model whose capabilities/limits mirror that target. The name never reaches
       // a provider — `getLanguage` swaps in the concrete model before the request is built.
       if (Composer.isComposer(providerID, modelID)) {
-        const model = Composer.model(s.providers)
+        const options = yield* composerOptions()
+        const model = Composer.model(s.providers, options)
         if (!model) return yield* new ModelNotFoundError({ providerID, modelID })
         return model
       }
@@ -1843,12 +1858,16 @@ export const layer = Layer.effect(
       // keeps the same client even as the router's preference changes.
       const routed = Composer.targetOf(model)
       if (routed) {
+        const selection = Composer.selectionOf(model)
         const target = s.providers[routed.providerID]?.models[String(routed.modelID)]
         if (!target) return yield* new ModelNotFoundError({ modelID: routed.modelID, providerID: routed.providerID })
         const cacheKey = `${model.providerID}/${model.id}`
         if (s.models.has(cacheKey)) return s.models.get(cacheKey)!
         yield* Effect.logInfo("composer.route", {
           model: Composer.describe(routed),
+          tier: selection?.quality.tier,
+          score: selection?.quality.score,
+          why: selection?.quality.reasons.join(", "),
           context: target.limit.context,
         })
         const provider = s.providers[routed.providerID]
@@ -2008,7 +2027,8 @@ export const layer = Layer.effect(
       )
       for (const entry of recent) {
         if (Composer.isComposer(entry.providerID, entry.modelID)) {
-          if (Composer.model(s.providers)) return { providerID: entry.providerID, modelID: entry.modelID }
+          const options = yield* composerOptions()
+          if (Composer.model(s.providers, options)) return { providerID: entry.providerID, modelID: entry.modelID }
           continue
         }
         const provider = s.providers[entry.providerID]
@@ -2021,7 +2041,7 @@ export const layer = Layer.effect(
       // whatever free model is actually reachable, so a fresh install works without picking
       // anything. It is not allowed to override a model the user chose (config, recent) or a
       // model from a provider they configured — and every free model stays selectable as normal.
-      const composer = Composer.model(s.providers)
+      const composer = Composer.model(s.providers, yield* composerOptions())
       if (composer) {
         const bundled = Object.values(s.providers).find((p) => String(p.id) === "opencode")
         if (bundled && (!cfg.provider || Object.keys(cfg.provider).includes(bundled.id))) {
