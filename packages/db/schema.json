@@ -1,8 +1,10 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "169a0f0f-d58f-479f-b024-fa1c7b9a09db",
-  "prevIds": ["abd2f920-b822-49af-b8a7-2e48367d424f"],
+  "id": "d0f4186c-187b-433a-8721-cd8bdb6cccaa",
+  "prevIds": [
+    "169a0f0f-d58f-479f-b024-fa1c7b9a09db"
+  ],
   "ddl": [
     {
       "name": "workspace",
@@ -41,6 +43,10 @@
       "entityType": "tables"
     },
     {
+      "name": "preference",
+      "entityType": "tables"
+    },
+    {
       "name": "project_directory",
       "entityType": "tables"
     },
@@ -49,11 +55,35 @@
       "entityType": "tables"
     },
     {
+      "name": "agent_task_call",
+      "entityType": "tables"
+    },
+    {
+      "name": "agent_task_event",
+      "entityType": "tables"
+    },
+    {
+      "name": "agent_task",
+      "entityType": "tables"
+    },
+    {
       "name": "message",
       "entityType": "tables"
     },
     {
       "name": "part",
+      "entityType": "tables"
+    },
+    {
+      "name": "reminder",
+      "entityType": "tables"
+    },
+    {
+      "name": "session_anchor_ref",
+      "entityType": "tables"
+    },
+    {
+      "name": "session_anchor",
       "entityType": "tables"
     },
     {
@@ -606,6 +636,56 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
+      "name": "scope",
+      "entityType": "columns",
+      "table": "preference"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "name",
+      "entityType": "columns",
+      "table": "preference"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "value",
+      "entityType": "columns",
+      "table": "preference"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_created",
+      "entityType": "columns",
+      "table": "preference"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_updated",
+      "entityType": "columns",
+      "table": "preference"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
       "name": "project_id",
       "entityType": "columns",
       "table": "project_directory"
@@ -772,6 +852,456 @@
     },
     {
       "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "task_id",
+      "entityType": "columns",
+      "table": "agent_task_call"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "seq",
+      "entityType": "columns",
+      "table": "agent_task_call"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "tool",
+      "entityType": "columns",
+      "table": "agent_task_call"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "args_hash",
+      "entityType": "columns",
+      "table": "agent_task_call"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "status",
+      "entityType": "columns",
+      "table": "agent_task_call"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "result_ref",
+      "entityType": "columns",
+      "table": "agent_task_call"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "started_at",
+      "entityType": "columns",
+      "table": "agent_task_call"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "committed_at",
+      "entityType": "columns",
+      "table": "agent_task_call"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": true,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "agent_task_event"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "task_id",
+      "entityType": "columns",
+      "table": "agent_task_event"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "trigger",
+      "entityType": "columns",
+      "table": "agent_task_event"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "action",
+      "entityType": "columns",
+      "table": "agent_task_event"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "payload",
+      "entityType": "columns",
+      "table": "agent_task_event"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "status",
+      "entityType": "columns",
+      "table": "agent_task_event"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "result",
+      "entityType": "columns",
+      "table": "agent_task_event"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "fired_at",
+      "entityType": "columns",
+      "table": "agent_task_event"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "parent_session_id",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "prompt",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "provider_id",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "model_id",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'queued'",
+      "generated": null,
+      "name": "status",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "auto_run",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "subagent_types",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "event_hooks",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "last_heartbeat",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "checkpoint_anchor_id",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "worktree",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "error",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'build'",
+      "generated": null,
+      "name": "agent",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "directory",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user'",
+      "generated": null,
+      "name": "source",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "creator_agent",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "big_prompt",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "small_prompt",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "small_provider_id",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "small_model_id",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "schedule",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "next_run_at",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "last_run_at",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "run_count",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "auto_generate",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_created",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_updated",
+      "entityType": "columns",
+      "table": "agent_task"
+    },
+    {
+      "type": "text",
       "notNull": false,
       "autoincrement": false,
       "default": null,
@@ -879,6 +1409,236 @@
       "name": "data",
       "entityType": "columns",
       "table": "part"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "reminder"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "reminder"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "text",
+      "entityType": "columns",
+      "table": "reminder"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'agent'",
+      "generated": null,
+      "name": "created_by",
+      "entityType": "columns",
+      "table": "reminder"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'medium'",
+      "generated": null,
+      "name": "priority",
+      "entityType": "columns",
+      "table": "reminder"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "tags",
+      "entityType": "columns",
+      "table": "reminder"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "done",
+      "entityType": "columns",
+      "table": "reminder"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_created",
+      "entityType": "columns",
+      "table": "reminder"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_updated",
+      "entityType": "columns",
+      "table": "reminder"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "anchor_id",
+      "entityType": "columns",
+      "table": "session_anchor_ref"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "ref",
+      "entityType": "columns",
+      "table": "session_anchor_ref"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "section",
+      "entityType": "columns",
+      "table": "session_anchor_ref"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "label",
+      "entityType": "columns",
+      "table": "session_anchor_ref"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "ordinal",
+      "entityType": "columns",
+      "table": "session_anchor_ref"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "session_anchor"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "session_anchor"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "epoch",
+      "entityType": "columns",
+      "table": "session_anchor"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "root_ref",
+      "entityType": "columns",
+      "table": "session_anchor"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "tree_json",
+      "entityType": "columns",
+      "table": "session_anchor"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "token_estimate",
+      "entityType": "columns",
+      "table": "session_anchor"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "degraded",
+      "entityType": "columns",
+      "table": "session_anchor"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_created",
+      "entityType": "columns",
+      "table": "session_anchor"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_updated",
+      "entityType": "columns",
+      "table": "session_anchor"
     },
     {
       "type": "text",
@@ -1511,9 +2271,13 @@
       "table": "session_share"
     },
     {
-      "columns": ["project_id"],
+      "columns": [
+        "project_id"
+      ],
       "tableTo": "project",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -1522,9 +2286,13 @@
       "table": "workspace"
     },
     {
-      "columns": ["active_account_id"],
+      "columns": [
+        "active_account_id"
+      ],
       "tableTo": "account",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "nameExplicit": false,
@@ -1533,9 +2301,13 @@
       "table": "account_state"
     },
     {
-      "columns": ["aggregate_id"],
+      "columns": [
+        "aggregate_id"
+      ],
       "tableTo": "event_sequence",
-      "columnsTo": ["aggregate_id"],
+      "columnsTo": [
+        "aggregate_id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -1544,9 +2316,13 @@
       "table": "event"
     },
     {
-      "columns": ["project_id"],
+      "columns": [
+        "project_id"
+      ],
       "tableTo": "project",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -1555,9 +2331,13 @@
       "table": "permission"
     },
     {
-      "columns": ["project_id"],
+      "columns": [
+        "project_id"
+      ],
       "tableTo": "project",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -1566,9 +2346,58 @@
       "table": "project_directory"
     },
     {
-      "columns": ["session_id"],
+      "columns": [
+        "task_id"
+      ],
+      "tableTo": "agent_task",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_agent_task_call_task_id_agent_task_id_fk",
+      "entityType": "fks",
+      "table": "agent_task_call"
+    },
+    {
+      "columns": [
+        "task_id"
+      ],
+      "tableTo": "agent_task",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_agent_task_event_task_id_agent_task_id_fk",
+      "entityType": "fks",
+      "table": "agent_task_event"
+    },
+    {
+      "columns": [
+        "session_id"
+      ],
       "tableTo": "session",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_agent_task_session_id_session_id_fk",
+      "entityType": "fks",
+      "table": "agent_task"
+    },
+    {
+      "columns": [
+        "session_id"
+      ],
+      "tableTo": "session",
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -1577,9 +2406,13 @@
       "table": "message"
     },
     {
-      "columns": ["message_id"],
+      "columns": [
+        "message_id"
+      ],
       "tableTo": "message",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -1588,9 +2421,58 @@
       "table": "part"
     },
     {
-      "columns": ["session_id"],
+      "columns": [
+        "session_id"
+      ],
       "tableTo": "session",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_reminder_session_id_session_id_fk",
+      "entityType": "fks",
+      "table": "reminder"
+    },
+    {
+      "columns": [
+        "anchor_id"
+      ],
+      "tableTo": "session_anchor",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_session_anchor_ref_anchor_id_session_anchor_id_fk",
+      "entityType": "fks",
+      "table": "session_anchor_ref"
+    },
+    {
+      "columns": [
+        "session_id"
+      ],
+      "tableTo": "session",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_session_anchor_session_id_session_id_fk",
+      "entityType": "fks",
+      "table": "session_anchor"
+    },
+    {
+      "columns": [
+        "session_id"
+      ],
+      "tableTo": "session",
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -1599,9 +2481,13 @@
       "table": "session_context_epoch"
     },
     {
-      "columns": ["session_id"],
+      "columns": [
+        "session_id"
+      ],
       "tableTo": "session",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -1610,9 +2496,13 @@
       "table": "session_input"
     },
     {
-      "columns": ["session_id"],
+      "columns": [
+        "session_id"
+      ],
       "tableTo": "session",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -1621,9 +2511,13 @@
       "table": "session_message"
     },
     {
-      "columns": ["project_id"],
+      "columns": [
+        "project_id"
+      ],
       "tableTo": "project",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -1632,9 +2526,13 @@
       "table": "session"
     },
     {
-      "columns": ["session_id"],
+      "columns": [
+        "session_id"
+      ],
       "tableTo": "session",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -1643,9 +2541,13 @@
       "table": "todo"
     },
     {
-      "columns": ["session_id"],
+      "columns": [
+        "session_id"
+      ],
       "tableTo": "session",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -1654,133 +2556,220 @@
       "table": "session_share"
     },
     {
-      "columns": ["email", "url"],
+      "columns": [
+        "email",
+        "url"
+      ],
       "nameExplicit": false,
       "name": "control_account_pk",
       "entityType": "pks",
       "table": "control_account"
     },
     {
-      "columns": ["project_id", "directory"],
+      "columns": [
+        "project_id",
+        "directory"
+      ],
       "nameExplicit": false,
       "name": "project_directory_pk",
       "entityType": "pks",
       "table": "project_directory"
     },
     {
-      "columns": ["session_id", "position"],
+      "columns": [
+        "task_id",
+        "seq"
+      ],
+      "nameExplicit": false,
+      "name": "agent_task_call_pk",
+      "entityType": "pks",
+      "table": "agent_task_call"
+    },
+    {
+      "columns": [
+        "session_id",
+        "position"
+      ],
       "nameExplicit": false,
       "name": "todo_pk",
       "entityType": "pks",
       "table": "todo"
     },
     {
-      "columns": ["id"],
+      "columns": [
+        "id"
+      ],
       "nameExplicit": false,
       "name": "workspace_pk",
       "table": "workspace",
       "entityType": "pks"
     },
     {
-      "columns": ["name"],
+      "columns": [
+        "name"
+      ],
       "nameExplicit": false,
       "name": "data_migration_pk",
       "table": "data_migration",
       "entityType": "pks"
     },
     {
-      "columns": ["id"],
+      "columns": [
+        "id"
+      ],
       "nameExplicit": false,
       "name": "account_state_pk",
       "table": "account_state",
       "entityType": "pks"
     },
     {
-      "columns": ["id"],
+      "columns": [
+        "id"
+      ],
       "nameExplicit": false,
       "name": "account_pk",
       "table": "account",
       "entityType": "pks"
     },
     {
-      "columns": ["id"],
+      "columns": [
+        "id"
+      ],
       "nameExplicit": false,
       "name": "credential_pk",
       "table": "credential",
       "entityType": "pks"
     },
     {
-      "columns": ["aggregate_id"],
+      "columns": [
+        "aggregate_id"
+      ],
       "nameExplicit": false,
       "name": "event_sequence_pk",
       "table": "event_sequence",
       "entityType": "pks"
     },
     {
-      "columns": ["id"],
+      "columns": [
+        "id"
+      ],
       "nameExplicit": false,
       "name": "event_pk",
       "table": "event",
       "entityType": "pks"
     },
     {
-      "columns": ["id"],
+      "columns": [
+        "id"
+      ],
       "nameExplicit": false,
       "name": "permission_pk",
       "table": "permission",
       "entityType": "pks"
     },
     {
-      "columns": ["id"],
+      "columns": [
+        "id"
+      ],
       "nameExplicit": false,
       "name": "project_pk",
       "table": "project",
       "entityType": "pks"
     },
     {
-      "columns": ["id"],
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "agent_task_event_pk",
+      "table": "agent_task_event",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "agent_task_pk",
+      "table": "agent_task",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
       "nameExplicit": false,
       "name": "message_pk",
       "table": "message",
       "entityType": "pks"
     },
     {
-      "columns": ["id"],
+      "columns": [
+        "id"
+      ],
       "nameExplicit": false,
       "name": "part_pk",
       "table": "part",
       "entityType": "pks"
     },
     {
-      "columns": ["session_id"],
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "reminder_pk",
+      "table": "reminder",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "session_anchor_pk",
+      "table": "session_anchor",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "session_id"
+      ],
       "nameExplicit": false,
       "name": "session_context_epoch_pk",
       "table": "session_context_epoch",
       "entityType": "pks"
     },
     {
-      "columns": ["id"],
+      "columns": [
+        "id"
+      ],
       "nameExplicit": false,
       "name": "session_input_pk",
       "table": "session_input",
       "entityType": "pks"
     },
     {
-      "columns": ["id"],
+      "columns": [
+        "id"
+      ],
       "nameExplicit": false,
       "name": "session_message_pk",
       "table": "session_message",
       "entityType": "pks"
     },
     {
-      "columns": ["id"],
+      "columns": [
+        "id"
+      ],
       "nameExplicit": false,
       "name": "session_pk",
       "table": "session",
       "entityType": "pks"
     },
     {
-      "columns": ["session_id"],
+      "columns": [
+        "session_id"
+      ],
       "nameExplicit": false,
       "name": "session_share_pk",
       "table": "session_share",
@@ -1851,6 +2840,42 @@
     {
       "columns": [
         {
+          "value": "task_id",
+          "isExpression": false
+        },
+        {
+          "value": "fired_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "agent_task_event_task_idx",
+      "entityType": "indexes",
+      "table": "agent_task_event"
+    },
+    {
+      "columns": [
+        {
+          "value": "status",
+          "isExpression": false
+        },
+        {
+          "value": "auto_run",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "agent_task_status_idx",
+      "entityType": "indexes",
+      "table": "agent_task"
+    },
+    {
+      "columns": [
+        {
           "value": "session_id",
           "isExpression": false
         },
@@ -1901,6 +2926,66 @@
       "name": "part_session_idx",
       "entityType": "indexes",
       "table": "part"
+    },
+    {
+      "columns": [
+        {
+          "value": "session_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "reminder_session_idx",
+      "entityType": "indexes",
+      "table": "reminder"
+    },
+    {
+      "columns": [
+        {
+          "value": "done",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "reminder_done_idx",
+      "entityType": "indexes",
+      "table": "reminder"
+    },
+    {
+      "columns": [
+        {
+          "value": "anchor_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "session_anchor_ref_anchor_idx",
+      "entityType": "indexes",
+      "table": "session_anchor_ref"
+    },
+    {
+      "columns": [
+        {
+          "value": "session_id",
+          "isExpression": false
+        },
+        {
+          "value": "epoch",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "session_anchor_session_idx",
+      "entityType": "indexes",
+      "table": "session_anchor"
     },
     {
       "columns": [
@@ -2095,6 +3180,15 @@
       "name": "todo_session_idx",
       "entityType": "indexes",
       "table": "todo"
+    },
+    {
+      "columns": [
+        "session_id"
+      ],
+      "nameExplicit": false,
+      "name": "agent_task_session_id_unique",
+      "entityType": "uniques",
+      "table": "agent_task"
     }
   ],
   "renames": []

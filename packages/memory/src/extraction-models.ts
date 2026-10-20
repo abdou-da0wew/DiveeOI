@@ -23,6 +23,14 @@ export interface ExtractionModel {
   readonly name: string
   readonly model: LLMModel
   readonly temperature: number
+  /**
+   * Headers the provider needs on every request.
+   *
+   * The Zen gateway only serves its anonymous tier to the app: it checks the
+   * User-Agent and the session header, and answers 403 without them. The host
+   * resolves the User-Agent (see @diveeoi/db/zen-user-agent) and passes it here.
+   */
+  readonly headers?: Record<string, string>
 }
 
 export interface ExtractionModelResolver {
@@ -40,9 +48,16 @@ export class ExtractionModels extends Context.Service<ExtractionModels, Extracti
   /** Nothing resolved: extraction is skipped instead of calling a hardcoded endpoint. */
   static readonly none: ExtractionModelResolver = { models: Effect.succeed([]) }
 
-  /** Build a resolver from an already-resolved catalog service. */
-  static from(catalog: ModelsDev.Interface): ExtractionModelResolver {
-    return { models: resolveFromCatalog(catalog) }
+  /**
+   * Build a resolver from an already-resolved catalog service.
+   *
+   * `userAgent` is the gateway User-Agent the host resolved. The Zen gateway refuses
+   * anonymous traffic that does not carry it, so a host that talks to the gateway
+   * passes it in; without one the resolver still works for providers that do not
+   * check.
+   */
+  static from(catalog: ModelsDev.Interface, userAgent?: Effect.Effect<string, never, never>): ExtractionModelResolver {
+    return { models: resolveFromCatalog(catalog, userAgent) }
   }
 }
 
@@ -83,7 +98,10 @@ const isUsable = (model: ModelsDev.Model) => {
  * credentials of its own; a host with real credentials overrides the resolver instead. Ranking
  * is by cost then context window, both read from the catalog.
  */
-const resolveFromCatalog = (catalog: ModelsDev.Interface): Effect.Effect<ReadonlyArray<ExtractionModel>, never> =>
+const resolveFromCatalog = (
+  catalog: ModelsDev.Interface,
+  userAgent?: Effect.Effect<string, never, never>,
+): Effect.Effect<ReadonlyArray<ExtractionModel>, never> =>
   Effect.gen(function* () {
     const providers: Record<string, ModelsDev.Provider> = yield* catalog
       .get()
@@ -93,6 +111,9 @@ const resolveFromCatalog = (catalog: ModelsDev.Interface): Effect.Effect<Readonl
     if (!entry || !baseURL) return []
     const candidates: ModelsDev.Model[] = Object.values(entry.models).filter(isUsable).sort(rank).slice(0, MAX_CANDIDATES)
     if (candidates.length === 0) return []
+    // The Zen gateway only serves its anonymous tier to the app: without the
+    // User-Agent it answers 403 and the extraction never runs.
+    const agent = userAgent ? yield* userAgent : undefined
     return candidates.map((model) => ({
       name: `${ProviderV2.ID.opencode}/${model.id}`,
       model: OpenAICompatible.configure({
@@ -101,6 +122,7 @@ const resolveFromCatalog = (catalog: ModelsDev.Interface): Effect.Effect<Readonl
         provider: ProviderV2.ID.opencode,
       }).model(model.id),
       temperature: TEMPERATURE,
+      ...(agent ? { headers: { "User-Agent": agent } } : {}),
     })) satisfies ReadonlyArray<ExtractionModel>
   })
 

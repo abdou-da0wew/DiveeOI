@@ -13,7 +13,7 @@ import { LLMClient, RequestExecutor, WebSocketExecutor } from "@diveeoi/llm/rout
 import type { LLMClientService } from "@diveeoi/llm/route"
 import { GitLabWorkflowLanguageModel } from "gitlab-ai-provider"
 import { ProviderTransform } from "@/provider/transform"
-import { ProviderUserAgent } from "@/provider/user-agent"
+import { ProviderUserAgent } from "@diveeoi/db/zen-user-agent"
 import { Config } from "@/config/config"
 import type { Agent } from "@/agent/agent"
 import type { MessageV2 } from "./message-v2"

@@ -76,7 +76,8 @@ const tryExtractWithModel = (
   llmClient: LLMClientShape,
   modelConfig: ExtractionModel,
   prompt: string,
-  systemPrompt: string
+  systemPrompt: string,
+  sessionId: string
 ): Effect.Effect<ExtractedMemory[], MemoryError> =>
   Effect.gen(function* () {
     const model = modelConfig.model
@@ -85,7 +86,10 @@ const tryExtractWithModel = (
       model,
       system: [{ type: "text" as const, text: systemPrompt }],
       prompt,
-      generation: { temperature: modelConfig.temperature, maxTokens: 3000 }
+      generation: { temperature: modelConfig.temperature, maxTokens: 3000 },
+      // The Zen gateway only serves its anonymous tier to the app: it checks the
+      // User-Agent and the session header, and answers 403 without them.
+      http: { headers: { ...modelConfig.headers, "x-opencode-session": sessionId } },
     })
 
     const response = yield* llmClient.generate(request).pipe(
@@ -156,7 +160,8 @@ const extractWithFallback = (
   llmClient: LLMClientShape,
   models: Effect.Effect<ReadonlyArray<ExtractionModel>, never>,
   prompt: string,
-  systemPrompt: string
+  systemPrompt: string,
+  sessionId: string
 ): Effect.Effect<ExtractedMemory[], MemoryError> =>
   Effect.gen(function* () {
     const available = yield* models
@@ -166,7 +171,7 @@ const extractWithFallback = (
     }
     for (const modelConfig of available) {
       try {
-        const result = yield* tryExtractWithModel(llmClient, modelConfig, prompt, systemPrompt)
+        const result = yield* tryExtractWithModel(llmClient, modelConfig, prompt, systemPrompt, sessionId)
         return result
       } catch (e) {
         yield* Effect.logWarning(`Extraction failed with ${modelConfig.name}, trying next`, { error: e })
@@ -223,7 +228,7 @@ ${relevantMessages}
 Extract memories as valid JSON array:`
 
       // Try extraction with fallback models
-      const extracted = yield* extractWithFallback(llmClient, models.models, prompt, EXTRACTION_SYSTEM_PROMPT)
+      const extracted = yield* extractWithFallback(llmClient, models.models, prompt, EXTRACTION_SYSTEM_PROMPT, sessionId)
 
       // Now resolve links against existing + new nodes
       const results: ExtractedMemory[] = []
