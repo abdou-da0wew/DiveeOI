@@ -202,7 +202,7 @@ DiveeOI ships with a built-in model called **DiveeComposer** — an internal rou
 
 - You pick it like any other model, and it is the default when you have not chosen one.
 - It is never sent to a provider. Each turn it resolves to the best **free** model that is currently reachable (preferring the bundled free tier), and only that concrete model is used for the request.
-- It picks by **quality, not by price**: a curated family tier table, the variant words in the model name, the version lineage inside a family, and the capabilities the catalog reports — plus a small boost for models that actually completed a turn. `performance.composer.preferred` lets you override the ranking with your own similarity list.
+- It picks by **quality, not by price**: a curated family tier table, the variant words in the model name, the version lineage inside a family, and the capabilities the catalog reports — plus a small boost for models that actually completed a turn. It prefers models that are reachable *right now* (the bundled free tier needs no key), and it learns from refusals: a model the gateway rejects is dropped, and a provider that rejects several of its models is dropped entirely. `performance.composer.preferred` lets you override the ranking with your own similarity list.
 - Its capabilities — image/PDF/audio/video input, context window, reasoning, variants — always mirror the model it currently routes to, so the UI enables exactly what the routed model can do.
 - The routing is invisible in the interface but explicit in the logs (`composer.route` in the server log) and in the request itself.
 

@@ -933,16 +933,25 @@ export const layer = Layer.effect(
         // `divee/composer` id must never be marked unusable.
         const routed = input.model ? Composer.targetOf(input.model) : undefined
         const subject = routed ?? (input.model ? { providerID: input.model.providerID, modelID: input.model.id } : undefined)
-        if (subject && ProviderFreeTier.learn(e, String(subject.providerID), String(subject.modelID))) {
-          yield* Effect.logWarning("model refused by the free tier, marking unusable", {
-            sessionID: input.sessionID,
-            model: `${subject.providerID}/${subject.modelID}`,
-            via: routed ? "divee/composer" : undefined,
-          })
-        } else if (routed && !SessionV1.ContextOverflowError.isInstance(error)) {
-          // Transient failure on a routed model: cool it down so the next turn prefers another
-          // free model instead of repeatedly hitting the same one.
-          Composer.recordFailure(String(routed.providerID), String(routed.modelID))
+        if (subject) {
+          // Learn from both the raw error and the parsed message error: providers report
+          // refusals in different envelopes, and a gateway that answers "Unauthorized" for a
+          // model the catalog lists as free is saying "this one needs a key" either way.
+          const verdict =
+            ProviderFreeTier.learn(e, String(subject.providerID), String(subject.modelID)) ??
+            ProviderFreeTier.learn(error, String(subject.providerID), String(subject.modelID))
+          if (verdict) {
+            yield* Effect.logWarning("model refused by the free tier, marking unusable", {
+              sessionID: input.sessionID,
+              model: `${subject.providerID}/${subject.modelID}`,
+              verdict,
+              via: routed ? "divee/composer" : undefined,
+            })
+          } else if (routed && !SessionV1.ContextOverflowError.isInstance(error)) {
+            // Transient failure on a routed model: cool it down so the next turn prefers
+            // another free model instead of repeatedly hitting the same one.
+            Composer.recordFailure(String(routed.providerID), String(routed.modelID))
+          }
         }
         if (SessionV1.ContextOverflowError.isInstance(error)) {
           if ((yield* config.get()).compaction?.auto === false && !ctx.assistantMessage.summary) {

@@ -166,6 +166,11 @@ function familyOf(model: ModelLike): { family: string; rest: string } {
   if (declared && FAMILY_TIERS[declared] !== undefined) {
     return { family: declared, rest: tokens.filter((t) => t !== declared).join(" ") }
   }
+  // Multi-word families ("big pickle", "gpt oss") only match as a phrase.
+  for (const key of Object.keys(FAMILY_TIERS)) {
+    if (!key.includes(" ")) continue
+    if (text.includes(key)) return { family: key, rest: tokens.join(" ") }
+  }
   for (const token of tokens) {
     if (FAMILY_TIERS[token] !== undefined) return { family: token, rest: tokens.filter((t) => t !== token).join(" ") }
   }
