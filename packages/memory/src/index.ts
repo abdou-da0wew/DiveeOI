@@ -38,6 +38,7 @@ import { ExtractionModels } from "./extraction-models"
 import { Effect, Layer } from "effect"
 import { Database } from "@diveeoi/db/database/database"
 import { ModelsDev } from "@diveeoi/db/models-dev"
+import { ProviderUserAgent } from "@diveeoi/db/zen-user-agent"
 import { LLMClient } from "@diveeoi/llm"
 import { RequestExecutor } from "@diveeoi/llm/route"
 import * as MemoryModule from "./memory"
@@ -56,12 +57,20 @@ const graph = LayerNode.make(GraphLive, [indexer, memoryConfig])
 // (draft-10 §0d). Standalone/test composition gets the no-op resolver: extraction is skipped
 // rather than calling a hardcoded endpoint.
 const modelsDev = ModelsDev.node
+// The gateway User-Agent: the Zen gateway only serves its anonymous tier to the app.
+const providerUserAgent = ProviderUserAgent.node
 // Candidates are derived from the live catalog, so a retired model drops out on its own.
 // The server replaces this node with a Provider-backed resolver that honours the user's
 // credentials and `models.background.memory`.
 const extractionModels = LayerNode.make(
-  Layer.effect(ExtractionModels, Effect.map(Effect.service(ModelsDev.Service), ExtractionModels.from)),
-  [modelsDev],
+  Layer.effect(
+    ExtractionModels,
+    Effect.map(
+      Effect.all([Effect.service(ModelsDev.Service), Effect.service(ProviderUserAgent.Service)]),
+      ([catalog, userAgent]) => ExtractionModels.from(catalog, userAgent.resolve),
+    ),
+  ),
+  [modelsDev, providerUserAgent],
 )
 const extractor = LayerNode.make(ExtractorLive, [llmClient, memoryConfig, indexer, extractionModels])
 const memory = LayerNode.make(MemoryLive, [nodeSvc, indexer, graph, extractor, database, memoryConfig])
@@ -84,6 +93,7 @@ export const MemoryNode = LayerNode.make(MemoryLayer, [
   requestExecutor,
   memoryConfig,
   modelsDev,
+  providerUserAgent,
   extractionModels,
 ])
 /** Replacement seam: the server provides Provider-backed extraction models. */

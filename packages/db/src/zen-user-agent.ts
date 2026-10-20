@@ -1,4 +1,4 @@
-// packages/server/src/provider/user-agent.ts
+// packages/db/src/zen-user-agent.ts
 // The User-Agent the OpenCode Zen gateway (`opencode.ai/zen`) authorizes anonymous free-tier
 // traffic on.
 //
@@ -34,11 +34,11 @@
 import { Context, Duration, Effect, Layer, Option } from "effect"
 import { HttpClient, HttpClientRequest } from "effect/unstable/http"
 import { FetchHttpClient } from "effect/unstable/http"
-import { Global } from "@diveeoi/db/global"
-import { FSUtil } from "@diveeoi/db/fs-util"
-import { InstallationChannel, InstallationVersion } from "@diveeoi/db/installation/version"
-import { Flag } from "@diveeoi/db/flag/flag"
-import { LayerNode } from "@diveeoi/db/effect/layer-node"
+import { Global } from "./global"
+import { FSUtil } from "./fs-util"
+import { InstallationChannel, InstallationVersion } from "./installation/version"
+import { Flag } from "./flag/flag"
+import { LayerNode } from "./effect/layer-node"
 
 /** npm package whose `latest` dist-tag tracks the client version the gateway expects. */
 // The gateway floor tracks the upstream npm package. `@opencode/cli` does not exist on the
@@ -166,4 +166,4 @@ export const defaultLayer = layer.pipe(Layer.provide(FetchHttpClient.layer), Lay
 
 export const node = LayerNode.make(defaultLayer, [])
 
-export * as ProviderUserAgent from "./user-agent"
+export * as ProviderUserAgent from "./zen-user-agent"
