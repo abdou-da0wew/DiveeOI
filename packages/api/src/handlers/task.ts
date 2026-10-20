@@ -17,6 +17,21 @@ export interface TaskServiceShape {
     autoRun?: boolean
     subagentTypes?: ReadonlyArray<string>
     parentSessionID?: string
+    directory?: string
+    source?: "user" | "agent"
+    creatorAgent?: string
+    autoGenerate?: boolean
+    agent?: string
+    bigPrompt?: string
+    smallPrompt?: string
+    smallModel?: { providerID: string; modelID: string }
+    schedule?: string
+    hooks?: ReadonlyArray<{
+      trigger: "on_complete" | "on_fail" | "on_timeout" | "on_output_match"
+      action: "run_command" | "notify" | "webhook" | "create_task"
+      payload?: string
+      pattern?: string
+    }>
   }) => Effect.Effect<TaskInfo>
   readonly list: () => Effect.Effect<ReadonlyArray<TaskInfo>>
   readonly get: (id: string) => Effect.Effect<TaskInfo | undefined>
@@ -27,8 +42,34 @@ export interface TaskServiceShape {
       modelID?: string
       providerID?: string
       subagentTypes?: ReadonlyArray<string>
+      agent?: string
+      bigPrompt?: string
+      smallPrompt?: string
+      smallProviderID?: string
+      smallModelID?: string
+      schedule?: string
+      eventHooks?: ReadonlyArray<{
+        trigger: "on_complete" | "on_fail" | "on_timeout" | "on_output_match"
+        action: "run_command" | "notify" | "webhook" | "create_task"
+        payload?: string
+        pattern?: string
+      }>
     },
   ) => Effect.Effect<TaskInfo>
+  /** Run a task now. */
+  readonly run: (id: string) => Effect.Effect<void, unknown>
+  /** Let the generator agent build the task. */
+  readonly generate: (id: string) => Effect.Effect<void, unknown>
+  /** The hook audit trail of a task. */
+  readonly events: (id: string) => Effect.Effect<ReadonlyArray<{
+    id: number
+    trigger: string
+    action: string
+    payload?: string
+    status?: string
+    result?: string
+    firedAt: number
+  }>>
   readonly cancel: (id: string) => Effect.Effect<void>
   readonly pause: (id: string) => Effect.Effect<void>
   readonly resume: (id: string) => Effect.Effect<void>
@@ -48,6 +89,16 @@ export const TaskHandler = HttpApiBuilder.group(Api, "server.task", (handlers) =
           autoRun: body.autoRun,
           subagentTypes: body.subagentTypes,
           parentSessionID: body.parentSessionID,
+          directory: body.directory,
+          source: body.source,
+          creatorAgent: body.creatorAgent,
+          autoGenerate: body.autoGenerate,
+          agent: body.agent,
+          bigPrompt: body.bigPrompt,
+          smallPrompt: body.smallPrompt,
+          smallModel: body.smallModel,
+          schedule: body.schedule,
+          hooks: body.hooks ? [...body.hooks] : undefined,
         })
         return { data: info }
       }),
@@ -95,6 +146,37 @@ export const TaskHandler = HttpApiBuilder.group(Api, "server.task", (handlers) =
         const svc = yield* TaskService
         yield* svc.resume(req.params.id)
         return { ok: true as const }
+      }),
+    )
+    .handle("task.run", (req) =>
+      Effect.gen(function* () {
+        const svc = yield* TaskService
+        const info = yield* svc.get(req.params.id)
+        if (!info) return yield* Effect.fail(new TaskNotFoundError({ id: req.params.id }))
+        // A failing task records its own error; the endpoint only reports that
+        // the run was started.
+        yield* svc.run(req.params.id).pipe(
+          Effect.catchCause((cause) => Effect.logWarning("task run failed", { id: req.params.id, cause })),
+        )
+        return { ok: true as const }
+      }),
+    )
+    .handle("task.generate", (req) =>
+      Effect.gen(function* () {
+        const svc = yield* TaskService
+        const info = yield* svc.get(req.params.id)
+        if (!info) return yield* Effect.fail(new TaskNotFoundError({ id: req.params.id }))
+        yield* svc.generate(req.params.id).pipe(
+          Effect.catchCause((cause) => Effect.logWarning("task generation failed", { id: req.params.id, cause })),
+        )
+        return { ok: true as const }
+      }),
+    )
+    .handle("task.events", (req) =>
+      Effect.gen(function* () {
+        const svc = yield* TaskService
+        const data = yield* svc.events(req.params.id)
+        return { data: [...data] }
       }),
     ),
 )

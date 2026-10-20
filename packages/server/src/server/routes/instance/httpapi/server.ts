@@ -107,6 +107,9 @@ import { workspaceHandlers } from "./handlers/workspace"
 import { handlers } from "@diveeoi/api/handlers"
 import { schemaErrorLayer as v2SchemaErrorLayer } from "@diveeoi/api/middleware/schema-error"
 import { taskServiceLayer } from "./task-service-layer"
+import { TaskRunner } from "@/task/runner"
+import { AgentTask } from "@/task/task"
+import { TaskGenerator } from "@/task/generator"
 import { instanceContextLayer } from "./middleware/instance-context"
 import { workspaceRoutingLayer } from "./middleware/workspace-routing"
 import { disposeMiddleware, traceMiddleware } from "./lifecycle"
@@ -253,6 +256,9 @@ const app = LayerNode.group([
   SessionRevert.node,
   SessionSummary.node,
   SessionPrompt.node,
+  TaskRunner.node,
+  AgentTask.node,
+  TaskGenerator.node,
   Instruction.node,
   LLM.node,
   LSP.node,

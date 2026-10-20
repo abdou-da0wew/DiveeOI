@@ -1,6 +1,7 @@
-import { Component, createMemo } from "solid-js"
+import { Component, createEffect, createMemo, createSignal } from "solid-js"
 import { SelectV2 } from "@diveeoi/ui/v2/select-v2"
 import { Switch } from "@diveeoi/ui/v2/switch-v2"
+import { TextInputV2 } from "@diveeoi/ui/v2/text-input-v2"
 import { useLanguage } from "@/context/language"
 import { useServerSync } from "@/context/server-sync"
 import { SettingsListV2 } from "./parts/list"
@@ -12,6 +13,68 @@ export const SettingsLlmV2: Component = () => {
   const serverSync = useServerSync()
 
   const config = createMemo(() => serverSync().data.config)
+
+  /**
+   * A numeric setting. The previous controls were switches that flipped a
+   * hard-coded value on and off, so "500 lines" was the only thing you could
+   * ever pick. This commits the number you type.
+   */
+  const NumberField = (props: {
+    value: number | string | undefined
+    fallback?: number
+    min?: number
+    max?: number
+    "data-action"?: string
+    label: string
+    onCommit: (value: number | undefined) => void
+  }) => {
+    // The config schema allows the string forms of NaN/Infinity; treat them as unset.
+    const current = () => {
+      const value = props.value
+      return typeof value === "number" && Number.isFinite(value) ? value : undefined
+    }
+    const [text, setText] = createSignal(current() === undefined ? "" : String(current()))
+    createEffect(() => {
+      const value = current()
+      setText(value === undefined ? "" : String(value))
+    })
+    const commit = () => {
+      const raw = text().trim()
+      if (!raw) {
+        props.onCommit(undefined)
+        return
+      }
+      const parsed = Number(raw)
+      if (!Number.isFinite(parsed)) {
+        setText(current() === undefined ? "" : String(current()))
+        return
+      }
+      const clamped = Math.min(props.max ?? Number.MAX_SAFE_INTEGER, Math.max(props.min ?? 0, Math.round(parsed)))
+      setText(String(clamped))
+      if (clamped === current()) return
+      props.onCommit(clamped)
+    }
+    return (
+      <TextInputV2
+        data-action={props["data-action"]}
+        type="number"
+        appearance="base"
+        min={props.min ?? 0}
+        max={props.max}
+        step={1}
+        value={text()}
+        placeholder={props.fallback === undefined ? "" : String(props.fallback)}
+        aria-label={props.label}
+        onInput={(event) => setText(event.currentTarget.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") return
+          event.preventDefault()
+          event.currentTarget.blur()
+        }}
+      />
+    )
+  }
 
   const formatOptions = createMemo(() => [
     { value: "toon" as const, label: language.t("settings.llm.row.format.option.toon") },
@@ -69,15 +132,58 @@ export const SettingsLlmV2: Component = () => {
           description={language.t("settings.llm.row.burstMaxBytesPerSecond.description")}
         >
           <div data-action="settings-llm-burst-bytes-per-second">
-            <Switch
-              checked={!!config().llm?.burst?.max_bytes_per_second}
-              onChange={(checked) => {
+            <NumberField
+              data-action="settings-llm-burst-bytes-per-second-input"
+              label={language.t("settings.llm.row.burstMaxBytesPerSecond.title")}
+              value={config().llm?.burst?.max_bytes_per_second}
+              fallback={51200}
+              min={0}
+              onCommit={(value) => {
                 const current = config().llm?.burst ?? {}
                 serverSync().updateConfig({
-                  llm: {
-                    ...(config().llm ?? {}),
-                    burst: { ...current, max_bytes_per_second: checked ? 51200 : undefined },
-                  },
+                  llm: { ...(config().llm ?? {}), burst: { ...current, max_bytes_per_second: value } },
+                })
+              }}
+            />
+          </div>
+        </SettingsRowV2>
+
+        <SettingsRowV2
+          title={language.t("settings.llm.row.burstMaxBurstBytes.title")}
+          description={language.t("settings.llm.row.burstMaxBurstBytes.description")}
+        >
+          <div data-action="settings-llm-burst-max-burst-bytes">
+            <NumberField
+              data-action="settings-llm-burst-max-burst-bytes-input"
+              label={language.t("settings.llm.row.burstMaxBurstBytes.title")}
+              value={config().llm?.burst?.max_burst_bytes}
+              fallback={262144}
+              min={0}
+              onCommit={(value) => {
+                const current = config().llm?.burst ?? {}
+                serverSync().updateConfig({
+                  llm: { ...(config().llm ?? {}), burst: { ...current, max_burst_bytes: value } },
+                })
+              }}
+            />
+          </div>
+        </SettingsRowV2>
+
+        <SettingsRowV2
+          title={language.t("settings.llm.row.burstWindowMs.title")}
+          description={language.t("settings.llm.row.burstWindowMs.description")}
+        >
+          <div data-action="settings-llm-burst-window">
+            <NumberField
+              data-action="settings-llm-burst-window-input"
+              label={language.t("settings.llm.row.burstWindowMs.title")}
+              value={config().llm?.burst?.window_ms}
+              fallback={1000}
+              min={0}
+              onCommit={(value) => {
+                const current = config().llm?.burst ?? {}
+                serverSync().updateConfig({
+                  llm: { ...(config().llm ?? {}), burst: { ...current, window_ms: value } },
                 })
               }}
             />
@@ -143,12 +249,16 @@ export const SettingsLlmV2: Component = () => {
           description={language.t("settings.llm.row.maxToolOutputLines.description")}
         >
           <div data-action="settings-llm-max-tool-output-lines">
-            <Switch
-              checked={!!config().llm?.tool_output?.max_lines}
-              onChange={(checked) => {
+            <NumberField
+              data-action="settings-llm-max-tool-output-lines-input"
+              label={language.t("settings.llm.row.maxToolOutputLines.title")}
+              value={config().llm?.tool_output?.max_lines}
+              fallback={500}
+              min={1}
+              onCommit={(value) => {
                 const current = config().llm?.tool_output ?? {}
                 serverSync().updateConfig({
-                  llm: { ...(config().llm ?? {}), tool_output: { ...current, max_lines: checked ? 500 : undefined } },
+                  llm: { ...(config().llm ?? {}), tool_output: { ...current, max_lines: value } },
                 })
               }}
             />
@@ -160,12 +270,16 @@ export const SettingsLlmV2: Component = () => {
           description={language.t("settings.llm.row.maxToolOutputBytes.description")}
         >
           <div data-action="settings-llm-max-tool-output-bytes">
-            <Switch
-              checked={!!config().llm?.tool_output?.max_bytes}
-              onChange={(checked) => {
+            <NumberField
+              data-action="settings-llm-max-tool-output-bytes-input"
+              label={language.t("settings.llm.row.maxToolOutputBytes.title")}
+              value={config().llm?.tool_output?.max_bytes}
+              fallback={25600}
+              min={1}
+              onCommit={(value) => {
                 const current = config().llm?.tool_output ?? {}
                 serverSync().updateConfig({
-                  llm: { ...(config().llm ?? {}), tool_output: { ...current, max_bytes: checked ? 25600 : undefined } },
+                  llm: { ...(config().llm ?? {}), tool_output: { ...current, max_bytes: value } },
                 })
               }}
             />
@@ -177,11 +291,15 @@ export const SettingsLlmV2: Component = () => {
           description={language.t("settings.llm.row.maxToolOutput.description")}
         >
           <div data-action="settings-llm-max-tool-output">
-            <Switch
-              checked={!!config().llm?.max_tool_output}
-              onChange={(checked) => {
+            <NumberField
+              data-action="settings-llm-max-tool-output-input"
+              label={language.t("settings.llm.row.maxToolOutput.title")}
+              value={config().llm?.max_tool_output}
+              fallback={100000}
+              min={1}
+              onCommit={(value) => {
                 serverSync().updateConfig({
-                  llm: { ...(config().llm ?? {}), max_tool_output: checked ? 100000 : undefined },
+                  llm: { ...(config().llm ?? {}), max_tool_output: value },
                 })
               }}
             />
@@ -235,12 +353,16 @@ export const SettingsLlmV2: Component = () => {
           description={language.t("settings.llm.row.compactTailTurns.description")}
         >
           <div data-action="settings-llm-compact-tail-turns">
-            <Switch
-              checked={!!config().llm?.compaction?.tail_turns}
-              onChange={(checked) => {
+            <NumberField
+              data-action="settings-llm-compact-tail-turns-input"
+              label={language.t("settings.llm.row.compactTailTurns.title")}
+              value={config().llm?.compaction?.tail_turns}
+              fallback={4}
+              min={0}
+              onCommit={(value) => {
                 const current = config().llm?.compaction ?? {}
                 serverSync().updateConfig({
-                  llm: { ...(config().llm ?? {}), compaction: { ...current, tail_turns: checked ? 4 : undefined } },
+                  llm: { ...(config().llm ?? {}), compaction: { ...current, tail_turns: value } },
                 })
               }}
             />
