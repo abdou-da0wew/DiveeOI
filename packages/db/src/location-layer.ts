@@ -1,5 +1,6 @@
 import { Effect, Layer, LayerMap } from "effect"
 import { defaultLayer as AdaptiveResourceDefaultLayer } from "./adaptive"
+import { StartupSettings } from "./startup-settings"
 import { Location } from "./location"
 import { Policy } from "./policy"
 import { Config } from "./config"
@@ -124,7 +125,13 @@ export class LocationServiceMap extends LayerMap.Service<LocationServiceMap>()("
       projectCopyRefresh,
     ).pipe(Layer.fresh)
   },
-  idleTimeToLive: "60 minutes",
+  // Each entry here is a full per-location service graph (tools, watcher,
+  // session store, LLM runner, ...) worth tens of megabytes. A long TTL lets a
+  // day of project switching accumulate gigabytes of retained graphs, so idle
+  // locations are released much sooner and rebuilt on demand. Users who prefer
+  // warmer project switching can opt into the longer TTL via
+  // `performance.keep_projects_warm` (see StartupSettings).
+  idleTimeToLive: StartupSettings.locationIdleTimeToLive,
   dependencies: [
     Project.defaultLayer,
     EventV2.defaultLayer,

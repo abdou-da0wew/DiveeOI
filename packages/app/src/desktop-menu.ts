@@ -72,7 +72,7 @@ export type DesktopMenu = {
 export const DESKTOP_MENU: DesktopMenu[] = [
   {
     id: "app",
-    label: "OpenCode",
+    label: "DiveeOI",
     platforms: ["macos"],
     items: [
       { type: "item", role: "about" },
@@ -200,7 +200,7 @@ export const DESKTOP_MENU: DesktopMenu[] = [
     id: "help",
     label: "Help",
     items: [
-      { type: "item", label: "OpenCode Documentation", href: "https://opencode.ai/docs" },
+      { type: "item", label: "DiveeOI Documentation", href: "https://github.com/abdou-da0wew/DiveeOI" },
       { type: "item", label: "Support Forum", href: "https://discord.com/invite/opencode" },
       { type: "item", label: "Export Logs...", command: "logs.export" },
       { type: "separator" },

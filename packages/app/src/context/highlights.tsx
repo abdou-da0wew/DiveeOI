@@ -7,7 +7,11 @@ import { useSettings } from "@/context/settings"
 import { persisted } from "@/utils/persist"
 import { DialogReleaseNotes, type Highlight } from "@/components/dialog-release-notes"
 
-const CHANGELOG_URL = "https://opencode.ai/changelog.json"
+// DiveeOI publishes its own release notes; the upstream changelog is not ours to show.
+// Until a DiveeOI changelog exists at this path the fetch fails silently and no release
+// notes are shown.
+const CHANGELOG_URL =
+  "https://raw.githubusercontent.com/abdou-da0wew/DiveeOI/main/changelog.json"
 
 type Store = {
   version?: string

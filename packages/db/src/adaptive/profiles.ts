@@ -167,14 +167,19 @@ const PROFILE_MULTIPLIERS: Record<ResourceProfile, Partial<AdaptiveTargets>> = {
 export const computeTargets = (sys: SystemResources): AdaptiveTargets => {
   const profile = computeProfile(sys)
   const mult = PROFILE_MULTIPLIERS[profile]
-  const baseRSS = Math.min(BASE_TARGETS.rssTargetMB, Math.round(sys.totalMemoryMB * 0.12))
-  const baseHeap = Math.min(BASE_TARGETS.heapTargetMB, Math.round(sys.totalMemoryMB * 0.07))
+
+  // A flat 500MB process budget is unreachable — the runtime, SQLite page
+  // cache and native buffers exceed it before any request is served, which
+  // made every profile report "over budget" forever. Size the budget from the
+  // machine instead (15% RAM for RSS, 10% for the JS heap), with sane floors.
+  const rssTargetMB = Math.min(8192, Math.max(1024, Math.round(sys.totalMemoryMB * 0.15)))
+  const heapTargetMB = Math.min(4096, Math.max(512, Math.round(sys.totalMemoryMB * 0.1)))
 
   return {
     ...BASE_TARGETS,
     ...mult,
-    rssTargetMB: Math.min(mult.rssTargetMB ?? BASE_TARGETS.rssTargetMB, baseRSS),
-    heapTargetMB: Math.min(mult.heapTargetMB ?? BASE_TARGETS.heapTargetMB, baseHeap),
+    rssTargetMB,
+    heapTargetMB,
     maxToolConcurrency: Math.max(1, Math.min(mult.maxToolConcurrency ?? BASE_TARGETS.maxToolConcurrency, sys.cpuCores)),
   }
 }

@@ -41,7 +41,11 @@ import { Flag } from "@diveeoi/db/flag/flag"
 import { LayerNode } from "@diveeoi/db/effect/layer-node"
 
 /** npm package whose `latest` dist-tag tracks the client version the gateway expects. */
-const PACKAGE = "@opencode/cli"
+// The gateway floor tracks the upstream npm package. `@opencode/cli` does not exist on the
+// registry (404), which silently fell back to this fork's own version — below the floor —
+// and made every anonymous free-tier call fail with FreeTierError. `opencode-ai` is the
+// package that actually publishes the upstream version.
+const PACKAGE = "opencode-ai"
 const REGISTRY = "https://registry.npmjs.org"
 
 /** A published version is a moving target; re-check daily so the floor never silently outruns us. */
@@ -50,7 +54,11 @@ const TTL = Duration.hours(24)
 const filepath = () => `${Global.Path.cache}/zen-user-agent.json`
 
 function format(version: string) {
-  return `opencode/${InstallationChannel}/${version}/${Flag.OPENCODE_CLIENT}`
+  // The gateway parses the second path segment as semver (measured passing headers:
+  // `opencode/1.18.0`, `opencode/2.0.27`). The old shape was
+  // `opencode/<channel>/<version>/<client>`, so even a correctly resolved version looked
+  // version-less to the gateway and every anonymous call was refused.
+  return `opencode/${version}`
 }
 
 /** Accept only a real semver core - "local", "dev" and friends must never satisfy the parser. */

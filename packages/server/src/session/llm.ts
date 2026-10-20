@@ -2,6 +2,7 @@ import { LayerNode } from "@diveeoi/db/effect/layer-node"
 import { llmClient } from "@diveeoi/db/effect/layer-node-platform"
 import { PermissionV1 } from "@diveeoi/db/v1/permission"
 import { Provider } from "@/provider/provider"
+import { Composer } from "@/provider/composer"
 import { SessionV1 } from "@diveeoi/db/v1/session"
 import { serviceUse } from "@diveeoi/db/effect/service-use"
 import { Context, Effect, Layer } from "effect"
@@ -116,7 +117,10 @@ const live: Layer.Layer<
         mode: input.agent.mode,
       })
 
-      const providerID = input.model.providerID
+      // DiveeComposer resolves to a concrete free model for this turn. Request preparation must
+      // use THAT provider's options/credentials — the synthetic provider carries none.
+      const routed = Composer.targetOf(input.model)
+      const providerID = routed?.providerID ?? input.model.providerID
       // Only memoize a hit. Caching a miss would pin "not signed in" for the life of the layer
       // and a later `auth.set` would never be observed.
       const authEffect = providerAuthCache.has(providerID)

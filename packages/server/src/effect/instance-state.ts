@@ -1,4 +1,5 @@
 import { Effect, ScopedCache, Scope } from "effect"
+import { StartupSettings } from "@diveeoi/db/startup-settings"
 import type { InstanceContext } from "@/project/instance-context"
 import { InstanceRef, WorkspaceRef } from "./instance-ref"
 import { registerDisposer } from "./instance-registry"
@@ -26,12 +27,20 @@ export const workspaceID = Effect.gen(function* () {
 
 export const directory = Effect.map(context, (ctx) => ctx.directory)
 
+// Per-directory state is expensive to build (plugins, references, provider
+// projections) but cheap to rebuild on demand. Effect's ScopedCache evicts the
+// least recently used entry past this capacity, so a small number keeps recent
+// projects hot while bounding RSS. 100 entries could retain several GB after a
+// long session of switching projects. `performance.keep_projects_warm` restores
+// the larger cache for users who prefer warm switching over lower RSS.
+const INSTANCE_STATE_CAPACITY = StartupSettings.instanceStateCapacity
+
 export const make = <A, E = never, R = never>(
   init: (ctx: InstanceContext) => Effect.Effect<A, E, R | Scope.Scope>,
 ): Effect.Effect<InstanceState<A, E, Exclude<R, Scope.Scope>>, never, R | Scope.Scope> =>
   Effect.gen(function* () {
     const cache = yield* ScopedCache.make<string, A, E, R>({
-      capacity: 100,
+      capacity: INSTANCE_STATE_CAPACITY,
       lookup: () =>
         Effect.gen(function* () {
           return yield* init(yield* context)

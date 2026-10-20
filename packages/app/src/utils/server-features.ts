@@ -19,11 +19,17 @@ export interface ServerFeatures {
   envDisabled: string[]
   lspEnabled: boolean
   lspServers: LspServerState[]
+  performance: PerformanceState
+}
+
+export interface PerformanceState {
+  keepProjectsWarm: boolean
 }
 
 export interface ConfigPatch {
   features?: Partial<FeatureFlagsState>
   lsp?: boolean | Record<string, { disabled?: boolean }>
+  performance?: { keep_projects_warm?: boolean }
 }
 
 const endpoint = (server: ServerConnection.HttpBase, path: string) =>

@@ -71,13 +71,22 @@ export const getCtx7Defs = Effect.fn("Setup.Ctx7.defs")(function* () {
 export const checkCtx7Update = Effect.fn("Setup.Ctx7.checkUpdate")(function* () {
   const result = yield* Effect.promise(async () => {
     try {
-      const { execSync } = await import("child_process")
-      const out = execSync("npm outdated @upstash/context7-tools-ai-sdk 2>/dev/null", {
-        encoding: "utf-8",
-        timeout: 10_000,
+      // Must be async: a synchronous npm invocation blocks the event loop for
+      // the whole check (up to 10s), stalling every in-flight API request.
+      const { exec } = await import("child_process")
+      const out = await new Promise<string>((resolve, reject) => {
+        exec(
+          "npm outdated @upstash/context7-tools-ai-sdk",
+          { encoding: "utf-8", timeout: 10_000 },
+          (error, stdout) => {
+            // `npm outdated` exits non-zero when a newer version exists, but
+            // still writes the table to stdout — that is a successful check.
+            if (stdout?.trim()) return resolve(stdout.trim())
+            if (error) return reject(error)
+            resolve("")
+          },
+        )
       })
-        .toString()
-        .trim()
       return out || undefined
     } catch {
       return undefined

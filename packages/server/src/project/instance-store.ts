@@ -1,4 +1,5 @@
 import { LayerNode } from "@diveeoi/db/effect/layer-node"
+import { StartupSettings } from "@diveeoi/db/startup-settings"
 import { GlobalBus } from "@/bus/global"
 import { serviceUse } from "@diveeoi/db/effect/service-use"
 import { WorkspaceContext } from "@/control-plane/workspace-context"
@@ -34,7 +35,18 @@ export const use = serviceUse(Service)
 
 interface Entry {
   readonly deferred: Deferred.Deferred<InstanceContext>
+  /** In-flight `load` callers; an entry with refs > 0 must never be reaped. */
+  refs: number
+  /** Last time the entry was used, for LRU eviction. */
+  lastUsed: number
 }
+
+// Every directory the UI touches boots an instance that retains tens of MB of
+// per-instance state. Nothing used to release them, so RSS climbed with the
+// number of projects visited. Reap idle instances and cap the total; users can
+// opt into warmer, larger retention with `performance.keep_projects_warm`.
+const INSTANCE_IDLE_MS = StartupSettings.instanceIdleMs
+const INSTANCE_MAX = StartupSettings.instanceMax
 
 export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootstrap.Service> = Layer.effect(
   Service,
@@ -131,15 +143,33 @@ export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootst
       return Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
           const existing = cache.get(directory)
-          if (existing) return yield* restore(Deferred.await(existing.deferred))
+          if (existing) {
+            existing.lastUsed = Date.now()
+            existing.refs++
+            return yield* restore(Deferred.await(existing.deferred)).pipe(
+              Effect.ensuring(
+                Effect.sync(() => {
+                  existing.refs--
+                  existing.lastUsed = Date.now()
+                }),
+              ),
+            )
+          }
 
-          const entry: Entry = { deferred: Deferred.makeUnsafe<InstanceContext>() }
+          const entry: Entry = { deferred: Deferred.makeUnsafe<InstanceContext>(), refs: 1, lastUsed: Date.now() }
           cache.set(directory, entry)
           yield* Effect.gen(function* () {
             yield* Effect.logInfo("creating instance", { directory: directory })
             yield* completeLoad(directory, input, entry)
           }).pipe(Effect.forkIn(scope, { startImmediately: true }))
-          return yield* restore(Deferred.await(entry.deferred))
+          return yield* restore(Deferred.await(entry.deferred)).pipe(
+            Effect.ensuring(
+              Effect.sync(() => {
+                entry.refs--
+                entry.lastUsed = Date.now()
+              }),
+            ),
+          )
         }),
       ).pipe(Effect.withSpan("InstanceStore.load"))
     }
@@ -149,7 +179,7 @@ export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootst
       return Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
           const previous = cache.get(directory)
-          const entry: Entry = { deferred: Deferred.makeUnsafe<InstanceContext>() }
+          const entry: Entry = { deferred: Deferred.makeUnsafe<InstanceContext>(), refs: 1, lastUsed: Date.now() }
           cache.set(directory, entry)
           yield* Effect.gen(function* () {
             yield* Effect.logInfo("reloading instance", { directory: directory })
@@ -160,7 +190,14 @@ export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootst
             }
             yield* completeLoad(directory, input, entry)
           }).pipe(Effect.forkIn(scope, { startImmediately: true }))
-          return yield* restore(Deferred.await(entry.deferred))
+          return yield* restore(Deferred.await(entry.deferred)).pipe(
+            Effect.ensuring(
+              Effect.sync(() => {
+                entry.refs--
+                entry.lastUsed = Date.now()
+              }),
+            ),
+          )
         }),
       ).pipe(Effect.withSpan("InstanceStore.reload"))
     }
@@ -206,6 +243,39 @@ export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootst
     const disposeAll = Effect.fn("InstanceStore.disposeAll")(function* () {
       return yield* cachedDisposeAll
     })
+
+    // Reap idle instances so RSS tracks the projects actually in use instead of
+    // every project the UI has ever visited. Never touch an entry with in-flight
+    // loads; overflow eviction is LRU among idle entries.
+    const reap = Effect.fnUntraced(function* () {
+      const now = Date.now()
+      const idle = [...cache.entries()]
+        .filter(([, entry]) => entry.refs === 0)
+        .sort((a, b) => a[1].lastUsed - b[1].lastUsed)
+
+      const stale = idle.filter(([, entry]) => now - entry.lastUsed > INSTANCE_IDLE_MS)
+      const overflow = idle.slice(0, Math.max(0, cache.size - INSTANCE_MAX))
+      const targets = new Set([...stale, ...overflow])
+
+      for (const [directory, entry] of targets) {
+        if (cache.get(directory) !== entry || entry.refs > 0) continue
+        const exit = yield* Deferred.await(entry.deferred).pipe(Effect.exit)
+        if (Exit.isFailure(exit)) {
+          yield* removeEntry(directory, entry).pipe(Effect.asVoid)
+          continue
+        }
+        yield* disposeEntry(directory, entry, exit.value).pipe(Effect.ignore)
+      }
+    })
+
+    yield* Effect.forkScoped(
+      Effect.gen(function* () {
+        while (true) {
+          yield* Effect.sleep("60 seconds")
+          yield* reap().pipe(Effect.catchCause((cause) => Effect.logWarning("instance reap failed", { cause })))
+        }
+      }),
+    )
 
     const provide = <A, E, R>(input: LoadInput, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
       load(input).pipe(Effect.flatMap((ctx) => effect.pipe(Effect.provideService(InstanceRef, ctx))))

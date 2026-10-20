@@ -21,6 +21,7 @@ export interface FeaturesSettingsState {
   envDisabled: string[]
   lspEnabled: boolean
   lspServers: LspServerState[]
+  keepProjectsWarm: boolean
 }
 
 /**
@@ -44,11 +45,13 @@ export function createFeaturesSettings() {
     envDisabled: [],
     lspEnabled: true,
     lspServers: [],
+    keepProjectsWarm: false,
   })
 
   let pendingFeatures: Partial<FeatureFlagsState> | undefined
   let pendingLspMaster: boolean | undefined
   let pendingLspServers: Record<string, { disabled: boolean }> | undefined
+  let pendingKeepProjectsWarm: boolean | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
 
   const http = () => server.current?.http
@@ -68,6 +71,7 @@ export function createFeaturesSettings() {
         envDisabled: [...data.envDisabled],
         lspEnabled: data.lspEnabled,
         lspServers: data.lspServers.map((item) => ({ ...item, extensions: [...item.extensions] })),
+        keepProjectsWarm: data.performance?.keepProjectsWarm ?? false,
       })
     } catch (err) {
       setState({ loading: false, loadError: err instanceof Error ? err.message : String(err) })
@@ -78,14 +82,20 @@ export function createFeaturesSettings() {
   const apply = async () => {
     const conn = http()
     if (!conn) return
-    const patch: { features?: Partial<FeatureFlagsState>; lsp?: boolean | Record<string, { disabled: boolean }> } = {}
+    const patch: {
+      features?: Partial<FeatureFlagsState>
+      lsp?: boolean | Record<string, { disabled: boolean }>
+      performance?: { keep_projects_warm?: boolean }
+    } = {}
     if (pendingFeatures) patch.features = pendingFeatures
     if (pendingLspMaster !== undefined) patch.lsp = pendingLspMaster
     else if (pendingLspServers && Object.keys(pendingLspServers).length > 0) patch.lsp = pendingLspServers
+    if (pendingKeepProjectsWarm !== undefined) patch.performance = { keep_projects_warm: pendingKeepProjectsWarm }
     pendingFeatures = undefined
     pendingLspMaster = undefined
     pendingLspServers = undefined
-    if (!patch.features && !patch.lsp) return
+    pendingKeepProjectsWarm = undefined
+    if (!patch.features && !patch.lsp && !patch.performance) return
 
     setState({ busy: true, error: "" })
     try {
@@ -143,12 +153,20 @@ export function createFeaturesSettings() {
     scheduleApply()
   }
 
+  const toggleKeepProjectsWarm = (checked: boolean) => {
+    if (state.busy || state.restarting) return
+    setState("keepProjectsWarm", checked)
+    pendingKeepProjectsWarm = checked
+    scheduleApply()
+  }
+
   return {
     state,
     envDisabled,
     toggleFeature,
     toggleLspMaster,
     toggleLspServer,
+    toggleKeepProjectsWarm,
     reload: load,
   }
 }

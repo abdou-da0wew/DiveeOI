@@ -469,7 +469,7 @@ export const SettingsGeneral: Component = () => {
           description={
             <>
               {language.t("settings.general.row.theme.description")}{" "}
-              <Link href="https://opencode.ai/docs/themes/">{language.t("common.learnMore")}</Link>
+              <Link href="https://github.com/abdou-da0wew/DiveeOI/blob/main/docs/configuration.md">{language.t("common.learnMore")}</Link>
             </>
           }
         >

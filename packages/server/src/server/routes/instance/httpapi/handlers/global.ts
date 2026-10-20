@@ -6,6 +6,7 @@ import { ServerRestart } from "@/server/restart"
 import { GlobalBus, type GlobalEvent as GlobalBusEvent } from "@/bus/global"
 import { EffectBridge } from "@/effect/bridge"
 import { EventV2 } from "@diveeoi/db/event"
+import { StartupSettings } from "@diveeoi/db/startup-settings"
 import { withAdaptiveConfig } from "@diveeoi/db/adaptive"
 import { Installation } from "@/installation"
 import { disposeAllInstancesAndEmitGlobalDisposed } from "@/server/global-lifecycle"
@@ -130,6 +131,7 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
         envDisabled: [...Features.envDisabled],
         lspEnabled: lspConfig !== false,
         lspServers,
+        performance: { keepProjectsWarm: StartupSettings.warm },
         probes: { ...Probes.probes },
       }
     })

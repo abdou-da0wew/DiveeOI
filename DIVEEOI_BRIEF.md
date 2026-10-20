@@ -1,6 +1,6 @@
 # DiveeOI Brief — The Super Detailed Explanation
 
-> Fork of [OpenCode](https://github.com/anomalyco/opencode) that keeps only the web UI + server. No TUI.
+> A self-hosted AI development web app: the web UI + server, and nothing else to install or run.
 
 ---
 
@@ -10,13 +10,14 @@ DiveeOI is a **self-hosted AI development web app**. You point it at a project d
 
 ## 2. Why It Exists
 
-OpenCode originally shipped a terminal UI (TUI) alongside the web pieces, built on `OpenTUI`. The TUI imposed a separate rendering and keying surface, own config subtree (`tui*`), and the `src/cli` glue. DiveeOI keeps the useful half — **the web SPA + the Effect HTTP server + SQLite** — and removes the TUI so:
+Most AI coding tools want your code. DiveeOI is built so that it does not have to:
 
-- the code is smaller and simpler to reason about,
-- the provider/runtime layers can evolve without a diverging TUI contract,
-- deployments are a single web listener (no special TTY host).
+- the agent runs in a web app, so any browser and any remote machine can drive it, not just a terminal on your desk,
+- the server is one Effect-TS process over one SQLite file, so deploying it is a single listener with a single data directory,
+- the provider/runtime layers stay free of a second rendering surface, so the tool, MCP and skill seams can evolve without a parallel contract,
+- everything is yours to inspect: the schema, the config, the logs, the database file.
 
-The diff is deletions: `src/plugin/tui`, `src/config/tui*`, `src/cli`, tui tests, `tui-` references; everything else is preserved and extended (memory graph, adaptive resources, ctx7).
+The result is an app that behaves the same on a laptop, a home server, and a small team's box.
 
 ## 3. For Whom
 
@@ -242,4 +243,4 @@ For a reviewer walking a change, add `packages/server/src/config/config.ts:loadI
 
 ---
 
-**TL;DR**: DiveeOI is the web half of OpenCode, rebuilt as a self-contained Effect-SQL web app. Everything of interest lives inside one Bun process and one SQLite file, with an LLM agent that loops over tools until it is done, asking you when it should. The docs in `docs/` and the per-package READMEs below are the operator's guide; this brief is the designer’s guide.
+**TL;DR**: DiveeOI is a self-contained Effect + SQLite web app for AI-assisted development. Everything of interest lives inside one Bun process and one SQLite file, with an LLM agent that loops over tools until it is done, asking you when it should. The docs in `docs/` and the per-package READMEs below are the operator's guide; this brief is the designer's guide.

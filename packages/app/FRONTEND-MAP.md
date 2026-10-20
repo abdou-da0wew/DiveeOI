@@ -24,7 +24,7 @@ last_updated: 2026-06-29
 
 ## Overview
 
-DiveeOI is a standalone web UI fork of OpenCode — an AI coding assistant.
+DiveeOI is a standalone web app for AI-assisted development — an AI coding assistant that runs on your machine.
 Two frontend packages:
 
 - **`@diveeoi/app`** — SolidJS SPA. Routes, pages, contexts/stores, app-specific components, utilities, i18n.

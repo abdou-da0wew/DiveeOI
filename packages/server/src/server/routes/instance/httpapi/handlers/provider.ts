@@ -3,7 +3,7 @@ import { Config } from "@/config/config"
 import { ModelsDev } from "@diveeoi/db/models-dev"
 import { Provider } from "@/provider/provider"
 
-import { mapValues } from "remeda"
+import { gzipSync } from "node:zlib"
 import { Effect, Schema } from "effect"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
@@ -37,25 +37,102 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
     const provider = yield* Provider.Service
     const svc = yield* ProviderAuth.Service
 
-    const list = Effect.fn("ProviderHttpApi.list")(function* () {
-      const config = yield* cfg.get()
-      const all = yield* ModelsDev.Service.use((s) => s.get())
-      const disabled = new Set(config.disabled_providers ?? [])
-      const enabled = config.enabled_providers ? new Set(config.enabled_providers) : undefined
-      const filtered: Record<string, (typeof all)[string]> = {}
-      for (const [key, value] of Object.entries(all)) {
-        if ((enabled ? enabled.has(key) : true) && !disabled.has(key)) filtered[key] = value
+    // The catalog half of `list` is pure data derived from the models.dev
+    // snapshot plus the enabled/disabled filters. The heavy projection is
+    // shared through `Provider.catalogFor`; here we only apply the filters and
+    // memoise the filtered view.
+    let catalogCache:
+      | {
+          all: Record<string, ModelsDev.Provider>
+          enabled: string
+          disabled: string
+          providers: Record<string, Provider.Info>
+          public: Record<string, Provider.Info>
+        }
+      | undefined
+
+    const catalogFor = (all: Record<string, ModelsDev.Provider>, enabledProviders?: ReadonlyArray<string>, disabledProviders?: ReadonlyArray<string>) => {
+      const shared = Provider.catalogFor(all)
+      const enabledKey = enabledProviders ? enabledProviders.join(",") : ""
+      const disabledKey = (disabledProviders ?? []).join(",")
+      if (
+        catalogCache &&
+        catalogCache.all === all &&
+        catalogCache.enabled === enabledKey &&
+        catalogCache.disabled === disabledKey
+      ) {
+        return catalogCache
       }
-      const connected = yield* provider.list()
-      const providers = Object.assign(
-        mapValues(filtered, (item) => Provider.fromModelsDevProvider(item)),
-        connected,
-      )
+
+      const disabled = new Set(disabledProviders ?? [])
+      const enabled = enabledProviders ? new Set(enabledProviders) : undefined
+      const keep = (key: string) => (enabled ? enabled.has(key) : true) && !disabled.has(key)
+      const providers: Record<string, Provider.Info> = {}
+      const publicProviders: Record<string, Provider.Info> = {}
+      for (const key of Object.keys(shared.catalog)) {
+        if (!keep(key)) continue
+        providers[key] = shared.catalog[key]
+        publicProviders[key] = shared.database[key]
+      }
+
+      catalogCache = { all, enabled: enabledKey, disabled: disabledKey, providers, public: publicProviders }
+      return catalogCache
+    }
+
+    const buildList = (
+      catalog: NonNullable<typeof catalogCache>,
+      connected: Record<string, Provider.Info>,
+    ) => {
+      const providers = { ...catalog.providers, ...connected }
+      const publicProviders = { ...catalog.public }
+      for (const [key, value] of Object.entries(connected)) publicProviders[key] = Provider.toPublicInfo(value)
+
       return {
-        all: Object.values(providers).map(Provider.toPublicInfo),
+        all: Object.values(publicProviders),
         default: Provider.defaultModelIDs(providers),
         connected: Object.keys(connected),
       }
+    }
+
+    const list = Effect.fn("ProviderHttpApi.list")(function* () {
+      const config = yield* cfg.get()
+      const all = yield* ModelsDev.Service.use((s) => s.get())
+      const catalog = catalogFor(all, config.enabled_providers, config.disabled_providers)
+      return buildList(catalog, yield* provider.list())
+    })
+
+    // This response carries the whole models.dev catalog (~7MB of JSON), and
+    // HttpApi re-serializes it (plus the compression middleware re-gzips it
+    // synchronously) on every call. Cache the encoded forms against the
+    // catalog and connected-provider identities and serve them as-is.
+    let encodedCache:
+      | {
+          catalog: unknown
+          connected: unknown
+          json: Uint8Array
+          gzip: Uint8Array
+        }
+      | undefined
+
+    const listRaw = Effect.fn("ProviderHttpApi.listRaw")(function* (ctx: {
+      request: HttpServerRequest.HttpServerRequest
+    }) {
+      const config = yield* cfg.get()
+      const all = yield* ModelsDev.Service.use((s) => s.get())
+      const catalog = catalogFor(all, config.enabled_providers, config.disabled_providers)
+      const connected = yield* provider.list()
+
+      if (!encodedCache || encodedCache.catalog !== catalog || encodedCache.connected !== connected) {
+        const json = new TextEncoder().encode(JSON.stringify(buildList(catalog, connected)))
+        encodedCache = { catalog, connected, json, gzip: new Uint8Array(gzipSync(json)) }
+      }
+
+      const acceptsGzip = (ctx.request.headers["accept-encoding"] ?? "").toLowerCase().includes("gzip")
+      return HttpServerResponse.raw(acceptsGzip ? encodedCache.gzip : encodedCache.json, {
+        headers: acceptsGzip
+          ? { "content-type": "application/json", "content-encoding": "gzip", vary: "Accept-Encoding" }
+          : { "content-type": "application/json", vary: "Accept-Encoding" },
+      })
     })
 
     const auth = Effect.fn("ProviderHttpApi.auth")(function* () {
@@ -105,7 +182,7 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
     })
 
     return handlers
-      .handle("list", list)
+      .handleRaw("list", listRaw)
       .handle("auth", auth)
       .handleRaw("authorize", authorizeRaw)
       .handle("callback", callback)

@@ -2,7 +2,7 @@
 
 ## What DiveeOI Is
 
-A fork of [OpenCode](https://github.com/anomalyco/opencode) that ships **only the web UI + server**. The TUI/CLI subsystem was removed entirely. The result is a self-hosted web app where AI agents run inside your project directories: they read/write files, execute shell commands, call MCP tools, and stream results to a SolidJS SPA.
+A **self-hosted web app** where AI agents run inside your project directories: they read/write files, execute shell commands, call MCP tools, and stream results to a SolidJS SPA. The whole product is the web UI plus one server process over one SQLite file.
 
 ## Stack
 
