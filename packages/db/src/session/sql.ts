@@ -277,6 +277,9 @@ export const AgentTaskTable = sqliteTable(
     next_run_at: integer(),
     last_run_at: integer(),
     run_count: integer().notNull().default(0),
+    // Set when the generator agent still has to write this task's spec. The
+    // generator clears it once the spec is in place.
+    auto_generate: integer().notNull().default(0),
     ...Timestamps,
   },
   (table) => [index("agent_task_status_idx").on(table.status, table.auto_run)],

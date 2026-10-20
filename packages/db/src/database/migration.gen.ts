@@ -47,5 +47,6 @@ export const migrations = (
     import("./migration/20261020000001_agent_task_scheduling"),
     import("./migration/20261020000002_agent_task_directory"),
     import("./migration/20261020000003_agent_task_source"),
+    import("./migration/20261020000004_agent_task_auto_generate"),
   ])
 ).map((module) => module.default) satisfies DatabaseMigration.Migration[]

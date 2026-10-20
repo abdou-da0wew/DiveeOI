@@ -1,0 +1,7 @@
+Control a background task: run it now, pause it, resume it, or stop it.
+
+- `run_now` — run the task immediately, whatever its schedule says. A scheduled task keeps
+  its schedule afterwards.
+- `pause` — hold the task. It stops running on its schedule and can be resumed.
+- `resume` — release a paused task. It runs again as soon as it is picked up.
+- `stop` — stop the task for good. It will not run again.

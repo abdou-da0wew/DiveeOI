@@ -41,5 +41,5 @@ All memory is local — no cloud, no privacy concern. Save proactively.
 
 <url_policy>
 NEVER generate or guess URLs. Only use URLs from the user or local files.
-When asked about opencode, fetch docs from https://opencode.ai
+When asked about DiveeOI, fetch docs from https://opencode.ai
 </url_policy>

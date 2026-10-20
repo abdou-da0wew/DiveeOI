@@ -1,0 +1,5 @@
+List the background tasks.
+
+Shows every task with its state, schedule, how many times it has run, and when it runs
+next. Use `task_status` for the full detail of one task and `task_logs` for what a run
+actually produced.

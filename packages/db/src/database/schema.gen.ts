@@ -440,6 +440,7 @@ export default {
           \`next_run_at\` integer,
           \`last_run_at\` integer,
           \`run_count\` integer NOT NULL DEFAULT 0,
+          \`auto_generate\` integer NOT NULL DEFAULT 0,
           \`time_created\` integer NOT NULL,
           \`time_updated\` integer NOT NULL,
           CONSTRAINT \`fk_agent_task_session_id_session_id_fk\` FOREIGN KEY (\`session_id\`) REFERENCES \`session\`(\`id\`) ON DELETE CASCADE

@@ -6,8 +6,10 @@ import { InstanceState } from "@/effect/instance-state"
 
 import PROMPT_ANCHOR from "./prompt/anchor.txt"
 import PROMPT_AUTONOMY from "./prompt/autonomy.txt"
+import PROMPT_DIVEEOI from "./prompt/diveeoi.txt"
 import PROMPT_EXCELLENCE from "./prompt/agent-excellence.txt"
 import PROMPT_CALIBRATION from "./prompt/model-calibration.txt"
+import PROMPT_TASKS from "./prompt/tasks.txt"
 import { Features } from "@/features"
 import PROMPT_ANTHROPIC from "./prompt/anthropic.txt"
 import PROMPT_DEFAULT from "./prompt/default.txt"
@@ -205,6 +207,11 @@ export const layer = Layer.effect(
         // the entire draft-10 autonomous feature set.
         const autonomyBlock = anchorBlock !== undefined ? PROMPT_AUTONOMY : undefined
 
+        // The background-task block names the task tools, so it is only worth its tokens
+        // when the agent is actually allowed to use them.
+        const tasksBlock =
+          Permission.disabled(["task"], agent.permission).size > 0 ? undefined : PROMPT_TASKS
+
         const budgetHint = `<budget:token_budget>${tier}:${budgetInfo.remainingTokens}</budget:token_budget>`
 
         const btwBlock = btwResult.found ? BtwCommand.formatForSystem(btwResult.command) : undefined
@@ -212,6 +219,7 @@ export const layer = Layer.effect(
         const parts: string[] = [
           budgetHint,
           ...envParts,
+          PROMPT_DIVEEOI,
           ...(identityBlock ? [identityBlock] : []),
           ...(remindersBlock ? [remindersBlock] : []),
           ...(todosBlock ? [todosBlock] : []),
@@ -222,6 +230,7 @@ export const layer = Layer.effect(
           PROMPT_CALIBRATION,
           ...(anchorBlock ? [anchorBlock] : []),
           ...(autonomyBlock ? [autonomyBlock] : []),
+          ...(tasksBlock ? [tasksBlock] : []),
         ]
 
         return {

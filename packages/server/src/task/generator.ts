@@ -104,6 +104,9 @@ export const layer = Layer.effect(
       const spec = parseSpec(text)
       if (!spec) {
         yield* tasks.recordHookEvent(id, "generate", "parse", task.prompt, "failed", "no JSON in reply")
+        // The spec is not going to arrive on a retry either: drop the flag so the
+        // runner does not ask for a generation on every tick.
+        yield* tasks.update(id, { autoGenerate: false })
         return
       }
 
@@ -130,6 +133,8 @@ export const layer = Layer.effect(
       }
       // A generated task is made by the generator agent.
       patch.agent = patch.agent ?? task.agent
+      // The spec is written: the task no longer needs the generator.
+      patch.autoGenerate = false
       yield* tasks.update(id, patch as Parameters<typeof tasks.update>[1])
       yield* tasks.recordHookEvent(id, "generate", "agent", task.prompt, "dispatched", spec.bigPrompt?.slice(0, 200))
       yield* events.publish(AgentTask.Event.Updated, {

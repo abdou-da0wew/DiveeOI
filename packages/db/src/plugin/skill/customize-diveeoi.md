@@ -1,13 +1,12 @@
 <!--
   Built-in skill. Name and description are registered in code at
-  packages/core/src/plugin/skill.ts
-  and CUSTOMIZE_OPENCODE_SKILL_DESCRIPTION). The body below becomes the
-  skill's content.
+  packages/db/src/plugin/skill.ts. The body below becomes the skill's
+  content.
 -->
 
-# Customizing opencode
+# Customizing DiveeOI
 
-opencode validates its own config strictly and refuses to start when a field
+DiveeOI validates its own config strictly and refuses to start when a field
 is wrong. The shapes below cover the common surface area, but they are a
 **summary, not the source of truth**.
 
@@ -20,39 +19,43 @@ defaults, and descriptions — lives in the published JSON Schema:
 
 If a field is not documented in this skill, or you need to confirm an exact
 shape before writing config, **fetch that URL and read the schema directly**
-rather than guessing. opencode hard-fails on invalid config, so the cost of a
+rather than guessing. DiveeOI hard-fails on invalid config, so the cost of a
 wrong shape is a broken startup.
 
-Independently, every `opencode.json` should declare
+Independently, every `diveeoi.json` should declare
 `"$schema": "https://opencode.ai/config.json"` so the user's editor catches
 mistakes as they type.
 
 ## Applying changes
 
-Config is loaded once when opencode starts and is not hot-reloaded. After
-saving changes to `opencode.json`, an agent file, a skill, a plugin, or any
-other config-time file, **tell the user to quit and restart opencode** for
+Config is loaded once when DiveeOI starts and is not hot-reloaded. After
+saving changes to `diveeoi.json`, an agent file, a skill, a plugin, or any
+other config-time file, **tell the user to quit and restart DiveeOI** for
 the changes to take effect. The running session will keep using the
 already-loaded config until then.
 
 ## Where files live
 
-| Scope                         | Path                                                                                                                      |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Project config                | `./opencode.json`, `./opencode.jsonc`, or `.opencode/opencode.json` (opencode walks up from the cwd to the worktree root) |
-| Global config                 | `~/.config/opencode/opencode.json` (NOT `~/.opencode/`)                                                                   |
-| Project agents                | `.opencode/agent/<name>.md` or `.opencode/agents/<name>.md`                                                               |
-| Global agents                 | `~/.config/opencode/agent(s)/<name>.md`                                                                                   |
-| Project commands              | `.opencode/command/<name>.md` or `.opencode/commands/<name>.md`                                                           |
-| Global commands               | `~/.config/opencode/command(s)/<name>.md`                                                                                 |
-| Project skills                | `.opencode/skill(s)/<name>/SKILL.md`                                                                                      |
-| Global skills                 | `~/.config/opencode/skill(s)/<name>/SKILL.md`                                                                             |
-| External skills (auto-loaded) | `~/.claude/skills/<name>/SKILL.md`, `~/.agents/skills/<name>/SKILL.md`                                                    |
+DiveeOI reads its own file names first and still reads the legacy `opencode`
+names, so an existing setup keeps working. Where both exist, the `diveeoi`
+name wins.
+
+| Scope                         | Path                                                                                                                        |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Project config                | `./diveeoi.json`, `./diveeoi.jsonc`, `./opencode.json`, or `.opencode/diveeoi.json` (DiveeOI walks up from the cwd to the worktree root) |
+| Global config                 | `~/.config/diveeoi/diveeoi.json` (NOT `~/.config/diveeoi/`'s parent)                                                         |
+| Project agents                | `.opencode/agent/<name>.md` or `.opencode/agents/<name>.md`                                                                 |
+| Global agents                 | `~/.config/diveeoi/agent(s)/<name>.md`                                                                                      |
+| Project commands              | `.opencode/command/<name>.md` or `.opencode/commands/<name>.md`                                                             |
+| Global commands               | `~/.config/diveeoi/command(s)/<name>.md`                                                                                    |
+| Project skills                | `.opencode/skill(s)/<name>/SKILL.md`                                                                                        |
+| Global skills                 | `~/.config/diveeoi/skill(s)/<name>/SKILL.md`                                                                               |
+| External skills (auto-loaded) | `~/.claude/skills/<name>/SKILL.md`, `~/.agents/skills/<name>/SKILL.md`                                                       |
 
 Configs from each scope are deep-merged. Project overrides global. Unknown
-top-level keys in `opencode.json` are rejected with `ConfigInvalidError`.
+top-level keys in `diveeoi.json` are rejected with `ConfigInvalidError`.
 
-## opencode.json
+## diveeoi.json
 
 Every field is optional.
 
@@ -122,10 +125,10 @@ Every field is optional.
   },
 
   "plugin": [
-    "opencode-gemini-auth",
-    "opencode-foo@1.2.3",
+    "diveeoi-gemini-auth",
+    "diveeoi-foo@1.2.3",
     "./local-plugin.ts",
-    ["opencode-bar", { "option": "value" }]
+    ["diveeoi-bar", { "option": "value" }]
   ],
 
   "permission": {
@@ -150,6 +153,8 @@ Every field is optional.
 Shape notes worth being explicit about:
 
 - `model` always carries a provider prefix: `"anthropic/claude-sonnet-4-6"`.
+  The built-in `divee/composer` model is a router: it picks the best reachable
+  free model on every turn.
 - `skills` is an object with `paths` and/or `urls`, not an array.
 - `references` is an object keyed by alias. Each value is a local path, Git repository, or string shorthand.
 - `agent` is an object keyed by agent name, not an array.
@@ -160,7 +165,7 @@ Shape notes worth being explicit about:
 
 ## Skills
 
-opencode's skill loader scans for `**/SKILL.md` inside skill directories. The
+DiveeOI's skill loader scans for `**/SKILL.md` inside skill directories. The
 file is named `SKILL.md` exactly, and lives in its own folder named after the
 skill:
 
@@ -225,7 +230,7 @@ Local `path` values may be relative to the declaring config, absolute, or use
 
 Two ways to define an agent. Use the file form for anything non-trivial.
 
-### Inline (in `opencode.json`)
+### Inline (in `diveeoi.json`)
 
 ```json
 {
@@ -276,13 +281,13 @@ file, `disable: true` in frontmatter.
 
 ### Built-in agents
 
-opencode ships with `build`, `plan`, `general`, `explore`. Hidden internal agents:
+DiveeOI ships with `build`, `plan`, `general`, `explore`. Hidden internal agents:
 `compaction`, `title`, `summary`. To override a built-in's fields, define the
 same key in `agent: { <name>: { ... } }`.
 
 ## Commands
 
-opencode's command loader scans for `**/*.md` inside command directories. The
+DiveeOI's command loader scans for `**/*.md` inside command directories. The
 file is named after the command, and lives directly inside the `command` folder:
 
 ```
@@ -298,10 +303,10 @@ agent: build
 model: anthropic/claude-sonnet-4-6
 ---
 
-(command body in markdown: the prompt opencode runs, with $ARGUMENTS for the user's input)
+(command body in markdown: the prompt DiveeOI runs, with $ARGUMENTS for the user's input)
 ```
 
-- `template` is the command body — everything below the frontmatter — and is required: it is the prompt opencode runs when the command is invoked. Do not also put a `template:` key in the frontmatter.
+- `template` is the command body — everything below the frontmatter — and is required: it is the prompt DiveeOI runs when the command is invoked. Do not also put a `template:` key in the frontmatter.
 - `$ARGUMENTS` is replaced with everything the user typed after the command; `$1`, `$2`, … pull individual positional arguments.
 - Optional: `description`, `agent`, `model`, `variant`, `subtask`.
 
@@ -311,11 +316,11 @@ model: anthropic/claude-sonnet-4-6
 
 ```json
 "plugin": [
-  "opencode-gemini-auth",            // npm spec, latest
-  "opencode-foo@1.2.3",              // npm spec, pinned
+  "diveeoi-gemini-auth",             // npm spec, latest
+  "diveeoi-foo@1.2.3",               // npm spec, pinned
   "./local-plugin.ts",               // file path, relative to the declaring config
   "file:///abs/path/plugin.js",      // file URL
-  ["opencode-bar", { "key": "val" }] // tuple form with options
+  ["diveeoi-bar", { "key": "val" }]  // tuple form with options
 ]
 ```
 
@@ -328,7 +333,7 @@ function, not a plain object literal, and the function returns an object
 (return `{}` if there is nothing to register).
 
 ```ts
-import type { Plugin } from "@opencode-ai/plugin"
+import type { Plugin } from "@diveeoi/plugin"
 
 export default (async ({ client, project, directory, $ }) => {
   return {
@@ -403,7 +408,7 @@ Actions: `"allow"`, `"ask"`, `"deny"`.
 
 Per-tool value forms: `"allow"` shorthand (treated as `{"*": "allow"}`), or an
 object `{ pattern: action }`. Within an object, **insertion order matters**.
-opencode evaluates the LAST matching rule, so put broad rules first and narrow
+DiveeOI evaluates the LAST matching rule, so put broad rules first and narrow
 rules last.
 
 `permission: "allow"` (a string at the top level) is shorthand for "allow
@@ -421,21 +426,31 @@ or globs like `~/projects/**`).
 Per-agent `permission:` overrides top-level `permission:`. Plan Mode lives on
 the `plan` agent's permission ruleset (`edit: deny *`).
 
+## Background tasks
+
+DiveeOI runs background tasks for the user, on a schedule. They are not
+configured in the config file — they are created from the Tasks tab or by an
+agent, and stored in the database.
+
 ## Escape hatches
 
-When a user's config is broken and opencode won't start, these env vars help:
+When a user's config is broken and DiveeOI won't start, these env vars help:
 
-- `OPENCODE_DISABLE_PROJECT_CONFIG=1`: skip the project's local `opencode.json`
-  and start from globals only. Run from the project directory, opencode loads,
+- `DIVEEOI_DISABLE_PROJECT_CONFIG=1`: skip the project's local `diveeoi.json`
+  and start from globals only. Run from the project directory, DiveeOI loads,
   the user edits the broken file, then they restart without the flag.
-- `OPENCODE_CONFIG=/path/to/file.json`: load an additional explicit config.
-- `OPENCODE_CONFIG_CONTENT='{"$schema":"https://opencode.ai/config.json"}'`:
+- `DIVEEOI_CONFIG=/path/to/file.json`: load an additional explicit config.
+- `DIVEEOI_CONFIG_CONTENT='{"$schema":"https://opencode.ai/config.json"}'`:
   inject inline JSON as a final local-scope merge.
-- `OPENCODE_DISABLE_DEFAULT_PLUGINS=1`: skip default plugins.
-- `OPENCODE_PURE=1`: skip external plugins entirely.
-- `OPENCODE_DISABLE_EXTERNAL_SKILLS=1`,
-  `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1`: skip the external skill scans under
+- `DIVEEOI_DISABLE_DEFAULT_PLUGINS=1`: skip default plugins.
+- `DIVEEOI_PURE=1`: skip external plugins entirely.
+- `DIVEEOI_DISABLE_EXTERNAL_SKILLS=1`,
+  `DIVEEOI_DISABLE_CLAUDE_CODE_SKILLS=1`: skip the external skill scans under
   `~/.claude/` and `~/.agents/`.
+
+Every one of these also accepts the legacy `OPENCODE_`-prefixed name
+(`OPENCODE_CONFIG`, `OPENCODE_DISABLE_PROJECT_CONFIG`, …). The `DIVEEOI_` name
+wins when both are set.
 
 ## When proposing edits
 
@@ -444,9 +459,9 @@ When a user's config is broken and opencode won't start, these env vars help:
   `https://opencode.ai/config.json` and read the schema rather than guessing.
 - Preserve `$schema` and any existing fields the user did not ask to change.
 - For agent, command, skill, and plugin definitions, prefer creating new files
-  in the correct location over inlining everything in `opencode.json`.
+  in the correct location over inlining everything in `diveeoi.json`.
 - If the user's existing config is malformed, point them at the env-var escape
-  hatches above so they can edit from inside opencode without breaking their
+  hatches above so they can edit from inside DiveeOI without breaking their
   session.
-- After saving any config change, remind the user to quit and restart opencode
+- After saving any config change, remind the user to quit and restart DiveeOI
   — running sessions keep using the already-loaded config.

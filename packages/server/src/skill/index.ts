@@ -24,15 +24,15 @@ const EXTERNAL_SKILL_PATTERN = "skills/**/SKILL.md"
 const OPENCODE_SKILL_PATTERN = "{skill,skills}/**/SKILL.md"
 const SKILL_PATTERN = "**/SKILL.md"
 
-// Built-in skill that ships with opencode. The model's intuition for what an
-// opencode.json should look like is often wrong, and opencode hard-fails on
+// Built-in skill that ships with DiveeOI. The model's intuition for what a
+// diveeoi.json should look like is often wrong, and DiveeOI hard-fails on
 // invalid config, so users hit cryptic startup errors. Loading this skill
-// when the model is asked to touch opencode's own config files gives it the
+// when the model is asked to touch DiveeOI's own config files gives it the
 // actual schemas instead of guesses.
-const CUSTOMIZE_OPENCODE_SKILL_NAME = "customize-opencode"
-const CUSTOMIZE_OPENCODE_SKILL_DESCRIPTION =
-  "Use ONLY when the user is editing or creating opencode's own configuration: opencode.json, opencode.jsonc, files under .opencode/, or files under ~/.config/opencode/. Also use when creating or fixing opencode agents, subagents, skills, plugins, MCP servers, or permission rules. Do not use for the user's own application code, or for any project that is not configuring opencode itself."
-const CUSTOMIZE_OPENCODE_SKILL_BODY = SkillPlugin.CustomizeOpencodeContent
+const CUSTOMIZE_DIVEEOI_SKILL_NAME = "customize-diveeoi"
+const CUSTOMIZE_DIVEEOI_SKILL_DESCRIPTION =
+  "Use ONLY when the user is editing or creating DiveeOI's own configuration: diveeoi.json, diveeoi.jsonc, opencode.json, files under .opencode/, or files under ~/.config/diveeoi/. Also use when creating or fixing DiveeOI agents, subagents, commands, skills, plugins, MCP servers, or permission rules. Do not use for the user's own application code, or for any project that is not configuring DiveeOI itself."
+const CUSTOMIZE_DIVEEOI_SKILL_BODY = SkillPlugin.CustomizeDiveeoiContent
 
 export const Info = Schema.Struct({
   name: Schema.String,
@@ -275,11 +275,11 @@ export const layer = Layer.effect(
         const s: State = { skills: {}, dirs: new Set() }
         // Register the built-in skill BEFORE disk discovery so a user-disk
         // skill with the same name can override it.
-        s.skills[CUSTOMIZE_OPENCODE_SKILL_NAME] = {
-          name: CUSTOMIZE_OPENCODE_SKILL_NAME,
-          description: CUSTOMIZE_OPENCODE_SKILL_DESCRIPTION,
+        s.skills[CUSTOMIZE_DIVEEOI_SKILL_NAME] = {
+          name: CUSTOMIZE_DIVEEOI_SKILL_NAME,
+          description: CUSTOMIZE_DIVEEOI_SKILL_DESCRIPTION,
           location: "<built-in>",
-          content: CUSTOMIZE_OPENCODE_SKILL_BODY,
+          content: CUSTOMIZE_DIVEEOI_SKILL_BODY,
         }
         yield* loadSkills(s, yield* InstanceState.get(discovered), events)
         return s

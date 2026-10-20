@@ -15,6 +15,7 @@ import { Server } from "./server/server"
 import { DevMonitor } from "./dev/monitor"
 import { checkCtx7Update } from "./setup/ctx7"
 import { bootResume as taskBootResume, defaultLayer as AgentTaskDefaultLayer } from "./task/task"
+import { ComposerBans } from "./provider/composer-bans"
 import { maybeStart as sshMaybeStart, defaultLayer as SshDefaultLayer } from "./ssh"
 
 // `handleCLI` returns the exit code when argv named a CLI command, or null when
@@ -47,6 +48,15 @@ try {
       Effect.provide(AgentTaskDefaultLayer),
       Effect.provide(AdaptiveResourceDefaultLayer),
       Effect.catchCause((cause) => Effect.logWarning("Task boot resume failed", { cause })),
+    ),
+  )
+
+  // The router's model bans: read them back at boot so a restart does not send the user
+  // back to a model that just failed, and persist every new one.
+  Effect.runFork(
+    ComposerBans.register.pipe(
+      Effect.provide(ComposerBans.layer),
+      Effect.catchCause((cause) => Effect.logWarning("model ban restore failed", { cause })),
     ),
   )
 

@@ -16,10 +16,13 @@
 //   1. Reachable models only (ProviderFreeTier.isRoutable) with tool calling enabled.
 //   2. Free models (zero input/output cost) — the built-in `opencode` gateway first, since
 //      that is the free tier this app ships with.
-//   3. Best capabilities: multimodality, reasoning, then the larger context window.
-//   4. Models in a failure cooldown are skipped until it expires.
+//   3. Models that actually work: a model that completed a turn recently is preferred over
+//      one that never did, however good the catalog says it is.
+//   4. Best capabilities: multimodality, reasoning, then the larger context window.
 //
-// State is process-local, like ./free-tier. A fresh process re-learns cheaply.
+// A model that errors, or answers with nothing, is not used again for a day. The ban
+// outlives the process: it is written to the database and read back at boot, so a restart
+// does not send the user straight back to the model that just failed.
 
 import { ProviderV2 } from "@diveeoi/db/provider"
 import { ModelV2 } from "@diveeoi/db/model"
@@ -59,14 +62,28 @@ export interface Selection extends Target {
 // WeakMap (not a schema field) so it never leaks into responses or persisted messages.
 const routes = new WeakMap<Model, Selection>()
 
-// Transient failures (rate limit, 5xx, timeout) put a model in a short cooldown instead of
-// banning it for the process like the free-tier decisions do.
-const COOLDOWN_MS = 120_000
-const cooldown = new Map<string, number>()
+/**
+ * How long a model that failed is left alone.
+ *
+ * A day, not a minute: the free tier refuses models for reasons that do not clear
+ * (a model retired, a gateway outage, a model that answers with an empty reply), and
+ * retrying it every minute is what makes the app feel broken. The ban is persisted, so
+ * it survives a restart.
+ */
+export const BAN_MS = 24 * 60 * 60 * 1000
 
-// Models that actually completed a turn get a small boost: the classifier is a prior, live
-// results are evidence.
-const successes = new Map<string, number>()
+/** key -> timestamp the ban expires at. */
+const bans = new Map<string, number>()
+
+/** key -> how often the model completed a turn, and when it last did. */
+const successes = new Map<string, { count: number; lastAt: number }>()
+
+/**
+ * Notified whenever a model is banned, so the server can write the ban to the
+ * database. The composer itself stays a plain module with no service dependencies.
+ */
+type BanListener = (model: string, until: number) => void
+let banListener: BanListener | undefined
 
 const key = (providerID: string, modelID: string) => `${providerID}/${modelID}`
 
@@ -84,32 +101,89 @@ export function selectionOf(model: Model | undefined): Selection | undefined {
   return model ? routes.get(model) : undefined
 }
 
-/** Put a model in cooldown so the router prefers something else for a while. */
+/**
+ * A model failed: it is not used again for a day.
+ *
+ * Called for every error and for a turn that produced no answer at all.
+ */
 export function recordFailure(providerID: string, modelID: string) {
-  cooldown.set(key(providerID, modelID), Date.now() + COOLDOWN_MS)
-  successes.delete(key(providerID, modelID))
+  const id = key(providerID, modelID)
+  const until = Date.now() + BAN_MS
+  bans.set(id, until)
+  successes.delete(id)
+  banListener?.(id, until)
 }
 
-/** A model completed a turn: give it a small evidence boost. */
+/** A model completed a turn: it is evidence that it works. */
 export function recordSuccess(providerID: string, modelID: string) {
   const id = key(providerID, modelID)
-  successes.set(id, (successes.get(id) ?? 0) + 1)
+  const current = successes.get(id)
+  successes.set(id, { count: (current?.count ?? 0) + 1, lastAt: Date.now() })
+}
+
+/** Register the listener that persists a ban. Returns a function that removes it. */
+export function onBan(listener: BanListener) {
+  banListener = listener
+  return () => {
+    if (banListener === listener) banListener = undefined
+  }
+}
+
+/** The bans that are still in force, as `provider/model -> expiry timestamp`. */
+export function activeBans(): Record<string, number> {
+  const now = Date.now()
+  const out: Record<string, number> = {}
+  for (const [id, until] of bans) {
+    if (until <= now) {
+      bans.delete(id)
+      continue
+    }
+    out[id] = until
+  }
+  return out
+}
+
+/** Read the bans back at boot, so a restart does not re-enable a model that just failed. */
+export function restoreBans(record: Record<string, number>) {
+  const now = Date.now()
+  for (const [id, until] of Object.entries(record)) {
+    if (typeof until === "number" && until > now) bans.set(id, until)
+  }
 }
 
 /** Test/reset seam. */
 export function reset() {
-  cooldown.clear()
+  bans.clear()
   successes.clear()
+  banListener = undefined
 }
 
-function cooling(providerID: string, modelID: string) {
-  const until = cooldown.get(key(providerID, modelID))
+/** Is the model currently banned? */
+export function isBanned(providerID: string, modelID: string) {
+  const until = bans.get(key(providerID, modelID))
   if (until === undefined) return false
   if (Date.now() >= until) {
-    cooldown.delete(key(providerID, modelID))
+    bans.delete(key(providerID, modelID))
     return false
   }
   return true
+}
+
+/**
+ * How much evidence there is that a model works, 0 to 100.
+ *
+ * A model that answered a turn minutes ago is the one the user is actually getting
+ * answers from; a model that last worked days ago is stale evidence; a model that never
+ * answered is no evidence at all.
+ */
+export function workingScore(providerID: string, modelID: string) {
+  const record = successes.get(key(providerID, modelID))
+  if (!record) return 0
+  const age = Date.now() - record.lastAt
+  if (age <= 60 * 60 * 1000) return 100
+  if (age <= 6 * 60 * 60 * 1000) return 70
+  if (age <= BAN_MS) return 40
+  return 10
 }
 
 /** Free (zero-price) model that can drive an agent loop. */
@@ -124,6 +198,10 @@ interface Candidate extends Selection {
   readonly score: number
   /** The user's similarity list matched this model. */
   readonly preferred: boolean
+  /** Evidence that this model works, 0 to 100. */
+  readonly working: number
+  /** The context window, in tokens. */
+  readonly context: number
 }
 
 /**
@@ -146,8 +224,9 @@ function candidates(providers: Record<ProviderV2.ID, Info>, options: Options): C
       if (!usable(model)) continue
       if (!ProviderFreeTier.isRoutable(String(providerID), String(model.id))) continue
       const quality = ComposerQuality.classify(model, options.preferred)
-      const evidence = Math.min(8, (successes.get(key(String(providerID), String(model.id))) ?? 0) * 2)
+      const working = workingScore(String(providerID), String(model.id))
       const reach = bundled ? FREE_TIER_AFFINITY : 0
+      const context = model.limit?.context ?? 0
       out.push({
         providerID,
         modelID: model.id,
@@ -156,7 +235,9 @@ function candidates(providers: Record<ProviderV2.ID, Info>, options: Options): C
         // The reachability bonus is deliberately larger than the score spread between
         // adjacent tiers: a model that works anonymously today beats one that may need a
         // key, and a *clearly* better model still wins on tier.
-        score: quality.score + evidence + reach * 30,
+        score: quality.score + working / 10 + reach * 30,
+        working,
+        context,
         preferred: quality.reasons.some((reason) => reason.startsWith("preferred")),
       })
     }
@@ -164,12 +245,14 @@ function candidates(providers: Record<ProviderV2.ID, Info>, options: Options): C
   return out.sort((a, b) => {
     // The user's similarity list outranks everything else, including reachability.
     if (a.preferred !== b.preferred) return a.preferred ? -1 : 1
-    // Cooling models are skipped, not banned: they come back after the cooldown.
-    const cool =
-      Number(cooling(String(a.providerID), String(a.modelID))) -
-      Number(cooling(String(b.providerID), String(b.modelID)))
-    if (cool !== 0) return cool
+    // A model that actually answers comes before a model that only looks good in the
+    // catalog. The free tier refuses models for reasons the catalog never shows, so
+    // "it worked ten minutes ago" is worth more than "it is the biggest model".
+    if (a.working !== b.working) return b.working - a.working
     if (a.quality.tier !== b.quality.tier) return b.quality.tier - a.quality.tier
+    // Between two models of the same quality, the one that holds more of the conversation
+    // wins: a bigger window means fewer compactions and fewer lost turns.
+    if (a.context !== b.context) return b.context - a.context
     if (a.score !== b.score) return b.score - a.score
     // Same family: the newer generation wins.
     const lineage = ComposerQuality.compareLineage(a.model, b.model)
@@ -187,8 +270,13 @@ function candidates(providers: Record<ProviderV2.ID, Info>, options: Options): C
 export function select(providers: Record<ProviderV2.ID, Info>, options: Options = DEFAULT_OPTIONS): Selection | undefined {
   const list = candidates(providers, options)
   if (list.length === 0) return undefined
-  const good = list.find((candidate) => candidate.quality.tier >= options.minTier)
-  return good ?? list[0]
+  // A banned model is not used. If every free model is banned the router still has to
+  // go somewhere - refusing to answer at all is worse than trying a model that failed
+  // yesterday - so the ban is only a preference when nothing else is left.
+  const usable = list.filter((candidate) => !isBanned(String(candidate.providerID), String(candidate.modelID)))
+  const pool = usable.length > 0 ? usable : list
+  const good = pool.find((candidate) => candidate.quality.tier >= options.minTier)
+  return good ?? pool[0]
 }
 
 /**
