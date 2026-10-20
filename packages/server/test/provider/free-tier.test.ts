@@ -93,6 +93,35 @@ describe("provider free-tier", () => {
     loop.cause = loop
     expect(() => classify(loop)).not.toThrow()
   })
+
+  test("classifies an authorization failure as key-required", () => {
+    // A model the catalog lists as free but the credential cannot use: the gateway says
+    // unauthorized, the SDK says the token is invalid, or the SDK reports a 401.
+    expect(classify({ message: "Unauthorized: {\"error\":{\"message\":\"invalid token\"}}" })).toBe("key-required")
+    expect(classify({ message: "Anthropic API key is missing. Pass it using the 'apiKey' parameter" })).toBe(
+      "key-required",
+    )
+    expect(classify({ name: "APIError", data: { message: "unauthorized", statusCode: 401 } })).toBe("key-required")
+    expect(classify({ statusCode: 401 })).toBe("key-required")
+  })
+
+  test("drops a provider once several of its models refuse the credential", () => {
+    // Otherwise the router walks one dead model per turn through a provider whose
+    // credential is bad for all of them.
+    resetLearned()
+    expect(isRoutable("gateway", "model-a")).toBe(true)
+    learn({ message: "Unauthorized" }, "gateway", "model-a")
+    learn({ message: "Unauthorized" }, "gateway", "model-b")
+    // One more refusal and the provider itself is out.
+    expect(isRoutable("gateway", "model-a")).toBe(false)
+    expect(isRoutable("gateway", "model-c")).toBe(true)
+    learn({ message: "Unauthorized" }, "gateway", "model-c")
+    expect(isRoutable("gateway", "model-c")).toBe(false)
+    // A different provider is unaffected.
+    expect(isRoutable("other", "model-a")).toBe(true)
+    resetLearned()
+    expect(isRoutable("gateway", "model-c")).toBe(true)
+  })
 })
 
 describe("provider free-tier rankForUse", () => {

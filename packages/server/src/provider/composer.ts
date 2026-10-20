@@ -122,22 +122,48 @@ function usable(model: Model) {
 
 interface Candidate extends Selection {
   readonly score: number
+  /** The user's similarity list matched this model. */
+  readonly preferred: boolean
 }
+
+/**
+ * The bundled free tier serves its models anonymously (no key). A model there is reachable
+ * on the first turn, while a model on a provider that needs credentials only works if that
+ * provider happens to be connected and authorised - and the catalog lists plenty of those as
+ * free too. So the bundled tier gets a reachability bonus on top of its quality: it wins
+ * against an equally good model elsewhere, and a clearly better model still wins.
+ */
+const FREE_TIER_PROVIDER = "opencode"
+const FREE_TIER_AFFINITY = 1
 
 function candidates(providers: Record<ProviderV2.ID, Info>, options: Options): Candidate[] {
   const out: Candidate[] = []
   for (const [id, provider] of Object.entries(providers)) {
     const providerID = id as ProviderV2.ID
     if (providerID === PROVIDER_ID) continue
+    const bundled = String(providerID) === FREE_TIER_PROVIDER
     for (const model of Object.values(provider.models)) {
       if (!usable(model)) continue
       if (!ProviderFreeTier.isRoutable(String(providerID), String(model.id))) continue
       const quality = ComposerQuality.classify(model, options.preferred)
       const evidence = Math.min(8, (successes.get(key(String(providerID), String(model.id))) ?? 0) * 2)
-      out.push({ providerID, modelID: model.id, model, quality, score: quality.score + evidence })
+      const reach = bundled ? FREE_TIER_AFFINITY : 0
+      out.push({
+        providerID,
+        modelID: model.id,
+        model,
+        quality: { ...quality, tier: Math.min(5, quality.tier + reach) },
+        // The reachability bonus is deliberately larger than the score spread between
+        // adjacent tiers: a model that works anonymously today beats one that may need a
+        // key, and a *clearly* better model still wins on tier.
+        score: quality.score + evidence + reach * 30,
+        preferred: quality.reasons.some((reason) => reason.startsWith("preferred")),
+      })
     }
   }
   return out.sort((a, b) => {
+    // The user's similarity list outranks everything else, including reachability.
+    if (a.preferred !== b.preferred) return a.preferred ? -1 : 1
     // Cooling models are skipped, not banned: they come back after the cooldown.
     const cool =
       Number(cooling(String(a.providerID), String(a.modelID))) -

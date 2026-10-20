@@ -1861,7 +1861,9 @@ export const layer = Layer.effect(
         const selection = Composer.selectionOf(model)
         const target = s.providers[routed.providerID]?.models[String(routed.modelID)]
         if (!target) return yield* new ModelNotFoundError({ modelID: routed.modelID, providerID: routed.providerID })
-        const cacheKey = `${model.providerID}/${model.id}`
+        // Cache under the *target's* key, not the composer id: when the router moves to
+        // another model, the cached client of the old one must not be reused.
+        const cacheKey = `${routed.providerID}/${routed.modelID}`
         if (s.models.has(cacheKey)) return s.models.get(cacheKey)!
         yield* Effect.logInfo("composer.route", {
           model: Composer.describe(routed),

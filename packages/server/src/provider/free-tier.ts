@@ -25,17 +25,32 @@
 const keyRequired = new Set<string>()
 const unusable = new Set<string>()
 
+// A credential that cannot use one model usually cannot use any of that
+// provider's free models. After a few refusals the provider itself is dropped, so
+// the router stops walking one dead model per turn.
+const PROVIDER_FAILURE_THRESHOLD = 3
+const providerFailures = new Map<string, Set<string>>()
+const keyRequiredProviders = new Set<string>()
+
 const key = (providerID: string, modelID: string) => `${providerID}/${modelID}`
 
 /** Model needs an API key; stop routing to it in this process. */
 export function markKeyRequired(providerID: string, modelID: string) {
   keyRequired.add(key(providerID, modelID))
+  const failures = providerFailures.get(providerID) ?? new Set<string>()
+  failures.add(modelID)
+  providerFailures.set(providerID, failures)
+  if (failures.size >= PROVIDER_FAILURE_THRESHOLD) keyRequiredProviders.add(providerID)
 }
 
 /** Model is gone upstream (deprecated/retired); stop routing to it in this process. */
 export function markUnusable(providerID: string, modelID: string) {
   unusable.add(key(providerID, modelID))
   keyRequired.add(key(providerID, modelID))
+  const failures = providerFailures.get(providerID) ?? new Set<string>()
+  failures.add(modelID)
+  providerFailures.set(providerID, failures)
+  if (failures.size >= PROVIDER_FAILURE_THRESHOLD) keyRequiredProviders.add(providerID)
 }
 
 export function needsKey(providerID: string, modelID: string) {
@@ -43,6 +58,7 @@ export function needsKey(providerID: string, modelID: string) {
 }
 
 export function isRoutable(providerID: string, modelID: string) {
+  if (keyRequiredProviders.has(providerID)) return false
   return !keyRequired.has(key(providerID, modelID))
 }
 
@@ -50,10 +66,16 @@ export function isRoutable(providerID: string, modelID: string) {
 export function resetLearned() {
   keyRequired.clear()
   unusable.clear()
+  providerFailures.clear()
+  keyRequiredProviders.clear()
 }
 
 export function learned() {
-  return { keyRequired: [...keyRequired], unusable: [...unusable] }
+  return {
+    keyRequired: [...keyRequired],
+    unusable: [...unusable],
+    keyRequiredProviders: [...keyRequiredProviders],
+  }
 }
 
 /** The gateway's free-tier failure shapes, matched on the parsed error body. */
@@ -71,21 +93,54 @@ export function classify(error: unknown): FreeTierVerdict {
   const parts: string[] = []
   const seen = new Set<unknown>()
   let current: unknown = error
+  let statusDenied = false
   for (let depth = 0; depth < 6 && current && typeof current === "object" && !seen.has(current); depth++) {
     seen.add(current)
     const value = current as Record<string, unknown>
     // Collect this level's own discriminators.
     let descend: unknown
-    for (const field of ["message", "name", "type", "data", "body", "cause", "error", "responseBody", "reason"]) {
+    for (const field of [
+      "message",
+      "name",
+      "type",
+      "statusCode",
+      "status",
+      "code",
+      "data",
+      "body",
+      "cause",
+      "error",
+      "responseBody",
+      "reason",
+    ]) {
       const next = value[field]
       if (typeof next === "string") parts.push(next)
-      else if (next && typeof next === "object" && descend === undefined) descend = next
+      else if (typeof next === "number" && (field === "statusCode" || field === "status")) {
+        // A numeric status is a discriminator too - 401/403 on its own mean "no access".
+        if (next === 401 || next === 403) statusDenied = true
+      } else if (next && typeof next === "object" && descend === undefined) descend = next
     }
     current = descend
   }
   const text = parts.join(" ").toLowerCase()
-  if (!text) return undefined
+  if (!text && !statusDenied) return undefined
   if (text.includes("freetiererror") || text.includes("free tier can only be used")) return "key-required"
+  if (statusDenied) return "key-required"
+  // A generic auth failure is the same conclusion in a different envelope: the catalog
+  // listed the model as free, but the credential in hand cannot use it. Treating it as
+  // "needs a key" keeps the router from walking into the same dead end every turn.
+  if (
+    text.includes("unauthorized") ||
+    text.includes("invalid token") ||
+    text.includes("invalid_token") ||
+    text.includes("authentication") ||
+    text.includes("permission denied") ||
+    text.includes("api key") ||
+    text.includes("statuscode\":401") ||
+    text.includes("status code 401")
+  ) {
+    return "key-required"
+  }
   // `ModelDeprecated` (410) is a retirement, not a routing gap, but both mean the same thing to
   // this process: never select it again. Matching it here is what lets a run recover from a model
   // the catalog still advertises as active.
