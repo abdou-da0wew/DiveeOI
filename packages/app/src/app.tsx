@@ -375,7 +375,9 @@ function ConnectionError(props: { onRetry?: () => void; onServerSelected?: (key:
   return (
     <div class="h-dvh w-screen flex flex-col items-center justify-center bg-background-base gap-6 p-6">
       <div class="flex flex-col items-center max-w-md text-center">
-        <Splash class="w-12 h-15 mb-4" />
+        {/* Big and at full contrast: the connection error is a "the app is not there" moment,
+            and the mark should carry it. */}
+        <Splash class="w-20 h-25 mb-6 text-text-strong" />
         <p class="text-14-regular text-text-base">
           {unreachable()[0]}
           <span class="text-text-strong font-medium">{name()}</span>
