@@ -278,7 +278,11 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
   return (
     <div class="relative flex-1 h-screen w-screen min-h-0 flex flex-col items-center justify-center bg-background-base font-sans">
       <div class="w-2/3 max-w-3xl flex flex-col items-center justify-center gap-8">
-        <Logo class="text-[3.75rem] text-text-strong shrink-0" />
+        {/* The lockup is the headline of this page: it is the largest thing on it, and it
+            sits at full contrast (the mark takes the current text colour, the cursor the
+            brand accent) so the page reads as "the app, and something went wrong" rather
+            than as a blank error. */}
+        <Logo class="text-[6.5rem] leading-none text-text-strong shrink-0" />
         <div class="flex flex-col items-center gap-2 text-center">
           <h1 class="text-lg font-medium text-text-strong">{language.t("error.page.title")}</h1>
           <p class="text-sm text-text-weak">{language.t(errorDescriptionKey(props.error))}</p>
