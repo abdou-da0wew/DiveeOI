@@ -2,6 +2,7 @@ import { ProviderAuth } from "@/provider/auth"
 import { Config } from "@/config/config"
 import { ModelsDev } from "@diveeoi/db/models-dev"
 import { Provider } from "@/provider/provider"
+import { Composer } from "@/provider/composer"
 
 import { gzipSync } from "node:zlib"
 import { Effect, Schema } from "effect"
@@ -84,8 +85,16 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
       connected: Record<string, Provider.Info>,
     ) => {
       const providers = { ...catalog.providers, ...connected }
-      const publicProviders = { ...catalog.public }
-      for (const [key, value] of Object.entries(connected)) publicProviders[key] = Provider.toPublicInfo(value)
+      const publicProviders: Record<string, Provider.Info> = {}
+      // Divee leads the list everywhere: it is the default model, the app's headline entry,
+      // and every model list sorts its groups by this order.
+      const composer = connected[Composer.PROVIDER_ID]
+      if (composer) publicProviders[Composer.PROVIDER_ID] = Provider.toPublicInfo(composer)
+      for (const [key, value] of Object.entries(catalog.public)) publicProviders[key] = value
+      for (const [key, value] of Object.entries(connected)) {
+        if (key === Composer.PROVIDER_ID) continue
+        publicProviders[key] = Provider.toPublicInfo(value)
+      }
 
       return {
         all: Object.values(publicProviders),

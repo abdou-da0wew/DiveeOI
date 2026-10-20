@@ -13,8 +13,9 @@ import { Tooltip } from "@diveeoi/ui/tooltip"
 import { ModelTooltip } from "./model-tooltip"
 import { useLanguage } from "@/context/language"
 
+// The bundled free tier and Divee (which routes to free models) are both "free".
 const isFree = (provider: string, cost: { input: number } | undefined) =>
-  provider === "opencode" && (!cost || cost.input === 0)
+  (provider === "opencode" || provider === "divee") && (!cost || cost.input === 0)
 
 type ModelState = ReturnType<typeof useLocal>["model"]
 

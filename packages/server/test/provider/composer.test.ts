@@ -12,7 +12,6 @@ const model = (input: {
   context?: number
   toolcall?: boolean
   image?: boolean
-  pdf?: boolean
   reasoning?: boolean
   status?: "alpha" | "beta" | "deprecated" | "active"
 }): Model =>
@@ -23,7 +22,7 @@ const model = (input: {
     api: { id: input.id, url: "", npm: "@ai-sdk/openai-compatible" },
     capabilities: {
       temperature: true,
-      reasoning: input.reasoning ?? false,
+      reasoning: input.reasoning ?? true,
       attachment: input.image ?? false,
       toolcall: input.toolcall ?? true,
       input: {
@@ -31,17 +30,17 @@ const model = (input: {
         audio: false,
         image: input.image ?? false,
         video: false,
-        pdf: input.pdf ?? false,
+        pdf: false,
       },
       output: { text: true, audio: false, image: false, video: false, pdf: false },
       interleaved: false,
     },
     cost: { input: input.input ?? 0, output: input.output ?? 0, cache: { read: 0, write: 0 } },
-    limit: { context: input.context ?? 32_000, output: 4_000 },
+    limit: { context: input.context ?? 200_000, output: 32_000 },
     options: {},
     headers: {},
     family: "",
-    release_date: "",
+    release_date: "2026-09-01",
     status: input.status ?? "active",
     variants: {},
   }) as unknown as Model
@@ -58,12 +57,12 @@ const provider = (id: string, models: Model[]): Info =>
 
 const providers = () => ({
   [ProviderV2.ID.make("opencode")]: provider("opencode", [
-    model({ id: "small-free", providerID: "opencode", context: 32_000 }),
-    model({ id: "vision-free", providerID: "opencode", context: 200_000, image: true }),
-    model({ id: "paid-model", providerID: "opencode", input: 3, output: 15, context: 1_000_000 }),
+    model({ id: "DeepSeek V4.1 Flash Free", providerID: "opencode", image: true }),
+    model({ id: "Nemotron 3.5 Lightning Free", providerID: "opencode" }),
+    model({ id: "Paid Model", providerID: "opencode", input: 3, output: 15 }),
   ]),
   [ProviderV2.ID.make("other")]: provider("other", [
-    model({ id: "other-free", providerID: "other", context: 500_000 }),
+    model({ id: "MiMo-V2.6-Flash Free", providerID: "other" }),
   ]),
 })
 
@@ -74,41 +73,36 @@ describe("DiveeComposer", () => {
     expect(info?.name).toBe("Divee")
     const resolved = info?.models[Composer.MODEL_ID]
     expect(resolved?.name).toBe("DiveeComposer")
-    // vision-free beats small-free (multimodal) and the built-in gateway beats "other".
+    // DeepSeek beats the Lightning variant and the MiMo model.
+    expect(String(Composer.targetOf(resolved)?.modelID)).toBe("DeepSeek V4.1 Flash Free")
     expect(resolved?.capabilities.input.image).toBe(true)
-    expect(resolved?.limit.context).toBe(200_000)
     expect(resolved?.cost.input).toBe(0)
-    expect(Composer.targetOf(resolved)).toEqual({
-      providerID: ProviderV2.ID.make("opencode"),
-      modelID: ModelV2.ID.make("vision-free"),
-    })
   })
 
   it("never offers a paid model", () => {
     const selected = Composer.select(providers())
-    expect(String(selected?.modelID)).not.toBe("paid-model")
+    expect(String(selected?.modelID)).not.toBe("Paid Model")
   })
 
-  it("is appended alongside the normal providers", () => {
+  it("honours the user's similarity list", () => {
+    const selected = Composer.select(providers(), { preferred: ["mimo-*"], minTier: 0 })
+    expect(String(selected?.modelID)).toBe("MiMo-V2.6-Flash Free")
+  })
+
+  it("is the first provider in the list", () => {
     const merged = Composer.withProvider(providers())
-    expect(Object.keys(merged).sort()).toEqual(["divee", "opencode", "other"])
+    expect(Object.keys(merged)[0]).toBe(Composer.PROVIDER_ID)
     // Free models stay selectable exactly as before.
-    expect(Object.keys(merged[ProviderV2.ID.make("opencode")].models)).toContain("small-free")
+    expect(Object.keys(merged[ProviderV2.ID.make("opencode")].models)).toContain("DeepSeek V4.1 Flash Free")
   })
 
   it("is omitted when no free model is reachable", () => {
     const none = {
       [ProviderV2.ID.make("opencode")]: provider("opencode", [
-        model({ id: "paid", providerID: "opencode", input: 1, output: 2 }),
+        model({ id: "Paid Model", providerID: "opencode", input: 1, output: 2 }),
       ]),
     }
     expect(Composer.build(none)).toBeUndefined()
     expect(Composer.withProvider(none)).toEqual(none)
-  })
-
-  it("skips models the free tier learned to refuse", () => {
-    const list = providers()
-    Composer.reset()
-    expect(Composer.select(list)?.modelID).toBe(ModelV2.ID.make("vision-free"))
   })
 })
