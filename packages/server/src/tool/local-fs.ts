@@ -9,6 +9,7 @@
 
 import { Context, Effect, Layer, FileSystem } from "effect"
 import { NodeFileSystem } from "@effect/platform-node"
+import { LayerNode } from "@diveeoi/db/effect/layer-node"
 import { FSUtil as FSUtilModule } from "@diveeoi/db/fs-util"
 
 export type LocalFSShape = FSUtilModule.Interface
@@ -22,5 +23,7 @@ export const layer = Layer.effect(
     return Service.of(fs as unknown as LocalFSShape)
   }),
 ).pipe(Layer.provide(NodeFileSystem.layer))
+
+export const node = LayerNode.make(layer, [])
 
 export * as LocalFS from "./local-fs"

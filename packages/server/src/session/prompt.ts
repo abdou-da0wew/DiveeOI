@@ -2068,6 +2068,20 @@ const argsRegex = /(?:\[Image\s+\d+\]|"[^"]*"|'[^']*'|[^\s"']+)/gi
 const placeholderRegex = /\$(\d+)/g
 const quoteTrimRegex = /^["']|["']$/g
 
+/**
+ * The services the prompt path needs at call time.
+ *
+ * `SessionPrompt.node` provides these to the prompt service itself, but a caller outside
+ * that layer still has to have them in context when it calls `prompt.prompt(...)` -
+ * otherwise the call dies with "Service not found: @opencode/Skill" or
+ * "@diveeoi/server/SessionMemoryIntegration". The tool path reads further services at call
+ * time: `ToolRegistry.all` reads the skill service, the search tools read ripgrep, the patch
+ * tool reads the local filesystem, and the task and question tools read the background job
+ * and question services.
+ *
+ * `AppServices.serviceNodes` is the list every caller in the server depends on - it holds
+ * this set and the rest of the application services.
+ */
 export const node = LayerNode.make(layer, [
   SessionMemoryIntegration.node,
   SessionStatus.node,

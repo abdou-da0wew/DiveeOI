@@ -10,6 +10,7 @@
 // agent then runs the task at the schedule the generator picked.
 
 import { LayerNode } from "@diveeoi/db/effect/layer-node"
+import { AppServices } from "@/app-services"
 import { Context, Effect, Layer } from "effect"
 import { AgentTask } from "./task"
 import { SessionPrompt } from "@/session/prompt"
@@ -151,7 +152,10 @@ export const defaultLayer = layer.pipe(
 
 export const node = LayerNode.make(layer, [
   AgentTask.node,
-  SessionPrompt.node,
+  // The prompt path reads further services at call time (the skill service, ripgrep, the
+  // formatter, ...). A layer only sees the services it declares, so the workers depend on
+  // the same application services the route handlers run with.
+  ...AppServices.serviceNodes,
   InstanceStore.node,
   InstanceBootstrap.node,
   EventV2Bridge.node,
