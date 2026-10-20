@@ -50,6 +50,7 @@ import { SystemPrompt } from "../../src/session/system"
 import { Shell } from "@diveeoi/db/shell"
 import { Snapshot } from "../../src/snapshot"
 import { ToolRegistry } from "@/tool/registry"
+import { AgentTask } from "@/task/task"
 import { Format } from "../../src/format"
 import { TestInstance } from "../fixture/fixture"
 import { awaitWithTimeout, pollWithTimeout, testEffect } from "../lib/effect"
@@ -190,6 +191,8 @@ function makePrompt(input?: { processor?: "blocking" }) {
   ).pipe(Layer.provideMerge(infra))
   const question = Question.layer.pipe(Layer.provideMerge(deps))
   const todo = Todo.layer.pipe(Layer.provideMerge(deps))
+  // The registry's background task tools need the task service.
+  const agentTask = AgentTask.layer.pipe(Layer.provideMerge(deps))
   const registry = ToolRegistry.layer.pipe(
     Layer.provide(Skill.defaultLayer),
     Layer.provide(FetchHttpClient.layer),
@@ -201,6 +204,7 @@ function makePrompt(input?: { processor?: "blocking" }) {
     Layer.provideMerge(todo),
     Layer.provideMerge(question),
     Layer.provideMerge(deps),
+    Layer.provideMerge(agentTask),
   )
   const trunc = Truncate.layer.pipe(Layer.provideMerge(deps))
   const proc =

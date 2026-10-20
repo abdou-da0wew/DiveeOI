@@ -7,10 +7,10 @@ the free-tier models most users rely on.
 
 ### Free-tier model awareness
 
-Most users run on free models provided by the OpenCode gateway. These models
+Most users run on free models provided through DiveeOI's gateway (OpenCode Zen). These models
 have specific strengths and limitations you must adapt to:
 
-**OpenCode/zen free models (cost: $0, available without API key):**
+**Free models from the OpenCode Zen gateway (cost: $0, available without API key):**
 - **gpt-5-nano** (OpenAI): Very fast, limited reasoning. Best for: simple file
   reads, glob/grep, formatting, running known commands. Struggles with:
   multi-step reasoning, complex edits, architectural decisions.

@@ -6,6 +6,7 @@ import { Ripgrep } from "@diveeoi/db/ripgrep"
 import { Anchor } from "@/anchor/anchor"
 import { DbExportTool } from "./db-export"
 import { Session } from "@/session/session"
+import { AgentTask } from "@/task/task"
 import { QuestionTool } from "./question"
 import { ShellTool } from "./shell"
 import { EditTool } from "./edit"
@@ -13,6 +14,7 @@ import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
 import { ReadTool } from "./read"
 import { TaskTool } from "./task"
+import { TaskControlTool, TaskCreateTool, TaskListTool, TaskLogsTool, TaskStatusTool } from "./tasks"
 import { Database } from "@diveeoi/db/database/database"
 import { TodoWriteTool } from "./todo"
 import { WebFetchTool } from "./webfetch"
@@ -104,6 +106,11 @@ export const layer = Layer.effect(
     const read = yield* ReadTool
     const question = yield* QuestionTool
     const todo = yield* TodoWriteTool
+    const taskCreate = yield* TaskCreateTool
+    const taskList = yield* TaskListTool
+    const taskStatus = yield* TaskStatusTool
+    const taskLogs = yield* TaskLogsTool
+    const taskControl = yield* TaskControlTool
     const webfetch = yield* WebFetchTool
     const websearch = yield* WebSearchTool
     const dbexport = yield* DbExportTool
@@ -279,6 +286,11 @@ export const layer = Layer.effect(
           search: Tool.init(websearch),
           question: Tool.init(question),
           export: Tool.init(dbexport),
+          taskCreate: Tool.init(taskCreate),
+          taskList: Tool.init(taskList),
+          taskStatus: Tool.init(taskStatus),
+          taskLogs: Tool.init(taskLogs),
+          taskControl: Tool.init(taskControl),
         })
 
         const builtin: Tool.Def[] = [
@@ -295,6 +307,13 @@ export const layer = Layer.effect(
           tool.todo,
           tool.search,
           tool.export,
+          // Background task management - the agent can create, inspect and steer the
+          // tasks the user schedules.
+          tool.taskCreate,
+          tool.taskList,
+          tool.taskStatus,
+          tool.taskLogs,
+          tool.taskControl,
           // Memory tools (empty when the memory feature is disabled)
           ...memoryTools,
           ...anchorTools,
@@ -529,6 +548,8 @@ export const defaultLayer = Layer.suspend(() =>
       Layer.provide(CrossSpawnSpawner.defaultLayer),
       Layer.provide(Truncate.defaultLayer),
       Layer.provide(AdaptiveResourceDefaultLayer),
+      // The background task tools read and write tasks.
+      Layer.provide(AgentTask.defaultLayer),
     )
     .pipe(
       Layer.provide(Database.defaultLayer),
@@ -624,6 +645,8 @@ const adaptiveNode = LayerNode.make(AdaptiveResourceDefaultLayer, [])
 
 export const node = LayerNode.make(layer, [
   Config.node,
+  // The background task tools read and write tasks.
+  AgentTask.node,
   Plugin.node,
   Question.node,
   Todo.node,

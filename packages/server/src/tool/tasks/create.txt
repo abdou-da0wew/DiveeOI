@@ -1,0 +1,31 @@
+Create a background task that DiveeOI runs on its own.
+
+Use this for anything the user wants to happen repeatedly or later: "every weekday at
+08:00 summarise my open pull requests", "check the deploy every hour", "watch this and
+tell me when it changes". Do not sleep in a loop and do not promise to check back later
+— create a task instead.
+
+The task gets its own session and its own agent. Every run executes the task's big
+prompt, and the run's output is the task's log.
+
+Only `prompt` is required: it is the short label the task shows up under. Put the
+actual instructions in `bigPrompt` — that is the text the task runs, and it should be
+self-contained, because the task runs later, without the conversation around it.
+
+Options:
+- `schedule`: a cron expression, e.g. "0 8 * * 1-5" (weekdays at 08:00), "*/15 * * * *"
+  (every 15 minutes), "0 3 * * *" (03:00 daily). Without one, the task runs once.
+- `agent`: which agent runs it (default "build"). A subagent-style agent is a good
+  choice for narrow, repeatable work.
+- `model` / `smallModel`: "provider/model" — e.g. "divee/composer", which is a router
+  that picks the best reachable free model on every run. Without one, the task uses the
+  composer.
+- `directory`: the project folder the task runs in. Defaults to the current project.
+- `hooks`: what to do when the task finishes or fails — trigger/action pairs, e.g.
+  trigger "on_complete" with action "notify".
+- `autoRun`: start it right away. Without it, the task waits until it is resumed.
+- `autoGenerate`: let the task generator agent write the full spec (prompt, schedule,
+  agent, models) from a one-line request, then run it.
+
+Provenance: set `source` to "agent" and `creatorAgent` to your own agent name when you
+create a task inside a session.

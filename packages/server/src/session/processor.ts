@@ -1057,6 +1057,30 @@ export const layer = Layer.effect(
             Effect.ensuring(cleanup()),
           )
 
+          // A model that answers with nothing is as broken as one that errors: the turn
+          // ends with no text and no tool call, and the user gets an empty box. Ban it
+          // for a day so the router picks a model that actually answers.
+          const routed = input.model ? Composer.targetOf(input.model) : undefined
+          if (routed && !ctx.blocked && !ctx.assistantMessage.error && !ctx.needsCompaction) {
+            const produced = yield* MessageV2.parts(ctx.assistantMessage.id).pipe(
+              Effect.provideService(Database.Service, database),
+              Effect.map((parts) =>
+                parts.some(
+                  (part) =>
+                    (part.type === "text" && part.text.trim().length > 0) ||
+                    (part.type === "tool" && part.state.status !== "pending"),
+                ),
+              ),
+            )
+            if (!produced) {
+              Composer.recordFailure(String(routed.providerID), String(routed.modelID))
+              yield* Effect.logWarning("model returned no response, marking unusable for a day", {
+                sessionID: ctx.sessionID,
+                model: `${routed.providerID}/${routed.modelID}`,
+              })
+            }
+          }
+
           if (ctx.needsCompaction) return "compact"
           if (ctx.blocked || ctx.assistantMessage.error) return "stop"
           return "continue"

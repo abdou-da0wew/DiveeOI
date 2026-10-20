@@ -67,12 +67,18 @@ afterEach(async () => {
 })
 
 describe("tool.registry", () => {
-  it.instance("does not expose task_status", () =>
+  it.instance("exposes the background task tools", () =>
     Effect.gen(function* () {
       const registry = yield* ToolRegistry.Service
       const ids = yield* registry.ids()
 
-      expect(ids).not.toContain("task_status")
+      // These replaced the old session-status "task_status" tool: the agent manages
+      // the scheduled background tasks the user creates.
+      expect(ids).toContain("task_create")
+      expect(ids).toContain("task_list")
+      expect(ids).toContain("task_status")
+      expect(ids).toContain("task_logs")
+      expect(ids).toContain("task_control")
     }),
   )
 

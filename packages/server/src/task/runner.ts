@@ -20,6 +20,7 @@ import { LayerNode } from "@diveeoi/db/effect/layer-node"
 import { AppServices } from "@/app-services"
 import { Cause, Context, Effect, Layer, Scope } from "effect"
 import { AgentTask } from "./task"
+import { TaskGenerator } from "./generator"
 import { TaskSchedule } from "./schedule"
 import { SessionPrompt } from "@/session/prompt"
 import { Session } from "@/session/session"
@@ -50,6 +51,7 @@ export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const tasks = yield* AgentTask.Service
+    const generator = yield* TaskGenerator.Service
     const prompt = yield* SessionPrompt.Service
     const sessions = yield* Session.Service
     const store = yield* InstanceStore.Service
@@ -91,14 +93,16 @@ export const layer = Layer.effect(
             switch (hook.action) {
               case "create_task": {
                 // A task that spawns another task: the payload is the child's prompt.
-                const child = yield* tasks.create({
-                  prompt: payload,
-                  parentSessionID: task.sessionID,
-                  agent: task.agent,
-                  bigPrompt: task.bigPrompt,
-                  smallPrompt: task.smallPrompt,
-                  autoRun: true,
-                })
+                const child = yield* tasks
+                  .create({
+                    prompt: payload,
+                    parentSessionID: task.sessionID,
+                    agent: task.agent,
+                    bigPrompt: task.bigPrompt,
+                    smallPrompt: task.smallPrompt,
+                    autoRun: true,
+                  })
+                  .pipe(Effect.provideService(Session.Service, sessions))
                 return `created task ${child.id}`
               }
               case "webhook": {
@@ -205,6 +209,18 @@ export const layer = Layer.effect(
     const tick = Effect.fn("TaskRunner.tick")(function* () {
       const now = Date.now()
 
+      // A task can ask the generator agent to write its own spec. The generator runs
+      // here rather than at creation time, so a task made from outside a request
+      // (by an agent, through the task tools) gets its spec too. A task waiting to
+      // be started counts as waiting: "paused" is where a task sits until it runs.
+      for (const task of yield* tasks.list({})) {
+        if (!task.autoGenerate) continue
+        if (task.status === "cancelled" || task.status === "running") continue
+        yield* generator
+          .generate(task.id)
+          .pipe(Effect.catchCause((cause) => Effect.logWarning("task generation failed", { id: task.id, cause })))
+      }
+
       // Scheduled work that is due.
       for (const task of yield* tasks.due(now)) {
         if (task.status === "paused" || task.status === "cancelled") continue
@@ -251,6 +267,8 @@ export const node = LayerNode.make(layer, [
   // formatter, ...). A layer only sees the services it declares, so the workers depend on
   // the same application services the route handlers run with.
   ...AppServices.serviceNodes,
+  // The generator writes the spec of a task that asked for one.
+  TaskGenerator.node,
   Session.node,
   InstanceStore.node,
   InstanceBootstrap.node,

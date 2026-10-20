@@ -1,0 +1,5 @@
+The state of one background task.
+
+Shows where the task stands: its state, its schedule, how many times it has run, when it
+ran last and when it runs next, which agent and model it uses, who made it, and the
+error of a failed run. Use `task_logs` to see what a run actually produced.

@@ -10,6 +10,7 @@ import { TaskService } from "@diveeoi/api/handlers/task"
 import { AgentTask } from "@/task/task"
 import { TaskRunner } from "@/task/runner"
 import { TaskGenerator } from "@/task/generator"
+import { Session } from "@/session/session"
 
 export const taskServiceLayer = Layer.effect(
   TaskService,
@@ -17,6 +18,8 @@ export const taskServiceLayer = Layer.effect(
     const svc = yield* AgentTask.Service
     const runner = yield* TaskRunner.Service
     const generator = yield* TaskGenerator.Service
+    // The task service asks for the session service when it creates a task.
+    const sessions = yield* Session.Service
     return TaskService.of({
       create: (input) =>
         svc
@@ -49,7 +52,8 @@ export const taskServiceLayer = Layer.effect(
                   )
                 : Effect.void,
             ),
-          ),
+          )
+          .pipe(Effect.provideService(Session.Service, sessions)),
       list: () => svc.list({}).pipe(Effect.map((r) => [...r])),
       get: (id) => svc.get(id),
       update: (id, patch) =>

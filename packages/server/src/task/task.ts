@@ -23,7 +23,6 @@ import { Database } from "@diveeoi/db/database/database"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { EventV2 } from "@diveeoi/db/event"
 import { Session } from "@/session/session"
-import { Provider } from "@/provider/provider"
 import { Composer } from "@/provider/composer"
 import { InstanceState } from "@/effect/instance-state"
 import { SessionID } from "@/session/schema"
@@ -77,6 +76,8 @@ export const Info = Schema.Struct({
   smallModelID: Schema.optional(Schema.String),
   /** Cron expression - the task re-runs on its own. */
   schedule: Schema.optional(Schema.String),
+  /** Set while the generator agent still has to write the task's spec. */
+  autoGenerate: Schema.optional(Schema.Boolean),
   nextRunAt: Schema.optional(Schema.Number),
   lastRunAt: Schema.optional(Schema.Number),
   runCount: Schema.optional(Schema.Number),
@@ -129,7 +130,11 @@ export interface CreateInput {
 }
 
 export interface Interface {
-  readonly create: (input: CreateInput) => Effect.Effect<Info>
+  /**
+   * Create a task. Needs the session service, because a task is backed by a
+   * session; the caller provides it.
+   */
+  readonly create: (input: CreateInput) => Effect.Effect<Info, never, Session.Service>
   readonly update: (
     id: string,
     patch: Partial<
@@ -146,6 +151,7 @@ export interface Interface {
         | "smallProviderID"
         | "smallModelID"
         | "schedule"
+        | "autoGenerate"
       >
     >,
   ) => Effect.Effect<Info>
@@ -195,10 +201,12 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const { db } = yield* Database.Service
     const events = yield* EventV2Bridge.Service
-    const sessions = yield* Session.Service
-    const providers = yield* Provider.Service
 
     const create = Effect.fn("AgentTask.create")(function* (input: CreateInput) {
+      // The session service is a requirement of this call, not of the layer: the
+      // task table only needs the session when a task is created, and a caller
+      // that never creates a task should not have to build the session graph.
+      const sessions = yield* Session.Service
       const id = `task_${ulid()}`
       const now = Date.now()
       // Default to the composer: it is the most reliable free model we have and
@@ -259,6 +267,7 @@ export const layer = Layer.effect(
           next_run_at: input.schedule ? (TaskSchedule.nextRun(input.schedule, new Date(now))?.getTime() ?? null) : null,
           last_run_at: null,
           run_count: 0,
+          auto_generate: input.autoGenerate ? 1 : 0,
         } as typeof AgentTaskTable.$inferInsert)
         .run()
         .pipe(Effect.orDie)
@@ -289,6 +298,7 @@ export const layer = Layer.effect(
         nextRunAt: input.schedule ? TaskSchedule.nextRun(input.schedule, new Date(now))?.getTime() : undefined,
         lastRunAt: undefined,
         runCount: 0,
+        autoGenerate: input.autoGenerate ? true : undefined,
         createdAt: now,
         updatedAt: now,
       }
@@ -316,6 +326,7 @@ export const layer = Layer.effect(
           | "smallProviderID"
           | "smallModelID"
           | "schedule"
+          | "autoGenerate"
         >
       >,
     ) {
@@ -334,6 +345,7 @@ export const layer = Layer.effect(
         set.schedule = patch.schedule
         set.next_run_at = patch.schedule ? (TaskSchedule.nextRun(patch.schedule)?.getTime() ?? null) : null
       }
+      if (patch.autoGenerate !== undefined) set.auto_generate = patch.autoGenerate ? 1 : 0
       if (Object.keys(set).length > 0) {
         yield* db.update(AgentTaskTable).set(set).where(eq(AgentTaskTable.id, id)).run().pipe(Effect.orDie)
       }
@@ -573,6 +585,7 @@ function rowToInfo(row: typeof AgentTaskTable.$inferSelect): Info {
     nextRunAt: row.next_run_at ?? undefined,
     lastRunAt: row.last_run_at ?? undefined,
     runCount: row.run_count ?? undefined,
+    autoGenerate: row.auto_generate ? true : undefined,
     createdAt: row.time_created,
     updatedAt: row.time_updated,
   }
@@ -581,11 +594,9 @@ function rowToInfo(row: typeof AgentTaskTable.$inferSelect): Info {
 export const defaultLayer = layer.pipe(
   Layer.provide(EventV2Bridge.defaultLayer),
   Layer.provide(Database.defaultLayer),
-  Layer.provide(Session.defaultLayer),
-  Layer.provide(Provider.defaultLayer),
 )
 
-export const node = LayerNode.make(layer, [EventV2Bridge.node, Database.node, Session.node, Provider.node])
+export const node = LayerNode.make(layer, [EventV2Bridge.node, Database.node])
 
 /**
  * Boot resume: scan for tasks left in running/queued state by a crashed

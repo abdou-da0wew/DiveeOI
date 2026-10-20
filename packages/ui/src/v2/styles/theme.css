@@ -2,6 +2,14 @@
   :root {
     color-scheme: light;
 
+    /* ── Brand ──
+       The mark's accent and the muted "OI" of the wordmark. They are brand
+       colours, not theme colours: the accent is the same orange on every
+       surface, and the muted tone is picked per scheme so the lockup keeps
+       its contrast on both. */
+    --divee-accent: #ff5b1f;
+    --divee-wordmark-muted: #6f747d;
+
     /* ── Background ── */
     --v2-background-bg-base: var(--v2-grey-50);
     --v2-background-bg-deep: var(--v2-grey-100);
@@ -333,6 +341,9 @@
   /* Explicit dark mode via data attribute (Storybook toggle, runtime JS) */
   [data-color-scheme="dark"] {
     color-scheme: dark;
+
+    --divee-accent: #ff5b1f;
+    --divee-wordmark-muted: #8a8f98;
 
     --v2-background-bg-base: var(--v2-grey-1100);
     --v2-background-bg-deep: var(--v2-grey-1200);

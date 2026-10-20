@@ -96,6 +96,49 @@ describe("DiveeComposer", () => {
     expect(Object.keys(merged[ProviderV2.ID.make("opencode")].models)).toContain("DeepSeek V4.1 Flash Free")
   })
 
+  it("skips a model that failed for a day", () => {
+    Composer.reset()
+    Composer.recordFailure("opencode", "DeepSeek V4.1 Flash Free")
+    const selected = Composer.select(providers())
+    expect(String(selected?.modelID)).not.toBe("DeepSeek V4.1 Flash Free")
+    // The ban lasts a day, not a minute.
+    expect(Composer.isBanned("opencode", "DeepSeek V4.1 Flash Free")).toBe(true)
+    expect(Composer.BAN_MS).toBe(24 * 60 * 60 * 1000)
+    Composer.reset()
+  })
+
+  it("prefers a model that actually works", () => {
+    Composer.reset()
+    // The MiMo model measured better on paper, but the DeepSeek one answered a turn.
+    Composer.recordSuccess("opencode", "DeepSeek V4.1 Flash Free")
+    const selected = Composer.select(providers(), { preferred: [], minTier: 0 })
+    expect(String(selected?.modelID)).toBe("DeepSeek V4.1 Flash Free")
+    Composer.reset()
+  })
+
+  it("prefers the bigger context window between two models of the same quality", () => {
+    Composer.reset()
+    const two = {
+      [ProviderV2.ID.make("opencode")]: provider("opencode", [
+        model({ id: "Small Context Model", providerID: "opencode", context: 32_000 }),
+        model({ id: "Big Context Model", providerID: "opencode", context: 1_000_000 }),
+      ]),
+    }
+    const selected = Composer.select(two, { preferred: [], minTier: 0 })
+    expect(String(selected?.modelID)).toBe("Big Context Model")
+  })
+
+  it("reads the bans back after a restart", () => {
+    Composer.reset()
+    const until = Date.now() + Composer.BAN_MS
+    Composer.restoreBans({ "opencode/DeepSeek V4.1 Flash Free": until })
+    expect(Composer.isBanned("opencode", "DeepSeek V4.1 Flash Free")).toBe(true)
+    // A ban that has expired is not restored.
+    Composer.reset()
+    Composer.restoreBans({ "opencode/DeepSeek V4.1 Flash Free": Date.now() - 1000 })
+    expect(Composer.isBanned("opencode", "DeepSeek V4.1 Flash Free")).toBe(false)
+  })
+
   it("is omitted when no free model is reachable", () => {
     const none = {
       [ProviderV2.ID.make("opencode")]: provider("opencode", [

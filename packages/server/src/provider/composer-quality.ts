@@ -46,48 +46,87 @@ type ModelLike = {
 }
 
 /**
+ * Tiers taken from measured results rather than from the family name.
+ *
+ * The number in the note is the model's SWE-bench Verified resolve rate - the share of real
+ * GitHub issues it actually fixes - measured in the OpenCode harness where a measurement
+ * exists, because that is the harness DiveeOI itself runs. A model that fixes 79% of real
+ * issues is a tier 5 model; one that fixes 66% is a tier 3.8 model.
+ *
+ * A match here is the strongest signal the classifier has: it beats the family table and
+ * the variant words, because the measurement already accounts for the variant.
+ */
+const BENCHMARK_TIERS: ReadonlyArray<{ match: RegExp; tier: number; note: string }> = [
+  // The models the free tier ships, measured against each other in one report.
+  { match: /\bglm-?5(\.\d+)?/, tier: 5, note: "GLM-5.3 Flash: SWE-bench Verified 79.1" },
+  { match: /\bdeepseek-?v4(\.\d+)?/, tier: 4.8, note: "DeepSeek-V4 Flash: SWE-bench Verified 77.8" },
+  { match: /\bnemotron-?3(\.\d+)?-?super/, tier: 4.4, note: "Nemotron 3.5 Super: SWE-bench Verified 71.1" },
+  { match: /\bnemotron-?3(\.\d+)?-?ultra/, tier: 4.6, note: "Nemotron 3 Ultra: SWE-bench Verified 73.9" },
+  { match: /\bnemotron-?3(\.\d+)?-?lightning/, tier: 3.6, note: "Nemotron 3.5 Lightning: the lighter text-only sibling" },
+  { match: /\bminimax-?m3(\.\d+)?/, tier: 4.4, note: "MiniMax M3.1 Flash: SWE-bench Verified 73.8" },
+  { match: /\bmimo-?v2(\.\d+)?/, tier: 3.8, note: "MiMo-V2.6 Flash: SWE-bench Verified 66.2" },
+  { match: /\blongcat/, tier: 4.1, note: "LongCat 2.5: SWE-bench Verified ~70" },
+  { match: /\bbig-?pickle/, tier: 4.6, note: "Big Pickle: SWE-bench Verified 77.8" },
+  // Families the app also sees on paid tiers.
+  { match: /\bopus/, tier: 5, note: "Claude Opus 4.5: SWE-bench Verified 80.9" },
+  { match: /\bsonnet/, tier: 4.6, note: "Claude Sonnet 4.5: SWE-bench Verified 77.2" },
+  { match: /\bhaiku/, tier: 4.2, note: "Claude Haiku 4.5: SWE-bench Verified 73.3" },
+  { match: /\bgpt-?5(\.\d+)?/, tier: 4.8, note: "GPT-5.2: SWE-bench Verified 80.0" },
+  { match: /\bgemini-?3(\.\d+)?/, tier: 4.6, note: "Gemini 3 Flash: SWE-bench Verified 78.0" },
+  { match: /\bkimi-?k2(\.\d+)?/, tier: 4.6, note: "Kimi K2.5: SWE-bench Verified 76.8" },
+  { match: /\bglm-?4(\.\d+)?/, tier: 3.9, note: "GLM-4.7: SWE-bench Verified 73.8" },
+  { match: /\bdeepseek-?v3(\.\d+)?/, tier: 4.2, note: "DeepSeek-V3.2: SWE-bench Verified 73.1" },
+  { match: /\bminimax-?m2(\.\d+)?/, tier: 4.5, note: "MiniMax M2.5: SWE-bench Verified 80.2" },
+  { match: /\bqwen-?3(\.\d+)?-?coder(?!-?flash)/, tier: 4.2, note: "Qwen3 Coder: SWE-bench Verified 70.6" },
+  { match: /\bgrok-?code/, tier: 4.1, note: "Grok Code Fast 1: SWE-bench Verified 70.8" },
+  { match: /\bdevstral/, tier: 3.4, note: "Devstral 2: SWE-bench Verified 61.6" },
+  { match: /\bgpt-?oss/, tier: 3.2, note: "gpt-oss-120b: an older open-weight reasoning model" },
+  { match: /\bllama/, tier: 2.6, note: "Llama 3.3 70B: SWE-bench Verified ~60" },
+]
+
+/**
  * Base tier per model family. Keys are matched against the model id/name, lower-cased.
  * The value is the tier of the family's *current best* generation; the version lineage and
  * the variant words adjust from there.
  */
 const FAMILY_TIERS: Record<string, number> = {
-  // Frontier labs
-  claude: 5,
-  anthropic: 5,
-  gpt: 5,
-  openai: 5,
-  gemini: 4.5,
-  google: 4.5,
+  // Frontier labs (Claude Opus 80.9, GPT-5.2 80.0, Gemini 3 Flash 78.0 on SWE-bench Verified)
+  claude: 4.8,
+  anthropic: 4.8,
+  gpt: 4.6,
+  openai: 4.6,
+  gemini: 4.4,
+  google: 4.4,
   grok: 4,
   xai: 4,
-  // Strong open weights
-  deepseek: 4.5,
-  glm: 4.5,
-  zhipu: 4.5,
+  // Strong open weights (GLM-5 77.8, DeepSeek-V4 77.8, Kimi K2.5 76.8, MiniMax M2.5 80.2)
+  deepseek: 4.4,
+  glm: 4.6,
+  zhipu: 4.6,
   kimi: 4.5,
   moonshot: 4.5,
-  minimax: 4.5,
+  minimax: 4.4,
   qwen: 4,
   qwen3: 4,
-  doubao: 4,
+  doubao: 4.4,
   seed: 4,
   step: 3.5,
   stepfun: 3.5,
   hy3: 3.5,
   hunyuan: 3.5,
-  nemotron: 3.5,
+  nemotron: 4.2,
   langchain: 3.5,
-  mimo: 3.5,
+  mimo: 3.8,
   ling: 3.5,
-  longcat: 3.5,
+  longcat: 4.1,
   agentic: 3.5,
   gemma: 3,
   mistral: 3,
-  devstral: 3,
+  devstral: 3.4,
   magistral: 3,
-  llama: 2.5,
-  gpt_oss: 3,
-  "gpt-oss": 3,
+  llama: 2.6,
+  gpt_oss: 3.2,
+  "gpt-oss": 3.2,
   exo: 1.5,
   // Named / community models we know the quality of
   "big-pickle": 4.5,
@@ -202,19 +241,27 @@ export function classify(model: ModelLike, preferred: ReadonlyArray<string> = []
   let tier = FAMILY_TIERS[family] ?? 2.5
   if (FAMILY_TIERS[family] === undefined) reasons.push(`family "${family}" is not in the tier table`)
 
-  // Variant words. The id and the name are tokenized together, so the same word can appear
-  // twice ("opus" in the id and in the name) - count it once.
-  const words = new Set(tokenize(`${model.id} ${model.name ?? ""}`))
-  for (const word of words) {
-    const strong = STRONG_TOKENS[word]
-    if (strong !== undefined) {
-      tier += strong
-      reasons.push(`"${word}" +${strong}`)
-    }
-    const weak = WEAK_TOKENS[word]
-    if (weak !== undefined) {
-      tier += weak
-      reasons.push(`"${word}" ${weak}`)
+  // A measured result beats the family guess and the variant words: the measurement already
+  // knows which variant it was.
+  const measured = benchmarkTier(model)
+  if (measured) {
+    tier = measured.tier
+    reasons.push(measured.note)
+  } else {
+    // Variant words. The id and the name are tokenized together, so the same word can appear
+    // twice ("opus" in the id and in the name) - count it once.
+    const words = new Set(tokenize(`${model.id} ${model.name ?? ""}`))
+    for (const word of words) {
+      const strong = STRONG_TOKENS[word]
+      if (strong !== undefined) {
+        tier += strong
+        reasons.push(`"${word}" +${strong}`)
+      }
+      const weak = WEAK_TOKENS[word]
+      if (weak !== undefined) {
+        tier += weak
+        reasons.push(`"${word}" ${weak}`)
+      }
     }
   }
 
@@ -277,6 +324,20 @@ export function classify(model: ModelLike, preferred: ReadonlyArray<string> = []
 
   const lineage = `${family}-${version(`${model.id} ${model.name ?? ""}`).join(".") || "0"}`
   return { tier: Math.max(0, Math.min(5, tier)), score: Math.round(score), reasons, lineage }
+}
+
+/**
+ * The measured tier of a model, when a benchmark result exists for it.
+ *
+ * The name is matched against the id and the display name, so "glm-5.3-flash-free" and
+ * "GLM 5.3 Flash" both hit the same entry.
+ */
+export function benchmarkTier(model: ModelLike): { tier: number; note: string } | undefined {
+  const text = `${model.id} ${model.name ?? ""}`.toLowerCase()
+  for (const entry of BENCHMARK_TIERS) {
+    if (entry.match.test(text)) return { tier: entry.tier, note: entry.note }
+  }
+  return undefined
 }
 
 /** Glob-ish match: `*` matches anything, `?` matches one character. */

@@ -1,0 +1,5 @@
+The output of a background task's runs.
+
+Shows what the task actually did: the prompt it ran and what the agent replied, newest
+run last. Use it to check whether a scheduled task is doing the right thing, or to read
+the result of a run the user asked about.

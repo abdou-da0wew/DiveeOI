@@ -21,9 +21,11 @@ export const Splash = (props: Pick<ComponentProps<"svg">, "ref" | "class">) => {
 
 export const Logo = (props: { class?: string; title?: string }) => {
   return (
+    // The lockup scales with the font size of its container, so a caller can make it
+    // bigger with a text size instead of fighting two fixed pixel sizes.
     <div class={`flex items-center gap-3 ${props.class ?? ""}`}>
-      <DiveeMark class="size-8 shrink-0" />
-      <DiveeWordmark class="h-7 w-auto" title={props.title} />
+      <DiveeMark class="h-[1.3em] w-[1.3em] shrink-0" />
+      <DiveeWordmark class="h-[1em] w-auto" title={props.title} />
     </div>
   )
 }
