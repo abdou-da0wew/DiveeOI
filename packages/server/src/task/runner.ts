@@ -17,6 +17,7 @@
 // `on_fail`; it never takes the server down.
 
 import { LayerNode } from "@diveeoi/db/effect/layer-node"
+import { AppServices } from "@/app-services"
 import { Cause, Context, Effect, Layer, Scope } from "effect"
 import { AgentTask } from "./task"
 import { TaskSchedule } from "./schedule"
@@ -186,7 +187,9 @@ export const layer = Layer.effect(
         const refreshed = yield* tasks.get(id)
         if (refreshed) yield* dispatch(refreshed, "on_complete")
       } else {
-        const message = outcome._tag === "Failure" ? Cause.pretty(outcome.cause).slice(0, 500) : "task failed"
+        // Keep enough of the cause to be actionable: a 500 char slice hides the frames
+        // that say which service was missing.
+        const message = outcome._tag === "Failure" ? Cause.pretty(outcome.cause).slice(0, 4000) : "task failed"
         yield* tasks.setStatus(id, "failed", message)
         const refreshed = yield* tasks.get(id)
         if (refreshed) yield* dispatch(refreshed, "on_fail", message)
@@ -244,7 +247,10 @@ export const defaultLayer = layer.pipe(
 
 export const node = LayerNode.make(layer, [
   AgentTask.node,
-  SessionPrompt.node,
+  // The prompt path reads further services at call time (the skill service, ripgrep, the
+  // formatter, ...). A layer only sees the services it declares, so the workers depend on
+  // the same application services the route handlers run with.
+  ...AppServices.serviceNodes,
   Session.node,
   InstanceStore.node,
   InstanceBootstrap.node,

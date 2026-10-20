@@ -4,66 +4,15 @@ import { HttpClient, HttpMiddleware, HttpRouter, HttpServer, HttpServerResponse 
 import * as Socket from "effect/unstable/socket/Socket"
 import { FSUtil } from "@diveeoi/db/fs-util"
 import * as Observability from "@diveeoi/db/observability"
-import { Account } from "@/account/account"
-import { Agent } from "@/agent/agent"
-import { Auth } from "@/auth"
-import { BackgroundJob } from "@/background/job"
-import { Command } from "@/command"
 import { Config } from "@/config/config"
-import { Workspace } from "@/control-plane/workspace"
-import { Env } from "@/env"
-import { EventV2Bridge } from "@/event-v2-bridge"
-import { Format } from "@/format"
-import { Git } from "@/git"
-import { Installation } from "@/installation"
-import { LSP } from "@/lsp/lsp"
-import { MCP } from "@/mcp"
-import { McpAuth } from "@/mcp/auth"
-import { Permission } from "@/permission"
-import { Plugin } from "@/plugin"
 import { PluginPtyEnvironment } from "@/plugin/pty-environment"
-import { InstanceStore } from "@/project/instance-store"
-import { Project } from "@/project/project"
-import { Vcs } from "@/project/vcs"
-import { ProviderAuth } from "@/provider/auth"
-import { Provider } from "@/provider/provider"
-import { Question } from "@/question"
 import { SessionMemoryIntegration } from "@/session/memory"
 import { MemoryScheduler } from "@/session/memory-scheduler"
-import { SessionCompaction } from "@/session/compaction"
-import { Instruction } from "@/session/instruction"
-import { LLM } from "@/session/llm"
-import { SessionProcessor } from "@/session/processor"
-import { SessionPrompt } from "@/session/prompt"
-import { SessionRevert } from "@/session/revert"
-import { SessionRunState } from "@/session/run-state"
-import { Session } from "@/session/session"
-import { SessionStatus } from "@/session/status"
-import { SessionSummary } from "@/session/summary"
-import { Todo } from "@/session/todo"
-import { SessionShare } from "@/share/session"
-import { ShareNext } from "@/share/share-next"
-import { Skill } from "@/skill"
-import { Discovery } from "@/skill/discovery"
-import { Snapshot } from "@/snapshot"
-import { Storage } from "@/storage/storage"
 import { ToolRegistry } from "@/tool/registry"
-import { Truncate } from "@/tool/truncate"
-import { Worktree } from "@/worktree"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { MoveSession } from "@diveeoi/db/control-plane/move-session"
-import { Database } from "@diveeoi/db/database/database"
 import { defaultLayer as AdaptiveResourceDefaultLayer } from "@diveeoi/db/adaptive"
 import { LayerNode } from "@diveeoi/db/effect/layer-node"
-import { httpClient } from "@diveeoi/db/effect/layer-node-platform"
-import { EventV2 } from "@diveeoi/db/event"
-import { ModelsDev } from "@diveeoi/db/models-dev"
-import { Npm } from "@diveeoi/db/npm"
-import { ProjectV2 } from "@diveeoi/db/project"
-import { ProjectCopy } from "@diveeoi/db/project/copy"
-import { PtyTicket } from "@diveeoi/db/pty/ticket"
-import { Ripgrep } from "@diveeoi/db/ripgrep"
-import { SessionProjector } from "@diveeoi/db/session/projector"
 import { lazy } from "@/util/lazy"
 import { CorsConfig, isAllowedCorsOrigin, type CorsOptions } from "@diveeoi/api/cors"
 import { serveUIEffect } from "@/server/shared/ui"
@@ -96,7 +45,6 @@ import { providerHandlers } from "./handlers/provider"
 import { ptyConnectHandlers, ptyHandlers } from "./handlers/pty"
 import { questionHandlers } from "./handlers/question"
 import { sessionHandlers } from "./handlers/session"
-import { Anchor } from "@/anchor/anchor"
 import { Features } from "@/features"
 import { memoryExtractRoute } from "./handlers/memory"
 import { remoteProbeRoute } from "./handlers/remote"
@@ -107,6 +55,7 @@ import { workspaceHandlers } from "./handlers/workspace"
 import { handlers } from "@diveeoi/api/handlers"
 import { schemaErrorLayer as v2SchemaErrorLayer } from "@diveeoi/api/middleware/schema-error"
 import { taskServiceLayer } from "./task-service-layer"
+import { AppServices } from "@/app-services"
 import { TaskRunner } from "@/task/runner"
 import { AgentTask } from "@/task/task"
 import { TaskGenerator } from "@/task/generator"
@@ -219,67 +168,12 @@ type RouteRequirements =
   | HttpRouter.Request<"GlobalRequires", never>
 
 const app = LayerNode.group([
-  Npm.node,
-  FSUtil.node,
-  Database.node,
-  Auth.node,
-  Account.node,
-  Config.node,
-  Env.node,
-  Git.node,
-  Ripgrep.node,
-  Storage.node,
-  Snapshot.node,
-  Plugin.node,
-  ModelsDev.node,
-  Provider.node,
-  ProviderAuth.node,
-  Agent.node,
-  Skill.node,
-  Discovery.node,
-  Question.node,
-  Permission.node,
-  Todo.node,
-  Session.node,
-  SessionProjector.node,
-  SessionStatus.node,
-  BackgroundJob.node,
-  RuntimeFlags.node,
-  EventV2Bridge.node,
-  SessionRunState.node,
-  SessionProcessor.node,
-  SessionCompaction.node,
-  // Explicit rather than inherited from SessionCompaction: the anchor route reads the service
-  // with Effect.serviceOption, and relying on transitive hoisting would silently yield an empty
-  // list if that graph ever changes.
-  ...(Features.flags.anchor ? [Anchor.node] : []),
-  SessionRevert.node,
-  SessionSummary.node,
-  SessionPrompt.node,
+  // The application services live in one place so that workers running inside the server
+  // (the task runner, the task generator) can depend on the same set the routes get.
+  ...AppServices.serviceNodes,
   TaskRunner.node,
   AgentTask.node,
   TaskGenerator.node,
-  Instruction.node,
-  LLM.node,
-  LSP.node,
-  MCP.node,
-  McpAuth.node,
-  Command.node,
-  Truncate.node,
-  Format.node,
-  Project.node,
-  Vcs.node,
-  Workspace.node,
-  Worktree.node,
-  Installation.node,
-  ShareNext.node,
-  SessionShare.node,
-  InstanceStore.node,
-  httpClient,
-  EventV2.node,
-  ProjectV2.node,
-  ProjectCopy.node,
-  PtyTicket.node,
 ])
 
 export function createRoutes(
