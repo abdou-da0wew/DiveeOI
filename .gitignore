@@ -65,5 +65,7 @@ packages/*/build/
 # Runtime data
 .divee/
 videos/
+.paper-preview-*
+videos-legacy/
 dist-old/
 packages/app/dist/
