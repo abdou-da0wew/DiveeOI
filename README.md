@@ -93,7 +93,7 @@ DiveeOI/
 ├── packages/
 │   ├── server/                 # @diveeoi/server  — HTTP server + all business logic (~50 Effect layers)
 │   ├── db/                     # @diveeoi/db      — SQLite, session engine, AI providers, tools
-│   ├── api/                    # @diveeoi/api     — Effect HttpApi definitions (20 groups)
+│   ├── api/                    # @diveeoi/api     — Effect HttpApi definitions (21 groups)
 │   ├── app/                    # @diveeoi/app     — SolidJS SPA frontend
 │   ├── ui/                     # @diveeoi/ui      — Shared UI component library (197+ components)
 │   ├── llm/                    # @diveeoi/llm     — Effect Schema-first LLM client
@@ -104,6 +104,8 @@ DiveeOI/
 │   ├── effect-sqlite-node/     # Node.js SQLite bridge for Effect
 │   ├── http-recorder/          # HTTP cassette recorder (test only)
 │   ├── profiler/               # Performance profiler utilities
+│   ├── mcp/                    # Built-in MCP server (ocreadb)
+│   ├── plugins/                # Plugin registry / discovery
 │   ├── identity/               # Brand assets (logos, icons)
 │   └── script/                 # Internal build scripts
 ├── docs/                       # Documentation

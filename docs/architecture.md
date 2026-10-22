@@ -36,6 +36,8 @@ DiveeOI/
     effect-sqlite-node/     # Node SQLite driver for Effect SQL (generic)
     http-recorder/           # HTTP cassette recorder (test only)
     profiler/               # In-process profiler (AsyncLocalStorage call-tree)
+    mcp/                    # Built-in MCP server (ocreadb)
+    plugins/                # Plugin registry / discovery
     identity/               # Brand assets
     script/                 # Internal build scripts
   patches/                  # 9 patched deps (solid-js, effect, MCP SDK, etc.)
@@ -51,22 +53,28 @@ DiveeOI/
                   business logic + bootstrap
                   ┌────────┬────────┬────────┐
                   │        │        │        │
-            @diveeoi/api  @diveeoi/db  @diveeoi/sdk
-            HttpApi       DB/engine  client
+              @diveeoi/api  @diveeoi/db  @diveeoi/sdk
+              HttpApi       DB/engine  client
                   │        │  │
                   └────────┤  └──────────────┐
                            │                 │
                     @diveeoi/llm      @diveeoi/plugin
                     LLM route          plugin SDK
-                                         │
-                                   @diveeoi/sdk
+                     │                   │
+              @diveeoi/memory      @diveeoi/profiler
+              knowledge graph       call-tree profiler
+                     │                   │
+                    @diveeoi/db       @diveeoi/db
+                         │
+                 @diveeoi/sdk
 
-@diveeoi/app -> @diveeoi/ui -> @diveeoi/db (types)
-               -> @diveeoi/sdk
+@diveeoi/app -> @diveeoi/ui -> @diveeoi/db (types only)
+             -> @diveeoi/sdk
 @diveeoi/memory -> @diveeoi/db + @diveeoi/llm + effect platform
+@diveeoi/profiler -> @diveeoi/db (adaptive targets)
 ```
 
-Support: `effect-drizzle-sqlite` and `effect-sqlite-node` are consumed only by `db` (and tests).
+Support: `effect-drizzle-sqlite`, `effect-sqlite-node`, `http-recorder` are consumed only by `db` and `server` (tests).
 
 ## Server Bootstrap
 

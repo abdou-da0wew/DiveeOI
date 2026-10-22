@@ -97,19 +97,23 @@ DiveeOI/
 │   ├── @modelcontextprotocol/sdk@1.29.0.patch
 │   └── ...
 └── packages/
-    ├── server/             # @diveeoi/server - Main server + business logic
-    ├── db/                 # @diveeoi/db     - Database, LLM, session engine
-    ├── api/                # @diveeoi/api    - HTTP API definitions (Effect HttpApi)
-    ├── app/                # @diveeoi/app    - SolidJS SPA frontend
-    ├── ui/                 # @diveeoi/ui     - Shared UI component library
-    ├── llm/                # @diveeoi/llm    - Effect Schema-first LLM client
-    ├── sdk/                # @diveeoi/sdk    - API client SDK (v1/v2)
-    ├── plugin/             # @diveeoi/plugin - Plugin SDK
+    ├── server/                 # @diveeoi/server - Main server + business logic
+    ├── db/                     # @diveeoi/db     - Database, LLM, session engine
+    ├── api/                    # @diveeoi/api    - HTTP API definitions (Effect HttpApi)
+    ├── app/                    # @diveeoi/app    - SolidJS SPA frontend
+    ├── ui/                     # @diveeoi/ui     - Shared UI component library
+    ├── llm/                    # @diveeoi/llm    - Effect Schema-first LLM client
+    ├── sdk/                    # @diveeoi/sdk    - API client SDK (v1/v2)
+    ├── plugin/                 # @diveeoi/plugin - Plugin SDK
+    ├── memory/                 # @diveeoi/memory - Knowledge graph memory system
     ├── effect-drizzle-sqlite/  # Drizzle ORM + Effect SQLite adapter
     ├── effect-sqlite-node/     # Effect SQLite for Node.js bridge
-    ├── http-recorder/      # Record/replay HTTP traffic for testing
-    ├── script/             # Build/utility scripts
-    └── identity/           # Brand assets (logos, icons)
+    ├── http-recorder/          # Record/replay HTTP traffic for testing
+    ├── profiler/               # In-process call-tree profiler
+    ├── mcp/                    # Built-in MCP server (ocreadb)
+    ├── plugins/                # Plugin registry / discovery
+    ├── script/                 # Build/utility scripts
+    └── identity/               # Brand assets (logos, icons)
 ```
 
 ---
@@ -122,34 +126,42 @@ DiveeOI/
                     │  (business logic, HTTP server, TUI)  │
                     └────┬──────┬──────┬──────┬────────────┘
                          │      │      │      │
-              ┌──────────┘      │      └──────────────────┐
-              ▼                 ▼                         ▼
-       ┌────────────┐   ┌──────────────┐   ┌────────────────┐
-       │@diveeoi/api│   │ @diveeoi/db  │   │  @diveeoi/sdk  │
-       │(HttpApi    │   │(DB, session  │   │  (API client)   │
-       │ groups)    │   │ engine, LLM) │   │                 │
-       └─────┬──────┘   └──┬───────┬───┘   └────────────────┘
-             │             │       │
-             └─────────────┤       └──────────────────┐
-                           │                          │
-                    ┌──────▼──────┐          ┌────────▼────────┐
-                    │@diveeoi/llm │          │@diveeoi/plugin  │
-                    │(LLM client) │          │(Plugin SDK)     │
-                    └─────────────┘          └────────┬────────┘
-                                                      │
-                                              ┌───────▼───────┐
-                                              │ @diveeoi/sdk  │
-                                              └───────────────┘
+               ┌─────────┘      │      └──────────────────┐
+               ▼                ▼                         ▼
+        ┌────────────┐   ┌──────────────┐   ┌────────────────┐
+        │@diveeoi/api│   │ @diveeoi/db  │   │  @diveeoi/sdk  │
+        │(HttpApi    │   │(DB, session  │   │  (API client)   │
+        │ groups)    │   │ engine, LLM) │   │                 │
+        └─────┬──────┘   └──┬───────┬───┘   └────────────────┘
+              │             │       │
+              └─────────────┤       └──────────────────┐
+                            │                          │
+                     ┌──────▼──────┐          ┌────────▼────────┐
+                     │@diveeoi/llm │          │@diveeoi/plugin  │
+                     │(LLM client) │          │(Plugin SDK)     │
+                     └──────┬──────┘          └────────┬────────┘
+                            │                         │
+                     ┌──────▼──────┐          ┌────────▼────────┐
+                     │@diveeoi/    │          │@diveeoi/        │
+                     │ memory      │          │ profiler        │
+                     │ (knowledge  │          │ (call-tree      │
+                     │  graph)     │          │  profiler)      │
+                     └─────────────┘          └─────────────────┘
+                            │                         │
+                     ┌──────▼──────┐          ┌────────▼────────┐
+                     │@diveeoi/db  │          │@diveeoi/db      │
+                     └─────────────┘          └─────────────────┘
 
-  @diveeoi/app  ───►  @diveeoi/ui  ───►  @diveeoi/db (types only)
-                    ───►  @diveeoi/sdk
-                    ───►  @diveeoi/db
+   @diveeoi/app  ───►  @diveeoi/ui  ───►  @diveeoi/db (types only)
+                ───►  @diveeoi/sdk
+                ───►  @diveeoi/db
 
-  Support packages:
-    effect-drizzle-sqlite  ◄──  @diveeoi/db
-    effect-sqlite-node     ◄──  @diveeoi/db
-    http-recorder          ◄──  @diveeoi/db, @diveeoi/server (test only)
-    script                 ◄──  @diveeoi/server (devDependency)
+   Support packages:
+     effect-drizzle-sqlite  ◄──  @diveeoi/db
+     effect-sqlite-node     ◄──  @diveeoi/db
+     http-recorder          ◄──  @diveeoi/db, @diveeoi/server (test only)
+     script                 ◄──  @diveeoi/server (devDependency)
+     mcp                    ◄──  @diveeoi/server (built-in ocreadb MCP)
 ```
 
 ---
@@ -157,7 +169,7 @@ DiveeOI/
 ## 4. Root Configuration
 
 ### `package.json` (root)
-- **`workspaces.packages`**: `["packages/*", "packages/sdk"]` — all 13 packages
+- **`workspaces.packages`**: `["packages/*", "packages/sdk"]` — all 17 packages
 - **`workspaces.catalog`**: Shared dependency version catalog
 - **Scripts**:
   - `dev` — Start the server: `bun --cwd packages/server dev`
@@ -559,13 +571,13 @@ Uses `#sqlite`, `#pty`, `#fff` subpath imports with platform-specific resolution
 ## 7. Package: @diveeoi/api
 
 **Location**: `packages/api/`
-**Role**: Effect HttpApi definitions — the HTTP API layer. Defines ~18 HttpApi groups with their endpoints, handlers, middleware, and error types.
+**Role**: Effect HttpApi definitions — the HTTP API layer. Defines 21 HttpApi groups with their endpoints, handlers, middleware, and error types.
 
 ### 7.1 Source Map
 
 | File | Description |
 |---|---|
-| `api.ts` | Main `Api` definition — `HttpApi.make("server")` with 18 groups |
+| `api.ts` | Main `Api` definition — `HttpApi.make("server")` with 21 groups |
 | `routes.ts` | Route assembly — `createRoutes()` returns composed Layer with all handlers |
 | `auth.ts` | Server auth configuration for the API |
 | `cors.ts` | CORS middleware configuration |
