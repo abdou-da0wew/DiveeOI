@@ -1,0 +1,1 @@
+Search the attached book for relevant passages. Use this when the student asks about a specific topic and you need to find where it is covered. Returns matching chunks with their section IDs and page numbers. Always cite the chunk ID in your answer.

@@ -1,0 +1,1 @@
+Find an exact term or glossary entry in the book. Use this when the student asks "where does the book define X?" or "find the term Y". Returns chunks containing the exact term (case-insensitive). Faster than book_search for specific terms.

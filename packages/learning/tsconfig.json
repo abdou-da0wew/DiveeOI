@@ -1,0 +1,18 @@
+{
+  "extends": "@tsconfig/bun",
+  "compilerOptions": {
+    "composite": false,
+    "outDir": "dist",
+    "rootDir": ".",
+    "types": ["bun"],
+    "lib": ["ESNext", "DOM"],
+    "moduleResolution": "bundler",
+    "module": "ESNext",
+    "target": "ESNext",
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": false,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*"]
+}

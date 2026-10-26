@@ -39,6 +39,12 @@ export interface FeatureFlags {
   readonly lsp: boolean
   /** Startup profiler instrumentation. */
   readonly profiler: boolean
+  /**
+   * Targeted Learning: self-hosted, book-grounded learning sessions.
+   * Embeds the bge-m3 model, indexes books into a separate books.db,
+   * and pins every answer to retrieved passages.
+   */
+  readonly learning: boolean
 }
 
 const DEFAULTS: FeatureFlags = {
@@ -47,9 +53,10 @@ const DEFAULTS: FeatureFlags = {
   mcp: true,
   lsp: true,
   profiler: true,
+  learning: true,
 }
 
-const KNOWN: ReadonlyArray<keyof FeatureFlags> = ["memory", "anchor", "mcp", "lsp", "profiler"]
+const KNOWN: ReadonlyArray<keyof FeatureFlags> = ["memory", "anchor", "mcp", "lsp", "profiler", "learning"]
 
 const globalConfigCandidates = (): string[] => {
   const home = process.env.HOME || process.env.USERPROFILE || ""

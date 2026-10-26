@@ -32,6 +32,7 @@ import {
 } from "@/context/prompt"
 import { useLayout } from "@/context/layout"
 import { useSDK } from "@/context/sdk"
+import { useServerSDK } from "@/context/server-sdk"
 import { useSync } from "@/context/sync"
 import { useComments } from "@/context/comments"
 import { Button } from "@diveeoi/ui/button"
@@ -206,6 +207,7 @@ const EXAMPLES = [
 
 export const PromptInput: Component<PromptInputProps> = (props) => {
   const sdk = useSDK()
+  const serverSDK = useServerSDK()
 
   const sync = useSync()
   const files = useFile()
@@ -664,10 +666,33 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       .map((agent): AtOption => ({ type: "agent", name: agent.name, display: agent.name })),
   )
 
+  // Targeted Learning: fetch available books for @book: autocomplete.
+  const [bookOptions, setBookOptions] = createSignal<AtOption[]>([])
+  createEffect(() => {
+    const base = serverSDK.client.baseUrl
+    fetch(`${base}/targeted-learning/health`, { headers: { "content-type": "application/json" } })
+      .then((r) => r.json())
+      .then((health: { booksDbAvailable?: boolean }) => {
+        if (!health.booksDbAvailable) { setBookOptions([]); return }
+        return fetch(`${base}/targeted-learning/books`, { headers: { "content-type": "application/json" } })
+      })
+      .then((r) => (r && r.ok ? r.json() : { books: [] }))
+      .then((data: { books?: Array<{ id: string; slug: string; title: string; author?: string }> }) => {
+        setBookOptions(
+          (data.books ?? []).map((b): AtOption => ({
+            type: "book", bookId: b.id, slug: b.slug, title: b.title, author: b.author, display: `@book:${b.slug}`,
+          })),
+        )
+      })
+      .catch(() => setBookOptions([]))
+  })
+
   const handleAtSelect = (option: AtOption | undefined) => {
     if (!option) return
     if (option.type === "agent") {
       addPart({ type: "agent", name: option.name, content: "@" + option.name, start: 0, end: 0 })
+    } else if (option.type === "book") {
+      addPart({ type: "file", path: `@book:${option.slug}`, content: `@book:${option.slug}`, start: 0, end: 0 })
     } else {
       addPart({ type: "file", path: option.path, content: "@" + option.path, start: 0, end: 0 })
     }
@@ -675,7 +700,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
   const atKey = (x: AtOption | undefined) => {
     if (!x) return ""
-    return x.type === "agent" ? `agent:${x.name}` : `file:${x.path}`
+    if (x.type === "agent") return `agent:${x.name}`
+    if (x.type === "book") return `book:${x.bookId}`
+    return `file:${x.path}`
   }
 
   const {
@@ -687,21 +714,27 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   } = useFilteredList<AtOption>({
     items: async (query) => {
       const agents = agentList()
+      const books = bookOptions()
       const open = recent()
       const seen = new Set(open)
       const pinned: AtOption[] = open.map((path) => ({ type: "file", path, display: path, recent: true }))
-      if (!query.trim()) return [...agents, ...pinned]
+      if (query.trim().toLowerCase().startsWith("book:")) {
+        const q = query.trim().slice(5).toLowerCase()
+        return books.filter((b) => (b as { slug: string; title: string }).slug.toLowerCase().includes(q) || (b as { title: string }).title.toLowerCase().includes(q))
+      }
+      if (!query.trim()) return [...agents, ...books, ...pinned]
       const paths = await files.searchFilesAndDirectories(query)
       const fileOptions: AtOption[] = paths
         .filter((path) => !seen.has(path))
         .map((path) => ({ type: "file", path, display: path }))
-      return [...agents, ...pinned, ...fileOptions]
+      return [...agents, ...books, ...pinned, ...fileOptions]
     },
     key: atKey,
     filterKeys: ["display"],
     skipFilter: (item) => item.type === "file" && !item.recent,
     groupBy: (item) => {
       if (item.type === "agent") return "agent"
+      if (item.type === "book") return "book"
       if (item.recent) return "recent"
       return "file"
     },
