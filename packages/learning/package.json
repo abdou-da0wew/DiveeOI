@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "version": "1.17.8",
+  "name": "@diveeoi/learning",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsgo --noEmit",
+    "tl:manifest": "bun src/manifest/cli.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./settings": "./src/settings/index.ts",
+    "./settings/schema": "./src/settings/schema.ts",
+    "./settings/defaults": "./src/settings/defaults.ts",
+    "./manifest": "./src/manifest/index.ts",
+    "./manifest/types": "./src/manifest/types.ts",
+    "./download": "./src/download/index.ts",
+    "./probe": "./src/probe/index.ts",
+    "./setup": "./src/setup/index.ts",
+    "./setup/state-machine": "./src/setup/state-machine.ts",
+    "./self-test": "./src/self-test/index.ts",
+    "./store": "./src/store/index.ts",
+    "./store/schema": "./src/store/schema.ts",
+    "./lang": "./src/lang/index.ts",
+    "./lang/arabic": "./src/lang/arabic.ts",
+    "./lang/version": "./src/lang/version.ts",
+    "./parsers": "./src/parsers/index.ts",
+    "./chunk": "./src/chunk/index.ts",
+    "./embed": "./src/embed/index.ts",
+    "./embed/pipeline": "./src/embed/pipeline.ts",
+    "./ingest": "./src/ingest/index.ts",
+    "./ingest/pool": "./src/ingest/pool.ts",
+    "./ingest/jobs": "./src/ingest/jobs.ts",
+    "./retrieve": "./src/retrieve/index.ts",
+    "./retrieve/hybrid": "./src/retrieve/hybrid.ts",
+    "./retrieve/gate": "./src/retrieve/gate.ts",
+    "./retrieve/rewrite": "./src/retrieve/rewrite.ts",
+    "./memory": "./src/memory/index.ts",
+    "./memory/student": "./src/memory/student.ts",
+    "./memory/book-notes": "./src/memory/book-notes.ts",
+    "./grounding": "./src/grounding/index.ts",
+    "./grounding/prompt-rules": "./src/grounding/prompt-rules.ts",
+    "./grounding/verifier": "./src/grounding/verifier.ts",
+    "./service": "./src/service.ts",
+    "./node": "./src/node.ts"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "catalog:",
+    "@types/bun": "catalog:",
+    "@typescript/native-preview": "catalog:"
+  },
+  "dependencies": {
+    "@diveeoi/db": "workspace:*",
+    "@effect/platform-node": "catalog:",
+    "drizzle-orm": "catalog:",
+    "effect": "catalog:"
+  },
+  "optionalDependencies": {
+    "@huggingface/transformers": "^3.0.0",
+    "pdfjs-dist": "^4.7.76",
+    "mammoth": "^1.7.0"
+  }
+}

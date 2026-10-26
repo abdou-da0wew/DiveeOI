@@ -12,6 +12,7 @@ import { SettingsServers } from "./settings-servers"
 import { SettingsLlm } from "./settings-llm"
 import { SettingsFeatures } from "./settings-features"
 import { TasksPanel } from "./tasks-panel"
+import { SettingsTargetedLearning } from "./settings-targeted-learning"
 
 export const DialogSettings: Component = () => {
   const language = useLanguage()
@@ -65,6 +66,10 @@ export const DialogSettings: Component = () => {
                       <Icon name="task" />
                       {language.t("settings.tab.tasks")}
                     </Tabs.Trigger>
+                    <Tabs.Trigger value="learning">
+                      <Icon name="book" />
+                      Targeted Learning
+                    </Tabs.Trigger>
                   </div>
                 </div>
               </div>
@@ -98,6 +103,9 @@ export const DialogSettings: Component = () => {
         </Tabs.Content>
         <Tabs.Content value="tasks" class="no-scrollbar">
           <TasksPanel />
+        </Tabs.Content>
+        <Tabs.Content value="learning" class="no-scrollbar">
+          <SettingsTargetedLearning />
         </Tabs.Content>
       </Tabs>
     </Dialog>

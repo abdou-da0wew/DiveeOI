@@ -6,6 +6,7 @@ import { getDirectory, getFilename } from "@diveeoi/db/util/path"
 export type AtOption =
   | { type: "agent"; name: string; display: string }
   | { type: "file"; path: string; display: string; recent?: boolean }
+  | { type: "book"; bookId: string; slug: string; title: string; author?: string; display: string }
 
 export interface SlashCommand {
   id: string
@@ -65,6 +66,26 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                       >
                         <Icon name="brain" size="small" class="text-icon-info-active shrink-0" />
                         <span class="text-14-regular text-text-strong whitespace-nowrap">@{item.name}</span>
+                      </button>
+                    )
+                  }
+
+                  if (item.type === "book") {
+                    return (
+                      <button
+                        class="w-full flex items-center gap-x-2 rounded-md px-2 py-0.5"
+                        classList={{ "bg-surface-raised-base-hover": props.atActive === key }}
+                        onClick={() => props.onAtSelect(item)}
+                        onMouseEnter={() => props.setAtActive(key)}
+                      >
+                        <Icon name="book" size="small" class="text-icon-info-active shrink-0" />
+                        <div class="flex items-center gap-1 min-w-0">
+                          <span class="text-14-regular text-text-strong whitespace-nowrap truncate">@book:{item.slug}</span>
+                          <span class="text-12-regular text-text-weak whitespace-nowrap truncate">{item.title}</span>
+                          <Show when={item.author}>
+                            <span class="text-11-regular text-text-weak whitespace-nowrap">— {item.author}</span>
+                          </Show>
+                        </div>
                       </button>
                     )
                   }

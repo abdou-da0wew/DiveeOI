@@ -19,6 +19,7 @@ import { PtyApi, PtyConnectApi } from "./groups/pty"
 import { QuestionApi } from "./groups/question"
 import { SessionApi } from "./groups/session"
 import { SyncApi } from "./groups/sync"
+import { TargetedLearningApi } from "./groups/targeted-learning"
 import { TuiApi } from "./groups/tui"
 import { WorkspaceApi } from "./groups/workspace"
 import { Api } from "@diveeoi/api/api"
@@ -62,6 +63,7 @@ export const InstanceHttpApi = HttpApi.make("opencode-instance")
   .addHttpApi(ProviderApi)
   .addHttpApi(SessionApi)
   .addHttpApi(SyncApi)
+  .addHttpApi(TargetedLearningApi)
   .addHttpApi(TuiApi)
   .addHttpApi(WorkspaceApi)
   .middleware(SchemaErrorMiddleware)

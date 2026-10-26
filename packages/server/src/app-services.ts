@@ -84,6 +84,26 @@ import { Memory } from "@diveeoi/memory"
 export const anchorNodes = Features.flags.anchor ? ([Anchor.node] as const) : ([] as const)
 
 /**
+ * Targeted Learning is behind a feature flag. When off, the disabled node
+ * (always-unavailable BooksStore) is wired so the API and UI still see the
+ * service, but every method returns "feature disabled".
+ */
+const learningNode = (() => {
+  if (!Features.flags.learning) {
+    const { disabledNode } = require("@diveeoi/learning/node") as typeof import("@diveeoi/learning/node")
+    return disabledNode
+  }
+  try {
+    const { node } = require("@diveeoi/learning/node") as typeof import("@diveeoi/learning/node")
+    return node
+  } catch (err) {
+    void err
+    const { disabledNode } = require("@diveeoi/learning/node") as typeof import("@diveeoi/learning/node")
+    return disabledNode
+  }
+})()
+
+/**
  * The application services, in the order they are wired into the HTTP application graph.
  */
 export const serviceNodes = [
@@ -152,6 +172,9 @@ export const serviceNodes = [
   ProjectV2.node,
   ProjectCopy.node,
   PtyTicket.node,
+  // Targeted Learning: optional, degradable BooksStore. Wired LAST among
+  // the data services so a books.db failure cannot block any other service.
+  learningNode,
 ] as const
 
 /**

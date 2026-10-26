@@ -1,0 +1,1 @@
+Search the attached book for relevant passages using hybrid lexical + semantic retrieval. Returns matching chunks with their chunk IDs, page numbers, and parent section text. Always cite the chunk ID in your answer using [chunk_id] notation. If the gate refuses, the topic is not in the book.

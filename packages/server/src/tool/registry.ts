@@ -432,6 +432,38 @@ export const layer = Layer.effect(
                   },
                 ]
               : [],
+          ).concat(
+            // Targeted Learning book tools — lazy-loaded so @diveeoi/learning
+            // stays scoped to each tool's init. Only loaded when the
+            // learning feature flag is on.
+            Features.flags.learning
+              ? [
+                  {
+                    init: Effect.gen(function* () {
+                      const mod: any = yield* Effect.promise(() => import("./learning/book-outline"))
+                      return yield* Tool.init(yield* (mod.BookOutlineTool as Effect.Effect<Tool.Info>))
+                    }),
+                  },
+                  {
+                    init: Effect.gen(function* () {
+                      const mod: any = yield* Effect.promise(() => import("./learning/book-search"))
+                      return yield* Tool.init(yield* (mod.BookSearchTool as Effect.Effect<Tool.Info>))
+                    }),
+                  },
+                  {
+                    init: Effect.gen(function* () {
+                      const mod: any = yield* Effect.promise(() => import("./learning/book-read-section"))
+                      return yield* Tool.init(yield* (mod.BookReadSectionTool as Effect.Effect<Tool.Info>))
+                    }),
+                  },
+                  {
+                    init: Effect.gen(function* () {
+                      const mod: any = yield* Effect.promise(() => import("./learning/book-find-term"))
+                      return yield* Tool.init(yield* (mod.BookFindTermTool as Effect.Effect<Tool.Info>))
+                    }),
+                  },
+                ]
+              : [],
           )
 
         return {

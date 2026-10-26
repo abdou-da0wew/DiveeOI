@@ -16,6 +16,7 @@ import { ConfigPluginV1 } from "./plugin"
 import { ConfigProviderV1 } from "./provider"
 import { ConfigServerV1 } from "./server"
 import { ConfigSkillsV1 } from "./skills"
+import { ConfigTargetedLearningV1 } from "./targeted-learning"
 
 export type Layout = ConfigLayoutV1.Layout
 
@@ -346,6 +347,10 @@ export const Info = Schema.Struct({
       }),
     }),
   ),
+  targetedLearning: Schema.optional(ConfigTargetedLearningV1.Info).annotate({
+    description:
+      "Targeted Learning (RAGed-Session): self-hosted, book-grounded learning sessions. Requires running Setup in the Targeted Learning settings tab to download the bge-m3 embedding model.",
+  }),
 }).annotate({ identifier: "Config" })
 
 export type Info = DeepMutable<Schema.Schema.Type<typeof Info>>

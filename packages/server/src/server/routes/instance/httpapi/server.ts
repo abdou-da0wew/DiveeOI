@@ -45,6 +45,7 @@ import { providerHandlers } from "./handlers/provider"
 import { ptyConnectHandlers, ptyHandlers } from "./handlers/pty"
 import { questionHandlers } from "./handlers/question"
 import { sessionHandlers } from "./handlers/session"
+import { targetedLearningHandlers } from "./handlers/targeted-learning"
 import { Features } from "@/features"
 import { memoryExtractRoute } from "./handlers/memory"
 import { remoteProbeRoute } from "./handlers/remote"
@@ -122,6 +123,7 @@ const instanceApiRoutes = HttpApiBuilder.layer(InstanceHttpApi).pipe(
     syncHandlers,
     tuiHandlers,
     workspaceHandlers,
+    targetedLearningHandlers,
   ]),
 )
 

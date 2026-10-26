@@ -1,0 +1,1 @@
+Read a full section of a book by its section ID, or read a page range. Use this after book_search to get the full context of a matching passage. The section text includes the heading path for context. Always cite chunk IDs from the returned text.

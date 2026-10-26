@@ -85,6 +85,20 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     providerID: input.model.providerID,
     agent: input.agent,
   })) {
+    // Targeted Learning: if the session is in "targeted" mode, only allow
+    // tools from the TARGETED_SESSION_TOOL_ALLOWLIST (plan §9.3).
+    const tlMeta = input.session.metadata?.["targetedLearning"] as
+      | { mode?: string; bookIds?: string[]; allowCalculator?: boolean }
+      | undefined
+    if (tlMeta?.mode === "targeted") {
+      const { isToolAllowed } = yield* Effect.promise(() =>
+        import("@diveeoi/learning/grounding/prompt-rules").then((m) => m),
+      )
+      if (!isToolAllowed(item.id, tlMeta.allowCalculator ?? true)) {
+        continue
+      }
+    }
+
     const cacheKey = `${input.model.api.id}:${item.id}`
     const cachedSchema = schemaCache.get(cacheKey)
     const schema = cachedSchema ?? ProviderTransform.schema(input.model, ToolJsonSchema.fromTool(item))
