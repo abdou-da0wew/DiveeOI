@@ -78,7 +78,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                         onClick={() => props.onAtSelect(item)}
                         onMouseEnter={() => props.setAtActive(key)}
                       >
-                        <Icon name="book" size="small" class="text-icon-info-active shrink-0" />
+                        <Icon name="glasses" size="small" class="text-icon-info-active shrink-0" />
                         <div class="flex items-center gap-1 min-w-0">
                           <span class="text-14-regular text-text-strong whitespace-nowrap truncate">@book:{item.slug}</span>
                           <span class="text-12-regular text-text-weak whitespace-nowrap truncate">{item.title}</span>

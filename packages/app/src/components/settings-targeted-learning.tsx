@@ -24,7 +24,7 @@ interface SetupStep {
 }
 
 interface SetupStatus {
-  status: "not-started" | "in-progress" | "ready" | "needs-repair"
+  status: "not-started" | "in-progress" | "ready" | "needs-repair" | "unreachable"
   steps: SetupStep[]
   recommendedProfile?: "low" | "balanced" | "high"
 }
@@ -51,15 +51,22 @@ const DISABLED_SECTIONS = [
 
 const useTlApi = () => {
   const serverSDK = useServerSDK()
-  const base = () => serverSDK.client.baseUrl
+  const base = () => serverSDK.url
   const headers = () => ({ "content-type": "application/json" }) as Record<string, string>
   return {
     getStatus: async (): Promise<SetupStatus> => {
-      const resp = await fetch(`${base()}/targeted-learning/setup`, { headers: headers() })
-      if (!resp.ok) throw new Error(`setup status: ${resp.status}`)
-      return resp.json()
+      try {
+        const resp = await fetch(`${base()}/targeted-learning/setup`, { headers: headers() })
+        if (!resp.ok) throw new Error(`setup status: ${resp.status}`)
+        return await resp.json()
+      } catch {
+        // Backend unreachable (e.g. wrong host/port): degrade to a visible
+        // state instead of crashing the whole app via resource rethrow.
+        return { status: "unreachable", steps: [] }
+      }
     },
     start: async (force = false): Promise<SetupStatus> => {
+  try {
       const resp = await fetch(`${base()}/targeted-learning/setup/start`, {
         method: "POST",
         headers: headers(),
@@ -67,19 +74,35 @@ const useTlApi = () => {
       })
       if (!resp.ok) throw new Error(`setup start: ${resp.status}`)
       return resp.json()
+  } catch {
+    return { status: "unreachable", steps: [] }
+  }
     },
     repair: async (): Promise<SetupStatus> => {
+  try {
       const resp = await fetch(`${base()}/targeted-learning/setup/repair`, {
         method: "POST",
         headers: headers(),
       })
       if (!resp.ok) throw new Error(`setup repair: ${resp.status}`)
       return resp.json()
+  } catch {
+    return { status: "unreachable", steps: [] }
+  }
     },
     getHealth: async (): Promise<Health> => {
-      const resp = await fetch(`${base()}/targeted-learning/health`, { headers: headers() })
-      if (!resp.ok) throw new Error(`health: ${resp.status}`)
-      return resp.json()
+      try {
+        const resp = await fetch(`${base()}/targeted-learning/health`, { headers: headers() })
+        if (!resp.ok) throw new Error(`health: ${resp.status}`)
+        return await resp.json()
+      } catch {
+        return {
+          setupStatus: "unreachable",
+          booksDbAvailable: false,
+          modelReady: false,
+          manifestLoaded: false,
+        }
+      }
     },
   }
 }
@@ -128,6 +151,19 @@ export const SettingsTargetedLearning: Component = () => {
 
         <Suspense fallback={<div class="text-12-regular text-text-weak">Loading…</div>}>
           <SettingsList>
+            {/* Backend unreachable notice */}
+            <Show when={status()?.status === "unreachable"}>
+              <div class="flex items-center justify-between gap-4 py-3 border-b border-[var(--surface-stronger-non-alpha)]">
+                <div class="flex flex-col gap-1">
+                  <span class="text-13-medium text-text-strong">Backend unreachable</span>
+                  <span class="text-11-regular text-text-weak">
+                    The DiveeOI server could not be reached, so the Targeted Learning state is unknown.
+                  </span>
+                </div>
+                <span class="text-11-medium text-[var(--warning-fg)]">Offline</span>
+              </div>
+            </Show>
+
             {/* Setup */}
             <div class="flex items-center justify-between gap-4 py-3 border-b border-[var(--surface-stronger-non-alpha)]">
               <div class="flex flex-col gap-1">

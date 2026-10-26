@@ -35,6 +35,10 @@ const SetupStatusResponse = Schema.Struct({
       status: Schema.Literals(["pending", "running", "complete", "failed", "skipped"]),
       attempts: Schema.Number,
       lastError: Schema.optional(Schema.String),
+      // Persisted step result (probe output, benchmark numbers, ...). Null
+      // when the step hasn't produced a result yet. Kept as Schema.Unknown
+      // because each step produces a different shape.
+      result: Schema.optional(Schema.Unknown),
     }),
   ),
   recommendedProfile: Schema.optional(Schema.Literals(["low", "balanced", "high"])),
