@@ -29,7 +29,7 @@ interface SetupStep {
 }
 
 interface SetupStatus {
-  status: "not-started" | "in-progress" | "ready" | "needs-repair"
+  status: "not-started" | "in-progress" | "ready" | "needs-repair" | "unreachable"
   steps: SetupStep[]
   recommendedProfile?: "low" | "balanced" | "high"
 }
@@ -60,7 +60,7 @@ const DISABLED_SECTIONS = [
 // /targeted-learning/* routes. We use the same auth headers the SDK uses.
 const useTlApi = () => {
   const serverSDK = useServerSDK()
-  const base = () => serverSDK.client.baseUrl
+  const base = () => serverSDK.url
   const headers = () => {
     const h: Record<string, string> = { "content-type": "application/json" }
     // The SDK injects Authorization via fetch interceptor; for raw fetch
@@ -69,11 +69,18 @@ const useTlApi = () => {
   }
   return {
     getStatus: async (): Promise<SetupStatus> => {
-      const resp = await fetch(`${base()}/targeted-learning/setup`, { headers: headers() })
-      if (!resp.ok) throw new Error(`setup status: ${resp.status}`)
-      return resp.json()
+      try {
+        const resp = await fetch(`${base()}/targeted-learning/setup`, { headers: headers() })
+        if (!resp.ok) throw new Error(`setup status: ${resp.status}`)
+        return await resp.json()
+      } catch {
+        // Backend unreachable (e.g. wrong host/port): degrade to a visible
+        // state instead of crashing the whole app via resource rethrow.
+        return { status: "unreachable", steps: [] }
+      }
     },
     start: async (force = false): Promise<SetupStatus> => {
+  try {
       const resp = await fetch(`${base()}/targeted-learning/setup/start`, {
         method: "POST",
         headers: headers(),
@@ -81,19 +88,35 @@ const useTlApi = () => {
       })
       if (!resp.ok) throw new Error(`setup start: ${resp.status}`)
       return resp.json()
+  } catch {
+    return { status: "unreachable", steps: [] }
+  }
     },
     repair: async (): Promise<SetupStatus> => {
+  try {
       const resp = await fetch(`${base()}/targeted-learning/setup/repair`, {
         method: "POST",
         headers: headers(),
       })
       if (!resp.ok) throw new Error(`setup repair: ${resp.status}`)
       return resp.json()
+  } catch {
+    return { status: "unreachable", steps: [] }
+  }
     },
     getHealth: async (): Promise<Health> => {
-      const resp = await fetch(`${base()}/targeted-learning/health`, { headers: headers() })
-      if (!resp.ok) throw new Error(`health: ${resp.status}`)
-      return resp.json()
+      try {
+        const resp = await fetch(`${base()}/targeted-learning/health`, { headers: headers() })
+        if (!resp.ok) throw new Error(`health: ${resp.status}`)
+        return await resp.json()
+      } catch {
+        return {
+          setupStatus: "unreachable",
+          booksDbAvailable: false,
+          modelReady: false,
+          manifestLoaded: false,
+        }
+      }
     },
   }
 }
@@ -131,6 +154,16 @@ export const SettingsTargetedLearningV2: Component = () => {
   return (
     <Suspense fallback={<div class="settings-v2-panel-skeleton">Loading…</div>}>
       <SettingsListV2>
+        {/* ---------- Backend unreachable notice ---------- */}
+        <Show when={status()?.status === "unreachable"}>
+          <SettingsRowV2
+            title="Backend unreachable"
+            description="The DiveeOI server could not be reached, so the Targeted Learning state is unknown. Check that the server is running and reload."
+          >
+            <span class="settings-v2-tag settings-v2-tag-warning">Offline</span>
+          </SettingsRowV2>
+        </Show>
+
         {/* ---------- Setup ---------- */}
         <SettingsRowV2
           title="Targeted Learning"

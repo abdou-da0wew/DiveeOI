@@ -669,7 +669,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   // Targeted Learning: fetch available books for @book: autocomplete.
   const [bookOptions, setBookOptions] = createSignal<AtOption[]>([])
   createEffect(() => {
-    const base = serverSDK.client.baseUrl
+    const base = serverSDK.url
     fetch(`${base}/targeted-learning/health`, { headers: { "content-type": "application/json" } })
       .then((r) => r.json())
       .then((health: { booksDbAvailable?: boolean }) => {

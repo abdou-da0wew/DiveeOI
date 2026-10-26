@@ -30,6 +30,10 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
             status: s.status,
             attempts: s.attempts,
             lastError: s.lastError,
+            // Expose the persisted step result (e.g. probe's platform/arch/
+            // cpuCores) so the UI and diagnostics can show what each step
+            // actually produced. Found missing during live smoke testing.
+            result: s.result ?? null,
           })),
           recommendedProfile: state.recommendedProfile,
         }
@@ -174,14 +178,30 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
         const cfg = yield* configSvc.get()
         const userTl = (cfg.targetedLearning as Partial<TLInfo> | undefined) ?? undefined
         const values = withDefaults(userTl)
-        // Effective config with sources — Phase 1 returns the values with
-        // every key tagged "default". The real source-tracking lands with
-        // the schema-driven UI in Phase 5.
+        // Strip undefined values — Effect Schema's JSON serialization rejects
+        // `undefined` inside object literals (found by live smoke testing:
+        // "Expected JSON value, got {...value:undefined...}").
+        const stripUndefined = (input: unknown): unknown => {
+          if (Array.isArray(input)) return input.map(stripUndefined)
+          if (input !== null && typeof input === "object") {
+            const out: Record<string, unknown> = {}
+            for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+              if (v === undefined) continue
+              out[k] = stripUndefined(v)
+            }
+            return out
+          }
+          return input
+        }
+        const cleanValues = stripUndefined(values)
+        // Effective config with sources — every leaf key tagged with where it
+        // came from. Phase 5 source-tracking refines "default" vs "config".
         const effective: Record<string, { value: unknown; source: string }> = {}
         const walk = (obj: unknown, path: string) => {
           if (obj === null || typeof obj !== "object") return
           for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
             const p = path ? `${path}.${k}` : k
+            if (v === undefined) continue
             if (v !== null && typeof v === "object" && !Array.isArray(v)) {
               walk(v, p)
             } else {
@@ -190,7 +210,7 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
           }
         }
         walk(values, "")
-        return { values, effective }
+        return { values: cleanValues, effective }
       })
 
       const updateSettings = Effect.fn("TargetedLearning.updateSettings")(function* (ctx: {
@@ -203,12 +223,14 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
       })
 
       const getSettingsSchema = Effect.fn("TargetedLearning.getSettingsSchema")(function* () {
-        // Return the schema as JSON Schema with our custom annotations.
-        // Effect's Schema.toJSONSchema gives us the standard JSON Schema;
-        // our annotations are accessible via the AST.
-        const { Schema } = require("effect") as typeof import("effect")
+        // Return the schema as a JSON-Schema-compatible descriptor with our
+        // custom @diveeoi/learning/* annotations copied through as x-* keys.
+        // (Schema.toStandardJSONSchemaV1 in Effect v4-beta does not expose a
+        // plain toJsonSchema(); the hand-rolled AST walker in the learning
+        // package handles exactly the node types our schema uses.)
         const { Info } = require("@diveeoi/learning/settings") as typeof import("@diveeoi/learning/settings")
-        return Schema.toJSONSchema(Info)
+        const { toJSONSchema } = require("@diveeoi/learning/settings/json-schema") as typeof import("@diveeoi/learning/settings/json-schema")
+        return toJSONSchema(Info)
       })
 
       const getSettingsPresets = Effect.fn("TargetedLearning.getSettingsPresets")(function* () {

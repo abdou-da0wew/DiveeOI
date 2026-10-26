@@ -67,7 +67,7 @@ export const DialogSettings: Component = () => {
                       {language.t("settings.tab.tasks")}
                     </Tabs.Trigger>
                     <Tabs.Trigger value="learning">
-                      <Icon name="book" />
+                      <Icon name="glasses" />
                       Targeted Learning
                     </Tabs.Trigger>
                   </div>

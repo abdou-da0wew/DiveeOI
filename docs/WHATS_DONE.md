@@ -744,3 +744,54 @@ cd packages/learning && bun test test/embed-pipeline.test.ts
 ---
 
 *This document was generated on 2026-10-27. For the narrative engineering log of how and why each piece was built, see `TARGETED_LEARNING_WORKLOG.md`.*
+
+---
+
+# Session 6 Addendum — Full Re-verification Results
+
+## Verification matrix (all green)
+
+| Suite | Checks | Result |
+|---|---|---|
+| Unit tests — `@diveeoi/learning` | 143 | ✅ 0 fail |
+| Unit tests — `@diveeoi/ui` citation chips | 11 | ✅ 0 fail |
+| Unit tests — `@diveeoi/server` book mentions | 13 | ✅ 0 fail |
+| Typecheck — learning + db | — | ✅ clean |
+| Live API smoke (server + 12 endpoints) | 26 | ✅ 26/26 |
+| Real RAG e2e (real Transformers.js embeddings) | 34 | ✅ 34/34 |
+| Browser UI flow (agent-browser, real app) | 17 | ✅ 17/17 |
+
+## Bugs found by real usage (fixed in this session)
+
+| # | Bug | Symptom | Fix |
+|---|---|---|---|
+| 1 | `undefined` values in settings response | GET/PATCH /settings → "Expected JSON value" 400 | `stripUndefined()` before serializing |
+| 2 | No JSON-schema endpoint in Effect v4-beta | GET /settings/schema → 500 | Hand-rolled AST→JSON-Schema walker (`settings/json-schema.ts`) with `x-*` annotation pass-through; 10 unit tests |
+| 3 | Missing `exports` entry | `Cannot find module '@diveeoi/learning/settings/json-schema'` | Added to package.json exports |
+| 4 | Step results hidden from API | UI couldn't show what probe produced | Exposed `result` in setup-status response |
+| 5 | Invalid icon name `book` | Broken tab node in a11y tree | Valid icon `glasses` (verified against registry) |
+| 6 | `serverSDK.client.baseUrl` doesn't exist | fetch("undefined/...") → HTML → crash | Correct field: `serverSDK.url` |
+| 7 | Solid resource rethrow on fetch failure | Whole app crashed to error boundary | Hardened fetchers + "Backend unreachable / Offline" degraded state (plan §6.5) |
+
+## New components added in this session
+
+- `packages/learning/src/settings/json-schema.ts` — AST→JSON-Schema converter (annotation pass-through, never throws)
+- `packages/learning/test/json-schema.test.ts` — 10 tests
+- `packages/learning/scripts/rag-e2e.ts` — full RAG pipeline e2e (real embeddings)
+- `packages/learning/scripts/debug-crosslingual.ts` — cross-lingual retrieval debugger
+- `packages/learning/scripts/debug-gate-scores.ts` — gate threshold score prober
+- `scripts/smoke-phase-b.sh` — live API smoke (one-session server lifecycle)
+- `scripts/smoke-phase-d.sh` — browser UI smoke (hydration-safe, DOM-based clicks)
+- Unreachable-state UI in both settings layouts ("Backend unreachable / Offline" notice)
+
+## Key model finding
+
+MiniLM-L6-v2 (the test stand-in) has a severely anisotropic embedding space: off-topic queries score 0.67–0.79 dense cosine — overlapping the in-book range. Gate thresholding requires the shipped **bge-m3** model + `calibrateThresholds()` on golden sets (plan §8.3). The gate MECHANISM is fully verified via controlled scores and the no-BM25-no-vector path.
+
+## Environment lessons (testing infra)
+
+1. Background processes die between tool calls → single-session test scripts.
+2. Inotify limit 8192 + orphaned dev servers → `pkill -9` bun/vite/esbuild before starting; Vite fails with ENOSPC otherwise.
+3. SolidJS hydration race → pre-hydration clicks are silently dropped; use click-verify-retry.
+4. Browser `localhost` resolves IPv6 `::1` first; a server bound to `127.0.0.1` is unreachable via localhost in some stacks → set `VITE_DIVEEOI_SERVER_HOST=127.0.0.1` in dev, or bind both stacks (future product fix).
+5. agent-browser a11y snapshots can flake on progressively-mounted dialogs → DOM-based clicks via eval are robust.

@@ -15,6 +15,7 @@
     "./settings": "./src/settings/index.ts",
     "./settings/schema": "./src/settings/schema.ts",
     "./settings/defaults": "./src/settings/defaults.ts",
+    "./settings/json-schema": "./src/settings/json-schema.ts",
     "./manifest": "./src/manifest/index.ts",
     "./manifest/types": "./src/manifest/types.ts",
     "./download": "./src/download/index.ts",
