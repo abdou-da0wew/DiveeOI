@@ -129,6 +129,9 @@ export const prepareTargetedTurn = async (input: {
   query: string
   recentUserTurns: string[]
   settings?: Tree
+  /** Test seams; default to the real embedder. */
+  ensureFn?: () => Promise<boolean>
+  embedFn?: (query: string) => Promise<Float32Array | null>
 }): Promise<TurnPrep> => {
   const settings = withDefaults(input.settings)
   const gate = (settings.gate ?? {}) as Tree
@@ -156,12 +159,14 @@ export const prepareTargetedTurn = async (input: {
     )
   }
 
-  const ready = await Effect.runPromise(
-    ensureEmbedder(input.settings).pipe(
-      Effect.map(() => true),
-      Effect.orElseSucceed(() => false),
-    ),
-  )
+  const ready = input.ensureFn
+    ? await input.ensureFn()
+    : await Effect.runPromise(
+        ensureEmbedder(input.settings).pipe(
+          Effect.map(() => true),
+          Effect.orElseSucceed(() => false),
+        ),
+      )
   if (!ready) {
     return refuse(
       "not-ready",
@@ -181,7 +186,9 @@ export const prepareTargetedTurn = async (input: {
     }
   }
 
-  const queryVec = await Effect.runPromise(embed(input.query).pipe(Effect.orElseSucceed(() => null)))
+  const queryVec = input.embedFn
+    ? await input.embedFn(input.query)
+    : await Effect.runPromise(embed(input.query).pipe(Effect.orElseSucceed(() => null)))
   const result = await Effect.runPromise(
     retrieve(
       runtime.booksStore.db,
