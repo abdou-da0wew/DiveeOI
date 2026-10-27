@@ -46,7 +46,13 @@
     "./grounding/prompt-rules": "./src/grounding/prompt-rules.ts",
     "./grounding/verifier": "./src/grounding/verifier.ts",
     "./service": "./src/service.ts",
-    "./node": "./src/node.ts"
+    "./node": "./src/node.ts",
+    "./runtime": "./src/runtime.ts",
+    "./manifest/pinned": "./src/manifest/pinned.ts",
+    "./embed/ensure": "./src/embed/ensure.ts",
+    "./setup/steps": "./src/setup/steps.ts",
+    "./ingest/run": "./src/ingest/run.ts",
+    "./session/turn": "./src/session/turn.ts"
   },
   "devDependencies": {
     "@tsconfig/bun": "catalog:",

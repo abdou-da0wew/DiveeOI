@@ -12,8 +12,8 @@ export type DType = Schema.Schema.Type<typeof DType>
 
 export const ManifestFile = Schema.Struct({
   path: Schema.String.annotate({ description: "Path inside the HF repo" }),
-  size: Schema.Number.annotate({ description: "File size in bytes" }),
-  sha256: Schema.String.annotate({ description: "Lowercase hex sha256 (LFS hash for LFS files)" }),
+  size: Schema.Number.annotate({ description: "File size in bytes. 0 = unknown (file is pinned by the commit SHA in the URL only)." }),
+  sha256: Schema.String.annotate({ description: "Lowercase hex sha256 (LFS hash for LFS files). Empty = unknown." }),
   dtype: Schema.optional(DType).annotate({
     description: "Quantization group this file belongs to (only for model files).",
   }),
@@ -40,7 +40,7 @@ export type Manifest = Schema.Schema.Type<typeof Manifest>
  * When you change this, run `bun run tl:manifest` and commit the regenerated
  * manifest.json alongside the change.
  */
-export const PINNED_REVISION = "5ed0e1e1f7c7b3f3c2b3a4e5f6a7b8c9d0e1f2a3" // TODO: replace with real pinned SHA from HF after the Phase 0 spike
+export const PINNED_REVISION = "4de13258303883538bd53b696b452bf8099f0858" // Xenova/bge-m3 main @ 2026-10-27
 
 /** The repo we download the embedding model from. */
 export const EMBEDDING_REPO = "Xenova/bge-m3"

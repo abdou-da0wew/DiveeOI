@@ -121,7 +121,7 @@ export const init = (modelDir: string, signature: EmbedSignature, options: Embed
 
     // Map our dtype to Transformers.js dtype format.
     const dtypeMap: Record<EmbedOptions["dtype"], string> = {
-      int8: "q8",
+      int8: "int8",
       q4f16: "q4f16",
       fp16: "fp16",
       fp32: "fp32",

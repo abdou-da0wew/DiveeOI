@@ -74,12 +74,15 @@ export const BookSearchTool = Tool.define(
               recentUserTurns: [],
               gate: {
                 enabled: true,
-                minDenseScore: 0.0,
-                minFusedScore: 0.0,
+                minDenseScore: 0.35,
+                minFusedScore: 0.1,
                 allowSmallTalk: true,
                 language: "en",
                 libraryAvailable: true,
-                refusalMessages: { en: "not covered", ar: "غير موجود" },
+                refusalMessages: {
+                  en: "This isn't covered in the selected book(s).",
+                  ar: "هذا الموضوع غير موجود في الكتاب أو الكتب المحددة.",
+                },
               },
             },
             queryVec,

@@ -4,7 +4,8 @@
 // Each handler closes over the TargetedLearning.Service and the Config.Service.
 
 import { Effect } from "effect"
-import { HttpApiBuilder } from "effect/unstable/httpapi"
+import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
+import { join } from "node:path"
 import { InstanceHttpApi } from "../api"
 import { TargetedLearning as TLService } from "@diveeoi/learning"
 import { Config } from "@/config/config"
@@ -39,111 +40,78 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
         }
       })
 
+      let setupRunning = false
+
+      /** The 8 setup steps (plan §5.1). Nothing is skipped: Ready means the model really loads. */
+      const runSetup = (payload: { force?: boolean; dtype?: string }) =>
+        Effect.gen(function* () {
+          const cfg = yield* configSvc.get().pipe(Effect.orElseSucceed(() => ({}) as Record<string, unknown>))
+          const userTl = ((cfg as Record<string, unknown>).targetedLearning as Record<string, unknown> | undefined) ?? undefined
+          const settings = withDefaults(userTl as never) as Record<string, unknown>
+          const dtype = ((payload.dtype ?? (settings.embedding as Record<string, unknown>)?.dtype ?? "int8") as "int8" | "q4f16" | "fp16" | "fp32")
+          const download = (settings.download ?? {}) as Record<string, unknown>
+          const force = { force: payload.force }
+
+          const probeResult = yield* tl.runProbe()
+          yield* tl.runStep("probe", () => Effect.succeed(probeResult), force)
+
+          yield* tl.runStep("preflight", () =>
+            Effect.gen(function* () {
+              const needMB = dtype === "fp32" ? 5000 : dtype === "fp16" ? 2600 : 1400
+              const ok = probeResult.freeDiskMB >= needMB && probeResult.dataDirWritable
+              if (!ok) {
+                return yield* Effect.fail(
+                  new Error(
+                    `Not enough free disk or data dir not writable (free ${probeResult.freeDiskMB} MB, need ${needMB} MB).`,
+                  ),
+                )
+              }
+              return { freeDiskMB: probeResult.freeDiskMB, dataDirWritable: true, sufficient: true }
+            }),
+          )
+
+          const manifest = tl.manifest!
+          const filesDir = join(tl.modelDir, manifest.repo)
+          const dl = yield* Effect.promise(() => import("@diveeoi/learning/download"))
+          yield* tl.runStep("download", () =>
+            dl.downloadManifest(manifest, {
+              retries: Number(download.retries ?? 6),
+              stallTimeoutSec: Number(download.stallTimeoutSec ?? 30),
+              destDir: filesDir,
+              endpoint: typeof download.endpoint === "string" ? (download.endpoint as string) : undefined,
+              dtype,
+            }),
+          )
+          yield* tl.runStep("verify", () =>
+            Effect.gen(function* () {
+              const r = yield* dl.verifyManifestFiles(manifest, filesDir, dtype, "hash")
+              if (r.problems.length > 0) return yield* Effect.fail(new Error(`Model files failed verification: ${r.problems.join("; ")}`))
+              return { verified: true, files: r.checked }
+            }),
+          )
+
+          const steps = yield* Effect.promise(() => import("@diveeoi/learning/setup/steps"))
+          yield* tl.runStep("runtime-check", () => steps.runtimeCheck(settings))
+          yield* tl.runStep("golden-self-test", () => steps.semanticSelfTest(settings))
+          yield* tl.runStep("benchmark", () => steps.benchmark(settings))
+          yield* tl.runStep("recommend-profile", () => Effect.succeed(probeResult.recommendedProfile))
+        })
+
+      // Setup downloads ~600 MB: it must not run inside the HTTP request. Start it in the
+      // background and let the UI poll GET /setup (steps report their own status/errors).
       const setupStart = Effect.fn("TargetedLearning.setupStart")(function* (ctx: {
         payload: { force?: boolean; dtype?: string }
       }) {
-        // Phase 6: all setup steps are wired end-to-end.
-        // 1. probe — detect OS/arch/CPU/AVX/RAM/disk
-        // 2. preflight — check disk space, writability
-        // 3. download — fetch model files via the downloader
-        // 4. verify — sha256 every file
-        // 5. runtime-check — spawn embed pipeline, run tiny inference
-        // 6. golden-self-test — embed fixed sentences, compare to golden vectors
-        // 7. benchmark — measure chunks/sec with 1 and 2 workers
-        // 8. recommend-profile — write the profile to config, mark Ready
-        const probeResult = yield* tl.runProbe()
-        yield* tl.runStep("probe", () => Effect.succeed(probeResult), { force: ctx.payload.force })
-
-        // Preflight: check disk space (≥ 2× model size = ~1.2 GB for int8)
-        yield* tl.runStep("preflight", () =>
-          Effect.succeed({
-            freeDiskMB: probeResult.freeDiskMB,
-            dataDirWritable: probeResult.dataDirWritable,
-            sufficient: probeResult.freeDiskMB >= 1200 && probeResult.dataDirWritable,
-          }),
-        )
-
-        // Download + verify: only run if a manifest is loaded.
-        // If no manifest (PINNED_REVISION not yet set), these steps are
-        // marked "skipped" so the rest of the pipeline can proceed.
-        if (tl.manifest) {
-          const { downloadManifest } = yield* Effect.promise(() =>
-            import("@diveeoi/learning/download").then((m) => m),
+        if (!tl.manifest) return yield* Effect.fail(new HttpApiError.BadRequest({}))
+        if (!setupRunning) {
+          setupRunning = true
+          Effect.runFork(
+            runSetup(ctx.payload).pipe(
+              Effect.catch((err) => Effect.logWarning("targeted-learning setup stopped", { error: String(err).slice(0, 300) })),
+              Effect.ensuring(Effect.sync(() => void (setupRunning = false))),
+            ),
           )
-          yield* tl.runStep("download", () =>
-            downloadManifest(tl.manifest!, {
-              retries: 6,
-              stallTimeoutSec: 30,
-              destDir: tl.dataDir,
-              dtype: "int8",
-            }),
-          )
-          yield* tl.runStep("verify", () => Effect.succeed({ verified: true }))
-        } else {
-          yield* tl.runStep("download", () => Effect.succeed({ skipped: true, reason: "no manifest" }))
-          yield* tl.runStep("verify", () => Effect.succeed({ skipped: true }))
         }
-
-        // Runtime check: try to init the embed pipeline with a tiny model.
-        // This confirms Transformers.js loads under Bun on this host.
-        yield* tl.runStep("runtime-check", () =>
-          Effect.gen(function* () {
-            const { init: embedInit, embed, unload } = yield* Effect.promise(() =>
-              import("@diveeoi/learning/embed/pipeline").then((m) => m),
-            )
-            // Use the tiny all-MiniLM-L6-v2 for the runtime check — bge-m3
-            // is too big to download just for a smoke test.
-            const { Global } = yield* Effect.promise(() =>
-              import("@diveeoi/db/global").then((m) => m),
-            )
-            const path = yield* Effect.promise(() => import("node:path").then((m) => m.default))
-            const modelDir = path.join(Global.Path.data, "targeted-learning", "models")
-            // Allow remote for the runtime check (the real Setup uses local-only).
-            const transformers = yield* Effect.tryPromise({
-              try: () => import("@huggingface/transformers"),
-              catch: () => null,
-            })
-            if (transformers) transformers.env.allowRemoteModels = true
-            yield* embedInit(modelDir, { repo: "Xenova/all-MiniLM-L6-v2", revision: "main", dtype: "fp32", maxLength: 256 } as never, {
-              dtype: "fp32",
-              device: "auto",
-              maxLength: 256,
-              batchSize: 8,
-              intraOpThreads: "auto",
-              interOpThreads: 1,
-            } as never)
-            const vec = yield* embed("runtime check test sentence")
-            yield* unload()
-            return { vectorLength: vec.length, ok: true }
-          }).pipe(
-            Effect.matchEffect({
-              onFailure: (err) =>
-                Effect.gen(function* () {
-                  yield* Effect.logWarning("runtime-check failed (degraded mode)", {
-                    error: String(err).slice(0, 200),
-                  })
-                  return { ok: false, error: String(err).slice(0, 200), degraded: true }
-                }),
-              onSuccess: (v) => Effect.succeed(v),
-            }),
-          ),
-        )
-
-        // Golden self-test: skipped until golden vectors are frozen.
-        // The self-test module refuses to pass until `tl:selftest:freeze`
-        // has been run. Mark as "skipped" so the pipeline can proceed.
-        yield* tl.runStep("golden-self-test", () =>
-          Effect.succeed({ skipped: true, reason: "golden vectors not yet frozen — run tl:selftest:freeze" }),
-        )
-
-        // Benchmark: stubbed (would measure chunks/sec with 1 vs 2 workers).
-        yield* tl.runStep("benchmark", () =>
-          Effect.succeed({ chunksPerSec: 0, workers: 1, peakRssMB: 0, stubbed: true }),
-        )
-
-        // Recommend profile from the probe result.
-        yield* tl.runStep("recommend-profile", () => Effect.succeed(probeResult.recommendedProfile))
-
         return yield* setupStatus()
       })
 
@@ -168,7 +136,7 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
           )
         }
         const { importFromLocalFolder } = require("@diveeoi/learning/download") as typeof import("@diveeoi/learning/download")
-        yield* importFromLocalFolder(tl.manifest, ctx.payload.folder, tl.dataDir)
+        yield* importFromLocalFolder(tl.manifest, ctx.payload.folder, join(tl.modelDir, tl.manifest.repo))
         return yield* setupStatus()
       })
 
@@ -272,11 +240,13 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
               pages: number | null
               chunk_count: number
               indexed_at: number | null
+              error: string | null
             }>(
-              "SELECT id, slug, title, author, lang, status, pages, chunk_count, indexed_at FROM books ORDER BY title",
+              "SELECT id, slug, title, author, lang, status, pages, chunk_count, indexed_at, error FROM books ORDER BY title",
             ),
           catch: () => [] as Record<string, unknown>[],
         })
+        const { ingestProgress } = yield* Effect.promise(() => import("@diveeoi/learning/ingest/run"))
         return {
           books: rows.map((r) => ({
             id: r.id,
@@ -288,8 +258,55 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
             pages: r.pages ?? undefined,
             chunkCount: r.chunk_count,
             indexedAt: r.indexed_at ?? undefined,
+            error: r.error ?? undefined,
+            progress: ingestProgress(r.id)?.progress,
           })),
         }
+      })
+
+      // Add a book: validate, register, and index in the background (plan §7).
+      const startBook = (filename: string, bytes: Uint8Array, title?: string) =>
+        Effect.gen(function* () {
+          const store = tl.booksStore
+          if (!store.available || !store.db) return yield* Effect.fail(new HttpApiError.BadRequest({}))
+          const cfg = yield* configSvc.get().pipe(Effect.orElseSucceed(() => ({}) as Record<string, unknown>))
+          const settings = withDefaults(((cfg as Record<string, unknown>).targetedLearning as never) ?? undefined)
+          const ingest = yield* Effect.promise(() => import("@diveeoi/learning/ingest/run"))
+          return yield* Effect.tryPromise({
+            try: () =>
+              ingest.startIngest({ db: store.db!, dataDir: tl.dataDir, filename, bytes, title, settings: settings as never }),
+            catch: () => new HttpApiError.BadRequest({}),
+          })
+        })
+
+      const uploadBook = Effect.fn("TargetedLearning.uploadBook")(function* (ctx: {
+        payload: { filename: string; contentBase64: string; title?: string }
+      }) {
+        const bytes = new Uint8Array(Buffer.from(ctx.payload.contentBase64, "base64"))
+        if (bytes.byteLength === 0) return yield* Effect.fail(new HttpApiError.BadRequest({}))
+        return yield* startBook(ctx.payload.filename, bytes, ctx.payload.title)
+      })
+
+      const importBook = Effect.fn("TargetedLearning.importBook")(function* (ctx: {
+        payload: { path: string; title?: string }
+      }) {
+        const fs = yield* Effect.promise(() => import("node:fs"))
+        const path = yield* Effect.promise(() => import("node:path"))
+        const bytes = yield* Effect.try({
+          try: () => new Uint8Array(fs.readFileSync(ctx.payload.path)),
+          catch: () => new HttpApiError.BadRequest({}),
+        })
+        return yield* startBook(path.basename(ctx.payload.path), bytes, ctx.payload.title)
+      })
+
+      const deleteBookHandler = Effect.fn("TargetedLearning.deleteBook")(function* (ctx: { params: { bookID: string } }) {
+        const store = tl.booksStore
+        if (!store.available || !store.db) return yield* Effect.fail(new HttpApiError.BadRequest({}))
+        const ingest = yield* Effect.promise(() => import("@diveeoi/learning/ingest/run"))
+        return yield* Effect.tryPromise({
+          try: () => ingest.deleteBook(store.db!, tl.dataDir, ctx.params.bookID),
+          catch: () => new HttpApiError.BadRequest({}),
+        })
       })
 
       return handlers
@@ -305,5 +322,8 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
         .handle("health", health)
         .handle("probe", probe)
         .handle("books", listBooks)
+        .handle("books-upload", uploadBook)
+        .handle("books-import", importBook)
+        .handle("books-delete", deleteBookHandler)
     }),
 )
