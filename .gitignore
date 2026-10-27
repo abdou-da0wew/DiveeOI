@@ -69,3 +69,8 @@ videos/
 videos-legacy/
 dist-old/
 packages/app/dist/
+
+# celest agent binaries (built artifacts, distributed via relay /dl)
+tools/celest/celest
+tools/celest/celest-*
+tools/celest/bin/
