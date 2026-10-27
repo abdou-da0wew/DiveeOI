@@ -13,6 +13,7 @@
 // `@diveeoi/learning/settings` schema's annotations are wired into a
 // generic form-generator component.
 
+import { TargetedLearningLibrary } from "../targeted-learning-library"
 import { Component, For, Show, createResource, createSignal, Suspense } from "solid-js"
 import { ButtonV2 } from "@diveeoi/ui/v2/button-v2"
 import { useLanguage } from "@/context/language"
@@ -243,8 +244,10 @@ export const SettingsTargetedLearningV2: Component = () => {
           )}
         </Show>
 
+        <TargetedLearningLibrary ready={isReady()} />
+
         {/* ---------- Disabled sections ---------- */}
-        <For each={DISABLED_SECTIONS}>
+        <For each={DISABLED_SECTIONS.filter((s) => s.key !== "library")}>
           {(section) => (
             <SettingsRowV2 title={section.title} description={isReady() ? "Available." : section.reason}>
               <Show

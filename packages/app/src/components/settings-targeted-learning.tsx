@@ -15,6 +15,7 @@ import { Button } from "@diveeoi/ui/button"
 import { useLanguage } from "@/context/language"
 import { useServerSDK } from "@/context/server-sdk"
 import { SettingsList } from "./settings-list"
+import { TargetedLearningLibrary } from "./targeted-learning-library"
 
 interface SetupStep {
   name: string
@@ -243,8 +244,10 @@ export const SettingsTargetedLearning: Component = () => {
               )}
             </Show>
 
+            <TargetedLearningLibrary ready={isReady()} />
+
             {/* Disabled sections */}
-            <For each={DISABLED_SECTIONS}>
+            <For each={DISABLED_SECTIONS.filter((s) => s.key !== "library")}>
               {(section) => (
                 <div class="flex items-center justify-between gap-4 py-3 border-b border-[var(--surface-stronger-non-alpha)] opacity-50">
                   <div class="flex flex-col gap-1">
