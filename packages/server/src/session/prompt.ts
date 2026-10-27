@@ -1232,6 +1232,30 @@ export const layer = Layer.effect(
         }
       }
 
+      // Targeted Learning: an @book: mention marks the session as targeted (sticky).
+      {
+        const mentionText = message.parts
+          .filter((p): p is SessionV1.TextPart => p.type === "text")
+          .map((p) => p.text)
+          .join("\n")
+        if (mentionText.includes("@book:")) {
+          const tlMeta = yield* Effect.promise(async () => {
+            try {
+              const turn = await import("@diveeoi/learning/session/turn")
+              return await turn.attachBookMentions(mentionText, session.metadata?.["targetedLearning"] as never)
+            } catch {
+              return null
+            }
+          })
+          if (tlMeta) {
+            yield* sessions.setMetadata({
+              sessionID: input.sessionID,
+              metadata: { ...(session.metadata ?? {}), targetedLearning: tlMeta } as never,
+            })
+          }
+        }
+      }
+
       const permissions: PermissionV1.Rule[] = []
       for (const [t, enabled] of Object.entries(input.tools ?? {})) {
         permissions.push({ permission: t, action: enabled ? "allow" : "deny", pattern: "*" })
@@ -1527,6 +1551,58 @@ export const layer = Layer.effect(
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
             const system = [...assembly.parts, ...instructions]
+
+            // Targeted Learning: retrieve from the attached books and apply the gate BEFORE the
+            // model is called. A refused gate answers with the hardcoded message and no LLM call.
+            const tlSession = session.metadata?.["targetedLearning"] as
+              | { mode?: string; bookIds?: string[]; books?: unknown[]; missing?: string[] }
+              | undefined
+            if (tlSession?.mode === "targeted") {
+              const userTexts = msgs
+                .filter((m) => m.info.role === "user")
+                .map((m) =>
+                  m.parts
+                    .filter((p) => p.type === "text" && !(p as { synthetic?: boolean }).synthetic)
+                    .map((p) => (p as { text: string }).text)
+                    .join("\n")
+                    .replace(/@book:(?:"[^"]+"|'[^']+'|id:[\w-]+|[\w-]+)/g, "")
+                    .trim(),
+                )
+                .filter((t) => t.length > 0)
+              const turn = yield* Effect.promise(async () => {
+                try {
+                  const mod = await import("@diveeoi/learning/session/turn")
+                  return await mod.prepareTargetedTurn({
+                    meta: tlSession as never,
+                    query: userTexts[userTexts.length - 1] ?? "",
+                    recentUserTurns: userTexts.slice(-3, -1),
+                    settings: (cfg as { targetedLearning?: Record<string, unknown> }).targetedLearning,
+                  })
+                } catch (err) {
+                  return {
+                    system: [] as string[],
+                    refusal: `Targeted Learning could not prepare this answer (${String(err).slice(0, 120)}).`,
+                    decision: "not-ready" as const,
+                  }
+                }
+              })
+              if (turn.refusal) {
+                const now = Date.now()
+                yield* sessions.updatePart({
+                  id: PartID.ascending(),
+                  messageID: msg.id,
+                  sessionID,
+                  type: "text",
+                  text: turn.refusal,
+                  time: { start: now, end: now },
+                } as never)
+                msg.finish = "stop"
+                msg.time.completed = now
+                yield* sessions.updateMessage(msg)
+                return "break" as const
+              }
+              system.push(...turn.system)
+            }
             const format = lastUser.format ?? { type: "text" as const }
             if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
             const isToon = (cfg.llm?.format ?? cfg.tool?.format ?? "toon") !== "json"

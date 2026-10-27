@@ -21,6 +21,7 @@
 
 import { createHash } from "node:crypto"
 import {
+  createReadStream,
   createWriteStream,
   existsSync,
   mkdirSync,
@@ -86,19 +87,21 @@ export interface DownloadManifestOptions extends DownloadOptions {
 // ---------------------------------------------------------------------------
 
 export const hashFile = (path: string): Effect.Effect<string, never> =>
-  Effect.sync(() => {
-    const { createReadStream } = require("node:fs") as typeof import("node:fs")
-    // Synchronous hash — for the file sizes we deal with (≤2 GB), reading
-    // the whole file is fine and avoids stream lifecycle complexity.
-    const hash = createHash("sha256")
-    try {
-      const buf = require("node:fs").readFileSync(path) as Buffer
-      hash.update(buf)
-      return hash.digest("hex")
-    } catch {
-      return ""
-    }
-  })
+  Effect.promise(
+    () =>
+      new Promise<string>((resolve) => {
+        const hash = createHash("sha256")
+        const stream = createReadStream(path)
+        stream.on("data", (chunk) => hash.update(chunk))
+        stream.on("end", () => resolve(hash.digest("hex")))
+        stream.on("error", () => resolve(""))
+      }),
+  )
+
+/** A manifest entry with size 0 / empty sha256 is pinned by the commit SHA only. */
+const hasSize = (f: ManifestFile) => f.size > 0
+const hasHash = (f: ManifestFile) => f.sha256 !== ""
+const withScheme = (endpoint: string) => (/^https?:\/\//.test(endpoint) ? endpoint : `https://${endpoint}`).replace(/\/+$/, "")
 
 // ---------------------------------------------------------------------------
 // Single-file download with resume + retries
@@ -125,7 +128,7 @@ const downloadAttempt = async (
   const headers: Record<string, string> = {}
   if (resumeFrom > 0) headers["range"] = `bytes=${resumeFrom}-`
 
-  const url = `${endpoint}/${manifest.repo}/resolve/${manifest.revision}/${file.path}`
+  const url = `${withScheme(endpoint)}/${manifest.repo}/resolve/${manifest.revision}/${file.path}`
 
   // Use AbortController for the stall timeout.
   const controller = new AbortController()
@@ -154,7 +157,10 @@ const downloadAttempt = async (
     }
 
     mkdirSync(dirname(partPath), { recursive: true })
-    const out = createWriteStream(partPath, { flags: resumeFrom > 0 ? "a" : "w" })
+    // A 200 in reply to a Range request means the server ignored the range and is sending the
+    // whole file: truncate and start over instead of appending (would corrupt the file).
+    const baseline = resumeFrom > 0 && response.status === 206 ? resumeFrom : 0
+    const out = createWriteStream(partPath, { flags: baseline > 0 ? "a" : "w" })
 
     const totalHeader = response.headers.get("content-length")
     const total = totalHeader ? parseInt(totalHeader, 10) : file.size
@@ -169,14 +175,19 @@ const downloadAttempt = async (
     }
 
     const reader = response.body.getReader()
-    let received = resumeFrom
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      out.write(value)
-      received += value.byteLength
-      lastByteTime = Date.now()
-      if (onProgress) onProgress(file, received, resumeFrom + total)
+    let received = baseline
+    try {
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        if (!out.write(value)) await new Promise<void>((resolve) => out.once("drain", resolve))
+        received += value.byteLength
+        lastByteTime = Date.now()
+        if (onProgress) onProgress(file, received, baseline + total)
+      }
+    } catch (err) {
+      out.destroy()
+      throw err
     }
     out.end()
     await new Promise<void>((resolve) => out.on("close", resolve))
@@ -197,7 +208,8 @@ const downloadFile = (
     const endpoint = options.endpoint ?? manifest.endpoint
 
     // Skip if already present and verified.
-    if (existsSync(destPath) && statSync(destPath).size === file.size) {
+    if (existsSync(destPath) && statSync(destPath).size > 0 && (!hasSize(file) || statSync(destPath).size === file.size)) {
+      if (!hasHash(file)) return
       const actual = yield* hashFile(destPath)
       if (actual === file.sha256) return
       unlinkSync(destPath)
@@ -240,7 +252,7 @@ const downloadFile = (
           )
         }
         const actualSize = statSync(partPath).size
-        if (actualSize !== file.size) {
+        if (actualSize === 0 || (hasSize(file) && actualSize !== file.size)) {
           unlinkSync(partPath)
           if (attempt >= options.retries) {
             yield* Effect.fail(
@@ -255,8 +267,8 @@ const downloadFile = (
           attempt++
           continue
         }
-        const actual = yield* hashFile(partPath)
-        if (actual !== file.sha256) {
+        const actual = hasHash(file) ? yield* hashFile(partPath) : ""
+        if (hasHash(file) && actual !== file.sha256) {
           // Hash mismatch — retry once, then fail hard (plan §5.5).
           unlinkSync(partPath)
           if (attempt >= options.retries) {
@@ -313,10 +325,11 @@ export const importFromLocalFolder = (
   manifest: Manifest,
   sourceDir: string,
   destDir: string,
+  dtype?: "int8" | "q4f16" | "fp16" | "fp32",
 ): Effect.Effect<void, LocalImportError> =>
   Effect.gen(function* () {
     for (const file of manifest.files) {
-      if (!file.required && file.dtype !== "int8") continue
+      if (!file.required && file.dtype !== (dtype ?? "int8")) continue
       const src = join(sourceDir, file.path)
       const dest = join(destDir, file.path)
       if (!existsSync(src)) {
@@ -325,7 +338,7 @@ export const importFromLocalFolder = (
         )
       }
       const stat = statSync(src)
-      if (stat.size !== file.size) {
+      if (hasSize(file) && stat.size !== file.size) {
         return yield* Effect.fail(
           new LocalImportError({
             file: file.path,
@@ -333,8 +346,8 @@ export const importFromLocalFolder = (
           }),
         )
       }
-      const actual = yield* hashFile(src)
-      if (actual !== file.sha256) {
+      const actual = hasHash(file) ? yield* hashFile(src) : ""
+      if (hasHash(file) && actual !== file.sha256) {
         return yield* Effect.fail(
           new LocalImportError({
             file: file.path,
@@ -352,4 +365,38 @@ export const importFromLocalFolder = (
           }),
       })
     }
+  })
+
+// ---------------------------------------------------------------------------
+// Verify (setup step 4): every needed file exists, has the pinned size and sha256.
+// ---------------------------------------------------------------------------
+
+export const verifyManifestFiles = (
+  manifest: Manifest,
+  destDir: string,
+  dtype: "int8" | "q4f16" | "fp16" | "fp32" = "int8",
+  mode: "size" | "hash" = "hash",
+): Effect.Effect<{ checked: number; problems: string[] }, never> =>
+  Effect.gen(function* () {
+    const problems: string[] = []
+    let checked = 0
+    for (const file of manifest.files) {
+      if (!file.required && file.dtype !== dtype) continue
+      checked++
+      const p = join(destDir, file.path)
+      if (!existsSync(p)) {
+        problems.push(`${file.path}: missing`)
+        continue
+      }
+      const size = statSync(p).size
+      if (size === 0 || (hasSize(file) && size !== file.size)) {
+        problems.push(`${file.path}: size ${size}${hasSize(file) ? ` (expected ${file.size})` : ""}`)
+        continue
+      }
+      if (mode === "hash" && hasHash(file)) {
+        const actual = yield* hashFile(p)
+        if (actual !== file.sha256) problems.push(`${file.path}: sha256 mismatch`)
+      }
+    }
+    return { checked, problems }
   })

@@ -52,7 +52,12 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     abort: options.abortSignal!,
     messageID: input.processor.message.id,
     callID: options.toolCallId,
-    extra: { model: input.model, bypassAgentCheck: input.bypassAgentCheck, promptOps: input.promptOps },
+    extra: {
+      model: input.model,
+      bypassAgentCheck: input.bypassAgentCheck,
+      promptOps: input.promptOps,
+      bookIds: (input.session.metadata?.["targetedLearning"] as { bookIds?: string[] } | undefined)?.bookIds,
+    },
     agent: input.agent.name,
     messages: input.messages,
     metadata: (val) =>
@@ -97,6 +102,9 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
       if (!isToolAllowed(item.id, tlMeta.allowCalculator ?? true)) {
         continue
       }
+    } else if (item.id.startsWith("book_")) {
+      // Book tools only exist inside targeted sessions.
+      continue
     }
 
     const cacheKey = `${input.model.api.id}:${item.id}`

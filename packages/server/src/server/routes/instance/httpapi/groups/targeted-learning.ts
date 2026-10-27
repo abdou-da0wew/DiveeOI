@@ -224,6 +224,8 @@ export const TargetedLearningApi = HttpApi.make("targeted-learning")
                   pages: Schema.optional(Schema.Number),
                   chunkCount: Schema.Number,
                   indexedAt: Schema.optional(Schema.Number),
+                  error: Schema.optional(Schema.String),
+                  progress: Schema.optional(Schema.Number),
                 }),
               ),
             }),
@@ -234,6 +236,59 @@ export const TargetedLearningApi = HttpApi.make("targeted-learning")
             identifier: "targeted-learning.books.list",
             summary: "List indexed books",
             description: "Returns all books in the library with their indexing status. Used by the composer @book: autocomplete.",
+          }),
+        ),
+      )
+      // Books — add (base64 upload), import (server-side path), delete
+      .add(
+        HttpApiEndpoint.post("books-upload", `${root}/books`, {
+          query: WorkspaceRoutingQuery,
+          payload: Schema.Struct({
+            filename: Schema.String,
+            contentBase64: Schema.String,
+            title: Schema.optional(Schema.String),
+          }),
+          success: described(
+            Schema.Struct({ bookId: Schema.String, slug: Schema.String, duplicate: Schema.Boolean }),
+            "Book accepted; indexing runs in the background",
+          ),
+          error: HttpApiError.BadRequest,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "targeted-learning.books.upload",
+            summary: "Add a book",
+            description: "Upload a PDF, DOCX or TXT (base64). Indexing runs in the background; poll the book list for status.",
+          }),
+        ),
+      )
+      .add(
+        HttpApiEndpoint.post("books-import", `${root}/books/import`, {
+          query: WorkspaceRoutingQuery,
+          payload: Schema.Struct({ path: Schema.String, title: Schema.optional(Schema.String) }),
+          success: described(
+            Schema.Struct({ bookId: Schema.String, slug: Schema.String, duplicate: Schema.Boolean }),
+            "Book accepted; indexing runs in the background",
+          ),
+          error: HttpApiError.BadRequest,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "targeted-learning.books.import",
+            summary: "Add a book from a path on the server",
+            description: "For large books on the machine running DiveeOI. Same indexing as upload.",
+          }),
+        ),
+      )
+      .add(
+        HttpApiEndpoint.delete("books-delete", `${root}/books/:bookID`, {
+          params: { bookID: Schema.String },
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Boolean, "Book removed"),
+          error: HttpApiError.BadRequest,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "targeted-learning.books.delete",
+            summary: "Delete a book",
+            description: "Removes the book, its passages and vectors, and its stored source file.",
           }),
         ),
       )
