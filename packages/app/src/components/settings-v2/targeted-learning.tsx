@@ -60,7 +60,7 @@ const DISABLED_SECTIONS = [
 // /targeted-learning/* routes. We use the same auth headers the SDK uses.
 const useTlApi = () => {
   const serverSDK = useServerSDK()
-  const base = () => serverSDK.url
+  const base = () => serverSDK().url
   const headers = () => {
     const h: Record<string, string> = { "content-type": "application/json" }
     // The SDK injects Authorization via fetch interceptor; for raw fetch
