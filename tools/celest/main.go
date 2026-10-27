@@ -153,6 +153,7 @@ const usage = `celest %s - outbound-only remote shell relay
 
 USAGE
   celest serve   [--addr 0.0.0.0:8080] [--token-file PATH] [--state PATH]
+  celest web     [--addr 0.0.0.0:80] [--token T] [--write]   # one-shot HTTP GET API
   celest agent   --relay URL [--token T | --token-file PATH] [--name LABEL]
   celest status  [--relay URL] [--token T]
   celest run     [--cwd DIR] [--timeout SECS] [--wait SECS] -- CMD...
@@ -178,6 +179,8 @@ func main() {
 	switch cmd {
 	case "serve":
 		cmdServe(args)
+	case "web":
+		cmdWeb(args)
 	case "agent":
 		cmdAgent(args)
 	case "status":

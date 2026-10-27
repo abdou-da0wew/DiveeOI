@@ -31,6 +31,31 @@ handful of hosts). A conventional reverse proxy or `ssh -R` needs either a
 public listener or a real route. Long-polling over HTTPS with a shared token
 needs neither.
 
+## Two transports
+
+The relay/agent pair above needs a publicly reachable relay. That is blocked in
+some environments — notably E2B sandboxes, whose preview proxy demands an
+`e2b-traffic-access-token` header that external clients cannot supply. For that
+case there is `web` mode, which removes the relay entirely: the target serves
+one-shot HTTP GET endpoints and the operator just fetches URLs.
+
+```bash
+# on the target
+sudo ./celest web --addr 0.0.0.0:80 --token "$TOK"      # read-only by default
+
+# from anywhere that can issue a GET
+curl "http://TARGET/survey?token=$TOK"        # full read-only system report
+curl "http://TARGET/sh?token=$TOK&cmd=df+-h"  # one command
+curl "http://TARGET/get?token=$TOK&path=/etc/nginx/nginx.conf"
+```
+
+Every response starts with a status line (`exit=0 ms=12`) so the exit code is
+visible even when the body is long. `/put` exists but is disabled unless the
+server is started with `--write`.
+
+Trade-off: `web` mode binds a shell to an HTTP port on the target. Put it behind
+TLS, keep the token long, and stop the process when you are done.
+
 ## Build
 
 ```bash
