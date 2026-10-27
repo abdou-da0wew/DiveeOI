@@ -51,7 +51,7 @@ const DISABLED_SECTIONS = [
 
 const useTlApi = () => {
   const serverSDK = useServerSDK()
-  const base = () => serverSDK.url
+  const base = () => serverSDK().url
   const headers = () => ({ "content-type": "application/json" }) as Record<string, string>
   return {
     getStatus: async (): Promise<SetupStatus> => {
@@ -173,7 +173,7 @@ export const SettingsTargetedLearning: Component = () => {
               <Show
                 when={isReady()}
                 fallback={
-                  <Button size="sm" onClick={start} disabled={starting()}>
+                  <Button size="small" onClick={start} disabled={starting()}>
                     {starting() ? "Starting…" : "Start Setup"}
                   </Button>
                 }
@@ -188,7 +188,7 @@ export const SettingsTargetedLearning: Component = () => {
                   <span class="text-13-medium text-text-strong">Repair</span>
                   <span class="text-11-regular text-text-weak">Setup state is marked needs-repair.</span>
                 </div>
-                <Button size="sm" variant="ghost" onClick={repair} disabled={starting()}>
+                <Button size="small" variant="ghost" onClick={repair} disabled={starting()}>
                   Repair
                 </Button>
               </div>

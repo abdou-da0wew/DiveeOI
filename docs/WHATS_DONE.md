@@ -769,8 +769,8 @@ cd packages/learning && bun test test/embed-pipeline.test.ts
 | 2 | No JSON-schema endpoint in Effect v4-beta | GET /settings/schema → 500 | Hand-rolled AST→JSON-Schema walker (`settings/json-schema.ts`) with `x-*` annotation pass-through; 10 unit tests |
 | 3 | Missing `exports` entry | `Cannot find module '@diveeoi/learning/settings/json-schema'` | Added to package.json exports |
 | 4 | Step results hidden from API | UI couldn't show what probe produced | Exposed `result` in setup-status response |
-| 5 | Invalid icon name `book` | Broken tab node in a11y tree | Valid icon `glasses` (verified against registry) |
-| 6 | `serverSDK.client.baseUrl` doesn't exist | fetch("undefined/...") → HTML → crash | Correct field: `serverSDK.url` |
+| 5 | Invalid icon name `book` | Broken tab node in a11y tree | Added real `book` SVG icon (open-book path, viewBox 0 0 20 20) to `packages/ui/src/components/icon.tsx`; switched both settings dialogs + `@book:` autocomplete row + 4 book tools (`book_outline`/`book_search`/`book_read_section`/`book_find_term`) in `message-part.tsx` to use `<Icon name="book" />` |
+| 6 | `serverSDK.client.baseUrl` doesn't exist | fetch("undefined/...") → HTML → crash | Correct field: `serverSDK().url` (SDK is exposed as `Accessor<ServerSDK>`, must be called) |
 | 7 | Solid resource rethrow on fetch failure | Whole app crashed to error boundary | Hardened fetchers + "Backend unreachable / Offline" degraded state (plan §6.5) |
 
 ## New components added in this session

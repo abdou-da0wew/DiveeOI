@@ -459,6 +459,23 @@ export function getToolInfo(
         icon: "brain",
         title: input.name || i18n.t("ui.tool.skill"),
       }
+    case "book_outline":
+    case "book_search":
+    case "book_read_section":
+    case "book_find_term":
+      return {
+        icon: "book",
+        title: tool.replace(/^book_/, "").replace(/_/g, " "),
+        subtitle: typeof input.query === "string"
+          ? input.query
+          : typeof input.term === "string"
+            ? input.term
+            : typeof input.slug === "string"
+              ? input.slug
+              : typeof input.sectionId === "string"
+                ? input.sectionId
+                : undefined,
+      }
     default:
       return {
         icon: "mcp",

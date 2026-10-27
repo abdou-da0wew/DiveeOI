@@ -34,6 +34,7 @@ const names = [
   "archive",
   "bubble-5",
   "prompt",
+  "book",
   "brain",
   "bullet-list",
   "check-small",

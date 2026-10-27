@@ -137,17 +137,17 @@ export const TextWithCitations: Component<TextWithCitationsProps> = (props) => {
   return (
     <>
       <For each={segments()}>
-        {(seg) => (
-          <Show
-            when={seg.type === "citation"}
-            fallback={<span>{seg.content}</span>}
-          >
-            <CitationChip
-              citation={props.citations?.get(seg.chunkId) ?? { chunkId: seg.chunkId }}
-              onClick={props.onCitationClick}
-            />
-          </Show>
-        )}
+        {(seg) => {
+          if (seg.type === "citation") {
+            return (
+              <CitationChip
+                citation={props.citations?.get(seg.chunkId) ?? { chunkId: seg.chunkId }}
+                onClick={props.onCitationClick}
+              />
+            )
+          }
+          return <span>{seg.content}</span>
+        }}
       </For>
     </>
   )
