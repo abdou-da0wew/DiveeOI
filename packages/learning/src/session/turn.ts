@@ -15,6 +15,8 @@ import { embed } from "../embed/pipeline"
 import { retrieve, type Candidate } from "../retrieve/hybrid"
 import { withDefaults } from "../settings/defaults"
 import { buildGroundingPrompt } from "../grounding/prompt-rules"
+import { recordRetrieved, resetRetrieved } from "../grounding/turn-state"
+import { relevantBookNotes, studentProfileBlock } from "../memory/service"
 
 type Tree = Record<string, unknown>
 
@@ -129,6 +131,7 @@ export const prepareTargetedTurn = async (input: {
   query: string
   recentUserTurns: string[]
   settings?: Tree
+  sessionId?: string
   /** Test seams; default to the real embedder. */
   ensureFn?: () => Promise<boolean>
   embedFn?: (query: string) => Promise<Float32Array | null>
@@ -139,6 +142,7 @@ export const prepareTargetedTurn = async (input: {
   const grounding = (settings.grounding ?? {}) as Tree
   const refusalMessages = (gate.refusalMessages ?? {}) as Record<string, string>
   const lang: "ar" | "en" = isArabic(input.query) ? "ar" : "en"
+  if (input.sessionId) resetRetrieved(input.sessionId)
   const refuse = (decision: TurnPrep["decision"], message: string): TurnPrep => ({ system: [], refusal: message, decision })
 
   const runtime = getRuntime()
@@ -181,6 +185,7 @@ export const prepareTargetedTurn = async (input: {
       system: [
         buildGroundingPrompt({ bookTitles: input.meta.books.map((b) => b.title), language: lang, refusalMessages }),
         "The student only attached the book(s). Greet them briefly and ask what they want to study. State no facts.",
+        ...(studentProfileBlock(input.settings) ? [studentProfileBlock(input.settings)!] : []),
       ],
       decision: "small-talk",
     }
@@ -239,9 +244,20 @@ export const prepareTargetedTurn = async (input: {
   if (input.meta.missing?.length) {
     system.push(`The student mentioned books that are not available: ${input.meta.missing.join(", ")}. Tell them briefly.`)
   }
+  const profile = studentProfileBlock(input.settings)
+  if (profile) system.push(profile)
+  if (input.sessionId) recordRetrieved(input.sessionId, result.candidates.map((c) => c.chunkId))
   if (result.gateDecision === "small-talk") {
     system.push("This message is small talk. Reply briefly and warmly and offer to help with the attached book(s). State no facts.")
   } else {
+    const notes = await relevantBookNotes({
+      db: runtime.booksStore.db,
+      bookIds: input.meta.bookIds,
+      query: input.query,
+      queryVec,
+      settings: input.settings,
+    })
+    if (notes) system.push(notes)
     const context = formatContext(result.candidates, titles, Number(grounding.maxContextTokens ?? 6000))
     system.push(
       `<book_context>\nPassages retrieved for this question. Cite them as [chunk_id]. Use ONLY these passages and tool results for facts.\n\n${context}\n</book_context>`,

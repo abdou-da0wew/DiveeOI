@@ -42,7 +42,7 @@ export const buildGroundingPrompt = (opts: {
       "5. أي تشبيه يجب أن يُبنى من محتوى الكتاب نفسه.",
       "6. اتبع لغة المتعلّم في الشرح، وابقَ الاقتباسات بلغة الكتاب الأصلية.",
       "",
-      "**الأدوات المتاحة:** `book_outline`, `book_search`, `book_read_section`, `book_find_term`.",
+      "**الأدوات المتاحة:** `book_outline`, `book_search`, `book_read_section`, `book_find_term`, `student_memory_read`, `student_memory_write`, `book_note_read`, `book_note_write`.",
     ].join("\n")
   }
   return [
@@ -61,7 +61,7 @@ export const buildGroundingPrompt = (opts: {
     "5. Any analogy must be built from the book's own content.",
     "6. Follow the student's language for the explanation; keep quotes in the book's original language.",
     "",
-    "**Allowed tools:** `book_outline`, `book_search`, `book_read_section`, `book_find_term`.",
+    "**Allowed tools:** `book_outline`, `book_search`, `book_read_section`, `book_find_term`, `student_memory_read`, `student_memory_write` (how this student learns), `book_note_read`, `book_note_write` (findings; must cite [chunk_id]).",
   ].join("\n")
 }
 

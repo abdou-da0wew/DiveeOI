@@ -52,7 +52,10 @@
     "./embed/ensure": "./src/embed/ensure.ts",
     "./setup/steps": "./src/setup/steps.ts",
     "./ingest/run": "./src/ingest/run.ts",
-    "./session/turn": "./src/session/turn.ts"
+    "./session/turn": "./src/session/turn.ts",
+    "./memory/service": "./src/memory/service.ts",
+    "./grounding/turn-state": "./src/grounding/turn-state.ts",
+    "./grounding/post": "./src/grounding/post.ts"
   },
   "devDependencies": {
     "@tsconfig/bun": "catalog:",

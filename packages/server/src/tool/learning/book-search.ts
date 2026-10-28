@@ -3,6 +3,7 @@
 // book_search tool — hybrid retrieval (BM25 + dense) scoped to the session's books.
 // Allowed in targeted sessions (plan §9.3).
 
+import { recordRetrieved } from "@diveeoi/learning/grounding/turn-state"
 import { Effect, Schema } from "effect"
 import * as Tool from "../tool"
 import { TargetedLearning } from "@diveeoi/learning"
@@ -99,6 +100,7 @@ export const BookSearchTool = Tool.define(
             }
           }
 
+          recordRetrieved(ctx.sessionID, result.candidates.map((c) => c.chunkId))
           const lines = result.candidates.map(
             (c) =>
               `[${c.chunkId}] (p. ${c.page ?? "?"}, section ${c.sectionId})\n${c.text}\n${c.parent ? `\nParent section:\n${c.parent.text}` : ""}`,
