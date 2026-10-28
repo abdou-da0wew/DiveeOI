@@ -185,7 +185,11 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
         payload: Partial<TLInfo>
       }) {
         const cfg = yield* configSvc.get()
-        const next = { ...cfg, targetedLearning: ctx.payload } as typeof cfg
+        // Group-level merge: editing one section never wipes the others (plan §11.2).
+        const next = {
+          ...cfg,
+          targetedLearning: { ...((cfg.targetedLearning as Record<string, unknown> | undefined) ?? {}), ...ctx.payload },
+        } as typeof cfg
         yield* configSvc.update(next)
         return yield* getSettings()
       })
@@ -299,6 +303,34 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
         return yield* startBook(path.basename(ctx.payload.path), bytes, ctx.payload.title)
       })
 
+      const listMemory = Effect.fn("TargetedLearning.listMemory")(function* () {
+        const mem = yield* Effect.promise(() => import("@diveeoi/learning/memory/service"))
+        const student = mem.listStudentMemories().map((r) => ({ id: r.id, kind: r.kind, text: r.text, pinned: r.pinned, uses: r.uses }))
+        const db = tl.booksStore.available ? tl.booksStore.db : null
+        const notes = db ? yield* Effect.promise(() => mem.listBookNotes(db)) : []
+        return {
+          student,
+          notes: notes.map((n) => ({ id: n.id, bookId: n.bookId, bookTitle: n.bookTitle, kind: n.kind, text: n.text, stale: n.stale })),
+        }
+      })
+      const deleteStudentMemoryHandler = Effect.fn("TargetedLearning.deleteStudentMemory")(function* (ctx: { params: { memoryID: string } }) {
+        const mem = yield* Effect.promise(() => import("@diveeoi/learning/memory/service"))
+        return mem.deleteStudentMemory(ctx.params.memoryID)
+      })
+      const pinStudentMemoryHandler = Effect.fn("TargetedLearning.pinStudentMemory")(function* (ctx: {
+        params: { memoryID: string }
+        payload: { pinned: boolean }
+      }) {
+        const mem = yield* Effect.promise(() => import("@diveeoi/learning/memory/service"))
+        return mem.pinStudentMemory(ctx.params.memoryID, ctx.payload.pinned)
+      })
+      const deleteNoteHandler = Effect.fn("TargetedLearning.deleteNote")(function* (ctx: { params: { noteID: string } }) {
+        const db = tl.booksStore.available ? tl.booksStore.db : null
+        if (!db) return false
+        const mem = yield* Effect.promise(() => import("@diveeoi/learning/memory/service"))
+        return yield* Effect.promise(() => mem.deleteBookNote(db, ctx.params.noteID))
+      })
+
       const deleteBookHandler = Effect.fn("TargetedLearning.deleteBook")(function* (ctx: { params: { bookID: string } }) {
         const store = tl.booksStore
         if (!store.available || !store.db) return yield* Effect.fail(new HttpApiError.BadRequest({}))
@@ -325,5 +357,9 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
         .handle("books-upload", uploadBook)
         .handle("books-import", importBook)
         .handle("books-delete", deleteBookHandler)
+        .handle("memory", listMemory)
+        .handle("memory-student-delete", deleteStudentMemoryHandler)
+        .handle("memory-student-pin", pinStudentMemoryHandler)
+        .handle("memory-note-delete", deleteNoteHandler)
     }),
 )
