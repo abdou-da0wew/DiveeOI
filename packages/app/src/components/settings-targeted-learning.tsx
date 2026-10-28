@@ -16,6 +16,8 @@ import { useLanguage } from "@/context/language"
 import { useServerSDK } from "@/context/server-sdk"
 import { SettingsList } from "./settings-list"
 import { TargetedLearningLibrary } from "./targeted-learning-library"
+import { TargetedLearningMemory } from "./targeted-learning-memory"
+import { TargetedLearningSettingsForm } from "./targeted-learning-settings-form"
 
 interface SetupStep {
   name: string
@@ -38,17 +40,6 @@ interface Health {
   manifestLoaded: boolean
 }
 
-const DISABLED_SECTIONS = [
-  { key: "library", title: "Library", reason: "Run Setup first to enable book uploads." },
-  { key: "memory", title: "Student memory", reason: "Available after Setup completes." },
-  { key: "embedding", title: "Embedding", reason: "Available after Setup completes." },
-  { key: "chunking", title: "Chunking and indexing", reason: "Available after Setup completes." },
-  { key: "retrieval", title: "Retrieval", reason: "Available after Setup completes." },
-  { key: "grounding", title: "Grounding", reason: "Available after Setup completes." },
-  { key: "resources", title: "Resources", reason: "Available after Setup completes." },
-  { key: "language", title: "Language", reason: "Available after Setup completes." },
-  { key: "advanced", title: "Advanced and danger", reason: "Available after Setup completes." },
-] as const
 
 const useTlApi = () => {
   const serverSDK = useServerSDK()
@@ -246,25 +237,8 @@ export const SettingsTargetedLearning: Component = () => {
 
             <TargetedLearningLibrary ready={isReady()} />
 
-            {/* Disabled sections */}
-            <For each={DISABLED_SECTIONS.filter((s) => s.key !== "library")}>
-              {(section) => (
-                <div class="flex items-center justify-between gap-4 py-3 border-b border-[var(--surface-stronger-non-alpha)] opacity-50">
-                  <div class="flex flex-col gap-1">
-                    <span class="text-13-medium text-text-strong">{section.title}</span>
-                    <span class="text-11-regular text-text-weak">
-                      {isReady() ? "Available." : section.reason}
-                    </span>
-                  </div>
-                  <Show
-                    when={isReady()}
-                    fallback={<span class="text-11-regular text-text-weak">Locked</span>}
-                  >
-                    <span class="text-11-regular text-text-weak">Phase 5</span>
-                  </Show>
-                </div>
-              )}
-            </For>
+            <TargetedLearningMemory ready={isReady()} />
+            <TargetedLearningSettingsForm ready={isReady()} />
           </SettingsList>
         </Suspense>
       </div>

@@ -292,6 +292,60 @@ export const TargetedLearningApi = HttpApi.make("targeted-learning")
           }),
         ),
       )
+      // Student memory + book notes (view, pin, delete)
+      .add(
+        HttpApiEndpoint.get("memory", `${root}/memory`, {
+          query: WorkspaceRoutingQuery,
+          success: described(
+            Schema.Struct({
+              student: Schema.Array(
+                Schema.Struct({ id: Schema.String, kind: Schema.String, text: Schema.String, pinned: Schema.Boolean, uses: Schema.Number }),
+              ),
+              notes: Schema.Array(
+                Schema.Struct({
+                  id: Schema.String,
+                  bookId: Schema.String,
+                  bookTitle: Schema.optional(Schema.String),
+                  kind: Schema.String,
+                  text: Schema.String,
+                  stale: Schema.Boolean,
+                }),
+              ),
+            }),
+            "Everything remembered about the student and about books",
+          ),
+        }).annotateMerge(
+          OpenApi.annotations({ identifier: "targeted-learning.memory.list", summary: "List student memory and book notes" }),
+        ),
+      )
+      .add(
+        HttpApiEndpoint.delete("memory-student-delete", `${root}/memory/student/:memoryID`, {
+          params: { memoryID: Schema.String },
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Boolean, "Removed"),
+        }).annotateMerge(
+          OpenApi.annotations({ identifier: "targeted-learning.memory.student.delete", summary: "Delete a student memory" }),
+        ),
+      )
+      .add(
+        HttpApiEndpoint.post("memory-student-pin", `${root}/memory/student/:memoryID/pin`, {
+          params: { memoryID: Schema.String },
+          query: WorkspaceRoutingQuery,
+          payload: Schema.Struct({ pinned: Schema.Boolean }),
+          success: described(Schema.Boolean, "Updated"),
+        }).annotateMerge(
+          OpenApi.annotations({ identifier: "targeted-learning.memory.student.pin", summary: "Pin or unpin a student memory" }),
+        ),
+      )
+      .add(
+        HttpApiEndpoint.delete("memory-note-delete", `${root}/memory/notes/:noteID`, {
+          params: { noteID: Schema.String },
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Boolean, "Removed"),
+        }).annotateMerge(
+          OpenApi.annotations({ identifier: "targeted-learning.memory.note.delete", summary: "Delete a book note" }),
+        ),
+      )
       .annotateMerge(
         OpenApi.annotations({
           title: "targeted-learning",

@@ -14,6 +14,8 @@
 // generic form-generator component.
 
 import { TargetedLearningLibrary } from "../targeted-learning-library"
+import { TargetedLearningMemory } from "../targeted-learning-memory"
+import { TargetedLearningSettingsForm } from "../targeted-learning-settings-form"
 import { Component, For, Show, createResource, createSignal, Suspense } from "solid-js"
 import { ButtonV2 } from "@diveeoi/ui/v2/button-v2"
 import { useLanguage } from "@/context/language"
@@ -43,19 +45,6 @@ interface Health {
   manifestLoaded: boolean
 }
 
-// Phases of the settings tab — every section after Setup is disabled until
-// Setup is Ready (plan §11.5).
-const DISABLED_SECTIONS = [
-  { key: "library", title: "Library", reason: "Run Setup first to enable book uploads." },
-  { key: "memory", title: "Student memory", reason: "Available after Setup completes." },
-  { key: "embedding", title: "Embedding", reason: "Available after Setup completes." },
-  { key: "chunking", title: "Chunking and indexing", reason: "Available after Setup completes." },
-  { key: "retrieval", title: "Retrieval", reason: "Available after Setup completes." },
-  { key: "grounding", title: "Grounding", reason: "Available after Setup completes." },
-  { key: "resources", title: "Resources", reason: "Available after Setup completes." },
-  { key: "language", title: "Language", reason: "Available after Setup completes." },
-  { key: "advanced", title: "Advanced and danger", reason: "Available after Setup completes." },
-] as const
 
 // Direct fetch helper — the typed SDK hasn't been regenerated yet for the
 // /targeted-learning/* routes. We use the same auth headers the SDK uses.
@@ -246,19 +235,8 @@ export const SettingsTargetedLearningV2: Component = () => {
 
         <TargetedLearningLibrary ready={isReady()} />
 
-        {/* ---------- Disabled sections ---------- */}
-        <For each={DISABLED_SECTIONS.filter((s) => s.key !== "library")}>
-          {(section) => (
-            <SettingsRowV2 title={section.title} description={isReady() ? "Available." : section.reason}>
-              <Show
-                when={isReady()}
-                fallback={<span class="settings-v2-tag settings-v2-tag-disabled">Locked</span>}
-              >
-                <span class="settings-v2-tag settings-v2-tag-coming-soon">Phase 5</span>
-              </Show>
-            </SettingsRowV2>
-          )}
-        </For>
+        <TargetedLearningMemory ready={isReady()} />
+        <TargetedLearningSettingsForm ready={isReady()} />
       </SettingsListV2>
     </Suspense>
   )
