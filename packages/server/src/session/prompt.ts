@@ -1572,7 +1572,10 @@ export const layer = Layer.effect(
               const turn = yield* Effect.promise(async () => {
                 try {
                   const mod = await import("@diveeoi/learning/session/turn")
+                  const rt = await import("@diveeoi/learning/runtime")
+                  rt.setUserSettings((cfg as { targetedLearning?: Record<string, unknown> }).targetedLearning)
                   return await mod.prepareTargetedTurn({
+                    sessionId: sessionID,
                     meta: tlSession as never,
                     query: userTexts[userTexts.length - 1] ?? "",
                     recentUserTurns: userTexts.slice(-3, -1),
@@ -1785,6 +1788,44 @@ Tool: {name}
                     // is re-tried (half-open state).
                   }
                 }
+              }
+            }
+
+            // Targeted Learning: verify the citations of the final answer (plan §9.6) and append a
+            // note for anything the model cited that it was never shown.
+            if (
+              tlSession?.mode === "targeted" &&
+              handle.message.finish &&
+              !["tool-calls", "unknown"].includes(handle.message.finish) &&
+              !handle.message.error
+            ) {
+              const answerParts = yield* MessageV2.parts(handle.message.id).pipe(Effect.catch(() => Effect.succeed([] as any[])))
+              const answer = (answerParts as { type: string; text?: string; synthetic?: boolean }[])
+                .filter((p) => p.type === "text" && !p.synthetic)
+                .map((p) => p.text ?? "")
+                .join("\n")
+              const note = yield* Effect.promise(async () => {
+                try {
+                  const post = await import("@diveeoi/learning/grounding/post")
+                  return await post.verifyAnswerNote({
+                    sessionId: sessionID,
+                    answer,
+                    settings: (cfg as { targetedLearning?: Record<string, unknown> }).targetedLearning,
+                  })
+                } catch {
+                  return null
+                }
+              })
+              if (note) {
+                const now = Date.now()
+                yield* sessions.updatePart({
+                  id: PartID.ascending(),
+                  messageID: handle.message.id,
+                  sessionID,
+                  type: "text",
+                  text: `\n\n${note}`,
+                  time: { start: now, end: now },
+                } as never)
               }
             }
 

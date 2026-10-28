@@ -3,6 +3,7 @@
 // book_read_section tool — read a full section by ID or page range.
 // Allowed in targeted sessions (plan §9.3).
 
+import { recordRetrieved } from "@diveeoi/learning/grounding/turn-state"
 import { Effect, Schema } from "effect"
 import * as Tool from "../tool"
 import { TargetedLearning } from "@diveeoi/learning"
@@ -24,7 +25,7 @@ export const BookReadSectionTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: Schema.Schema.Type<typeof Parameters>, _ctx: Tool.Context) =>
+      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const store = tl.booksStore
           if (!store.available || !store.db) {
@@ -59,10 +60,23 @@ export const BookReadSectionTool = Tool.define(
                 output: `Section ${params.sectionId} not found in book ${params.bookId}.`,
               }
             }
+            // Passages of this section are citable: record them and list their ids.
+            const base = section.id.replace(/-p\d+$/, "")
+            const ids = yield* Effect.tryPromise({
+              try: () =>
+                store.db!.all<{ id: string }>(
+                  "SELECT id FROM chunks WHERE book_id = ? AND section_id IN (?, ?) ORDER BY ord",
+                  params.bookId,
+                  section.id,
+                  base,
+                ),
+              catch: () => [] as { id: string }[],
+            })
+            recordRetrieved(ctx.sessionID, ids.map((r) => r.id))
             return {
               title: `Section: ${section.title ?? "(untitled)"}`,
               metadata: { sectionId: section.id, headingPath: section.heading_path ?? undefined },
-              output: `${section.heading_path ? `[${section.heading_path}]\n` : ""}${section.text}`,
+              output: `${section.heading_path ? `[${section.heading_path}]\n` : ""}${section.text}${ids.length ? `\n\nCitable passages in this section: ${ids.map((r) => `[${r.id}]`).join(" ")}` : ""}`,
             }
           }
 
@@ -84,6 +98,7 @@ export const BookReadSectionTool = Tool.define(
                 output: `No content found on pages ${params.pageStart}-${params.pageEnd}.`,
               }
             }
+            recordRetrieved(ctx.sessionID, chunks.map((c) => c.id))
             return {
               title: `Pages ${params.pageStart}-${params.pageEnd}`,
               metadata: { chunkCount: chunks.length },

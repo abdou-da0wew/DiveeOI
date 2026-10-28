@@ -16,7 +16,9 @@ import type { BooksDbHandle } from "../store"
 import { parse, type ParseResult } from "../parsers"
 import { chunk as chunkBook } from "../chunk"
 import { embedBatch } from "../embed/pipeline"
-import { ensureEmbedder } from "../embed/ensure"
+import { checkModelFiles, ensureEmbedder, loadTokenizerForChunking } from "../embed/ensure"
+import { createEmbedWorkerPool, type EmbedWorkerPool } from "./embed-pool"
+import { availableParallelism } from "node:os"
 import { getRuntime } from "../runtime"
 import { withDefaults } from "../settings/defaults"
 import { NORMALIZER_VERSION } from "../lang/arabic"
@@ -79,6 +81,8 @@ export interface StartIngestInput {
   /** Test seam; defaults to the real bge-m3 embedder. */
   embedFn?: (texts: string[]) => Promise<Float32Array[]>
   ensureFn?: () => Promise<void>
+  /** Test seam: worker script for the embedding pool (default: the real bge-m3 worker). */
+  workerUrl?: URL
 }
 
 export interface StartIngestResult {
@@ -158,12 +162,53 @@ const runIngest = async (input: RunInput): Promise<void> => {
     await db.run("UPDATE books SET status = ? WHERE id = ?", status, bookId)
     await db.run("UPDATE ingest_jobs SET stage = ?, status = 'running', progress = ? WHERE id = ?", stage, progress, jobId)
   }
+  let poolRef: { close(): Promise<void> } | null = null
   try {
     const runtime = getRuntime()
     const ensure = input.ensureFn ?? (() => Effect.runPromise(ensureEmbedder(input.settings).pipe(Effect.asVoid)))
-    const embedTexts = input.embedFn ?? ((texts: string[]) => Effect.runPromise(embedBatch(texts)))
-    // Fail early (before parsing a 300-page PDF) when the model isn't there.
-    if (!input.embedFn || input.ensureFn) await ensure()
+    const inProcess = input.embedFn ?? ((texts: string[]) => Effect.runPromise(embedBatch(texts)))
+    const indexing = (input.settings.indexing ?? {}) as Tree
+    const workerCount = input.embedFn && !input.workerUrl ? 1 : Math.max(1, Number(indexing.workersPerBook ?? 2))
+
+    // Workers: N Bun Workers each hold their own model copy and embed batches in parallel (plan §7.7).
+    // They start loading now, while this thread parses the book.
+    let pool: EmbedWorkerPool | null = null
+    let poolBroken = false
+    if (workerCount > 1) {
+      try {
+        const checked = input.workerUrl
+          ? { options: { intraOpThreads: "auto" } as Record<string, unknown>, modelDir: runtime?.modelDir ?? "", signature: {} }
+          : checkModelFiles(input.settings)
+        const cores = Math.max(1, availableParallelism())
+        const options = { ...checked.options }
+        if (options.intraOpThreads === "auto") options.intraOpThreads = Math.max(1, Math.floor(cores / workerCount))
+        pool = createEmbedWorkerPool({
+          size: workerCount,
+          workerUrl: input.workerUrl,
+          init: { modelDir: checked.modelDir, signature: checked.signature, options },
+        })
+        poolRef = pool
+        if (runtime) await loadTokenizerForChunking(runtime.manifest.repo)
+      } catch (err) {
+        if (!input.workerUrl) throw err // model not downloaded: fail before parsing a big book
+        pool = null
+      }
+    } else if (!input.embedFn || input.ensureFn) {
+      // Single process: fail early (before parsing a 300-page PDF) when the model isn't there.
+      await ensure()
+    }
+    const embedTexts = async (texts: string[]): Promise<Float32Array[]> => {
+      if (pool && !poolBroken) {
+        try {
+          return await pool.embed(texts)
+        } catch {
+          poolBroken = true // workers died: finish this book in-process
+          await pool.close()
+          await ensure()
+        }
+      }
+      return inProcess(texts)
+    }
 
     await setStage("parsing", "parse", 2)
     const parsed: ParseResult = await Effect.runPromise(parse(input.bytes, input.format))
@@ -204,28 +249,43 @@ const runIngest = async (input: RunInput): Promise<void> => {
 
     const batchSize = Math.max(1, Number(((input.settings.embedding ?? {}) as Tree).batchSize ?? 16))
     const total = chunked.chunks.length
-    for (let i = 0; i < total; i += batchSize) {
-      const batch = chunked.chunks.slice(i, i + batchSize)
-      const vectors = await embedTexts(batch.map((c) => (c.headingPath ? `${c.headingPath}\n${c.text}` : c.text)))
-      if (vectors.length !== batch.length) throw new Error(`embedder returned ${vectors.length} vectors for ${batch.length} passages`)
-      for (let j = 0; j < batch.length; j++) {
-        const c = batch[j]!
-        await db.run(
-          "INSERT INTO chunks (id, book_id, section_id, ord, page, text, text_norm, token_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-          c.id,
-          bookId,
-          c.sectionId,
-          c.ord,
-          c.page ?? null,
-          c.text,
-          c.textNorm,
-          c.tokenCount,
-        )
-        await db.run("INSERT INTO chunk_vecs (chunk_id, vec) VALUES (?, ?)", c.id, toBase64(vectors[j]!))
+    // Sort by length so each batch pads to a similar size (padding to the longest wastes compute).
+    const items = chunked.chunks
+      .map((c) => ({ c, text: c.headingPath ? `${c.headingPath}\n${c.text}` : c.text }))
+      .sort((x, y) => x.text.length - y.text.length)
+    const batches: (typeof items)[] = []
+    for (let i = 0; i < items.length; i += batchSize) batches.push(items.slice(i, i + batchSize))
+    const concurrency = pool && !poolBroken ? pool.size : 1
+    let done = 0
+    for (let w = 0; w < batches.length; w += concurrency) {
+      const wave = batches.slice(w, w + concurrency)
+      const results = await Promise.all(wave.map((b) => embedTexts(b.map((x) => x.text))))
+      // This thread is the only SQLite writer: workers just return vectors.
+      for (let k = 0; k < wave.length; k++) {
+        const batch = wave[k]!
+        const vectors = results[k]!
+        if (vectors.length !== batch.length) throw new Error(`embedder returned ${vectors.length} vectors for ${batch.length} passages`)
+        for (let j = 0; j < batch.length; j++) {
+          const c = batch[j]!.c
+          await db.run(
+            "INSERT INTO chunks (id, book_id, section_id, ord, page, text, text_norm, token_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            c.id,
+            bookId,
+            c.sectionId,
+            c.ord,
+            c.page ?? null,
+            c.text,
+            c.textNorm,
+            c.tokenCount,
+          )
+          await db.run("INSERT INTO chunk_vecs (chunk_id, vec) VALUES (?, ?)", c.id, toBase64(vectors[j]!))
+        }
+        done += batch.length
       }
-      await setStage("embedding", "embed", 15 + Math.floor(((i + batch.length) / total) * 80))
-      await new Promise((r) => setTimeout(r, 0)) // let the server breathe between batches
+      await setStage("embedding", "embed", 15 + Math.floor((done / total) * 80))
+      await new Promise((r) => setTimeout(r, 0)) // let the server breathe between waves
     }
+    await pool?.close()
 
     const sample = parsed.pages.slice(0, 5).map((p) => p.text).join(" ")
     const lang = parsed.language ?? (arabicRatio(sample) > 0.5 ? "ar" : "en")
@@ -261,6 +321,7 @@ const runIngest = async (input: RunInput): Promise<void> => {
       .run("UPDATE ingest_jobs SET status = 'failed', error = ?, finished_at = ? WHERE id = ?", message.slice(0, 500), Date.now(), jobId)
       .catch(() => undefined)
   } finally {
+    await poolRef?.close().catch(() => undefined)
     active.delete(bookId)
   }
 }

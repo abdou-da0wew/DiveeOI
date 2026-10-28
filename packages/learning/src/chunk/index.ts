@@ -255,9 +255,11 @@ export const chunk = (
       for (let pIdx = 0; pIdx < parentSlices.length; pIdx++) {
         const parentText = parentSlices[pIdx]!
         const parentId = parentSlices.length > 1 ? `${sectionId}-p${pIdx}` : sectionId
+        // Children belong to the parent SLICE row (a section split by parentMaxTokens has no row
+        // under its base id, so pointing at it broke the foreign key for every long section).
         const childChunks = splitIntoChildren(
           parentText,
-          sectionId,
+          parentId,
           bookId,
           chunkOrd,
           options,

@@ -31,12 +31,33 @@ const tryTokenizer = async (repo: string) => {
   tokenizerTried = true
   try {
     const t = await import("@huggingface/transformers")
+    const runtime = getRuntime()
+    if (runtime) {
+      t.env.localModelPath = runtime.modelDir
+      t.env.allowRemoteModels = false
+    }
     const tok: any = await t.AutoTokenizer.from_pretrained(repo)
     setTokenizer({ encode: (text: string) => ({ length: (tok.encode(text) as number[]).length }) })
   } catch {
     // chunk sizing falls back to the character estimate
   }
 }
+
+/** Confirms the model files are on disk and returns the embed options, without loading a session. */
+export const checkModelFiles = (userSettings?: Tree): { options: EmbedOptions; modelDir: string; signature: { repo: string; revision: string; dtype: string; maxLength: number } } => {
+  const runtime = getRuntime()
+  if (!runtime) throw new Error("Targeted Learning is not running.")
+  const options = embedOptionsFrom(userSettings)
+  const onnx = path.join(modelFilesDir(runtime), "onnx", onnxFileFor(options.dtype))
+  if (!existsSync(onnx)) throw new Error(`Embedding model (${options.dtype}) is not downloaded. Run Start Setup first.`)
+  return {
+    options,
+    modelDir: runtime.modelDir,
+    signature: { repo: runtime.manifest.repo, revision: runtime.manifest.revision, dtype: options.dtype, maxLength: options.maxLength },
+  }
+}
+
+export const loadTokenizerForChunking = (repo: string) => tryTokenizer(repo)
 
 export const ensureEmbedder = (userSettings?: Tree): Effect.Effect<EmbedOptions, EmbedError> =>
   Effect.gen(function* () {

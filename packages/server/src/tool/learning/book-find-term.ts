@@ -3,6 +3,7 @@
 // book_find_term tool — exact term / glossary lookup.
 // Allowed in targeted sessions (plan §9.3).
 
+import { recordRetrieved } from "@diveeoi/learning/grounding/turn-state"
 import { Effect, Schema } from "effect"
 import * as Tool from "../tool"
 import { TargetedLearning } from "@diveeoi/learning"
@@ -23,7 +24,7 @@ export const BookFindTermTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: Schema.Schema.Type<typeof Parameters>, _ctx: Tool.Context) =>
+      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const store = tl.booksStore
           if (!store.available || !store.db) {
@@ -55,6 +56,7 @@ export const BookFindTermTool = Tool.define(
               output: `The term "${params.term}" was not found in book ${params.bookId}.`,
             }
           }
+          recordRetrieved(ctx.sessionID, chunks.map((c) => c.id))
           return {
             title: `Found ${chunks.length} occurrence(s) of "${params.term}"`,
             metadata: { term: params.term, count: chunks.length },

@@ -1,32 +1,32 @@
 // packages/learning/src/embed/worker.entry.ts
 //
-// Bun Worker entry point (plan §7.7). This file is the worker — it is
-// spawned by ingest/pool.ts via `new Worker(new URL('./worker.entry.ts', import.meta.url))`.
+// Bun Worker entry (plan §7.7). Spawned by ingest/embed-pool.ts. The worker only embeds; it never
+// touches SQLite (the main thread is the single writer).
 //
-// Message protocol (Phase 1, fixed in Phase 2 with the worker pool):
-//
-//   Main → Worker:
-//     { kind: "init", modelDir, signature, options }
-//     { kind: "embed", batchId, texts: string[] }
-//     { kind: "unload" }
-//
-//   Worker → Main:
-//     { kind: "ready" }
-//     { kind: "embedded", batchId, vectors: Float32Array[] }
-//     { kind: "error", batchId?, message }
-//
-// The worker NEVER touches SQLite. It only embeds and posts back.
-//
-// Phase 2 implements this fully (worker pool, message handling, model
-// lifecycle). Phase 1 ships the protocol as a stub so the package
-// bundles correctly.
+//   Main → Worker: { kind: "init", modelDir, signature, options } | { kind: "embed", batchId, texts } | { kind: "close" }
+//   Worker → Main: { kind: "ready" } | { kind: "embedded", batchId, vectors } | { kind: "error", batchId?, message }
 
-// @ts-nocheck
 import { Effect } from "effect"
 import * as Pipeline from "./pipeline"
 
-void Effect
-void Pipeline
+const scope: any = globalThis
 
-// Phase 2 will fill this in. Until then, this file is a placeholder.
-export const workerEntryPlaceholder = "Phase 2 implements the Bun worker entry"
+const fail = (message: string, batchId?: number) => scope.postMessage({ kind: "error", batchId, message })
+
+scope.onmessage = async (event: { data: any }) => {
+  const msg = event.data
+  try {
+    if (msg.kind === "init") {
+      await Effect.runPromise(Pipeline.init(msg.modelDir, msg.signature, msg.options))
+      scope.postMessage({ kind: "ready" })
+    } else if (msg.kind === "embed") {
+      const vectors: Float32Array[] = await Effect.runPromise(Pipeline.embedBatch(msg.texts))
+      scope.postMessage({ kind: "embedded", batchId: msg.batchId, vectors }, vectors.map((v) => v.buffer))
+    } else if (msg.kind === "close") {
+      await Effect.runPromise(Pipeline.unload())
+      scope.postMessage({ kind: "closed" })
+    }
+  } catch (err) {
+    fail(err instanceof Error ? err.message : String(err), msg.batchId)
+  }
+}

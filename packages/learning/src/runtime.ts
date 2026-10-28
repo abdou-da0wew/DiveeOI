@@ -30,3 +30,10 @@ export const modelFilesDir = (r: Pick<TlRuntime, "modelDir" | "manifest">) => pa
 
 /** File name Transformers.js loads for a dtype. */
 export const onnxFileFor = (dtype: string) => (dtype === "fp32" ? "model.onnx" : `model_${dtype}.onnx`)
+
+/** The user's `targetedLearning` config, refreshed each turn by the session loop so tools see current settings. */
+let userSettings: Record<string, unknown> | undefined
+export const setUserSettings = (s: Record<string, unknown> | undefined) => {
+  userSettings = s
+}
+export const getUserSettings = () => userSettings

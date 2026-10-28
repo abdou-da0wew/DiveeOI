@@ -102,7 +102,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
       if (!isToolAllowed(item.id, tlMeta.allowCalculator ?? true)) {
         continue
       }
-    } else if (item.id.startsWith("book_")) {
+    } else if (item.id.startsWith("book_") || item.id.startsWith("student_memory_")) {
       // Book tools only exist inside targeted sessions.
       continue
     }

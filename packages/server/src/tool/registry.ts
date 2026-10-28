@@ -462,6 +462,30 @@ export const layer = Layer.effect(
                       return yield* Tool.init(yield* (mod.BookFindTermTool as Effect.Effect<Tool.Info>))
                     }),
                   },
+                  {
+                    init: Effect.gen(function* () {
+                      const mod: any = yield* Effect.promise(() => import("./learning/memory-tools"))
+                      return yield* Tool.init(yield* (mod.StudentMemoryReadTool as Effect.Effect<Tool.Info>))
+                    }),
+                  },
+                  {
+                    init: Effect.gen(function* () {
+                      const mod: any = yield* Effect.promise(() => import("./learning/memory-tools"))
+                      return yield* Tool.init(yield* (mod.StudentMemoryWriteTool as Effect.Effect<Tool.Info>))
+                    }),
+                  },
+                  {
+                    init: Effect.gen(function* () {
+                      const mod: any = yield* Effect.promise(() => import("./learning/memory-tools"))
+                      return yield* Tool.init(yield* (mod.BookNoteReadTool as Effect.Effect<Tool.Info>))
+                    }),
+                  },
+                  {
+                    init: Effect.gen(function* () {
+                      const mod: any = yield* Effect.promise(() => import("./learning/memory-tools"))
+                      return yield* Tool.init(yield* (mod.BookNoteWriteTool as Effect.Effect<Tool.Info>))
+                    }),
+                  },
                 ]
               : [],
           )
