@@ -20,6 +20,9 @@ export const ManifestFile = Schema.Struct({
   required: Schema.Boolean.annotate({
     description: "If true, downloaded for every install. If false, only when the user picks that dtype.",
   }),
+  url: Schema.optional(Schema.String).annotate({
+    description: "Absolute download URL (used by non-HF packs such as the OCR language data).",
+  }),
 })
 export type ManifestFile = Schema.Schema.Type<typeof ManifestFile>
 

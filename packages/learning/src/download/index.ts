@@ -128,7 +128,7 @@ const downloadAttempt = async (
   const headers: Record<string, string> = {}
   if (resumeFrom > 0) headers["range"] = `bytes=${resumeFrom}-`
 
-  const url = `${withScheme(endpoint)}/${manifest.repo}/resolve/${manifest.revision}/${file.path}`
+  const url = file.url ?? `${withScheme(endpoint)}/${manifest.repo}/resolve/${manifest.revision}/${file.path}`
 
   // Use AbortController for the stall timeout.
   const controller = new AbortController()

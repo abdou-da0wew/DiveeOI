@@ -22,6 +22,8 @@ import { availableParallelism } from "node:os"
 import { getRuntime } from "../runtime"
 import { withDefaults } from "../settings/defaults"
 import { NORMALIZER_VERSION } from "../lang/arabic"
+import { SCANNED_PAGE_MIN_CHARS, ocrPdfPages } from "../ocr"
+import { ensureOcrPack, parseLanguages } from "../ocr/pack"
 
 type Tree = Record<string, unknown>
 
@@ -211,9 +213,36 @@ const runIngest = async (input: RunInput): Promise<void> => {
     }
 
     await setStage("parsing", "parse", 2)
-    const parsed: ParseResult = await Effect.runPromise(parse(input.bytes, input.format))
+    let parsed: ParseResult = await Effect.runPromise(parse(input.bytes, input.format))
+    // Scanned pages (no text layer) → OCR when enabled (plan §7.6), else tell the student why.
+    const ocr = (input.settings.ocr ?? {}) as Tree
+    const scanned = parsed.pages.filter((p) => p.text.trim().length < SCANNED_PAGE_MIN_CHARS).map((p) => p.page)
+    let ocrPages = 0
+    if (scanned.length > 0 && input.format === "pdf") {
+      if (ocr.enabled === true) {
+        const languages = String(ocr.languages ?? "ara+eng")
+        await setStage("parsing", "ocr", 5)
+        await Effect.runPromise(ensureOcrPack(input.dataDir, parseLanguages(languages)))
+        const results = await ocrPdfPages(
+          input.bytes,
+          scanned,
+          { languages, dpi: Number(ocr.dpi ?? 200), dataDir: input.dataDir },
+          (done, total) => void setStage("parsing", "ocr", 5 + Math.floor((done / total) * 10)),
+        )
+        const byPage = new Map(results.map((r) => [r.page, r.text]))
+        parsed = {
+          ...parsed,
+          pages: parsed.pages.map((p) => (byPage.has(p.page) && byPage.get(p.page)!.trim() ? { ...p, text: byPage.get(p.page)! } : p)),
+        }
+        ocrPages = results.filter((r) => r.text.trim().length > 0).length
+      }
+    }
     if (parsed.pages.every((p) => p.text.trim().length === 0)) {
-      throw new Error("No extractable text found (scanned book?). OCR is not enabled.")
+      throw new Error(
+        input.format === "pdf" && ocr.enabled !== true
+          ? "No extractable text found: this looks like a scanned book. Turn on OCR in Settings > Targeted Learning > OCR and add it again."
+          : "No extractable text found in this book.",
+      )
     }
 
     await setStage("chunking", "chunk", 15)
@@ -293,6 +322,8 @@ const runIngest = async (input: RunInput): Promise<void> => {
       outline: parsed.outline.slice(0, 40).map((o) => o.title),
       pages: parsed.metadata.pages,
       textCoverage: parsed.textDensity,
+      ocrPages,
+      pagesWithoutText: parsed.pages.filter((p) => p.text.trim().length < SCANNED_PAGE_MIN_CHARS).length,
       intro: sample.slice(0, 400),
     }
     const sig = runtime

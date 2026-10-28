@@ -55,7 +55,9 @@
     "./session/turn": "./src/session/turn.ts",
     "./memory/service": "./src/memory/service.ts",
     "./grounding/turn-state": "./src/grounding/turn-state.ts",
-    "./grounding/post": "./src/grounding/post.ts"
+    "./grounding/post": "./src/grounding/post.ts",
+    "./ocr": "./src/ocr/index.ts",
+    "./ocr/pack": "./src/ocr/pack.ts"
   },
   "devDependencies": {
     "@tsconfig/bun": "catalog:",
@@ -70,7 +72,8 @@
   },
   "optionalDependencies": {
     "@huggingface/transformers": "^3.0.0",
+    "mammoth": "^1.7.0",
     "pdfjs-dist": "^4.7.76",
-    "mammoth": "^1.7.0"
+    "tesseract.js": "7.0.0"
   }
 }

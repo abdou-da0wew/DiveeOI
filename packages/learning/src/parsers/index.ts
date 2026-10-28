@@ -136,7 +136,7 @@ export const parsePdf = (data: Uint8Array): Effect.Effect<ParseResult, ParseErro
       // Disable workers for Bun compatibility (workers can be flaky in Bun).
       // pdfjs-dist v4.10 renamed `disableWorker` — we cast the params to pass it through.
       const params = {
-        data: data as never,
+        data: new Uint8Array(data) as never, // pdfjs detaches the buffer it is given; copy so callers keep theirs
         isEvalSupported: false,
         useSystemFonts: true,
       } as never
