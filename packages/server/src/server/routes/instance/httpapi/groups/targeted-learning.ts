@@ -292,6 +292,24 @@ export const TargetedLearningApi = HttpApi.make("targeted-learning")
           }),
         ),
       )
+      // Retrieval inspector: what would the gate do with this question? (plan §8.6)
+      .add(
+        HttpApiEndpoint.post("search", `${root}/search`, {
+          query: WorkspaceRoutingQuery,
+          payload: Schema.Struct({
+            query: Schema.String,
+            bookIds: Schema.optional(Schema.Array(Schema.String)),
+            recentUserTurns: Schema.optional(Schema.Array(Schema.String)),
+          }),
+          success: described(Schema.Unknown, "Gate decision, best scores, thresholds and the top passages"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "targeted-learning.search",
+            summary: "Inspect retrieval",
+            description: "Runs the real retrieval and gate for a question without calling an LLM. Used to tune gate thresholds.",
+          }),
+        ),
+      )
       // Student memory + book notes (view, pin, delete)
       .add(
         HttpApiEndpoint.get("memory", `${root}/memory`, {

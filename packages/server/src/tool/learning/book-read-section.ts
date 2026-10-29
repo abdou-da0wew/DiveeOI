@@ -31,15 +31,13 @@ export const BookReadSectionTool = Tool.define(
           if (!store.available || !store.db) {
             return {
               title: "Section unavailable",
-              metadata: {},
+              metadata: {} as Record<string, unknown>,
               output: "The book library is currently unavailable.",
             }
           }
 
           if (params.sectionId) {
-            const section = yield* Effect.tryPromise({
-              try: () =>
-                store.db!.get<{
+            const section = yield* Effect.promise(() => (store.db!.get<{
                   id: string
                   title: string | null
                   text: string
@@ -50,28 +48,22 @@ export const BookReadSectionTool = Tool.define(
                   "SELECT id, title, text, heading_path, page_start, page_end FROM sections WHERE id = ? AND book_id = ?",
                   params.sectionId,
                   params.bookId,
-                ),
-              catch: () => null,
-            })
+                )).catch(() => null))
             if (!section) {
               return {
                 title: "Section not found",
-                metadata: {},
+                metadata: {} as Record<string, unknown>,
                 output: `Section ${params.sectionId} not found in book ${params.bookId}.`,
               }
             }
             // Passages of this section are citable: record them and list their ids.
             const base = section.id.replace(/-p\d+$/, "")
-            const ids = yield* Effect.tryPromise({
-              try: () =>
-                store.db!.all<{ id: string }>(
+            const ids = yield* Effect.promise(() => (store.db!.all<{ id: string }>(
                   "SELECT id FROM chunks WHERE book_id = ? AND section_id IN (?, ?) ORDER BY ord",
                   params.bookId,
                   section.id,
                   base,
-                ),
-              catch: () => [] as { id: string }[],
-            })
+                )).catch(() => [] as { id: string }[]))
             recordRetrieved(ctx.sessionID, ids.map((r) => r.id))
             return {
               title: `Section: ${section.title ?? "(untitled)"}`,
@@ -81,20 +73,16 @@ export const BookReadSectionTool = Tool.define(
           }
 
           if (params.pageStart !== undefined && params.pageEnd !== undefined) {
-            const chunks = yield* Effect.tryPromise({
-              try: () =>
-                store.db!.all<{ id: string; text: string; section_id: string; page: number | null }>(
+            const chunks = yield* Effect.promise(() => (store.db!.all<{ id: string; text: string; section_id: string; page: number | null }>(
                   "SELECT id, text, section_id, page FROM chunks WHERE book_id = ? AND page >= ? AND page <= ? ORDER BY ord",
                   params.bookId,
                   params.pageStart,
                   params.pageEnd,
-                ),
-              catch: () => [] as Record<string, unknown>[],
-            })
+                )).catch(() => [] as never[]))
             if (chunks.length === 0) {
               return {
                 title: "No chunks in page range",
-                metadata: {},
+                metadata: {} as Record<string, unknown>,
                 output: `No content found on pages ${params.pageStart}-${params.pageEnd}.`,
               }
             }
@@ -108,7 +96,7 @@ export const BookReadSectionTool = Tool.define(
 
           return {
             title: "Missing parameters",
-            metadata: {},
+            metadata: {} as Record<string, unknown>,
             output: "Provide either sectionId or both pageStart and pageEnd.",
           }
         }),

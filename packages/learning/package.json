@@ -57,7 +57,8 @@
     "./grounding/turn-state": "./src/grounding/turn-state.ts",
     "./grounding/post": "./src/grounding/post.ts",
     "./ocr": "./src/ocr/index.ts",
-    "./ocr/pack": "./src/ocr/pack.ts"
+    "./ocr/pack": "./src/ocr/pack.ts",
+    "./settings/validate": "./src/settings/validate.ts"
   },
   "devDependencies": {
     "@tsconfig/bun": "catalog:",

@@ -30,7 +30,7 @@ export const BookFindTermTool = Tool.define(
           if (!store.available || !store.db) {
             return {
               title: "Term lookup unavailable",
-              metadata: {},
+              metadata: {} as Record<string, unknown>,
               output: "The book library is currently unavailable.",
             }
           }
@@ -38,21 +38,17 @@ export const BookFindTermTool = Tool.define(
           // Use LIKE for case-insensitive exact term match on both original
           // and normalized text.
           const pattern = `%${params.term.replace(/[%_]/g, "\\$&")}%`
-          const chunks = yield* Effect.tryPromise({
-            try: () =>
-              store.db!.all<{ id: string; text: string; section_id: string; page: number | null }>(
+          const chunks = yield* Effect.promise(() => (store.db!.all<{ id: string; text: string; section_id: string; page: number | null }>(
                 "SELECT id, text, section_id, page FROM chunks WHERE book_id = ? AND (text LIKE ? ESCAPE '\\' OR text_norm LIKE ? ESCAPE '\\') ORDER BY ord LIMIT ?",
                 params.bookId,
                 pattern,
                 pattern,
                 max,
-              ),
-            catch: () => [] as Record<string, unknown>[],
-          })
+              )).catch(() => [] as never[]))
           if (chunks.length === 0) {
             return {
               title: `No occurrences of "${params.term}"`,
-              metadata: {},
+              metadata: {} as Record<string, unknown>,
               output: `The term "${params.term}" was not found in book ${params.bookId}.`,
             }
           }

@@ -1,0 +1,18 @@
+# DECISIONS — Targeted Learning
+
+Format: decision · alternatives · why · trade-off.
+
+1. **Embeddings: `Xenova/bge-m3` through Transformers.js, int8 default.** Alt: `philipchung/bge-m3-onnx` (unoptimized fp32, 3-output graph), Python sentence-transformers sidecar. Why: runs in-process in Bun, no second runtime, 568 MB. Trade-off: dense-only (no sparse/ColBERT) → lexical side is SQLite FTS5 BM25.
+2. **Pinned revision + sha256 manifest compiled into code (`manifest/pinned.ts`)**, own downloader, Transformers.js forced local-only. Alt: let Transformers.js download. Why: resumable, verified, mirror/offline capable. Trade-off: bumping the model means editing the manifest; 3 tiny JSON files are pinned by commit only.
+3. **Separate `books.db`; student memory in its own `student.db`.** Alt: student memory in the main chat DB (plan said so). Why: chats survive book-file loss/corruption, and no Drizzle migration of the chat DB; student.db also survives losing books.db. Trade-off: one more file to back up.
+4. **Brute-force cosine over vectors stored as base64 in SQLite**, FTS5 BM25, RRF fusion. Alt: sqlite-vec / Qdrant. Why: no native extension (fragile under Bun), no service. Trade-off: fine up to ~10⁴–10⁵ chunks per book set; revisit beyond.
+5. **Grounding enforced by the system, not only the prompt:** tool allowlist for targeted sessions, pre-LLM retrieval gate (hardcoded refusal, no LLM call), citations `[chunk_id]`, post-answer verifier note. "No word from outside the book" is unenforceable literally; the enforced form is "every factual claim traceable to a passage shown this turn".
+6. **Hooks in `prompt.ts` call plain async functions via a process-wide runtime (`runtime.ts`)** instead of adding Effect service requirements to SessionPrompt. Why: avoids layer-graph changes (the documented `Effect.provide` sibling-isolation trap). Trade-off: global state; set once by the learning layer.
+7. **Session mode stored in `session.metadata.targetedLearning`** (sticky, union of books). Alt: new column/table. Why: no migration; metadata already exists.
+8. **Embedding worker pool = N Bun Workers (default 2/book), main thread is the only SQLite writer**; falls back to in-process embedding if workers die. Batches sorted by length. Trade-off: each worker holds a model copy (~0.6 GB for int8).
+9. **Chunks belong to the parent *slice* row** (`…-sN-pK`). The old code pointed at the base section id, which has no row for split sections → foreign-key failure for any section over `parentMaxTokens`.
+10. **OCR reads the embedded page image out of the PDF (pdf.js operator list) and encodes a PNG itself; tesseract.js (WASM) with pinned local ara/eng tessdata.** Alt: render pages via `@napi-rs/canvas`. Why: canvas rendering segfaulted Bun 1.3.14 and 1.4.4 in testing. Trade-off: only image-based scans; rotated/vector-only pages unsupported.
+11. **Settings: one Effect Schema → defaults, JSON schema, server validation, generated UI form.** Written to the **global** config layer (`updateGlobal` + `refresh`), merged per section; `Config.update` writes a project-local `config.json` and was the wrong layer.
+12. **Settings PATCH validates ranges/enums/types server-side** (`settings/validate.ts`); client checks are convenience only.
+13. **Gate default `minDenseScore` 0.35 kept until calibrated on real scores**; `scripts/tl-live-check.ts` measures and can apply a recommendation (midpoint between p5 of in-book and p95 of off-topic scores).
+14. **Agent environment cannot reach HF or the owner's VDS** → real-model validation is delivered as a script for the owner/next agent to run, not claimed as done.
