@@ -75,6 +75,7 @@ import { Ripgrep } from "@diveeoi/db/ripgrep"
 import { SessionProjector } from "@diveeoi/db/session/projector"
 import { FSUtil } from "@diveeoi/db/fs-util"
 import { Memory } from "@diveeoi/memory"
+import { node as enabledLearningNode, disabledNode as disabledLearningNode } from "@diveeoi/learning/node"
 
 /**
  * The anchor services are behind a feature flag - the anchor tools only exist when it is
@@ -87,21 +88,12 @@ export const anchorNodes = Features.flags.anchor ? ([Anchor.node] as const) : ([
  * Targeted Learning is behind a feature flag. When off, the disabled node
  * (always-unavailable BooksStore) is wired so the API and UI still see the
  * service, but every method returns "feature disabled".
+ *
+ * Keep this as an ESM import: learning/node reaches Global, which performs
+ * asynchronous startup initialization with top-level await. A synchronous
+ * require() here makes Bun's production compiler reject the transitive graph.
  */
-const learningNode = (() => {
-  if (!Features.flags.learning) {
-    const { disabledNode } = require("@diveeoi/learning/node") as typeof import("@diveeoi/learning/node")
-    return disabledNode
-  }
-  try {
-    const { node } = require("@diveeoi/learning/node") as typeof import("@diveeoi/learning/node")
-    return node
-  } catch (err) {
-    void err
-    const { disabledNode } = require("@diveeoi/learning/node") as typeof import("@diveeoi/learning/node")
-    return disabledNode
-  }
-})()
+const learningNode = Features.flags.learning ? enabledLearningNode : disabledLearningNode
 
 /**
  * The application services, in the order they are wired into the HTTP application graph.

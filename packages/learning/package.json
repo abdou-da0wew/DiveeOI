@@ -49,6 +49,7 @@
     "./service": "./src/service.ts",
     "./node": "./src/node.ts",
     "./runtime": "./src/runtime.ts",
+    "./diagnostics": "./src/diagnostics.ts",
     "./manifest/pinned": "./src/manifest/pinned.ts",
     "./embed/ensure": "./src/embed/ensure.ts",
     "./setup/steps": "./src/setup/steps.ts",

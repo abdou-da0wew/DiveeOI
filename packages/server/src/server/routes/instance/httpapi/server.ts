@@ -69,6 +69,7 @@ import { corsVaryFix } from "./middleware/cors-vary"
 import { errorLayer } from "./middleware/error"
 import { fenceLayer } from "./middleware/fence"
 import { schemaErrorLayer } from "./middleware/schema-error"
+import { targetedLearningDiagnosticsLayer } from "./middleware/targeted-learning-diagnostics"
 
 export const context = Context.makeUnsafe<unknown>(new Map())
 
@@ -197,6 +198,7 @@ return Layer.mergeAll(
       errorLayer,
       compressionLayer,
       corsVaryFix,
+      targetedLearningDiagnosticsLayer,
       fenceLayer,
       cors(corsOptions),
       MoveSession.defaultLayer,

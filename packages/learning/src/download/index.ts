@@ -35,6 +35,7 @@ import {
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { Effect, Schema, Duration } from "effect"
 import type { Manifest, ManifestFile } from "../manifest/types"
+import { diagnosticsEnabled, logDiagnostic, withDiagnosticEffect, type DiagnosticOperation } from "../diagnostics"
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -125,6 +126,7 @@ const downloadAttempt = async (
   stallTimeoutSec: number,
   onProgress?: DownloadOptions["onProgress"],
   signal?: AbortSignal,
+  onDiagnosticProgress?: (receivedBytes: number, totalBytes: number) => void,
 ): Promise<AttemptResult> => {
   const partPath = `${destPath}.part`
   const resumeFrom = existsSync(partPath) ? statSync(partPath).size : 0
@@ -183,6 +185,7 @@ const downloadAttempt = async (
 
     const reader = response.body.getReader()
     let received = baseline
+    let lastDiagnosticProgressAt = 0
     try {
       for (;;) {
         const { done, value } = await reader.read()
@@ -190,7 +193,23 @@ const downloadAttempt = async (
         if (!out.write(value)) await new Promise<void>((resolve) => out.once("drain", resolve))
         received += value.byteLength
         lastByteTime = Date.now()
-        if (onProgress) onProgress(file, received, baseline + total)
+        const now = Date.now()
+        onProgress?.(file, received, baseline + total)
+        if (
+          (now - lastDiagnosticProgressAt >= 1_000 || received >= baseline + total) &&
+          diagnosticsEnabled("download")
+        ) {
+          lastDiagnosticProgressAt = now
+          const totalBytes = baseline + total
+          const percent = totalBytes > 0 ? Math.floor((received / totalBytes) * 100) : undefined
+          logDiagnostic(
+            "download",
+            "file.progress",
+            { file: file.path, receivedBytes: received, totalBytes, percent },
+            "trace",
+          )
+          onDiagnosticProgress?.(received, totalBytes)
+        }
       }
     } catch (err) {
       out.destroy()
@@ -210,23 +229,67 @@ const downloadFile = (
   destDir: string,
   manifest: Manifest,
   options: DownloadOptions,
-): Effect.Effect<void, DownloadError | HashMismatchError> =>
-  Effect.gen(function* () {
+): Effect.Effect<void, DownloadError | HashMismatchError> => {
+  let diagnostic: DiagnosticOperation | undefined
+  const effect = Effect.gen(function* () {
     const destPath = join(destDir, file.path)
     const endpoint = options.endpoint ?? manifest.endpoint
 
     // Skip if already present and verified.
     if (existsSync(destPath) && statSync(destPath).size > 0 && (!hasSize(file) || statSync(destPath).size === file.size)) {
-      if (!hasHash(file)) return
+      const existingSize = statSync(destPath).size
+      if (!hasHash(file)) {
+        yield* Effect.sync(() =>
+          logDiagnostic(
+            "download",
+            "file.skipped",
+            { file: file.path, reason: "present-without-hash", sizeBytes: existingSize },
+            "info",
+          ),
+        )
+        return
+      }
       const actual = yield* hashFile(destPath)
-      if (actual === file.sha256) return
+      if (actual === file.sha256) {
+        yield* Effect.sync(() =>
+          logDiagnostic(
+            "download",
+            "file.skipped",
+            { file: file.path, reason: "already-verified", sizeBytes: existingSize },
+            "info",
+          ),
+        )
+        return
+      }
+      yield* Effect.sync(() =>
+        logDiagnostic(
+          "download",
+          "file.hash-mismatch",
+          { file: file.path, expected: file.sha256, actual, source: "existing-file" },
+          "warn",
+        ),
+      )
       unlinkSync(destPath)
     }
 
     let attempt = 0
     while (attempt <= options.retries) {
+      yield* Effect.sync(() =>
+        logDiagnostic("download", "attempt.start", { file: file.path, attempt }, "info"),
+      )
       const result = yield* Effect.tryPromise({
-        try: () => downloadAttempt(file, destPath, endpoint, manifest, options.stallTimeoutSec, options.onProgress, options.signal),
+        try: () =>
+          downloadAttempt(
+            file,
+            destPath,
+            endpoint,
+            manifest,
+            options.stallTimeoutSec,
+            options.onProgress,
+            options.signal,
+            (receivedBytes, totalBytes) =>
+              diagnostic?.progress("file.transfer", { file: file.path, receivedBytes, totalBytes }),
+          ),
         catch: (err) =>
           err instanceof DownloadError
             ? err
@@ -261,6 +324,14 @@ const downloadFile = (
         }
         const actualSize = statSync(partPath).size
         if (actualSize === 0 || (hasSize(file) && actualSize !== file.size)) {
+          yield* Effect.sync(() =>
+            logDiagnostic(
+              "download",
+              "file.size-mismatch",
+              { file: file.path, expectedBytes: file.size, actualBytes: actualSize, attempt },
+              "warn",
+            ),
+          )
           unlinkSync(partPath)
           if (attempt >= options.retries) {
             yield* Effect.fail(
@@ -275,9 +346,22 @@ const downloadFile = (
           attempt++
           continue
         }
+        if (hasHash(file)) {
+          yield* Effect.sync(() =>
+            logDiagnostic("download", "file.hash-verification", { file: file.path, sizeBytes: actualSize }, "trace"),
+          )
+        }
         const actual = hasHash(file) ? yield* hashFile(partPath) : ""
         if (hasHash(file) && actual !== file.sha256) {
           // Hash mismatch — retry once, then fail hard (plan §5.5).
+          yield* Effect.sync(() =>
+            logDiagnostic(
+              "download",
+              "file.hash-mismatch",
+              { file: file.path, expected: file.sha256, actual, attempt },
+              "warn",
+            ),
+          )
           unlinkSync(partPath)
           if (attempt >= options.retries) {
             yield* Effect.fail(
@@ -290,11 +374,22 @@ const downloadFile = (
         // Atomic rename.
         mkdirSync(dirname(destPath), { recursive: true })
         renameSync(partPath, destPath)
+        yield* Effect.sync(() =>
+          logDiagnostic("download", "file.verified", { file: file.path, sizeBytes: actualSize }, "info"),
+        )
         return
       }
 
       // Left case — retryable error
       const err = result.left
+      yield* Effect.sync(() =>
+        logDiagnostic(
+          "download",
+          "attempt.error",
+          { file: file.path, attempt, error: err },
+          err instanceof DownloadError && !err.retryable ? "error" : "warn",
+        ),
+      )
       if (err instanceof HashMismatchError) {
         yield* Effect.fail(err)
       }
@@ -308,6 +403,16 @@ const downloadFile = (
       attempt++
     }
   })
+  return withDiagnosticEffect(
+    "download",
+    `file.${file.path}`,
+    { file: file.path, sizeBytes: file.size },
+    effect,
+    (operation) => {
+      diagnostic = operation
+    },
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Public: download every file in a manifest, optionally filtered by dtype

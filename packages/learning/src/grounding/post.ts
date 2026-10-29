@@ -9,6 +9,7 @@ import { getRuntime } from "../runtime"
 import { withDefaults } from "../settings/defaults"
 import { buildRetryPrompt, verify, type Citation, type VerifiedCitation } from "./verifier"
 import { clearRetrieved, extractCitedChunkIds, getRetrieved } from "./turn-state"
+import { logDiagnostic, withDiagnosticPromise } from "../diagnostics"
 
 type Tree = Record<string, unknown>
 
@@ -43,7 +44,7 @@ const noteForFailures = (failures: VerifiedCitation[], arabic: boolean) => {
     : `⚠ ${bad.length} citation${bad.length === 1 ? "" : "s"} could not be verified: ${bad.join(", ")}`
 }
 
-export const verifyAnswer = async (input: {
+const verifyAnswerImpl = async (input: {
   sessionId: string
   answer: string
   settings?: Tree
@@ -64,6 +65,12 @@ export const verifyAnswer = async (input: {
   }
   const ar = isArabic(input.answer)
   const cited = extractCitedChunkIds(input.answer)
+  logDiagnostic(
+    "grounding",
+    "citations.extracted",
+    { sessionId: input.sessionId, citationCount: cited.length, answerLength: input.answer.length },
+    "trace",
+  )
   if (cited.length === 0) {
     const note = grounding.requireCitations !== false && input.answer.trim().length > 240
       ? ar
@@ -81,18 +88,38 @@ export const verifyAnswer = async (input: {
   const { results, allVerified } = await Effect.runPromise(
     verify({ citations, retrievedChunkIds: getRetrieved(input.sessionId), chunksByText, mode: "flag" }),
   )
+  const failures = results.filter((result) => !result.verified)
+  logDiagnostic(
+    "grounding",
+    "citations.verified",
+    {
+      sessionId: input.sessionId,
+      citationCount: cited.length,
+      failureCount: failures.length,
+      verified: allVerified,
+      mode,
+    },
+    allVerified ? "info" : "warn",
+  )
   if (allVerified) {
     clearRetrieved(input.sessionId)
     return { verified: true }
   }
 
-  const failures = results.filter((result) => !result.verified)
   if (mode === "retry" && input.allowRetry !== false) {
     return { verified: false, retryPrompt: buildRetryPrompt(failures) }
   }
   clearRetrieved(input.sessionId)
   return { verified: false, note: noteForFailures(failures, ar) }
 }
+
+export const verifyAnswer = (input: Parameters<typeof verifyAnswerImpl>[0]): Promise<VerifyAnswerResult> =>
+  withDiagnosticPromise(
+    "grounding",
+    "verify-answer",
+    { sessionId: input.sessionId, answerText: input.answer, allowRetry: input.allowRetry !== false },
+    () => verifyAnswerImpl(input),
+  )
 
 /** Compatibility helper for callers that only need the final warning note. */
 export const verifyAnswerNote = async (input: {
