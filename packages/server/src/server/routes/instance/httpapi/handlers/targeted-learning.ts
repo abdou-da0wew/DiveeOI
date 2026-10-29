@@ -11,6 +11,7 @@ import { TargetedLearning as TLService } from "@diveeoi/learning"
 import { Config } from "@/config/config"
 import { PRESETS, withDefaults, type Info as TLInfo } from "@diveeoi/learning/settings"
 import { Global } from "@diveeoi/db/global"
+import { diagnosticsSnapshot, logDiagnostic } from "@diveeoi/learning/diagnostics"
 
 export const targetedLearningHandlers = HttpApiBuilder.group(
   InstanceHttpApi,
@@ -234,6 +235,14 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
         const written = yield* configSvc.updateGlobal(next)
         // get() reads cached per-instance state; rebuild it so the new values are visible immediately.
         if (written.changed) yield* configSvc.refresh()
+        yield* Effect.sync(() =>
+          logDiagnostic(
+            "settings",
+            "targeted-learning.updated",
+            { changed: written.changed, fields: Object.keys(ctx.payload) },
+            "info",
+          ),
+        )
         return yield* getSettings()
       })
 
@@ -263,6 +272,10 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
           modelReady: state.status === "ready",
           manifestLoaded: tl.manifest !== null,
         }
+      })
+
+      const debugStatus = Effect.fn("TargetedLearning.debugStatus")(function* () {
+        return diagnosticsSnapshot()
       })
 
       const probe = Effect.fn("TargetedLearning.probe")(function* () {
@@ -462,6 +475,7 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
         .handle("settings-schema", getSettingsSchema)
         .handle("settings-presets", getSettingsPresets)
         .handle("health", health)
+        .handle("debug-status", debugStatus)
         .handle("probe", probe)
         .handle("books", listBooks)
         .handle("jobs", listJobs)

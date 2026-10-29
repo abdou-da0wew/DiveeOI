@@ -208,6 +208,20 @@ export const TargetedLearningApi = HttpApi.make("targeted-learning")
         ),
       )
       .add(
+        HttpApiEndpoint.get("debug-status", `${root}/debug/status`, {
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Unknown, "Opt-in Targeted Learning diagnostics snapshot"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "targeted-learning.debug.status",
+            summary: "Inspect runtime Targeted Learning diagnostics",
+            description:
+              "Returns active operation spans, detected stalls, recent errors, event counts, " +
+              "and the configured debug log path. Detailed diagnostics must be enabled with DIVEEOI_TL_DEBUG.",
+          }),
+        ),
+      )
+      .add(
         HttpApiEndpoint.get("probe", `${root}/probe`, {
           query: WorkspaceRoutingQuery,
           success: described(ProbeResultSchema, "Probe result"),
