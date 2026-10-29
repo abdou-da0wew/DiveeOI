@@ -69,6 +69,41 @@ export default {
           \`time_updated\` integer NOT NULL
         );
       `)
+      // Auth tables are kept in the fresh-install snapshot as well as migrations.
+      // Fresh databases seed the migration journal after schema.up(), so migrations
+      // (including repair_missing_tables) are intentionally not replayed there.
+      yield* tx.run(`
+        CREATE TABLE \`user\` (
+          \`id\` text PRIMARY KEY,
+          \`email\` text NOT NULL UNIQUE,
+          \`password_hash\` text NOT NULL,
+          \`role\` text NOT NULL DEFAULT 'user',
+          \`verified\` integer NOT NULL DEFAULT 0,
+          \`created_at\` integer NOT NULL,
+          \`updated_at\` integer NOT NULL,
+          \`username\` text NOT NULL DEFAULT '',
+          \`message_count\` integer NOT NULL DEFAULT 0
+        );
+      `)
+      yield* tx.run(`
+        CREATE TABLE \`verification_token\` (
+          \`id\` text PRIMARY KEY,
+          \`user_id\` text NOT NULL REFERENCES \`user\`(\`id\`) ON DELETE CASCADE,
+          \`token\` text NOT NULL UNIQUE,
+          \`type\` text NOT NULL,
+          \`expires_at\` integer NOT NULL,
+          \`used\` integer NOT NULL DEFAULT 0
+        );
+      `)
+      yield* tx.run(`
+        CREATE TABLE \`auth_refresh_token\` (
+          \`jti\` text PRIMARY KEY,
+          \`user_id\` text NOT NULL REFERENCES \`user\`(\`id\`) ON DELETE CASCADE,
+          \`expires_at\` integer NOT NULL,
+          \`created_at\` integer NOT NULL,
+          \`revoked_at\` integer
+        );
+      `)
       yield* tx.run(`
         CREATE TABLE \`event_sequence\` (
           \`aggregate_id\` text PRIMARY KEY,
@@ -370,6 +405,10 @@ export default {
       yield* tx.run(`CREATE INDEX \`session_workspace_idx\` ON \`session\` (\`workspace_id\`);`)
       yield* tx.run(`CREATE INDEX \`session_parent_idx\` ON \`session\` (\`parent_id\`);`)
       yield* tx.run(`CREATE INDEX \`todo_session_idx\` ON \`todo\` (\`session_id\`);`)
+      yield* tx.run(`CREATE INDEX \`idx_user_email\` ON \`user\` (\`email\`);`)
+      yield* tx.run(`CREATE INDEX \`idx_verification_token_token\` ON \`verification_token\` (\`token\`);`)
+      yield* tx.run(`CREATE INDEX \`auth_refresh_user_idx\` ON \`auth_refresh_token\` (\`user_id\`, \`revoked_at\`);`)
+      yield* tx.run(`CREATE INDEX \`auth_refresh_expiry_idx\` ON \`auth_refresh_token\` (\`expires_at\`);`)
     })
   },
 } satisfies Omit<DatabaseMigration.Migration, "id">

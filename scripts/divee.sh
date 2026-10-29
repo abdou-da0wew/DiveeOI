@@ -7,7 +7,7 @@
 # from env vars; the base URL defaults to localhost:4097.
 #
 # Usage:
-#   DIVEEOI_URL=http://localhost:4097 DIVEEOI_USER=opencode DIVEEOI_PASS=... \
+#   DIVEEOI_URL=http://localhost:4097 DIVEEOI_USER=DIVEEOI DIVEEOI_PASS=... \
 #     ./script/divee.sh run "Fix the CORS bug"
 #   ./script/divee.sh tasks
 #   ./script/divee.sh logs task_01J... --follow
@@ -16,12 +16,12 @@
 set -euo pipefail
 
 URL="${DIVEEOI_URL:-http://localhost:4097}"
-USER="${DIVEEOI_USER:-opencode}"
-PASS="${DIVEEOI_PASS:-${VITE_DIVEEOI_SERVER_PASSWORD:-}}"
+USER="${DIVEEOI_USER:-DIVEEOI}"
+PASS="${DIVEEOI_PASS:-${DIVEEOI_SERVER_PASSWORD:-${OPENCODE_SERVER_PASSWORD:-}}}"
 AUTH="${USER}:${PASS}"
 
 if [[ -z "${PASS}" ]]; then
-  echo "Error: DIVEEOI_PASS (or VITE_DIVEEOI_SERVER_PASSWORD) must be set" >&2
+  echo "Error: DIVEEOI_PASS or DIVEEOI_SERVER_PASSWORD must be set" >&2
   exit 1
 fi
 
@@ -73,8 +73,8 @@ DiveeOI curl helper (draft-10 P7).
 
 Env:
   DIVEEOI_URL   (default http://localhost:4097)
-  DIVEEOI_USER  (default opencode)
-  DIVEEOI_PASS  (required — falls back to VITE_DIVEEOI_SERVER_PASSWORD)
+  DIVEEOI_USER  (default DIVEEOI)
+  DIVEEOI_PASS  (required — falls back to DIVEEOI_SERVER_PASSWORD, then legacy OPENCODE_SERVER_PASSWORD)
 
 Commands:
   run <prompt>           Create + auto-run a task with the given prompt.

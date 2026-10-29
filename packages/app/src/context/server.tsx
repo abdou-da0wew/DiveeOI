@@ -2,6 +2,7 @@ import { createSimpleContext } from "@diveeoi/ui/context"
 import { type Accessor, batch, createMemo } from "solid-js"
 import { createStore, type SetStoreFunction, type Store } from "solid-js/store"
 import { Persist, persisted } from "@/utils/persist"
+import { setBasicCredentials } from "@/utils/auth-client"
 import { ServerScope } from "@/utils/server-scope"
 
 type StoredProject = { worktree: string; expanded: boolean }
@@ -247,6 +248,28 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
     const [state, setState] = createStore({
       active: props.defaultServer,
     })
+    // Credentials entered in the browser's styled login form stay in memory;
+    // unlike persisted server settings, passwords are never written to storage.
+    const [transientAuth, setTransientAuth] = createStore<Record<string, { username: string; password: string }>>({})
+
+    function setCredentials(input: { url: string; username: string; password: string }) {
+      const normalized = normalizeServerUrl(input.url)
+      if (!normalized) return
+      const credentials = { username: input.username, password: input.password }
+      setTransientAuth(normalized, credentials)
+      setBasicCredentials(normalized, credentials)
+    }
+
+    function clearCredentials(input: { url: string }) {
+      const normalized = normalizeServerUrl(input.url)
+      if (!normalized) return
+      setTransientAuth((current) => {
+        const next = { ...current }
+        delete next[normalized]
+        return next
+      })
+      setBasicCredentials(normalized, null)
+    }
 
     function setActive(input: ServerConnection.Key) {
       if (state.active !== input) setState("active", input)
@@ -289,9 +312,17 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       projectStores.set(key, next)
       return next
     }
-    const current: Accessor<ServerConnection.Any | undefined> = createMemo(
-      () => allServers().find((s) => ServerConnection.key(s) === state.active) ?? allServers()[0],
-    )
+    const current: Accessor<ServerConnection.Any | undefined> = createMemo(() => {
+      const connection = allServers().find((s) => ServerConnection.key(s) === state.active) ?? allServers()[0]
+      if (!connection || connection.type !== "http") return connection
+      const credentials = transientAuth[connection.http.url]
+      if (!credentials) return connection
+      return {
+        ...connection,
+        authToken: true,
+        http: { ...connection.http, ...credentials },
+      }
+    })
     const isLocal = createMemo(() => ServerConnection.local(current()))
 
     return {
@@ -310,6 +341,8 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
         return current()
       },
       setActive,
+      setCredentials,
+      clearCredentials,
       add,
       remove,
       scope,

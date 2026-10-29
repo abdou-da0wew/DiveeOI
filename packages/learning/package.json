@@ -8,7 +8,8 @@
   "scripts": {
     "test": "bun test",
     "typecheck": "tsgo --noEmit",
-    "tl:manifest": "bun src/manifest/cli.ts"
+    "tl:manifest": "bun src/manifest/cli.ts",
+    "tl:selftest:freeze": "bun scripts/freeze-selftest.ts"
   },
   "exports": {
     ".": "./src/index.ts",

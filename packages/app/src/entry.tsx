@@ -7,6 +7,7 @@ import { type Platform, PlatformProvider } from "@/context/platform"
 import { dict as en } from "@/i18n/en"
 import { dict as zh } from "@/i18n/zh"
 import { handleNotificationClick } from "@/utils/notification-click"
+import { getBaseUrl, setBasicCredentials } from "@/utils/auth-client"
 import { authFromToken } from "@/utils/server"
 import pkg from "../package.json"
 import { ServerConnection } from "./context/server"
@@ -99,11 +100,7 @@ if (!(root instanceof HTMLElement) && import.meta.env.DEV) {
   throw new Error(getRootNotFoundError())
 }
 
-const getCurrentUrl = () => {
-  if (import.meta.env.DEV)
-    return `http://${import.meta.env.VITE_DIVEEOI_SERVER_HOST ?? "localhost"}:${import.meta.env.VITE_DIVEEOI_SERVER_PORT ?? "4097"}`
-  return location.origin
-}
+const getCurrentUrl = () => getBaseUrl()
 
 const getDefaultUrl = () => {
   const lsDefault = readDefaultServerUrl()
@@ -153,8 +150,10 @@ if (import.meta.env.VITE_SENTRY_DSN) {
 }
 
 if (root instanceof HTMLElement) {
+  // Credentials from legacy auth_token links remain supported. Do not bake
+  // server passwords into the browser bundle; Basic credentials are entered in
+  // the themed login form and held in memory for the active connection.
   const auth = authFromToken(new URLSearchParams(location.search).get("auth_token"))
-    ?? (import.meta.env.VITE_DIVEEOI_SERVER_PASSWORD ? authFromToken(btoa(`${import.meta.env.VITE_DIVEEOI_SERVER_USERNAME || "opencode"}:${import.meta.env.VITE_DIVEEOI_SERVER_PASSWORD}`)) : undefined)
   clearAuthToken()
   const server: ServerConnection.Http = {
     type: "http",
@@ -164,6 +163,7 @@ if (root instanceof HTMLElement) {
       ...auth,
     },
   }
+  if (auth) setBasicCredentials(server.http.url, auth)
   render(
     () => (
       <PlatformProvider value={platform}>

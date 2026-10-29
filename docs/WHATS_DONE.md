@@ -1,8 +1,10 @@
 # DiveeOI Targeted Learning — What's Done
 
-**A comprehensive reference of every file, feature, test, and integration point implemented for the Targeted Learning (RAGed-Session) feature.**
+**A historical inventory of the Targeted Learning (RAGed-Session) files, features, tests, and integration points.**
 
-This document is the **definitive inventory** of what exists, where it lives, what it does, and whether it's tested. If you're looking for "is X done?", this is the document to check. For the narrative of how and why it was built, see `TARGETED_LEARNING_WORKLOG.md`.
+> **Verification status — 2026-10-29:** this inventory predates the current auth/security, adaptive-resource, setup-cancellation, ingest-control/recovery, and grounding-retry changes. Counts and pass/typecheck claims below are historical snapshots, not verification of branch `arena/a467e26f-diveeoi`. No tests, typechecks, builds, browser runs, or model-backed checks have been run for the current changes. The pinned-model golden-vector fixture is still empty. See `WORKLOG.md` and `CONTEXT.md` for the current state and remaining checks.
+
+For the implementation history, see `TARGETED_LEARNING_WORKLOG.md`.
 
 ---
 
@@ -28,14 +30,14 @@ This document is the **definitive inventory** of what exists, where it lives, wh
 | **New package** | `@diveeoi/learning` (16 modules, ~6,850 LOC) |
 | **Source files created** | 43 |
 | **Test files created** | 16 |
-| **Tests passing** | 157 (0 failures) |
-| **Typecheck** | Clean on `@diveeoi/learning` + `@diveeoi/db` |
-| **Live integration test** | ✅ Server boots, setup reaches `ready`, `modelReady: true` |
-| **Files with `@ts-nocheck`** | 4 (Effect v4-beta type-narrowing issues; all runtime-tested) |
+| **Tests passing** | Not run on the current branch; 157 is an earlier historical snapshot |
+| **Typecheck** | Not run on the current branch; earlier clean result is historical |
+| **Live integration test** | Not re-run on the current branch; real-model setup still needs validation |
+| **Files with `@ts-nocheck`** | Historical count: 4 (verify current count and justifications) |
 | **Docker recipe** | ✅ Debian/glibc base with optional model pre-seeding |
 | **Deployment docs** | ✅ `docs/targeted-learning-deployment.md` |
-| **Plan phases completed** | Phase 1 (Foundations) ✅, Phase 2 (Books & Ingestion) ✅, Phase 3 (Retrieval) ✅, Phase 4 (Targeted Sessions) ✅, Phase 5 (UI) ✅, Phase 6 (Hardening) ✅ |
-| **Runtime spikes** | Spike 1 (Transformers.js) ✅ PASS, Spike 2 (PDF/DOCX) ✅ PASS |
+| **Plan phase inventory** | Earlier implementation was organized as Phases 1–6; current hardening changes still need runtime verification |
+| **Runtime spikes** | Earlier PASS reports for Transformers.js and PDF/DOCX are historical and were not repeated here |
 
 ---
 
@@ -795,3 +797,31 @@ MiniLM-L6-v2 (the test stand-in) has a severely anisotropic embedding space: off
 3. SolidJS hydration race → pre-hydration clicks are silently dropped; use click-verify-retry.
 4. Browser `localhost` resolves IPv6 `::1` first; a server bound to `127.0.0.1` is unreachable via localhost in some stacks → set `VITE_DIVEEOI_SERVER_HOST=127.0.0.1` in dev, or bind both stacks (future product fix).
 5. agent-browser a11y snapshots can flake on progressively-mounted dialogs → DOM-based clicks via eval are robust.
+
+---
+
+# 2026-10-29 Status Refresh — Current Branch
+
+This addendum supersedes earlier status/checklist claims above wherever they conflict. Implementation exists in source, but no tests, typechecks, builds, browser runs, or model-backed checks have been run for the current branch because Bun and workspace dependencies are unavailable.
+
+## Current Targeted Learning additions
+
+- Persistent ingest jobs now support pause, resume, cancel and retry. `GET /targeted-learning/jobs` lists them; `POST /targeted-learning/jobs/:jobID/{pause,resume,cancel,retry}` controls a job. Queued/running jobs are recovered at boot by validating the stored source path and SHA-256, then replaying the whole ingest from source (not continuing the exact checkpoint stage). Paused jobs stay paused across restart.
+- Setup has `POST /targeted-learning/setup/cancel`; step execution accepts an abort signal, cancellation restores interrupted steps to pending, and the server stops the setup Fiber before allowing repair/restart.
+- `grounding.verify = "retry"` removes a first unverified draft, supplies one repair prompt and verifies the retry; the final answer is marked if still unverified. Retrieved passage state is explicitly cleared after verification and is bounded/expired.
+- Local model import and persisted ingest recovery reject traversal and symlink paths that escape their selected roots. Recovery verifies the original source hash.
+- `packages/learning/scripts/freeze-selftest.ts` and `bun run tl:selftest:freeze` are present. `src/self-test/golden.json` still contains empty vectors, so the optional `runSelfTest()` reference-vector regression check is not ready until vectors are frozen with the pinned int8 model. Setup's separately named `golden-self-test` step runs the live semantic sanity check and does not depend on those fixtures.
+
+## Current cross-cutting changes
+
+- Auth now supports Basic/JWT modes, rotating/revocable refresh-session records, explicit JWT access/refresh purpose validation, a themed login/register UI, and no `WWW-Authenticate` Basic challenge. The default username is `DIVEEOI`; non-production/non-test Basic password is `divee`. `DIVEEOI_*` settings take precedence over legacy `OPENCODE_*` fallbacks. Production has no default Basic password.
+- Basic credentials from the login form stay in memory and are no longer embedded in the built frontend; they are attached only to the matching configured server origin, including direct Targeted Learning requests. Account Bearer tokens are only attached to app-origin requests. A protected 401 health response is treated as reachable so the themed login can render. Docker persists the generated JWT signing key under `/data` and treats HTTP 401 as a live healthcheck response.
+- Adaptive detection accounts for cgroup v1/v2 memory and CPU limits; profile target budgets scale down under pressure with hysteresis. SQLite cache/mmap settings subscribe to target updates.
+
+## Verification status and remaining work
+
+- Added but unrun regression tests cover auth/token behavior, adaptive targets, setup cancellation, grounding retry, turn-state bounds, local import containment, and ingest pause/resume/cancel/recovery validation.
+- Install Bun 1.3.14+ and dependencies; run learning/server/app/db tests, typechecks and builds.
+- Freeze and review golden vectors on a host with the pinned model installed; then run the learning self-test and real-model live check/gate calibration.
+- Exercise the login flows, Vite proxy, setup cancel/repair, and job controls in a browser; run current API route coverage.
+- Review the exact-source replay behavior and backup/restore paths with a process restart. Do not treat the historical green verification matrix above as current evidence.

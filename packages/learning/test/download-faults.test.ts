@@ -2,10 +2,10 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import { Effect } from "effect"
 import { createHash } from "node:crypto"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { downloadManifest, verifyManifestFiles } from "../src/download"
+import { downloadManifest, importFromLocalFolder, verifyManifestFiles } from "../src/download"
 import type { Manifest } from "../src/manifest/types"
 
 const payload = Buffer.from(Array.from({ length: 200_000 }, (_, i) => i % 251))
@@ -96,4 +96,37 @@ test("unpinned file (size 0, no hash) downloads and is accepted", async () => {
 test("verify reports a missing file", async () => {
   const v = await Effect.runPromise(verifyManifestFiles(manifest(), join(dir, "nowhere"), "int8", "size"))
   expect(v.problems[0]).toContain("missing")
+})
+
+test("local import rejects manifest traversal and source symlinks outside the selected folder", async () => {
+  const source = join(dir, "import-source")
+  const destination = join(dir, "import-destination")
+  mkdirSync(source, { recursive: true })
+  writeFileSync(join(dir, "outside.bin"), payload)
+  symlinkSync(join(dir, "outside.bin"), join(source, "a.bin"))
+
+  await expect(Effect.runPromise(importFromLocalFolder(manifest(), source, destination))).rejects.toBeTruthy()
+  const traversal: Manifest = {
+    ...manifest(),
+    files: [{ path: "../../outside.bin", size: payload.length, sha256: sha, required: true }],
+  }
+  await expect(Effect.runPromise(importFromLocalFolder(traversal, source, destination))).rejects.toBeTruthy()
+})
+
+test("local import rejects destination symlinks that escape the model directory", async () => {
+  const source = join(dir, "safe-source")
+  const destination = join(dir, "safe-destination")
+  const outside = join(dir, "outside-destination")
+  mkdirSync(source, { recursive: true })
+  mkdirSync(destination, { recursive: true })
+  mkdirSync(outside, { recursive: true })
+  writeFileSync(join(source, "a.bin"), payload)
+  symlinkSync(outside, join(destination, "nested"))
+
+  const nested: Manifest = {
+    ...manifest(),
+    files: [{ path: "nested/a.bin", size: payload.length, sha256: sha, required: true }],
+  }
+  await expect(Effect.runPromise(importFromLocalFolder(nested, source, destination))).rejects.toBeTruthy()
+  expect(existsSync(join(outside, "a.bin"))).toBe(false)
 })

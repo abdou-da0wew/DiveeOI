@@ -4,7 +4,7 @@ SolidJS single-page app. Built by Vite 7.1 with Tailwind 4.1 + Kobalte primitive
 
 ## Entry
 
-`src/entry.tsx` (182 lines) sets `DEFAULT_SERVER_URL_KEY = "diveeoi.settings.dat:defaultServerUrl"` behind `localStorage` try/catch, `getLocale` (`zh` prefix -> `zh` else `en`), `Platform` (web, `openLink/back/forward/restart`, `notify` via `Notification` gated on `visibilityState` + `hasFocus`), `getCurrentUrl` (`DEV ? VITE_DIVEEOI_SERVER_HOST:PORT : location.origin`), `authFromToken(?auth_token) ?? VITE_DIVEEOI_SERVER_PASSWORD`, and renders `PlatformProvider -> AppBaseProviders -> AppInterface{defaultServer, canonicalLocalServer, servers, disableHealthCheck}` into `#root`. `Sentry.init` filters `Breadcrumbs` (and `GlobalHandlers` in prod).
+`src/entry.tsx` sets `DEFAULT_SERVER_URL_KEY = "diveeoi.settings.dat:defaultServerUrl"` behind `localStorage` try/catch, chooses locale/platform helpers, reads legacy `?auth_token=` Basic credentials when present, and renders `PlatformProvider -> AppBaseProviders -> AppInterface{defaultServer, canonicalLocalServer, servers, disableHealthCheck}` into `#root`. Web requests use the app origin; Vite proxies API/WebSocket paths to the configured backend during development. Server passwords are entered in the themed login form and are not compiled into the browser bundle. `Sentry.init` filters `Breadcrumbs` (and `GlobalHandlers` in prod).
 
 `src/app.tsx` (500 lines) holds the provider tree and the routes:
 

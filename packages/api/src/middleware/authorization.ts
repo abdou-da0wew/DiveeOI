@@ -2,12 +2,11 @@ import { ServerAuth } from "../auth"
 import { UnauthorizedError } from "../errors"
 import { hasPtyConnectTicketURL } from "../groups/pty"
 import { Effect, Encoding, Layer, Redacted } from "effect"
-import { HttpEffect, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
+import { HttpServerRequest } from "effect/unstable/http"
 import { HttpApiMiddleware } from "effect/unstable/httpapi"
 import { JwtAuth } from "./jwt"
 
 const AUTH_TOKEN_QUERY = "auth_token"
-const WWW_AUTHENTICATE = 'Basic realm="Secure Area"'
 
 export class Authorization extends HttpApiMiddleware.Service<Authorization>()("@opencode/HttpApiAuthorization", {
   error: UnauthorizedError,
@@ -49,26 +48,24 @@ export const authorizationLayer = Layer.effect(
         const url = new URL(request.url, "http://localhost")
         if (url.pathname.startsWith("/api/auth/")) return yield* effect
         if (hasPtyConnectTicketURL(url)) return yield* effect
-        if (ServerAuth.required(config)) {
+        if (config.mode === "disabled") return yield* effect
+
+        if (ServerAuth.basicEnabled(config)) {
           const credential = yield* credentialFromRequest(request)
           if (ServerAuth.authorized(credential, config)) return yield* effect
         }
-        const authHeader = request.headers.authorization ?? ""
-        const bearerMatch = /^Bearer\s+(.+)$/i.exec(authHeader)
-        if (bearerMatch) {
-          const jwtAuth = yield* JwtAuth.Service
-          const result = yield* jwtAuth.verifyAccessToken(bearerMatch[1]).pipe(
-            Effect.match({
-              onSuccess: () => true,
-              onFailure: () => false,
-            }),
-          )
-          if (result) return yield* effect
+
+        if (ServerAuth.jwtEnabled(config)) {
+          const bearerMatch = /^Bearer\s+([^\s]+)$/i.exec(request.headers.authorization ?? "")
+          if (bearerMatch) {
+            const jwtAuth = yield* JwtAuth.Service
+            const valid = yield* jwtAuth.verifyAccessToken(bearerMatch[1]).pipe(
+              Effect.match({ onSuccess: () => true, onFailure: () => false }),
+            )
+            if (valid) return yield* effect
+          }
         }
-        if (!ServerAuth.required(config)) return yield* effect
-        yield* HttpEffect.appendPreResponseHandler((_request, response) =>
-          Effect.succeed(HttpServerResponse.setHeader(response, "www-authenticate", WWW_AUTHENTICATE)),
-        )
+
         return yield* new UnauthorizedError({ message: "Authentication required" })
       }) as any,
     )

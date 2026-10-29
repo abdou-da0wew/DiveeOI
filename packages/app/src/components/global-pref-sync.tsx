@@ -5,6 +5,7 @@ import { usePermission } from "@/context/permission"
 import { useGlobal } from "@/context/global"
 import { useServerSDK } from "@/context/server-sdk"
 import { authTokenFromCredentials } from "@/utils/server"
+import { authFetch } from "@/utils/auth-client"
 
 const GLOBAL_SCOPE = "global"
 const SETTINGS_PREF = "settings.v3"
@@ -64,7 +65,7 @@ export function GlobalPrefSync() {
 
       syncingFromServer = true
 
-      fetch(`${conn.http.url}/api/prefs/${scopeValue}`, { headers })
+      authFetch(`${conn.http.url}/api/prefs/${scopeValue}`, { headers })
         .then(
           (r) =>
             r.ok
@@ -109,7 +110,7 @@ export function GlobalPrefSync() {
       const headers = getAuthHeaders(conn)
 
       const timer = setTimeout(() => {
-        fetch(`${conn.http.url}/api/prefs/${scopeValue}`, {
+        authFetch(`${conn.http.url}/api/prefs/${scopeValue}`, {
           method: "PUT",
           headers,
           body: JSON.stringify({ name: prefName, value: serialized }),

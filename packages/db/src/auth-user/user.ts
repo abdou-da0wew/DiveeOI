@@ -32,6 +32,7 @@ export interface VerificationToken {
 
 export interface Interface {
   readonly create: (email: string, passwordHash: string, role?: string, username?: string) => Effect.Effect<User>
+  readonly createFirstAdmin: (email: string, passwordHash: string, username?: string) => Effect.Effect<Option.Option<User>>
   readonly findByEmail: (email: string) => Effect.Effect<Option.Option<User>>
   readonly findById: (id: string) => Effect.Effect<Option.Option<User>>
   readonly verifyEmail: (userId: string) => Effect.Effect<void>
@@ -44,6 +45,11 @@ export interface Interface {
   readonly updateProfile: (userId: string, data: { username?: string; email?: string; password_hash?: string }) => Effect.Effect<User>
   readonly getMessageCount: (userId: string) => Effect.Effect<number>
   readonly incrementMessageCount: (userId: string) => Effect.Effect<void>
+  readonly issueRefreshSession: (jti: string, userId: string, expiresAt: number) => Effect.Effect<void>
+  readonly isRefreshSessionActive: (jti: string, userId: string, now?: number) => Effect.Effect<boolean>
+  readonly rotateRefreshSession: (jti: string, userId: string, nextJti: string, nextExpiresAt: number, now?: number) => Effect.Effect<boolean>
+  readonly revokeRefreshSession: (jti: string, userId: string, now?: number) => Effect.Effect<void>
+  readonly revokeAllRefreshSessions: (userId: string, now?: number) => Effect.Effect<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@diveeoi/UserService") {}
@@ -60,6 +66,19 @@ export const layer = Layer.effect(
           const id = crypto.randomUUID()
           yield* db.run(sql`INSERT INTO "user" (id, email, password_hash, role, verified, message_count, username, created_at, updated_at) VALUES (${id}, ${email}, ${passwordHash}, ${role}, 0, 0, ${username}, ${now}, ${now})`)
           return { id, email, username, password_hash: passwordHash, role, verified: 0, message_count: 0, created_at: now, updated_at: now }
+        })),
+
+      createFirstAdmin: (email: string, passwordHash: string, username = "") =>
+        dieOnError(Effect.gen(function* () {
+          const now = Date.now()
+          const id = crypto.randomUUID()
+          const rows = yield* db.all<User>(sql`
+            INSERT INTO "user" (id, email, password_hash, role, verified, message_count, username, created_at, updated_at)
+            SELECT ${id}, ${email}, ${passwordHash}, 'admin', 0, 0, ${username}, ${now}, ${now}
+            WHERE NOT EXISTS (SELECT 1 FROM "user" WHERE role IN ('admin', 'user'))
+            RETURNING *
+          `)
+          return rows.length > 0 ? Option.some(rows[0]) : Option.none()
         })),
 
       findByEmail: (email: string) =>
@@ -164,6 +183,62 @@ export const layer = Layer.effect(
           const now = Date.now()
           yield* db.run(
             sql`UPDATE "user" SET message_count = message_count + 1, updated_at = ${now} WHERE id = ${userId}`,
+          )
+        })),
+
+      issueRefreshSession: (jti: string, userId: string, expiresAt: number) =>
+        dieOnError(Effect.gen(function* () {
+          const now = Date.now()
+          yield* db.run(sql`DELETE FROM auth_refresh_token WHERE expires_at <= ${now}`)
+          yield* db.run(
+            sql`INSERT INTO auth_refresh_token (jti, user_id, expires_at, created_at, revoked_at) VALUES (${jti}, ${userId}, ${expiresAt}, ${now}, NULL)`,
+          )
+        })),
+
+      isRefreshSessionActive: (jti: string, userId: string, now = Date.now()) =>
+        dieOnError(Effect.gen(function* () {
+          const row = yield* db.get<{ jti: string }>(
+            sql`SELECT jti FROM auth_refresh_token WHERE jti = ${jti} AND user_id = ${userId} AND revoked_at IS NULL AND expires_at > ${now} LIMIT 1`,
+          )
+          return row !== undefined
+        })),
+
+      rotateRefreshSession: (
+        jti: string,
+        userId: string,
+        nextJti: string,
+        nextExpiresAt: number,
+        now = Date.now(),
+      ) =>
+        dieOnError(
+          db.transaction((tx) =>
+            Effect.gen(function* () {
+              const active = yield* tx.get<{ jti: string }>(
+                sql`SELECT jti FROM auth_refresh_token WHERE jti = ${jti} AND user_id = ${userId} AND revoked_at IS NULL AND expires_at > ${now} LIMIT 1`,
+              )
+              if (!active) return false
+              yield* tx.run(
+                sql`UPDATE auth_refresh_token SET revoked_at = ${now} WHERE jti = ${jti} AND user_id = ${userId} AND revoked_at IS NULL`,
+              )
+              yield* tx.run(
+                sql`INSERT INTO auth_refresh_token (jti, user_id, expires_at, created_at, revoked_at) VALUES (${nextJti}, ${userId}, ${nextExpiresAt}, ${now}, NULL)`,
+              )
+              return true
+            }),
+          ),
+        ),
+
+      revokeRefreshSession: (jti: string, userId: string, now = Date.now()) =>
+        dieOnError(Effect.gen(function* () {
+          yield* db.run(
+            sql`UPDATE auth_refresh_token SET revoked_at = ${now} WHERE jti = ${jti} AND user_id = ${userId} AND revoked_at IS NULL`,
+          )
+        })),
+
+      revokeAllRefreshSessions: (userId: string, now = Date.now()) =>
+        dieOnError(Effect.gen(function* () {
+          yield* db.run(
+            sql`UPDATE auth_refresh_token SET revoked_at = ${now} WHERE user_id = ${userId} AND revoked_at IS NULL`,
           )
         })),
     })

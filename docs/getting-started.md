@@ -48,7 +48,7 @@ bun run typecheck    # tsgo --noEmit per package
 bun run lint         # oxlint
 ```
 
-Open `http://localhost:3000` in a browser. The app connects to the server it finds at the current origin in production, or `http://localhost:4097` in dev (`VITE_DIVEEOI_SERVER_HOST` / `VITE_DIVEEOI_SERVER_PORT`).
+Open `http://localhost:3000` in a browser. The app connects through Vite's same-origin proxy to the configured backend in development (`VITE_DIVEEOI_SERVER_HOST` / `VITE_DIVEEOI_SERVER_PORT`). The local non-production server defaults to Basic credentials **`DIVEEOI` / `divee`**; enter them in the DiveeOI-styled sign-in form. Production has no default Basic password. See [Authentication and Security](security-auth.md) for JWT accounts and deployment configuration.
 
 ## First Project
 

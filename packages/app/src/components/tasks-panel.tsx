@@ -6,6 +6,7 @@ import { useProviders } from "@/hooks/use-providers"
 import { authTokenFromCredentials } from "@/utils/server"
 import { useLanguage } from "@/context/language"
 import "./tasks-panel.css"
+import { authFetch } from "@/utils/auth-client"
 
 /**
  * Tasks panel (draft-10 P4 frontend).
@@ -99,7 +100,7 @@ export const TasksPanel: Component = () => {
 
   const fetchTasks = async (): Promise<TaskInfo[]> => {
     try {
-      const res = await fetch(url("/api/v1/tasks"), { headers: authHeaders() })
+      const res = await authFetch(url("/api/v1/tasks"), { headers: authHeaders() })
       if (!res.ok) return []
       const json = await res.json()
       return json.data ?? []
@@ -148,7 +149,7 @@ export const TasksPanel: Component = () => {
     try {
       const [providerID, modelID] = modelKey() ? modelKey().split("/") : []
       const [smallProviderID, smallModelID] = smallModelKey() ? smallModelKey().split("/") : []
-      const res = await fetch(url("/api/v1/tasks"), {
+      const res = await authFetch(url("/api/v1/tasks"), {
         method: "POST",
         headers: { ...authHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -192,8 +193,8 @@ export const TasksPanel: Component = () => {
     try {
       const res =
         action === "cancel"
-          ? await fetch(url(`/api/v1/tasks/${id}`), { method: "DELETE", headers: authHeaders() })
-          : await fetch(url(`/api/v1/tasks/${id}/${action}`), { method: "POST", headers: authHeaders() })
+          ? await authFetch(url(`/api/v1/tasks/${id}`), { method: "DELETE", headers: authHeaders() })
+          : await authFetch(url(`/api/v1/tasks/${id}/${action}`), { method: "POST", headers: authHeaders() })
       if (!res.ok) {
         const body = await res.json().catch(() => undefined)
         setError(body?.error?.message ?? `${res.status} ${res.statusText}`)

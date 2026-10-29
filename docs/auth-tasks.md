@@ -1,5 +1,7 @@
 # Auth v2 Implementation — Subagent Task Breakdown
 
+> **Historical task plan.** Work has since landed with several deliberate differences; do not use this as instructions for new changes. See [`security-auth.md`](security-auth.md) and current source for the active contract.
+
 ## Subagent A: Backend Core (5 files + migration registration)
 **Trigger**: After this file is written, run in parallel with Subagent B
 
