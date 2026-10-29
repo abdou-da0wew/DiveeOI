@@ -74,3 +74,12 @@ Built `packages/learning` skeleton, settings schema, download/state-machine, sto
   with the pinned model, real retrieval calibration, generated-answer/citation/grounding-retry behavior, and restart recovery.
   Workspace installation remains blocked by the `ghostty-web` certificate failure; see
   `docs/targeted-learning-debugging.md` for the validation sequence.
+
+## 2026-10-30 — share JWT auth service across HTTP route trees
+
+- Reproduced the root cause from the VDS report by inspecting the route layers: `JwtAuth.defaultLayer` was provided only
+  inside `serverRoutes` (`Api`), while root/event/PTY and raw-router auth middleware also require `JwtAuth.Service`.
+- Moved the provider to the outer merged `createRoutes` layer so all route trees receive one shared JWT service; removed
+  the branch-local provider to avoid creating a second instance.
+- Bun 1.4.2 `build --no-bundle` transpiles the changed server route file and `git diff --check` passes. A live server start
+  was not run here because workspace dependencies are absent; retry the VDS command after pulling this fix.

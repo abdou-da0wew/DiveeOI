@@ -135,7 +135,6 @@ const serverRoutes = HttpApiBuilder.layer(Api).pipe(
   Layer.provide(handlers),
   Layer.provide(taskServiceLayer),
   Layer.provide(PluginPtyEnvironment.layer),
-  Layer.provide(JwtAuth.defaultLayer),
   Layer.provide([serverHttpApiAuthLayer, v2SchemaErrorLayer]),
 )
 
@@ -195,6 +194,8 @@ return Layer.mergeAll(
     uiRoute,
   ).pipe(
     Layer.provide([
+      // Auth middleware is built on multiple route trees; provide one shared JWT service to all of them.
+      JwtAuth.defaultLayer,
       errorLayer,
       compressionLayer,
       corsVaryFix,
