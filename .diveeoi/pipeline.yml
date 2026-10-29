@@ -1,0 +1,34 @@
+version: 1
+name: DiveeOI CI
+jobs:
+  learning-tests:
+    image: oven/bun:1.3.14
+    timeoutMinutes: 45
+    env:
+      NODE_ENV: test
+      SKIP_LIVE_EMBED: "1"
+    steps:
+      - name: Install workspace dependencies
+        run: bun install --frozen-lockfile
+      - name: Run Targeted Learning tests
+        run: cd packages/learning && bun test
+
+  typecheck:
+    needs: [learning-tests]
+    image: oven/bun:1.3.14
+    timeoutMinutes: 45
+    steps:
+      - name: Typecheck server
+        run: cd packages/server && bun run typecheck
+      - name: Typecheck app
+        run: cd packages/app && bun run typecheck
+
+  build:
+    needs: [typecheck]
+    image: oven/bun:1.3.14
+    timeoutMinutes: 60
+    artifacts:
+      - packages/app/dist
+    steps:
+      - name: Build production artifacts
+        run: bun run build:nobin
