@@ -17,6 +17,7 @@ import { withDefaults } from "../settings/defaults"
 import { buildGroundingPrompt } from "../grounding/prompt-rules"
 import { recordRetrieved, resetRetrieved } from "../grounding/turn-state"
 import { relevantBookNotes, studentProfileBlock } from "../memory/service"
+import { withDiagnosticPromise } from "../diagnostics"
 
 type Tree = Record<string, unknown>
 
@@ -55,7 +56,7 @@ const isArabic = (text: string) => {
  * Resolve the @book: mentions in a user message and merge them into the session's
  * targeted-learning metadata. Returns null when the message mentions no book.
  */
-export const attachBookMentions = async (
+const attachBookMentionsImpl = async (
   text: string,
   existing: Partial<TargetedMeta> | undefined,
 ): Promise<TargetedMeta | null> => {
@@ -98,6 +99,17 @@ export const attachBookMentions = async (
   return { mode: "targeted", bookIds: [...found.keys()], books: [...found.values()], missing }
 }
 
+export const attachBookMentions = (
+  text: string,
+  existing: Partial<TargetedMeta> | undefined,
+): Promise<TargetedMeta | null> =>
+  withDiagnosticPromise(
+    "session",
+    "attach-book-mentions",
+    { userText: text, existingBookCount: existing?.bookIds?.length ?? 0 },
+    () => attachBookMentionsImpl(text, existing),
+  )
+
 export interface TurnPrep {
   /** Extra system prompt blocks (grounding rules + retrieved context). */
   system: string[]
@@ -126,7 +138,7 @@ const formatContext = (candidates: readonly Candidate[], titles: Map<string, str
   return lines.join("\n\n---\n\n")
 }
 
-export const prepareTargetedTurn = async (input: {
+const prepareTargetedTurnImpl = async (input: {
   meta: TargetedMeta
   query: string
   recentUserTurns: string[]
@@ -280,7 +292,7 @@ export interface InspectResult {
   note?: string
 }
 
-export const inspectRetrieval = async (input: {
+const inspectRetrievalImpl = async (input: {
   query: string
   bookIds?: string[]
   recentUserTurns?: string[]
@@ -365,3 +377,24 @@ export const inspectRetrieval = async (input: {
     note: result.gateReason,
   }
 }
+
+export const inspectRetrieval = (input: Parameters<typeof inspectRetrievalImpl>[0]): Promise<InspectResult> =>
+  withDiagnosticPromise(
+    "retrieval",
+    "inspect-retrieval",
+    { queryText: input.query, bookCount: input.bookIds?.length ?? 0, recentUserTurns: input.recentUserTurns ?? [] },
+    () => inspectRetrievalImpl(input),
+  )
+
+export const prepareTargetedTurn = (input: Parameters<typeof prepareTargetedTurnImpl>[0]): Promise<TurnPrep> =>
+  withDiagnosticPromise(
+    "session",
+    "prepare-targeted-turn",
+    {
+      sessionId: input.sessionId,
+      bookCount: input.meta.bookIds.length,
+      queryText: input.query,
+      recentUserTurns: input.recentUserTurns,
+    },
+    () => prepareTargetedTurnImpl(input),
+  )

@@ -24,6 +24,12 @@ import { withDefaults } from "../settings/defaults"
 import { NORMALIZER_VERSION } from "../lang/arabic"
 import { SCANNED_PAGE_MIN_CHARS, ocrPdfPages } from "../ocr"
 import { ensureOcrPack, parseLanguages } from "../ocr/pack"
+import {
+  logDiagnostic,
+  startDiagnosticOperation,
+  withDiagnosticPromise,
+  type DiagnosticOperation,
+} from "../diagnostics"
 
 type Tree = Record<string, unknown>
 
@@ -83,6 +89,7 @@ interface IngestControl {
   progress: number
   waiters: Set<() => void>
   task?: Promise<void>
+  diagnostic?: DiagnosticOperation
 }
 
 const controls = new Map<string, IngestControl>()
@@ -148,6 +155,7 @@ const checkpoint = (input: Pick<RunInput, "settings" | "format" | "title">, stag
 
 const scheduleIngest = (input: RunInput) => {
   const control = input.control
+  logDiagnostic("ingest", "job.queued", { jobId: input.jobId, bookId: input.bookId, queuedJobs: controls.size }, "info")
   const task = queue.then(() => runIngest(input))
   control.task = task
   queue = task.catch(() => undefined)
@@ -177,7 +185,7 @@ export interface StartIngestResult {
 export class IngestInputError extends Error {}
 
 /** Validate, register the book row, and queue the heavy work. Returns immediately. */
-export const startIngest = async (input: StartIngestInput): Promise<StartIngestResult> => {
+const startIngestImpl = async (input: StartIngestInput): Promise<StartIngestResult> => {
   const settings = withDefaults(input.settings)
   const maxMB = Number(settings.maxBookSizeMB ?? 200)
   if (input.bytes.byteLength > maxMB * 1024 * 1024) throw new IngestInputError(`File is larger than ${maxMB} MB.`)
@@ -232,6 +240,14 @@ export const startIngest = async (input: StartIngestInput): Promise<StartIngestR
   scheduleIngest(runInput)
   return { bookId, slug, duplicate: false }
 }
+
+export const startIngest = (input: StartIngestInput): Promise<StartIngestResult> =>
+  withDiagnosticPromise(
+    "ingest",
+    "accept-book",
+    { format: formatFromFilename(input.filename), sizeBytes: input.bytes.byteLength },
+    () => startIngestImpl(input),
+  )
 
 interface RunInput extends StartIngestInput {
   settings: Tree
@@ -411,7 +427,10 @@ export const pauseIngestJob = async (db: BooksDbHandle, jobId: string): Promise<
   if (!row || !["queued", "running"].includes(row.status) || cancelRequests.has(jobId)) return false
   const control = controls.get(jobId)
   if (control?.finishing || control?.cancelled) return false
-  if (control) control.paused = true
+  if (control) {
+    control.paused = true
+    control.diagnostic?.pause()
+  }
   await db.run("UPDATE ingest_jobs SET status = 'paused' WHERE id = ? AND status IN ('queued', 'running')", jobId)
   if (cancelRequests.has(jobId) || control?.cancelled) return false
   await db.run(
@@ -431,6 +450,7 @@ export const resumeIngestJob = async (db: BooksDbHandle, jobId: string, dataDir:
   if (control) {
     if (control.cancelled || control.finishing || cancelRequests.has(jobId)) return false
     control.paused = false
+    control.diagnostic?.resume()
     active.set(control.bookId, { stage: control.stage, progress: control.progress })
     await db.run(
       "UPDATE books SET status = ? WHERE id = ? AND status IN ('paused', 'pending', 'parsing', 'chunking', 'embedding', 'summarizing')",
@@ -467,6 +487,7 @@ export const cancelIngestJob = async (db: BooksDbHandle, jobId: string): Promise
     if (control) {
       control.cancelled = true
       control.paused = false
+      control.diagnostic?.cancel("cancel requested")
       wakeControl(control)
     } else {
       await db.run("DELETE FROM chunks WHERE book_id = ?", row.book_id)
@@ -491,6 +512,14 @@ export const resumePersistedIngestJobs = async (db: BooksDbHandle, dataDir: stri
 
 const runIngest = async (input: RunInput): Promise<void> => {
   const { db, bookId, jobId, control } = input
+  const diagnostic = startDiagnosticOperation("ingest", "run-job", {
+    jobId,
+    bookId,
+    format: input.format,
+    sizeBytes: input.bytes.byteLength,
+  })
+  control.diagnostic = diagnostic
+  if (control.paused) diagnostic.pause()
   const setStage = async (status: string, stage: string, progress: number) => {
     await waitForControl(control)
     control.stage = stage
@@ -504,6 +533,7 @@ const runIngest = async (input: RunInput): Promise<void> => {
       checkpoint(input, stage, progress),
       jobId,
     )
+    diagnostic.progress(stage, { status, progress, bookId, jobId })
     // A pause can arrive while an asynchronous database write is in flight.
     // Re-assert the persisted state before reaching the next checkpoint.
     if (control.paused) {
@@ -524,6 +554,7 @@ const runIngest = async (input: RunInput): Promise<void> => {
       checkpoint(input, stage, progress),
       jobId,
     )
+    diagnostic.progress(stage, { progress, bookId, jobId })
     if (control.paused) {
       await db.run("UPDATE books SET status = 'paused' WHERE id = ?", bookId)
       await db.run("UPDATE ingest_jobs SET status = 'paused' WHERE id = ?", jobId)
@@ -720,9 +751,20 @@ const runIngest = async (input: RunInput): Promise<void> => {
       bookId,
     )
     await db.run("UPDATE ingest_jobs SET status = 'complete', progress = 100, finished_at = ? WHERE id = ?", Date.now(), jobId)
+    diagnostic.complete({
+      bookId,
+      jobId,
+      pages: parsed.metadata.pages,
+      chunks: total,
+      sections: chunked.sections.length,
+      ocrPages,
+      language: lang,
+    })
   } catch (err) {
     const cancelled = err instanceof IngestCancelledError || control.cancelled
     const message = cancelled ? "Ingest cancelled" : err instanceof Error ? err.message : String(err)
+    if (cancelled) diagnostic.cancel({ stage: control.stage, progress: control.progress })
+    else diagnostic.fail(err, { stage: control.stage, progress: control.progress, bookId, jobId })
     // Remove partial rows, keeping the book row for retry/diagnostics.
     await db.run("DELETE FROM chunks WHERE book_id = ?", bookId).catch(() => undefined)
     await db.run("DELETE FROM sections WHERE book_id = ?", bookId).catch(() => undefined)
@@ -740,6 +782,7 @@ const runIngest = async (input: RunInput): Promise<void> => {
       .catch(() => undefined)
   } finally {
     await poolRef?.close().catch(() => undefined)
+    if (control.diagnostic === diagnostic) control.diagnostic = undefined
     if (controls.get(jobId) === control) controls.delete(jobId)
     if (active.has(bookId)) active.delete(bookId)
   }

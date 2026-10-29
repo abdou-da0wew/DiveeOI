@@ -53,7 +53,10 @@ export interface Handle {
       attachments?: SessionV1.FilePart[]
     },
   ) => Effect.Effect<void>
-  readonly process: (streamInput: LLM.StreamInput) => Effect.Effect<Result>
+  readonly process: (
+    streamInput: LLM.StreamInput,
+    onStreamProgress?: (eventType: string, fields?: Record<string, unknown>) => void,
+  ) => Effect.Effect<Result>
 }
 
 type Input = {
@@ -987,7 +990,10 @@ export const layer = Layer.effect(
         yield* status.set(ctx.sessionID, { type: "idle" })
       })
 
-      const process = Effect.fn("SessionProcessor.process")(function* (streamInput: LLM.StreamInput) {
+      const process = Effect.fn("SessionProcessor.process")(function* (
+        streamInput: LLM.StreamInput,
+        onStreamProgress?: (eventType: string, fields?: Record<string, unknown>) => void,
+      ) {
         yield* Tracer.info("session.process.start", {
           sessionID: input.sessionID,
           messageID: input.assistantMessage.id,
@@ -1004,7 +1010,14 @@ export const layer = Layer.effect(
             const stream = llm.stream(streamInput)
 
             yield* stream.pipe(
-              Stream.tap((event) => handleEvent(event)),
+              Stream.tap((event) =>
+                Effect.sync(() => {
+                  if (!onStreamProgress) return
+                  const fields =
+                    "text" in event && typeof event.text === "string" ? { deltaChars: event.text.length } : {}
+                  onStreamProgress(event.type, fields)
+                }).pipe(Effect.andThen(handleEvent(event))),
+              ),
               Stream.takeUntil(() => ctx.needsCompaction),
               Stream.runDrain,
             )

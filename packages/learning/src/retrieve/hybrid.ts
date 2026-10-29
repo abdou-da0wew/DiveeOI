@@ -13,6 +13,7 @@ import { normalizeForSearch } from "../lang/arabic"
 import { rrf } from "./rrf"
 import { evaluate as evaluateGate, type GateInput } from "./gate"
 import { rewrite as rewriteQuery } from "./rewrite"
+import { diagnosticsEnabled, logDiagnostic, withDiagnosticEffect } from "../diagnostics"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -278,10 +279,13 @@ export const retrieve = (
   db: BooksDbHandle | null,
   options: RetrievalOptions,
   queryVector: Float32Array | null,
-): Effect.Effect<RetrievalResult, never> =>
-  Effect.gen(function* () {
+): Effect.Effect<RetrievalResult, never> => {
+  const effect = Effect.gen(function* () {
     // Library unavailable
     if (!db) {
+      yield* Effect.sync(() =>
+        logDiagnostic("retrieval", "library.unavailable", { bookCount: options.bookIds.length }, "warn"),
+      )
       return RetrievalResult.make({
         candidates: [],
         bm25TopK: 0,
@@ -302,6 +306,14 @@ export const retrieve = (
       rewriteTurns: options.rewriteTurns,
     })
     const normalizedQuery = normalizeForSearch(rewrittenQuery)
+    yield* Effect.sync(() =>
+      logDiagnostic(
+        "retrieval",
+        "query.rewritten",
+        { queryText: options.query, rewrittenQueryText: rewrittenQuery, changed: rewrittenQuery !== options.query },
+        "trace",
+      ),
+    )
 
     // BM25 and dense in parallel
     const [bm25Hits, denseHits] = yield* Effect.all([
@@ -345,6 +357,28 @@ export const retrieve = (
       }
     }
 
+    if (diagnosticsEnabled("retrieval")) {
+      yield* Effect.sync(() =>
+        logDiagnostic("retrieval", "candidates.scored", {
+          bm25Count: bm25Hits.length,
+          denseCount: denseHits.length,
+          fusedCount: candidateMap.size,
+          top: [...candidateMap.values()]
+            .sort((a, b) => b.fusedScore - a.fusedScore)
+            .slice(0, 5)
+            .map((candidate) => ({
+              chunkId: candidate.chunkId,
+              bookId: candidate.bookId,
+              page: candidate.page,
+              bm25Score: candidate.bm25Score,
+              denseScore: candidate.denseScore,
+              fusedScore: candidate.fusedScore,
+              textPreview: candidate.text.slice(0, 180),
+            })),
+        }),
+      )
+    }
+
     // Sort by fused score, take finalTopK
     let candidates = [...candidateMap.values()].sort((a, b) => b.fusedScore - a.fusedScore).slice(0, options.finalTopK)
 
@@ -362,6 +396,24 @@ export const retrieve = (
       bestDenseScore,
       bestFusedScore,
     })
+    yield* Effect.sync(() =>
+      logDiagnostic(
+        "retrieval",
+        "gate.decision",
+        {
+          decision: gateResult.decision,
+          reason: gateResult.reason,
+          bestDenseScore,
+          bestFusedScore,
+          denseThreshold: options.gate.minDenseScore,
+          fusedThreshold: options.gate.minFusedScore,
+          bm25Count: bm25Hits.length,
+          denseCount: denseHits.length,
+          candidateCount: candidates.length,
+        },
+        gateResult.decision === "pass" ? "info" : "warn",
+      ),
+    )
 
     // If gate refuses, return empty candidates
     const finalCandidates = gateResult.decision === "pass" ? candidates : []
@@ -385,3 +437,10 @@ export const retrieve = (
       ungatedCandidates: options.debug ? candidates : undefined,
     })
   })
+  return withDiagnosticEffect(
+    "retrieval",
+    "hybrid-retrieve",
+    { bookCount: options.bookIds.length, queryText: options.query, vectorDimensions: queryVector?.length ?? 0 },
+    effect,
+  )
+}

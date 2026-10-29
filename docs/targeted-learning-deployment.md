@@ -3,6 +3,8 @@
 This document covers deploying DiveeOI with the Targeted Learning feature,
 including the Docker recipe, model pre-seeding, and offline machines. For general
 server authentication and production hardening, see [`security-auth.md`](security-auth.md).
+For opt-in runtime tracing and the full live validation procedure, see
+[`targeted-learning-debugging.md`](targeted-learning-debugging.md).
 
 ## Quick start (Docker)
 

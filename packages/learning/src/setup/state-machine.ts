@@ -20,6 +20,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { Effect, Schema } from "effect"
+import { logDiagnostic, withDiagnosticEffect } from "../diagnostics"
 
 // ---------------------------------------------------------------------------
 // State
@@ -181,16 +182,22 @@ export const runStep = (
   name: StepName,
   stepFn: (state: SetupState) => Effect.Effect<unknown, unknown>,
   options?: { force?: boolean; signal?: AbortSignal },
-): Effect.Effect<SetupState, unknown> =>
-  Effect.gen(function* () {
+): Effect.Effect<SetupState, unknown> => {
+  const effect = Effect.gen(function* () {
     let state = yield* loadState(dataDir)
     if (options?.signal?.aborted) return yield* Effect.fail(new Error("Setup cancelled"))
     const current = stepByName(state, name)
     if (!current) return yield* Effect.die(`Unknown setup step: ${name}`)
-    if (current.status === "complete" && !options?.force) return state
+    if (current.status === "complete" && !options?.force) {
+      yield* Effect.sync(() =>
+        logDiagnostic("setup", "step.skipped", { step: name, reason: "already complete" }, "info"),
+      )
+      return state
+    }
 
     state = markRunning(state, name)
     yield* saveState(dataDir, state)
+    yield* Effect.sync(() => logDiagnostic("setup", "step.state", { step: name, status: "running" }, "info"))
 
     type StepResult = { _tag: "Right"; right: unknown } | { _tag: "Left"; left: unknown }
     const result: StepResult = yield* stepFn(state).pipe(
@@ -215,11 +222,27 @@ export const runStep = (
         : markFailed(state, name, result.left)
     }
     yield* saveState(dataDir, state)
+    const finalStep = stepByName(state, name)
+    yield* Effect.sync(() =>
+      logDiagnostic(
+        "setup",
+        "step.state",
+        { step: name, status: finalStep?.status, ...(result._tag === "Left" ? { error: result.left } : {}) },
+        result._tag === "Left" ? "error" : "info",
+      ),
+    )
     if (result._tag === "Left") {
       return yield* Effect.fail(result.left)
     }
     return state
   })
+  return withDiagnosticEffect(
+    "setup",
+    `step.${name}`,
+    { step: name, force: options?.force === true },
+    effect,
+  )
+}
 
 /**
  * Repair = clear all step statuses except `probe` and re-run from there.
@@ -234,6 +257,9 @@ export const resetForRepair = (dataDir: string): Effect.Effect<SetupState, never
       steps: state.steps.map((s) => ({ ...s, status: "pending", lastError: undefined })),
     }
     yield* saveState(dataDir, repaired)
+    yield* Effect.sync(() =>
+      logDiagnostic("setup", "state.repair-reset", { status: repaired.status, steps: repaired.steps.length }, "warn"),
+    )
     return repaired
   })
 
@@ -252,6 +278,17 @@ export const cancelSetup = (dataDir: string): Effect.Effect<SetupState, never> =
       steps,
     }
     yield* saveState(dataDir, cancelled)
+    yield* Effect.sync(() =>
+      logDiagnostic(
+        "setup",
+        "state.cancelled",
+        {
+          status: cancelled.status,
+          resetSteps: steps.filter((step) => step.status === "pending").map((step) => step.name),
+        },
+        "warn",
+      ),
+    )
     return cancelled
   })
 
