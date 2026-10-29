@@ -83,3 +83,26 @@ Built `packages/learning` skeleton, settings schema, download/state-machine, sto
   the branch-local provider to avoid creating a second instance.
 - Bun 1.4.2 `build --no-bundle` transpiles the changed server route file and `git diff --check` passes. A live server start
   was not run here because workspace dependencies are absent; retry the VDS command after pulling this fix.
+
+## 2026-10-30 — Go self-hosted CI runner (unverified implementation)
+
+- Added a standalone Go 1.22+ runner under `tools/self-hosted-ci/` for Linux VPS use: polling selected refs on multiple Git
+  remotes, config and pipeline validation, durable run state/locks, manual runs, bounded logs, CLI status/log inspection,
+  and Docker-isolated shell steps with resource limits and restricted capabilities.
+- Added ref globs, generic HTTPS/SSH remotes, host-side Git token injection through a temporary askpass file under `/dev/shm`,
+  per-repository AES-GCM secrets, trusted-branch/tag checks, allowlisted secret names, and best-effort stream redaction.
+  Documented that pipelines are executable trusted code, rootful Docker is host-root-equivalent, and no issue-free guarantee
+  or perfect sandbox is claimed.
+- Added explicit job artifact paths, symlink/special-file/path checks, a 1 GiB default per-run limit (configurable up to 20 GiB),
+  a 10,000-file per-job limit, retention cleanup, and `artifacts` CLI inspection. Workspaces and old run data are cleaned
+  separately; workspace/image-pull disk use remains dependent on host quotas.
+- Added `tools/self-hosted-ci/README.md`, `deploy/diveeoi-ci.service`, Makefile, example config/pipeline, and the monorepo
+  `.diveeoi/pipeline.yml` (learning tests, app/server typechecks, build, and retained app output). Added focused tests for
+  refs/config/workflows/state/secrets/Docker args/locks/artifacts/workspace cleanup.
+- **No Go toolchain is available in this sandbox:** `go`, native `gofmt`, and `gccgo` are missing, so compilation, `go test`,
+  and `go vet` remain unrun. All 29 Go files were formatted with a WASM build of gofmt and accepted by Tree-sitter; this
+  checks formatting/syntax only, not Go type correctness. The systemd unit passed `systemd-analyze verify` after substituting
+  `/bin/true` for the not-yet-built runner binary; this does not exercise service startup. Docker/Podman are absent, so there is
+  no container integration test. On a staging Linux host with Go 1.22+ and Docker, run
+  `cd tools/self-hosted-ci && gofmt -w $(find cmd internal -type f -name '*.go') && go test ./... && go vet ./... && mkdir -p bin && go build -o ./bin/diveeoi-ci ./cmd/diveeoi-ci`,
+  then follow `tools/self-hosted-ci/README.md` for Docker, pipeline, secret, manual-run, log, and artifact checks.
