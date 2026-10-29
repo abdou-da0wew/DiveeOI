@@ -1,6 +1,6 @@
 # CONTEXT — DiveeOI implementation hand-off
 
-Last updated: 2026-10-29. Branch: `arena/89b197e7-diveeoi` (active; based on `dev` at `6253759`).
+Last updated: 2026-10-30. Branch: `arena/6d23f575-diveeoi` (active; based on `dev` at `4586a0c`).
 
 This file is the current hand-off snapshot. See `WORKLOG.md` for the chronological record, `DECISIONS.md` for design decisions, and `docs/TARGETED_LEARNING_WORKLOG.md` / `docs/WHATS_DONE.md` for the feature history and inventory. Older test counts in those historical documents are not verification of this branch.
 
@@ -98,6 +98,9 @@ Then rerun the learning suite and run `scripts/tl-live-check.ts` on a host where
   and the HTTP diagnostics middleware with no errors. Bun 1.4.2 `build --no-bundle` transpiled 16 changed TypeScript files
   successfully. `git diff --check` passes.
 - Bun 1.4.2's `require()`/top-level-await failure was reproduced in a minimal fixture; static ESM imports, ESM bundling, and changed-file transpilation passed. The full server build is still unverified.
+- Current startup-fix follow-up: moved the shared `JwtAuth.defaultLayer` provider around the full merged HTTP route tree
+  because several route-specific auth middleware layers depend on it. Bun 1.4.2 `build --no-bundle` transpilation and
+  `git diff --check` pass; full server startup is not verified in this dependency-free workspace.
 
 ## Remaining verification / caveats
 
