@@ -74,6 +74,7 @@ import { SessionTools } from "./tools"
 import { LLMEvent } from "@diveeoi/llm"
 import { Todo as SessionTodo } from "./todo"
 import { useAdaptiveTargets } from "@diveeoi/db/adaptive"
+import { diagnosticsEnabled, logDiagnostic, startDiagnosticOperation } from "@diveeoi/learning/diagnostics"
 import * as ModelFallback from "./model-fallback"
 import { WatchdogState } from "./watchdog"
 import * as Watchdog from "./watchdog"
@@ -1252,6 +1253,18 @@ export const layer = Layer.effect(
               sessionID: input.sessionID,
               metadata: { ...(session.metadata ?? {}), targetedLearning: tlMeta } as never,
             })
+            yield* Effect.sync(() =>
+              logDiagnostic(
+                "session",
+                "books.attached",
+                {
+                  sessionId: input.sessionID,
+                  bookCount: tlMeta.books.length,
+                  missingCount: tlMeta.missing?.length ?? 0,
+                },
+                tlMeta.missing?.length ? "warn" : "info",
+              ),
+            )
           }
         }
       }
@@ -1301,6 +1314,10 @@ export const layer = Layer.effect(
         // are wired and a supervisor can be added later without changing
         // call sites.
         const watchdog = new WatchdogState()
+        const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
+        const memory = yield* SessionMemoryIntegration.Service
+        const targetedMode =
+          (session.metadata?.["targetedLearning"] as { mode?: string } | undefined)?.mode === "targeted"
 
         // P3: Fork the watchdog supervisor fiber. It wakes on
         // heartbeatIntervalMs (adaptive: 60s/45s/30s by tier), checks
@@ -1316,12 +1333,28 @@ export const layer = Layer.effect(
               Effect.gen(function* () {
                 yield* Effect.sleep(thresholds.heartbeatMs)
                 if (watchdog.isStalled(thresholds.stallMs)) {
+                  const stalledMs = watchdog.stalledFor()
                   yield* Effect.logWarning("watchdog.stall.detected", {
                     sessionID,
-                    stalledMs: watchdog.stalledFor(),
+                    stalledMs,
                     stallThreshold: thresholds.stallMs,
                     restartCount: watchdog.getRestartCount(),
                   })
+                  if (targetedMode) {
+                    yield* Effect.sync(() =>
+                      logDiagnostic(
+                        "session",
+                        "watchdog.stall.detected",
+                        {
+                          sessionId: sessionID,
+                          stalledMs,
+                          stallThresholdMs: thresholds.stallMs,
+                          restartCount: watchdog.getRestartCount(),
+                        },
+                        "warn",
+                      ),
+                    )
+                  }
                 }
               }).pipe(Effect.catchCause(() => Effect.void)),
             )
@@ -1329,8 +1362,6 @@ export const layer = Layer.effect(
         )
         // Bounded so a provider that refuses every candidate still terminates the run.
         let rotations = 0
-        const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
-        const memory = yield* SessionMemoryIntegration.Service
 
         while (true) {
           yield* status.set(sessionID, { type: "busy" })
@@ -1591,6 +1622,21 @@ export const layer = Layer.effect(
                   }
                 }
               })
+              yield* Effect.sync(() =>
+                logDiagnostic(
+                  "session",
+                  "targeted-turn.decision",
+                  {
+                    sessionId: sessionID,
+                    decision: turn.decision,
+                    bookCount: tlSession.bookIds?.length ?? 0,
+                    systemBlockCount: turn.system.length,
+                    systemChars: turn.system.reduce((total, block) => total + block.length, 0),
+                    refused: Boolean(turn.refusal),
+                  },
+                  turn.refusal ? "warn" : "info",
+                ),
+              )
               if (turn.refusal) {
                 const now = Date.now()
                 yield* sessions.updatePart({
@@ -1685,18 +1731,74 @@ Tool: {name}
               groundingRetryPrompt = undefined
             }
 
-            const result = yield* handle.process({
+            const modelInput: LLM.StreamInput = {
               user: lastUser,
               agent,
               permission: session.permission,
               sessionID,
               parentSessionID: session.parentID,
               system,
-              messages: [...modelMsgs, ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS }] : [])],
+              messages: [
+                ...modelMsgs,
+                ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS }] : []),
+              ],
               tools,
               model,
               toolChoice: format.type === "json_schema" ? "required" : undefined,
-            })
+            }
+            const modelOperation =
+              tlSession?.mode === "targeted" && diagnosticsEnabled("session")
+                ? startDiagnosticOperation("session", "model-response", {
+                    sessionId: sessionID,
+                    messageId: msg.id,
+                    providerId: model.providerID,
+                    modelId: model.id,
+                    step,
+                    bookCount: tlSession.bookIds?.length ?? 0,
+                  })
+                : undefined
+            let streamEventsSinceLog = 0
+            let lastStreamProgressAt = Date.now()
+            const onStreamProgress = modelOperation
+              ? (eventType: string, fields: Record<string, unknown> = {}) => {
+                  streamEventsSinceLog += 1
+                  const now = Date.now()
+                  const terminal = /(?:end|finish|error|tool-call|tool-result)$/.test(eventType)
+                  if (terminal || now - lastStreamProgressAt >= 1_000) {
+                    modelOperation.progress(`stream.${eventType}`, {
+                      streamEventCount: streamEventsSinceLog,
+                      ...fields,
+                    })
+                    streamEventsSinceLog = 0
+                    lastStreamProgressAt = now
+                  }
+                }
+              : undefined
+            const modelEffect = handle.process(modelInput, onStreamProgress)
+            const result = yield* (
+              modelOperation
+                ? modelEffect.pipe(
+                    Effect.onExit((exit) =>
+                      Effect.sync(() => {
+                        if (Exit.isSuccess(exit)) {
+                          modelOperation.complete({
+                            result: exit.value,
+                            finish: handle.message.finish ?? "unknown",
+                            hasError: handle.message.error !== undefined,
+                          })
+                        } else if (Cause.hasInterruptsOnly(exit.cause)) {
+                          modelOperation.cancel("interrupted")
+                        } else {
+                          modelOperation.fail(Cause.pretty(exit.cause), {
+                            providerId: model.providerID,
+                            modelId: model.id,
+                          })
+                        }
+                      }),
+                    ),
+                  )
+                : modelEffect
+            )
 
             // P3: the LLM stream returned — that's a progress signal. touchEvent
             // resets the no-progress stall timer so the watchdog doesn't trip

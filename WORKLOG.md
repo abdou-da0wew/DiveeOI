@@ -49,3 +49,28 @@ Built `packages/learning` skeleton, settings schema, download/state-machine, sto
 - Restricted Vite's allowed hosts to local development and Arena's `.e2b.app` previews rather than disabling the host-header check.
 - **Focused verification:** 11 tests pass across app auth forwarding, refresh transport, and cgroup parsing; Bun parsed 20 modified TypeScript/TSX files; `git diff --check` and `bash -n scripts/divee.sh` pass. The atomic bootstrap SQL returned one admin row on first execution and none on the second.
 - **Remaining verification:** Bun 1.3.14 was installed under `/tmp/diveeoi-tools`, but `bun install --filter ... --no-save --frozen-lockfile` failed on the GitHub `ghostty-web` tarball with `UNABLE_TO_VERIFY_LEAF_SIGNATURE`. Package tests beyond the 11 focused tests, typechecks, full builds, browser checks, and model-backed tests therefore remain unverified; see `CONTEXT.md`.
+
+## 2026-10-29 — Bun 1.4.2 build fix and Targeted Learning diagnostics (current branch)
+
+- **Bun production-build blocker:** replaced synchronous `require()` selection of `@diveeoi/learning/node` in
+  `packages/server/src/app-services.ts` with static ESM imports because the dependency graph reaches async top-level
+  initialization in `@diveeoi/db/global`. Bun 1.4.2 reproduced the failure in a minimal fixture; the static-import fixture,
+  ESM bundle check, and changed-file transpilation passed. The complete server build is still unverified.
+- **Opt-in diagnostics:** added `packages/learning/src/diagnostics.ts` with category/level filtering, runtime environment
+  configuration, JSONL output and rotation, restrictive file permissions, secret/content redaction, active operation spans,
+  progress and pause/resume tracking, error snapshots, and configurable stall detection. Diagnostics are disabled by default.
+- **Tracing integrations:** instrumented setup and persisted state, service initialization/recovery, download attempts/byte
+  progress/hash verification, ingest queue/stages/pause/resume/cancel/recovery, hybrid retrieval/candidates/gate decisions,
+  book attachment and targeted-turn decisions, model stream progress/duration/watchdog stalls, grounding/citation verification,
+  settings updates (field names only), and Targeted Learning HTTP method/path/status.
+- **Privacy and operations:** authorization/cookie/password/token/API-key-like values are redacted; free-form content and
+  error-message strings are length-only by default; text details require `DIVEEOI_TL_DEBUG_CONTENT=1`. Added the authenticated
+  `/targeted-learning/debug/status` endpoint and `docs/targeted-learning-debugging.md` with flags, inspection instructions,
+  and a model-backed test procedure.
+- **Focused checks:** Bun 1.4.2 diagnostics suite passes (7 tests, 36 expectations). TypeScript native-preview checks pass for
+  diagnostics, setup state machine, downloader, diagnostics test, and HTTP diagnostics middleware. Bun `build --no-bundle`
+  transpiles 16 modified TypeScript files; `git diff --check` passes (see `CONTEXT.md`).
+- **Still unverified:** full package tests/typechecks, complete production server build, browser/UI checks, real setup/download
+  with the pinned model, real retrieval calibration, generated-answer/citation/grounding-retry behavior, and restart recovery.
+  Workspace installation remains blocked by the `ghostty-web` certificate failure; see
+  `docs/targeted-learning-debugging.md` for the validation sequence.
