@@ -31,18 +31,18 @@ export const BookSearchTool = Tool.define(
           if (!store.available || !store.db) {
             return {
               title: "Book search unavailable",
-              metadata: {},
+              metadata: {} as Record<string, unknown>,
               output: "The book library is currently unavailable.",
             }
           }
 
           // Get the session's attached book IDs from context metadata, or use
           // the explicit bookIds parameter.
-          const bookIds = params.bookIds ?? (ctx.extra?.bookIds as string[] | undefined) ?? []
+          const bookIds: string[] = [...(params.bookIds ?? (ctx.extra?.bookIds as string[] | undefined) ?? [])]
           if (bookIds.length === 0) {
             return {
               title: "No books attached",
-              metadata: {},
+              metadata: {} as Record<string, unknown>,
               output: "No books are attached to this session. Use @book: to attach one.",
             }
           }

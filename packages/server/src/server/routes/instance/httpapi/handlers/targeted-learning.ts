@@ -130,13 +130,11 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
       const setupImportLocal = Effect.fn("TargetedLearning.setupImportLocal")(function* (ctx: {
         payload: { folder: string }
       }) {
-        if (!tl.manifest) {
-          return yield* Effect.fail(
-            new Error("Manifest not loaded — run `bun run tl:manifest` in packages/learning first."),
-          )
-        }
+        if (!tl.manifest) return yield* Effect.fail(new HttpApiError.BadRequest({}))
         const { importFromLocalFolder } = require("@diveeoi/learning/download") as typeof import("@diveeoi/learning/download")
-        yield* importFromLocalFolder(tl.manifest, ctx.payload.folder, join(tl.modelDir, tl.manifest.repo))
+        yield* importFromLocalFolder(tl.manifest, ctx.payload.folder, join(tl.modelDir, tl.manifest.repo)).pipe(
+          Effect.mapError(() => new HttpApiError.BadRequest({})),
+        )
         return yield* setupStatus()
       })
 
@@ -178,19 +176,23 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
           }
         }
         walk(values, "")
-        return { values: cleanValues, effective }
+        return { values: cleanValues as TLInfo, effective }
       })
 
       const updateSettings = Effect.fn("TargetedLearning.updateSettings")(function* (ctx: {
         payload: Partial<TLInfo>
       }) {
         const cfg = yield* configSvc.get()
+        const { validateSettingsPayload } = yield* Effect.promise(() => import("@diveeoi/learning/settings/validate"))
+        if (validateSettingsPayload(ctx.payload).length > 0) return yield* Effect.fail(new HttpApiError.BadRequest({}))
         // Group-level merge: editing one section never wipes the others (plan §11.2).
         const next = {
           ...cfg,
           targetedLearning: { ...((cfg.targetedLearning as Record<string, unknown> | undefined) ?? {}), ...ctx.payload },
         } as typeof cfg
-        yield* configSvc.update(next)
+        const written = yield* configSvc.updateGlobal(next)
+        // get() reads cached per-instance state; rebuild it so the new values are visible immediately.
+        if (written.changed) yield* configSvc.refresh()
         return yield* getSettings()
       })
 
@@ -232,9 +234,7 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
         if (!store.available || !store.db) {
           return { books: [] }
         }
-        const rows = yield* Effect.tryPromise({
-          try: () =>
-            store.db!.all<{
+        const rows = yield* Effect.promise(() => (store.db!.all<{
               id: string
               slug: string
               title: string
@@ -247,9 +247,7 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
               error: string | null
             }>(
               "SELECT id, slug, title, author, lang, status, pages, chunk_count, indexed_at, error FROM books ORDER BY title",
-            ),
-          catch: () => [] as Record<string, unknown>[],
-        })
+            )).catch(() => [] as never[]))
         const { ingestProgress } = yield* Effect.promise(() => import("@diveeoi/learning/ingest/run"))
         return {
           books: rows.map((r) => ({
@@ -301,6 +299,21 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
           catch: () => new HttpApiError.BadRequest({}),
         })
         return yield* startBook(path.basename(ctx.payload.path), bytes, ctx.payload.title)
+      })
+
+      const searchInspector = Effect.fn("TargetedLearning.search")(function* (ctx: {
+        payload: { query: string; bookIds?: readonly string[]; recentUserTurns?: readonly string[] }
+      }) {
+        const cfg = yield* configSvc.get().pipe(Effect.orElseSucceed(() => ({}) as Record<string, unknown>))
+        const turn = yield* Effect.promise(() => import("@diveeoi/learning/session/turn"))
+        return yield* Effect.promise(() =>
+          turn.inspectRetrieval({
+            query: ctx.payload.query,
+            bookIds: ctx.payload.bookIds ? [...ctx.payload.bookIds] : undefined,
+            recentUserTurns: ctx.payload.recentUserTurns ? [...ctx.payload.recentUserTurns] : undefined,
+            settings: (cfg as Record<string, unknown>).targetedLearning as never,
+          }),
+        )
       })
 
       const listMemory = Effect.fn("TargetedLearning.listMemory")(function* () {
@@ -357,6 +370,7 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
         .handle("books-upload", uploadBook)
         .handle("books-import", importBook)
         .handle("books-delete", deleteBookHandler)
+        .handle("search", searchInspector)
         .handle("memory", listMemory)
         .handle("memory-student-delete", deleteStudentMemoryHandler)
         .handle("memory-student-pin", pinStudentMemoryHandler)

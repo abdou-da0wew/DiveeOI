@@ -81,17 +81,13 @@ export const layer = Layer.effect(
       Effect.gen(function* () {
         const store = tl.booksStore
         if (!store.available || !store.db) return null
-        const row = yield* Effect.tryPromise({
-          try: () =>
-            store.db!.get<{
+        const row = yield* Effect.promise(() => (store.db!.get<{
               id: string
               slug: string
               title: string
               author: string | null
               source_hash: string
-            }>("SELECT id, slug, title, author, source_hash FROM books WHERE slug = ? AND status = 'ready' LIMIT 1", slug),
-          catch: () => null,
-        })
+            }>("SELECT id, slug, title, author, source_hash FROM books WHERE slug = ? AND status = 'ready' LIMIT 1", slug)).catch(() => null))
         return row
           ? { bookId: row.id, slug: row.slug, title: row.title, author: row.author, sourceHash: row.source_hash }
           : null
@@ -101,9 +97,7 @@ export const layer = Layer.effect(
       Effect.gen(function* () {
         const store = tl.booksStore
         if (!store.available || !store.db) return null
-        const row = yield* Effect.tryPromise({
-          try: () =>
-            store.db!.get<{
+        const row = yield* Effect.promise(() => (store.db!.get<{
               id: string
               slug: string
               title: string
@@ -112,9 +106,7 @@ export const layer = Layer.effect(
             }>(
               "SELECT id, slug, title, author, source_hash FROM books WHERE title = ? AND status = 'ready' LIMIT 1",
               title,
-            ),
-          catch: () => null,
-        })
+            )).catch(() => null))
         return row
           ? { bookId: row.id, slug: row.slug, title: row.title, author: row.author, sourceHash: row.source_hash }
           : null
@@ -124,9 +116,7 @@ export const layer = Layer.effect(
       Effect.gen(function* () {
         const store = tl.booksStore
         if (!store.available || !store.db) return null
-        const row = yield* Effect.tryPromise({
-          try: () =>
-            store.db!.get<{
+        const row = yield* Effect.promise(() => (store.db!.get<{
               id: string
               slug: string
               title: string
@@ -135,9 +125,7 @@ export const layer = Layer.effect(
             }>(
               "SELECT id, slug, title, author, source_hash FROM books WHERE id = ? AND status = 'ready' LIMIT 1",
               id,
-            ),
-          catch: () => null,
-        })
+            )).catch(() => null))
         return row
           ? { bookId: row.id, slug: row.slug, title: row.title, author: row.author, sourceHash: row.source_hash }
           : null
@@ -147,17 +135,13 @@ export const layer = Layer.effect(
       Effect.gen(function* () {
         const store = tl.booksStore
         if (!store.available || !store.db) return []
-        const rows = yield* Effect.tryPromise({
-          try: () =>
-            store.db!.all<{
+        const rows = yield* Effect.promise(() => (store.db!.all<{
               id: string
               slug: string
               title: string
               author: string | null
               source_hash: string
-            }>("SELECT id, slug, title, author, source_hash FROM books WHERE status = 'ready' ORDER BY title"),
-          catch: () => [] as Record<string, unknown>[],
-        })
+            }>("SELECT id, slug, title, author, source_hash FROM books WHERE status = 'ready' ORDER BY title")).catch(() => [] as never[]))
         return rows.map((r) => ({
           bookId: r.id,
           slug: r.slug,

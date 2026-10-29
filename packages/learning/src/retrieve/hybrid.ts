@@ -47,6 +47,10 @@ export const RetrievalResult = Schema.Struct({
   gateReason: Schema.optional(Schema.String),
   rewrittenQuery: Schema.optional(Schema.String),
   totalContextTokens: Schema.Number,
+  bestDenseScore: Schema.optional(Schema.Number),
+  bestFusedScore: Schema.optional(Schema.Number),
+  /** Candidates before the gate decided (only filled when options.debug is set; for the inspector). */
+  ungatedCandidates: Schema.optional(Schema.Array(Candidate)),
 })
 export type RetrievalResult = Schema.Schema.Type<typeof RetrievalResult>
 
@@ -66,6 +70,8 @@ export interface RetrievalOptions {
   rewriteTurns: number
   recentUserTurns: string[]
   gate: Omit<GateInput, "query" | "bestDenseScore" | "bestFusedScore">
+  /** Return pre-gate candidates too (retrieval inspector). */
+  debug?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -374,5 +380,8 @@ export const retrieve = (
       gateReason: gateResult.reason,
       rewrittenQuery: rewrittenQuery !== options.query ? rewrittenQuery : undefined,
       totalContextTokens,
+      bestDenseScore,
+      bestFusedScore,
+      ungatedCandidates: options.debug ? candidates : undefined,
     })
   })

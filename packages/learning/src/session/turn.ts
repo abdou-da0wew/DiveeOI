@@ -265,3 +265,103 @@ export const prepareTargetedTurn = async (input: {
   }
   return { system, decision: result.gateDecision === "small-talk" ? "small-talk" : "pass" }
 }
+
+// ---------------------------------------------------------------------------
+// Retrieval inspector (plan §8.6): what would the gate do with this question?
+// ---------------------------------------------------------------------------
+
+export interface InspectResult {
+  decision: string
+  lang: "ar" | "en"
+  bestDenseScore: number
+  bestFusedScore: number
+  thresholds: { minDenseScore: number; minFusedScore: number }
+  candidates: { chunkId: string; bookId: string; page?: number; denseScore?: number; fusedScore: number; snippet: string }[]
+  note?: string
+}
+
+export const inspectRetrieval = async (input: {
+  query: string
+  bookIds?: string[]
+  recentUserTurns?: string[]
+  settings?: Tree
+  /** Test seams. */
+  ensureFn?: () => Promise<boolean>
+  embedFn?: (query: string) => Promise<Float32Array | null>
+}): Promise<InspectResult> => {
+  const settings = withDefaults(input.settings)
+  const gate = (settings.gate ?? {}) as Tree
+  const ret = (settings.retrieval ?? {}) as Tree
+  const lang: "ar" | "en" = isArabic(input.query) ? "ar" : "en"
+  const thresholds = { minDenseScore: Number(gate.minDenseScore ?? 0.35), minFusedScore: Number(gate.minFusedScore ?? 0.1) }
+  const empty = (decision: string, note: string): InspectResult => ({
+    decision,
+    lang,
+    bestDenseScore: 0,
+    bestFusedScore: 0,
+    thresholds,
+    candidates: [],
+    note,
+  })
+  const runtime = getRuntime()
+  if (!runtime?.booksStore.available || !runtime.booksStore.db) return empty("library-unavailable", "books.db is not available")
+  const db = runtime.booksStore.db
+  let bookIds = input.bookIds ?? []
+  if (bookIds.length === 0) bookIds = (await db.all<{ id: string }>("SELECT id FROM books WHERE status = 'ready'")).map((r) => r.id)
+  if (bookIds.length === 0) return empty("not-ready", "no indexed books")
+  const ready = input.ensureFn
+    ? await input.ensureFn()
+    : await Effect.runPromise(ensureEmbedder(input.settings).pipe(Effect.map(() => true), Effect.orElseSucceed(() => false)))
+  if (!ready) return empty("not-ready", "the embedding model is not ready (run Start Setup)")
+  const queryVec = input.embedFn
+    ? await input.embedFn(input.query)
+    : await Effect.runPromise(embed(input.query).pipe(Effect.orElseSucceed(() => null)))
+  const result = await Effect.runPromise(
+    retrieve(
+      db,
+      {
+        bookIds,
+        query: input.query,
+        bm25TopK: Number(ret.bm25TopK ?? 30),
+        denseTopK: Number(ret.denseTopK ?? 30),
+        rrfK: Number(ret.rrfK ?? 60),
+        weightBm25: Number(ret.weightBm25 ?? 1),
+        weightDense: Number(ret.weightDense ?? 1),
+        autoWeightByLanguage: ret.autoWeightByLanguage !== false,
+        finalTopK: Number(ret.finalTopK ?? 8),
+        parentExpansion: false,
+        parentContextMaxTokens: Number(ret.parentContextMaxTokens ?? 2500),
+        queryRewrite: (ret.queryRewrite as "heuristic" | "llm" | "off") ?? "heuristic",
+        rewriteTurns: Number(ret.rewriteTurns ?? 2),
+        recentUserTurns: input.recentUserTurns ?? [],
+        debug: true,
+        gate: {
+          enabled: gate.enabled !== false,
+          minDenseScore: thresholds.minDenseScore,
+          minFusedScore: thresholds.minFusedScore,
+          allowSmallTalk: gate.allowSmallTalk !== false,
+          language: lang,
+          libraryAvailable: true,
+          refusalMessages: (gate.refusalMessages ?? {}) as Record<string, string>,
+        },
+      },
+      queryVec,
+    ),
+  )
+  return {
+    decision: result.gateDecision,
+    lang,
+    bestDenseScore: result.bestDenseScore ?? 0,
+    bestFusedScore: result.bestFusedScore ?? 0,
+    thresholds,
+    candidates: (result.ungatedCandidates ?? result.candidates).slice(0, 5).map((c) => ({
+      chunkId: c.chunkId,
+      bookId: c.bookId,
+      page: c.page ?? undefined,
+      denseScore: c.denseScore,
+      fusedScore: c.fusedScore,
+      snippet: c.text.slice(0, 160),
+    })),
+    note: result.gateReason,
+  }
+}

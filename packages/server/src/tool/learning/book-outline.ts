@@ -25,13 +25,11 @@ export const BookOutlineTool = Tool.define(
           if (!store.available || !store.db) {
             return {
               title: "Book outline unavailable",
-              metadata: {},
+              metadata: {} as Record<string, unknown>,
               output: "The book library is currently unavailable. Please try again later.",
             }
           }
-          const sections = yield* Effect.tryPromise({
-            try: () =>
-              store.db!.all<{
+          const sections = yield* Effect.promise(() => (store.db!.all<{
                 id: string
                 title: string | null
                 level: number
@@ -41,9 +39,7 @@ export const BookOutlineTool = Tool.define(
               }>(
                 "SELECT id, title, level, page_start, page_end, heading_path FROM sections WHERE book_id = ? ORDER BY ord",
                 params.bookId,
-              ),
-            catch: () => [] as Record<string, unknown>[],
-          })
+              )).catch(() => [] as never[]))
           const lines = sections.map(
             (s) =>
               `${"  ".repeat(s.level - 1)}- ${s.title ?? "(untitled)"} [${s.id}] (pp. ${s.page_start ?? "?"}-${s.page_end ?? "?"})`,
