@@ -1,8 +1,10 @@
 # Performance & Memory Optimization
 
-> The most important change in this fork. DiveeOI's server was made adaptive: it detects the host's memory and CPU, picks one of four resource profiles, and runs a background GC + backpressure loop that keeps RSS/heap on target while never stalling the session.
+> DiveeOI includes an adaptive resource manager: it detects host/container memory and CPU limits, selects one of four profiles, and adjusts bounded resources and GC scheduling under pressure.
 
-This document explains **what was slow, what leaks were fixed, what was measured, and how the adaptive system works**. For the phase-by-phase plan, see `plans/Optimization_1.0/OPTIMIZATION_PLAN.md`. For repro-grade numbers, see `plans/Optimization_1.0/FINDINGS_AUDIT.md` and `packages/profiler/DESIGN.md`.
+> **Verification note — 2026-10-29:** resource targets below reflect current source configuration. Benchmark and historical measurement claims from earlier work are not fresh results for this branch; Bun and workspace dependencies were unavailable here.
+
+This document explains **what was slow, what leaks were fixed, what was measured historically, and how the adaptive system works**. For the phase-by-phase plan, see `plans/Optimization_1.0/OPTIMIZATION_PLAN.md`. For repro-grade numbers, see `plans/Optimization_1.0/FINDINGS_AUDIT.md` and `packages/profiler/DESIGN.md`.
 
 ---
 
@@ -37,81 +39,63 @@ This single change removed the only user-facing stall in the hot path.
 
 Location: `packages/db/src/adaptive/{detect,profiles,service,hooks,index}.ts`.
 
-### Detection (accurate per OS)
+This section describes the current configured behavior. It is not a new benchmark report; this workspace could not run Bun or the project test suite.
 
-`detectSystemResources: Effect<SystemResources, never, never>` with a typed fallback `4096 total / 1024 available / ncpu`.
+### Detection (host and container aware)
 
-- Linux: `readFile("/proc/meminfo") -> Map(MemTotal, MemAvailable||MemFree) -> /1024` MB
-- macOS: `spawn("sysctl","-n hw.memsize") -> totalBytes` + `spawn("vm_stat") -> Pages free / Pages inactive *4096 -> availableMB`
-- Windows: `os.totalmem/freemem -> /1024/1024`
-- Always through `Effect.catchCause(-> fallback)`, so the service never dies.
+`detectSystemResources: Effect<SystemResources, never, never>` falls back to `4096 MB total / 1024 MB available / available CPU parallelism` if platform reads fail.
+
+- **Linux memory:** `/proc/meminfo` provides host total/available memory. cgroup v2 `memory.max` / `memory.current` and cgroup v1 `memory.limit_in_bytes` / `memory.usage_in_bytes` further constrain the detected total and free memory.
+- **Linux CPU:** `os.availableParallelism()` is clamped to cgroup v2 `cpu.max` or cgroup v1 `cpu.cfs_quota_us` / `cpu.cfs_period_us`; fractional quotas are floored with a minimum of one usable worker. Both `cpu` and common `cpu,cpuacct` v1 mount paths are checked.
+- **macOS:** `sysctl -n hw.memsize` supplies total memory; free + inactive pages from `vm_stat` estimate available memory.
+- **Windows:** `os.totalmem()` / `os.freemem()` provide the memory values.
+- Linux storage hint reads the rotational flag for the root device when available. Detection failures are caught and logged, with a typed fallback so the adaptive service can continue.
 
 ### Profiles and targets
 
-Four profiles with hysteresis thresholds:
+`computeProfile(sys)` selects the highest tier whose free-memory absolute and ratio thresholds are both satisfied. Values below are configuration targets, not guaranteed process ceilings.
 
-| Profile | `minFreeMB` | `minFreeRatio` | rssTarget | heapTarget | gc | tool | stream | SSE | WS | pty cap/TTL | cacheTTL | sqliteCache | timeouts |
-|---------|-------------|---------------|-----------|------------|----|------|--------|-----|----|-------------|----------|-------------|----------|
-| comfortable | 4096 | 0.50 | 700 | 400 | 60s | 8 | 200 | 1000 | 1000 | 5000/120s | 30m | 128 | 60s/5000 |
-| balanced    | 1024 | 0.20 | 500 | 300 | 30s | 4 | 100 | 500  | 500  | 2000/60s  | 10m | 64  | 60s/5000 |
-| constrained | 512  | 0.10 | 350 | 200 | 15s | 2 | 50  | 200  | 200  | 500/30s   | 2m  | 16  | 60s/5000 |
-| critical    | 0    | 0    | 250 | 150 | 8s  | 1 | 25  | 100  | 100  | 200/15s   | 1m  | 8   | 60s/5000 |
+| Profile | Minimum free memory | RSS budget | Heap budget | GC interval | Tool concurrency* | Stream buffer | SSE queue | WS limit | PTY capacity / TTL | Cache TTL | SQLite cache | LLM / DB timeout |
+|---------|--------------------:|-----------:|------------:|------------:|------------------:|--------------:|----------:|---------:|-------------------:|-----------:|-------------:|-----------------:|
+| comfortable | 4096 MB and 50% | 45% of detected total | 30% | 60 s | 16 | 400 | 2000 | 2000 | 10000 / 300 s | 30 min | 256 MB | 120 s / 10 s |
+| balanced | 1024 MB and 20% | 32% | 22% | 30 s | 8 | 200 | 1000 | 1000 | 5000 / 120 s | 10 min | 128 MB | 90 s / 7.5 s |
+| constrained | 512 MB and 10% | 22% | 14% | 15 s | 3 | 100 | 400 | 400 | 1500 / 60 s | 2 min | 64 MB | 60 s / 5 s |
+| critical | 0 MB and 0% | 12% | 8% | 5 s | 1 | 32 | 100 | 100 | 250 / 30 s | 1 min | 16 MB | 30 s / 3 s |
 
-`BASE_TARGETS` anchors the balanced tier; `PROFILE_MULTIPLIERS` overrides per tier.
+\* Tool concurrency is also capped to detected CPU capacity. RSS and heap budgets scale with detected total memory (with minimum floors and an RSS upper cap); queue, cache, batch, task, heartbeat, and checkpoint targets have profile-specific values in `profiles.ts`.
 
-`computeProfile(sys)` picks the highest tier whose `freeMB` and `freeRatio` are both met. `computeTargets(sys)` then caps:
+Pressure sheds resources immediately. Recovery advances by at most one profile and requires 15% extra free-memory headroom and an additional 0.05 free-memory ratio beyond the profile boundary. This avoids rapid profile oscillation.
 
-```ts
-rssTargetMB = min(mult.rss, totalMemoryMB * 0.12)
-heapTargetMB = min(mult.heap, totalMemoryMB * 0.07)
-maxToolConcurrency = clamp(mult.tool, 1..cpuCores)
-```
-
-`interpolateTargets(current, next, 0.3)` smooths live changes when the profile does not flip — avoids queue/capacity jumps mid-stream.
+`interpolateTargets(current, next, 0.3)` smooths target changes while a profile remains stable. When the profile changes, new targets are applied directly.
 
 ### Live service
 
-`AdaptiveResourceService`:
+`AdaptiveResourceService` keeps `targets`, `profile` and `lastSystem` in Effect `Ref`s and exposes `getCurrentTargets()`, `getCurrentProfile()` and `subscribe(fn)`. It samples every 90 seconds, updates profile/targets, notifies subscribers and logs changes. A failed update is logged and does not terminate the updater fiber.
 
-```ts
-interface AdaptiveResourceService {
-  targets: Ref<AdaptiveTargets>
-  profile: Ref<ResourceProfile>
-  lastSystem: Ref<SystemResources|null>
-  getCurrentTargets(): Effect<AdaptiveTargets>
-  getCurrentProfile(): Effect<ResourceProfile>
-  subscribe(fn: (t: AdaptiveTargets)=>void): Effect<()=>void>
-}
-```
-
-Construction:
-
-1. `detectSystemResources -> computeTargets/profile -> Ref.make(...)`
-2. `updater = forever { sleep("90 seconds"); detect; fresh = compute; prev = Ref.get; target = freshProfile===prev ? interpolate 0.3 : fresh; Ref.set(...); notify(subs); logInfo("Adaptive targets updated", ...) }` wrapped with `Effect.catchCause(logError).forever` and `forkScoped`.
-3. Subscribers are an in-memory `Set`; `subscribe` registers and returns an unsubscriber.
-
-The `LayerNode` is `make(layer, [])` — no deps — and is provided via `makeAdaptiveLayer` at integration points so callers do not inherit `R|AdaptiveResource`.
+The server GC scheduler reads the adaptive interval. It performs a synchronous full `Bun.gc(true)` only when the detected host/container is low on memory **and** process RSS exceeds the current RSS target; otherwise it requests incremental `Bun.gc(false)`.
 
 ### Consumption seams
 
-- **Long-lived resources** (caches, DB PRAGMA, pty ticket `Cache.make`): `makeAdaptiveLayer(targets => Layer.effect(...))` — reads once at layer init and wraps `AdaptiveResourceDefaultLayer`.
-- **Ephemeral resources** (per-request/stream, WS gate, SSE queue): `useAdaptiveTargets(({maxToolConcurrency}) => Semaphore.make(...))`.
-- **Periodic**: the updater fiber itself + `DevMonitor` + `RunCoordinator` cleanup.
+- `useAdaptiveTargets` reads current values at decision points (tool semaphore, stream buffer, WebSocket connection cap, SSE queues).
+- `makeAdaptiveLayer` configures long-lived resources (PTY ticket cache, initial SQLite PRAGMAs) without leaking an adaptive service requirement into callers.
+- The main SQLite connection subscribes to target updates and adjusts `cache_size` and `mmap_size` as profiles change.
+- `DevMonitor` reports profile and current memory target information; it is diagnostic, not a hard resource-enforcement mechanism.
 
 ---
 
 ## What was integrated where (chronological by commit)
 
-| Area | Before | After | Effect |
-|------|--------|-------|--------|
+The table records implementation intent/seams. Performance deltas and memory figures documented by earlier runs are historical; no benchmarks were repeated for the current branch.
+
+| Area | Before | After | Effect / configured behavior |
 | `prompt.ts` loop exit + `compaction stop` | `yield* extract` blocked | `forkDetach(extract).catch(logError)` | first token -30% to unblocked; 5-min stall removed |
-| `main.ts` GC | fixed 30s | `ManagedRuntime(AdaptiveResource).forever { sleep gcIntervalMs; if rss>1.5*rssTarget => Bun.gc(true)+warn; if critical => warn; Bun.gc(true)+debug }` | heap converges to 250-400 MB band, emergency path prevents OOM kill |
-| `packages/db/src/database/database.ts` | fixed `cache_size -64000` | `cache_size -sqliteCacheMB*1000, mmap_size*2, wal, busy_timeout 5000, foreign_keys ON, wal_checkpoint PASSIVE` via `makeAdaptiveLayer` | SQLite RSS scales 8-128MB per tier |
-| `packages/db/src/pty/ticket.ts:Cache` | fixed `capacity 2000 ttl 60s` | adaptive `ptyTicketCapacity 200-5000 ttl 15-120s` | PTY handle memory tracks tier |
-| `websocket-tracker.ts:add()` | unbounded | `if sockets.size >= maxWSConnections -> false` via `useAdaptiveTargets` | DoS ceiling |
-| `handlers/event.ts` + `handlers/global.ts` SSE queues | `Queue.unbounded/bounded(500)` | `Queue.bounded(maxSSEQueueSize 100-1000)` via `useAdaptiveTargets` | stream backpressure |
-| `packages/db/src/session/runner/llm.ts` stream | unbounded | `Stream.buffer(maxLLMStreamBuffer 25-200) + throttle(rate/2)` | no heap cliff on bursty providers |
-| `packages/server/src/tool/registry.ts` tool run | unbounded | `Semaphore(maxToolConcurrency 1-8 capped cpuCores)` around each `def.execute` | tool storm throttled |
+| `main.ts` GC | fixed interval/full GC | adaptive `gcIntervalMs`; full collection only when host/container is low and process RSS exceeds target, incremental collection otherwise | pressure-aware collection; this is not a hard RSS ceiling |
+| `packages/db/src/database/database.ts` | fixed SQLite cache | profile-scaled `cache_size` and `mmap_size`, WAL, busy timeout, foreign keys; subscribes to changes | SQLite cache target ranges 16–256 MB |
+| `packages/db/src/pty/ticket.ts:Cache` | fixed capacity/TTL | adaptive `ptyTicketCapacity` 250–10000 and TTL 30–300s at layer initialization | PTY cache sizing follows startup profile |
+| `websocket-tracker.ts:add()` | unbounded | rejects new sockets at `maxWSConnections` 100–2000 via `useAdaptiveTargets` | bounded connection count |
+| `handlers/event.ts` + `handlers/global.ts` SSE queues | unbounded/fixed | `Queue.bounded(maxSSEQueueSize)` with target range 100–2000 | bounded event buffering |
+| `packages/db/src/session/runner/llm.ts` stream | unbounded | `Stream.buffer(maxLLMStreamBuffer)` with target range 32–400 | bounded stream buffering |
+| `packages/server/src/tool/registry.ts` tool run | unbounded | `Semaphore(maxToolConcurrency)` target range 1–16, capped by detected CPU capacity | profile-aware tool concurrency |
 | `packages/server/src/session/message-v2.ts` + `session.ts:messages({limit,before,after})` | always full sweep | paginated `limit 50 + cursor`, token-window `applyTokenWindow` respects last compaction | compaction time -60% on 2k-message threads, disk still zero-deletion |
 | `packages/server/src/storage/storage.ts` | raw JSON | `>10KB gzipSync -> "GZIP:"+base64` + `maybeDecompress` on read | tool output compression >60%, full fidelity |
 | `scripts/build.ts:execArgv` | none | `--memory-limit=1200 --max-old-space-size=512` | node/binary ceiling above adaptive targets but below OOM |
@@ -164,18 +148,23 @@ Each fix criterion matches the user requirement: *must NOT decrease speed/effect
 
 ---
 
-## Success targets
+## Targets and measurement status
 
-| Metric | comfortable | balanced | constrained | critical |
+The following are configured profile budgets, not guarantees or fresh benchmark results. RSS/heap values scale with detected total memory rather than using a fixed MB target.
+
+| Target | comfortable | balanced | constrained | critical |
 |--------|-------------|----------|-------------|----------|
-| RSS | <=700 | <=500 | <=350 | <=250 MB |
-| Heap | <=400 | <=300 | <=200 | <=150 |
-| First token p50 | <1.5s | <2s | <3s | <5s |
-| GC interval | 60s | 30s | 15s | 8s |
-| Tool concurrency | 8 | 4-6 | 2-3 | 1-2 |
-| Stability | Zero OOM | Zero OOM | Zero OOM | Zero OOM |
+| RSS budget | 45% of detected total | 32% | 22% | 12% |
+| Heap budget | 30% of detected total | 22% | 14% | 8% |
+| GC interval | 60 s | 30 s | 15 s | 5 s |
+| Max tool concurrency* | 16 | 8 | 3 | 1 |
+| Stream buffer | 400 | 200 | 100 | 32 |
+| SQLite cache target | 256 MB | 128 MB | 64 MB | 16 MB |
+| First-token p50 goal** | <1.5 s | <2 s | <3 s | <5 s |
 
-Zero session deletion ever. Full history is kept; pagination + transparent compression give the bounded-RSS illusion at constant fidelity.
+\* Capped by detected CPU capacity.  \n\** Historical performance goal only; not benchmarked in the current branch. Resource targets are intended to reduce risk under pressure but do not guarantee zero OOMs.
+
+Zero session deletion remains a data-retention goal. Full history is kept; pagination and transparent compression reduce working-set pressure without deleting conversation history.
 
 ---
 

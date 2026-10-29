@@ -43,8 +43,12 @@ Environment for production (minimum):
 ```bash
 PORT=4097
 HOST=0.0.0.0              # or 127.0.0.1 if behind a reverse proxy
-# CORS=                  # comma-separated explicit origins if browsers attach via Tailscale/LAN
-# OPENCODE_DB=           # :memory: (test), absolute path, or filename relative to Global.Path.data
+DIVEEOI_AUTH_MODE=both    # Basic + JWT; authentication remains required
+DIVEEOI_SERVER_USERNAME=DIVEEOI
+DIVEEOI_SERVER_PASSWORD=replace-with-a-strong-unique-secret
+DIVEEOI_JWT_SECRET=replace-with-at-least-32-random-characters
+# CORS=https://trusted-frontend.example.com  # only if the UI is hosted separately
+# OPENCODE_DB=           # legacy DB flag, if needed
 # OPENAI_API_KEY=        # or provider keys via config file
 ```
 
@@ -66,6 +70,7 @@ server {
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
     proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
     proxy_read_timeout 600s;
   }
 }
@@ -75,26 +80,7 @@ Set `CORS=https://diveeoi.example.com` if the app is served separately from the 
 
 ## Docker
 
-No `Dockerfile` is checked in. A minimal one is straightforward:
-
-```dockerfile
-FROM oven/bun:1.3.14 AS build
-WORKDIR /app
-COPY . .
-RUN bun install --frozen-lockfile && bun run build
-
-FROM oven/bun:1.3.14-slim
-WORKDIR /app
-COPY --from=build /app/packages/server/dist ./server
-COPY --from=build /app/packages/app/dist ./app/dist
-COPY --from=build /app/package.json /app/bun.lock ./
-RUN bun install --production --frozen-lockfile
-ENV PORT=4097 HOST=0.0.0.0
-EXPOSE 4097
-CMD ["bun", "--conditions=browser", "server/main.js"]
-```
-
-For a production image, keep the `patchedDependencies` applied (they are restored by `bun install`). Pin `oven/bun:1.3.14` rather than `latest` to avoid effect RC drift.
+The repository includes a Targeted Learning-aware [`Dockerfile`](../Dockerfile) based on Bun 1.3.14 and Debian/glibc. It persists `/data`, including the generated JWT signing key and Targeted Learning model/library state, and its healthcheck accepts an authenticated `401` as a live response. See [`targeted-learning-deployment.md`](targeted-learning-deployment.md) for build, model pre-seeding and run commands. Configure a strong Basic secret or JWT account auth; production does not default to `divee`.
 
 ## SST / CI
 
@@ -106,6 +92,11 @@ Colab/EC2 CI note from `PROJECT_LESSONS.md`: always `git fetch origin && git che
 
 - [ ] `bun run typecheck` green (or at least `packages/server packages/db packages/api` clean)
 - [ ] `bun run build` produced fresh `app/dist` consumed by `server/dist`
+- [ ] `DIVEEOI_AUTH_MODE` is `both` or `jwt`, not `disabled`
+- [ ] If Basic auth is enabled, `DIVEEOI_SERVER_PASSWORD` is a strong, unique secret; production has no default Basic password
+- [ ] `DIVEEOI_JWT_SECRET` is a stable random value of at least 32 characters, or the generated key file and data directory are persisted
+- [ ] Public registration is disabled unless intentionally required (`DIVEEOI_AUTH_ALLOW_REGISTRATION`)
+- [ ] Reverse proxy forwards `X-Forwarded-Proto` so secure refresh cookies are emitted behind TLS termination
 - [ ] `CORS` env set for any non-loopback browser origins
 - [ ] `OPENCODE_DB` points to a durable path (ideally on a volume, not ephemeral storage)
 - [ ] provider keys are in `opencode.jsonc` via `$VAR` references, not inline

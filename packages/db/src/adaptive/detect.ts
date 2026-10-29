@@ -1,8 +1,9 @@
 // packages/db/src/adaptive/detect.ts
 import { Effect } from "effect"
-import { cpus, freemem, totalmem } from "node:os"
+import { availableParallelism, freemem, totalmem } from "node:os"
 import { readFile } from "node:fs/promises"
 import { spawn } from "node:child_process"
+import { cgroupMemoryBudget, hierarchyDirectories, minimumFinite, parseCgroupCpuQuota } from "./cgroup"
 
 export type Platform = "windows" | "darwin" | "linux"
 
@@ -33,6 +34,100 @@ const parseMemInfo = (content: string): Pick<SystemResources, "totalMemoryMB" | 
   return {
     totalMemoryMB: Math.round(totalKB / 1024),
     availableMemoryMB: Math.round(availableKB / 1024),
+  }
+}
+
+const readOptionalText = async (file: string): Promise<string | undefined> => {
+  try {
+    return await readFile(file, "utf8")
+  } catch {
+    return undefined
+  }
+}
+
+const cgroupDirectories = async (controller?: string): Promise<string[]> => {
+  const content = await readOptionalText("/proc/self/cgroup")
+  const roots = new Set<string>()
+  let groupPath: string | undefined
+  if (controller) {
+    const line = content?.split("\n").find((entry) => {
+      const [, controllers] = entry.split(":")
+      return controllers?.split(",").includes(controller)
+    })
+    groupPath = line?.split(":")[2]
+    roots.add(`/sys/fs/cgroup/${controller}`)
+    // Debian/Ubuntu commonly mount the v1 CPU controllers together.
+    if (controller === "cpu") roots.add("/sys/fs/cgroup/cpu,cpuacct")
+    roots.add("/sys/fs/cgroup")
+  } else {
+    const line = content?.split("\n").find((entry) => entry.startsWith("0::"))
+    groupPath = line?.slice(3)
+    roots.add("/sys/fs/cgroup")
+  }
+
+  const paths = new Set<string>()
+  for (const root of roots) {
+    for (const directory of hierarchyDirectories(root, groupPath)) paths.add(directory)
+  }
+  return [...paths]
+}
+
+const readCgroupMemory = async (directories: string[], limitName: string, usageName: string) => {
+  const samples = await Promise.all(
+    directories.map(async (directory) => {
+      const [limit, usage] = await Promise.all([
+        readOptionalText(`${directory}/${limitName}`),
+        readOptionalText(`${directory}/${usageName}`),
+      ])
+      return { limit, usage }
+    }),
+  )
+  return cgroupMemoryBudget(samples)
+}
+
+const readCgroupCpuQuota = async (
+  directories: string[],
+  quotaName: string,
+  periodName?: string,
+): Promise<number | undefined> => {
+  const quotas = await Promise.all(
+    directories.map(async (directory) => {
+      if (!periodName) {
+        const raw = await readOptionalText(`${directory}/${quotaName}`)
+        return parseCgroupCpuQuota(raw)
+      }
+      const [quota, period] = await Promise.all([
+        readOptionalText(`${directory}/${quotaName}`),
+        readOptionalText(`${directory}/${periodName}`),
+      ])
+      return parseCgroupCpuQuota(quota, period)
+    }),
+  )
+  return minimumFinite(quotas)
+}
+
+const readLinuxCgroupLimits = async (): Promise<{
+  memoryLimitBytes?: number
+  memoryAvailableBytes?: number
+  cpuQuotaCores?: number
+}> => {
+  const unified = await cgroupDirectories()
+  let memory = await readCgroupMemory(unified, "memory.max", "memory.current")
+  let cpuQuotaCores = await readCgroupCpuQuota(unified, "cpu.max")
+
+  if (!memory.limitBytes) {
+    const legacyMemory = await cgroupDirectories("memory")
+    memory = await readCgroupMemory(legacyMemory, "memory.limit_in_bytes", "memory.usage_in_bytes")
+  }
+  if (!cpuQuotaCores) {
+    const legacyCpu = await cgroupDirectories("cpu")
+    cpuQuotaCores = await readCgroupCpuQuota(legacyCpu, "cpu.cfs_quota_us", "cpu.cfs_period_us")
+  }
+
+  return {
+    memoryLimitBytes: memory.limitBytes,
+    memoryAvailableBytes: memory.availableBytes,
+    cpuQuotaCores,
   }
 }
 
@@ -106,8 +201,22 @@ const detectInternal = Effect.fn("Adaptive.detect")(function* () {
         : "unknown"
   if (platform === "linux") {
     const memInfo = yield* readMemInfo
-    const { totalMemoryMB, availableMemoryMB } = parseMemInfo(memInfo)
-    return { totalMemoryMB, availableMemoryMB, cpuCores: cpus().length, platform, storageHint: storage }
+    const host = parseMemInfo(memInfo)
+    const cgroup = yield* Effect.tryPromise({
+      try: readLinuxCgroupLimits,
+      catch: () => new Error("Failed to read cgroup limits"),
+    }).pipe(Effect.orElseSucceed(() => ({})))
+    const memoryLimitMB = cgroup.memoryLimitBytes ? cgroup.memoryLimitBytes / 1024 / 1024 : undefined
+    const cgroupAvailableMB =
+      cgroup.memoryAvailableBytes === undefined ? undefined : cgroup.memoryAvailableBytes / 1024 / 1024
+    const totalMemoryMB = Math.max(1, Math.round(Math.min(host.totalMemoryMB, memoryLimitMB ?? Number.POSITIVE_INFINITY)))
+    const availableMemoryMB = Math.max(
+      0,
+      Math.round(Math.min(host.availableMemoryMB, cgroupAvailableMB ?? Number.POSITIVE_INFINITY)),
+    )
+    const hostCpuCores = Math.max(1, availableParallelism())
+    const cpuCores = Math.max(1, Math.min(hostCpuCores, Math.floor(cgroup.cpuQuotaCores ?? Number.POSITIVE_INFINITY)))
+    return { totalMemoryMB, availableMemoryMB, cpuCores, platform, storageHint: storage }
   }
   if (platform === "darwin") {
     const memSizeOutput = yield* readMemSize
@@ -119,7 +228,7 @@ const detectInternal = Effect.fn("Adaptive.detect")(function* () {
     return {
       totalMemoryMB: Math.round(totalBytes / 1024 / 1024),
       availableMemoryMB: Math.round(availableBytes / 1024 / 1024),
-      cpuCores: cpus().length,
+      cpuCores: Math.max(1, availableParallelism()),
       platform,
       storageHint: storage,
     }
@@ -127,7 +236,7 @@ const detectInternal = Effect.fn("Adaptive.detect")(function* () {
   return {
     totalMemoryMB: Math.round(totalmem() / 1024 / 1024),
     availableMemoryMB: Math.round(freemem() / 1024 / 1024),
-    cpuCores: cpus().length,
+    cpuCores: Math.max(1, availableParallelism()),
     platform,
     storageHint: storage,
   }
@@ -136,7 +245,7 @@ const detectInternal = Effect.fn("Adaptive.detect")(function* () {
 const fallback = (): SystemResources => ({
   totalMemoryMB: 4096,
   availableMemoryMB: 1024,
-  cpuCores: cpus().length,
+  cpuCores: Math.max(1, availableParallelism()),
   platform: mapPlatform(process.platform),
   storageHint: "unknown",
 })

@@ -89,7 +89,14 @@ export async function checkServerHealth(
       signal,
     })
       .global.health()
-      .then((x) => (x.error ? next(count, x.error) : { healthy: x.data?.healthy === true, version: x.data?.version }))
+      .then((x) => {
+        // An unauthorized health response still proves that the backend is
+        // reachable. Let AccountGate render the themed login instead of trapping
+        // unauthenticated users on the connection-error screen.
+        if (x.error && x.response?.status === 401) return { healthy: true }
+        if (x.error) return next(count, x.error)
+        return { healthy: x.data?.healthy === true, version: x.data?.version }
+      })
       .catch((error) => next(count, error))
   return attempt(0).finally(() => timeout?.clear?.())
 }

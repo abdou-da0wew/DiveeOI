@@ -1,5 +1,7 @@
 # Auth System v2 — Exhaustive Implementation Spec
 
+> **Historical implementation spec.** Treat it as planning history, not the current API contract. See [`security-auth.md`](security-auth.md), `docs/api.md`, and the current source for actual behavior. Email-delivery and verification-polling steps in this spec are not active.
+
 ## Overview
 
 This plan extends the existing auth system with:

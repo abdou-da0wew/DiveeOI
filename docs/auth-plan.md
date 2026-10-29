@@ -1,5 +1,7 @@
 # Auth System — Architecture Plan
 
+> **Historical planning document.** The implementation evolved beyond this plan. For the current behavior and security contract, use [`security-auth.md`](security-auth.md) and the current code; notably, `DIVEEOI_*` settings take precedence, registration auto-verifies because email delivery is not configured, and the browser login no longer embeds server passwords.
+
 ## 1. CONTEXT & OBJECTIVE
 
 Replace the single-password Basic auth with a full user account system. The server

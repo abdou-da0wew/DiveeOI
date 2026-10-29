@@ -18,6 +18,7 @@ import { SettingsList } from "./settings-list"
 import { TargetedLearningLibrary } from "./targeted-learning-library"
 import { TargetedLearningMemory } from "./targeted-learning-memory"
 import { TargetedLearningSettingsForm } from "./targeted-learning-settings-form"
+import { authFetch } from "@/utils/auth-client"
 
 interface SetupStep {
   name: string
@@ -48,7 +49,7 @@ const useTlApi = () => {
   return {
     getStatus: async (): Promise<SetupStatus> => {
       try {
-        const resp = await fetch(`${base()}/targeted-learning/setup`, { headers: headers() })
+        const resp = await authFetch(`${base()}/targeted-learning/setup`, { headers: headers() })
         if (!resp.ok) throw new Error(`setup status: ${resp.status}`)
         return await resp.json()
       } catch {
@@ -59,7 +60,7 @@ const useTlApi = () => {
     },
     start: async (force = false): Promise<SetupStatus> => {
   try {
-      const resp = await fetch(`${base()}/targeted-learning/setup/start`, {
+      const resp = await authFetch(`${base()}/targeted-learning/setup/start`, {
         method: "POST",
         headers: headers(),
         body: JSON.stringify({ force }),
@@ -72,7 +73,7 @@ const useTlApi = () => {
     },
     repair: async (): Promise<SetupStatus> => {
   try {
-      const resp = await fetch(`${base()}/targeted-learning/setup/repair`, {
+      const resp = await authFetch(`${base()}/targeted-learning/setup/repair`, {
         method: "POST",
         headers: headers(),
       })
@@ -84,7 +85,7 @@ const useTlApi = () => {
     },
     getHealth: async (): Promise<Health> => {
       try {
-        const resp = await fetch(`${base()}/targeted-learning/health`, { headers: headers() })
+        const resp = await authFetch(`${base()}/targeted-learning/health`, { headers: headers() })
         if (!resp.ok) throw new Error(`health: ${resp.status}`)
         return await resp.json()
       } catch {

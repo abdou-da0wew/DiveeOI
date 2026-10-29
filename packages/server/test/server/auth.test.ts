@@ -22,12 +22,12 @@ describe("ServerAuth", () => {
     expect(ServerAuth.headers()).toBeUndefined()
   })
 
-  test("defaults to the opencode username", () => {
+  test("defaults to the DiveeOI username", () => {
     Flag.OPENCODE_SERVER_PASSWORD = "secret"
     Flag.OPENCODE_SERVER_USERNAME = undefined
 
     expect(ServerAuth.headers()).toEqual({
-      Authorization: `Basic ${Buffer.from("opencode:secret").toString("base64")}`,
+      Authorization: `Basic ${Buffer.from("DIVEEOI:secret").toString("base64")}`,
     })
   })
 
@@ -50,7 +50,7 @@ describe("ServerAuth", () => {
   })
 
   test("validates decoded credentials against effect config", () => {
-    const config = { password: Option.some("secret"), username: "alice" }
+    const config = { password: Option.some("secret"), username: "alice", mode: "both" as const }
 
     expect(ServerAuth.required(config)).toBe(true)
     expect(ServerAuth.authorized({ username: "alice", password: Redacted.make("secret") }, config)).toBe(true)

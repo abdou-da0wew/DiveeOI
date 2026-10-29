@@ -75,6 +75,13 @@ describe("DatabaseMigration", () => {
           ),
         ).toEqual({ name: "agent", dflt_value: "'build'" })
         expect(yield* db.get(sql`SELECT count(*) as count FROM migration`)).toEqual({ count: migrations.length })
+        // Auth tables must be part of the fresh-install snapshot: fresh databases
+        // mark migrations complete without executing their individual up() functions.
+        for (const name of ["user", "verification_token", "auth_refresh_token"]) {
+          expect(
+            yield* db.get(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ${name}`),
+          ).toEqual({ name })
+        }
         expect(
           yield* db.all(
             sql`SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('event_aggregate_seq_idx', 'event_aggregate_type_seq_idx', 'session_input_session_pending_seq_idx', 'session_input_session_pending_delivery_seq_idx', 'session_input_session_admitted_seq_idx', 'session_input_session_promoted_seq_idx', 'session_message_session_idx', 'session_message_session_type_idx', 'session_message_session_seq_idx', 'session_message_session_type_seq_idx', 'session_message_session_time_created_id_idx') ORDER BY name`,

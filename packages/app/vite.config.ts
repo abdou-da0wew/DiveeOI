@@ -11,6 +11,24 @@ const channel = (() => {
 })()
 
 const isLowMem = process.env.DIVEEOI_LOW_MEM === "1"
+const serverPort = process.env.VITE_DIVEEOI_SERVER_PORT ?? process.env.DIVEEOI_SERVER_PORT ?? "4097"
+const configuredServerUrl = process.env.VITE_DIVEEOI_SERVER_URL ?? process.env.DIVEEOI_SERVER_URL
+const configuredServerHost = process.env.VITE_DIVEEOI_SERVER_HOST ?? process.env.DIVEEOI_SERVER_HOST ?? "127.0.0.1"
+const serverTarget = (() => {
+  if (configuredServerUrl) return configuredServerUrl.replace(/\/$/, "")
+  if (/^https?:\/\//i.test(configuredServerHost)) {
+    const target = new URL(configuredServerHost)
+    if (!target.port) target.port = serverPort
+    return target.toString().replace(/\/$/, "")
+  }
+  return `http://${configuredServerHost}:${serverPort}`
+})()
+const apiPaths = [
+  "api", "global", "session", "project", "provider", "agent", "model", "command", "file", "path", "vcs",
+  "pty", "mcp", "lsp", "formatter", "instance", "permission", "question", "event", "workspace", "sync", "tui",
+  "experimental", "config", "targeted-learning", "memory", "remote", "_opencode", "doc", "control", "skill", "task",
+  "openapi.json",
+].join("|")
 
 export default defineConfig({
   resolve: {
@@ -21,13 +39,20 @@ export default defineConfig({
   plugins: [tailwindcss(), solid()] as any,
   define: {
     "import.meta.env.VITE_DIVEEOI_CHANNEL": JSON.stringify(channel),
-    "import.meta.env.VITE_DIVEEOI_SERVER_USERNAME": JSON.stringify(process.env.VITE_DIVEEOI_SERVER_USERNAME ?? process.env.OPENCODE_SERVER_USERNAME ?? ""),
-    "import.meta.env.VITE_DIVEEOI_SERVER_PASSWORD": JSON.stringify(process.env.VITE_DIVEEOI_SERVER_PASSWORD ?? process.env.OPENCODE_SERVER_PASSWORD ?? ""),
   },
   server: {
     host: "0.0.0.0",
-    allowedHosts: true,
+    // Permit Arena preview hosts and local development without disabling Vite's
+    // host-header protection (DNS-rebinding mitigation).
+    allowedHosts: [".e2b.app", "localhost", "127.0.0.1", "::1"],
     port: 3000,
+    proxy: {
+      [`^/(?:${apiPaths})(?:/|$)`]: {
+        target: serverTarget,
+        changeOrigin: true,
+        ws: true,
+      },
+    },
   },
   build: {
     target: "esnext",

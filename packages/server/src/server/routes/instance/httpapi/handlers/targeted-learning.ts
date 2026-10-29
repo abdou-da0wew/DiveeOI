@@ -3,7 +3,7 @@
 // Handler implementations for the /targeted-learning route group.
 // Each handler closes over the TargetedLearning.Service and the Config.Service.
 
-import { Effect } from "effect"
+import { Effect, Fiber } from "effect"
 import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
 import { join } from "node:path"
 import { InstanceHttpApi } from "../api"
@@ -41,19 +41,47 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
       })
 
       let setupRunning = false
+      let setupStopping = false
+      let setupRepairing = false
+      let setupFiber: Fiber.Fiber<unknown, unknown> | undefined
+      let setupAbortController: AbortController | undefined
+
+      const stopSetup = () =>
+        Effect.gen(function* () {
+          if (setupStopping) {
+            while (setupStopping) yield* Effect.sleep("10 millis")
+            return
+          }
+          setupStopping = true
+          const fiber = setupFiber
+          yield* Effect.gen(function* () {
+            setupAbortController?.abort()
+            if (fiber) yield* Fiber.interrupt(fiber)
+            yield* tl.cancelSetup()
+          }).pipe(
+            Effect.ensuring(
+              Effect.sync(() => {
+                setupRunning = false
+                setupFiber = undefined
+                setupAbortController = undefined
+                setupStopping = false
+              }),
+            ),
+          )
+        })
 
       /** The 8 setup steps (plan §5.1). Nothing is skipped: Ready means the model really loads. */
-      const runSetup = (payload: { force?: boolean; dtype?: string }) =>
+      const runSetup = (payload: { force?: boolean; dtype?: string }, signal: AbortSignal) =>
         Effect.gen(function* () {
           const cfg = yield* configSvc.get().pipe(Effect.orElseSucceed(() => ({}) as Record<string, unknown>))
           const userTl = ((cfg as Record<string, unknown>).targetedLearning as Record<string, unknown> | undefined) ?? undefined
           const settings = withDefaults(userTl as never) as Record<string, unknown>
           const dtype = ((payload.dtype ?? (settings.embedding as Record<string, unknown>)?.dtype ?? "int8") as "int8" | "q4f16" | "fp16" | "fp32")
           const download = (settings.download ?? {}) as Record<string, unknown>
-          const force = { force: payload.force }
+          const stepOptions = { force: payload.force, signal }
 
           const probeResult = yield* tl.runProbe()
-          yield* tl.runStep("probe", () => Effect.succeed(probeResult), force)
+          yield* tl.runStep("probe", () => Effect.succeed(probeResult), stepOptions)
 
           yield* tl.runStep("preflight", () =>
             Effect.gen(function* () {
@@ -68,6 +96,7 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
               }
               return { freeDiskMB: probeResult.freeDiskMB, dataDirWritable: true, sufficient: true }
             }),
+            stepOptions,
           )
 
           const manifest = tl.manifest!
@@ -80,7 +109,9 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
               destDir: filesDir,
               endpoint: typeof download.endpoint === "string" ? (download.endpoint as string) : undefined,
               dtype,
+              signal,
             }),
+            stepOptions,
           )
           yield* tl.runStep("verify", () =>
             Effect.gen(function* () {
@@ -88,13 +119,14 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
               if (r.problems.length > 0) return yield* Effect.fail(new Error(`Model files failed verification: ${r.problems.join("; ")}`))
               return { verified: true, files: r.checked }
             }),
+            stepOptions,
           )
 
           const steps = yield* Effect.promise(() => import("@diveeoi/learning/setup/steps"))
-          yield* tl.runStep("runtime-check", () => steps.runtimeCheck(settings))
-          yield* tl.runStep("golden-self-test", () => steps.semanticSelfTest(settings))
-          yield* tl.runStep("benchmark", () => steps.benchmark(settings))
-          yield* tl.runStep("recommend-profile", () => Effect.succeed(probeResult.recommendedProfile))
+          yield* tl.runStep("runtime-check", () => steps.runtimeCheck(settings), stepOptions)
+          yield* tl.runStep("golden-self-test", () => steps.semanticSelfTest(settings), stepOptions)
+          yield* tl.runStep("benchmark", () => steps.benchmark(settings), stepOptions)
+          yield* tl.runStep("recommend-profile", () => Effect.succeed(probeResult.recommendedProfile), stepOptions)
         })
 
       // Setup downloads ~600 MB: it must not run inside the HTTP request. Start it in the
@@ -103,12 +135,17 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
         payload: { force?: boolean; dtype?: string }
       }) {
         if (!tl.manifest) return yield* Effect.fail(new HttpApiError.BadRequest({}))
-        if (!setupRunning) {
+        if (!setupRunning && !setupStopping && !setupRepairing) {
           setupRunning = true
-          Effect.runFork(
-            runSetup(ctx.payload).pipe(
+          setupAbortController = new AbortController()
+          setupFiber = Effect.runFork(
+            runSetup(ctx.payload, setupAbortController.signal).pipe(
               Effect.catch((err) => Effect.logWarning("targeted-learning setup stopped", { error: String(err).slice(0, 300) })),
-              Effect.ensuring(Effect.sync(() => void (setupRunning = false))),
+              Effect.ensuring(Effect.sync(() => {
+                setupRunning = false
+                setupFiber = undefined
+                setupAbortController = undefined
+              })),
             ),
           )
         }
@@ -116,14 +153,18 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
       })
 
       const setupRepair = Effect.fn("TargetedLearning.setupRepair")(function* () {
-        yield* tl.resetForRepair()
-        return yield* setupStatus()
+        if (setupRepairing) return yield* setupStatus()
+        setupRepairing = true
+        return yield* Effect.gen(function* () {
+          if (setupRunning || setupStopping) yield* stopSetup()
+          yield* tl.resetForRepair()
+          return yield* setupStatus()
+        }).pipe(Effect.ensuring(Effect.sync(() => { setupRepairing = false })))
       })
 
       const setupCancel = Effect.fn("TargetedLearning.setupCancel")(function* () {
-        // Phase 1: no-op. The setup state machine doesn't run anything async
-        // yet — once Phase 1 wires the real download, this signals the
-        // downloader to abort.
+        if (setupRepairing) return yield* setupStatus()
+        if (setupRunning || setupStopping) yield* stopSetup()
         return yield* setupStatus()
       })
 
@@ -245,8 +286,15 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
               chunk_count: number
               indexed_at: number | null
               error: string | null
+              job_id: string | null
+              job_status: string | null
+              job_progress: number | null
             }>(
-              "SELECT id, slug, title, author, lang, status, pages, chunk_count, indexed_at, error FROM books ORDER BY title",
+              `SELECT b.id, b.slug, b.title, b.author, b.lang, b.status, b.pages, b.chunk_count, b.indexed_at, b.error,
+                      (SELECT j.id FROM ingest_jobs j WHERE j.book_id = b.id ORDER BY j.started_at DESC, j.id DESC LIMIT 1) AS job_id,
+                      (SELECT j.status FROM ingest_jobs j WHERE j.book_id = b.id ORDER BY j.started_at DESC, j.id DESC LIMIT 1) AS job_status,
+                      (SELECT j.progress FROM ingest_jobs j WHERE j.book_id = b.id ORDER BY j.started_at DESC, j.id DESC LIMIT 1) AS job_progress
+                 FROM books b ORDER BY b.title`,
             )).catch(() => [] as never[]))
         const { ingestProgress } = yield* Effect.promise(() => import("@diveeoi/learning/ingest/run"))
         return {
@@ -261,9 +309,58 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
             chunkCount: r.chunk_count,
             indexedAt: r.indexed_at ?? undefined,
             error: r.error ?? undefined,
-            progress: ingestProgress(r.id)?.progress,
+            jobId: r.job_id ?? undefined,
+            jobStatus: r.job_status ?? undefined,
+            progress: ingestProgress(r.id)?.progress ?? r.job_progress ?? undefined,
           })),
         }
+      })
+
+      const listJobs = Effect.fn("TargetedLearning.listJobs")(function* () {
+        const db = tl.booksStore.available ? tl.booksStore.db : null
+        if (!db) return { jobs: [] }
+        const ingest = yield* Effect.promise(() => import("@diveeoi/learning/ingest/run"))
+        return { jobs: yield* Effect.promise(() => ingest.listIngestJobs(db)) }
+      })
+
+      const pauseJob = Effect.fn("TargetedLearning.pauseJob")(function* (ctx: { params: { jobID: string } }) {
+        const db = tl.booksStore.available ? tl.booksStore.db : null
+        if (!db) return false
+        const ingest = yield* Effect.promise(() => import("@diveeoi/learning/ingest/run"))
+        return yield* Effect.tryPromise({
+          try: () => ingest.pauseIngestJob(db, ctx.params.jobID),
+          catch: () => new HttpApiError.BadRequest({}),
+        })
+      })
+
+      const resumeJob = Effect.fn("TargetedLearning.resumeJob")(function* (ctx: { params: { jobID: string } }) {
+        const db = tl.booksStore.available ? tl.booksStore.db : null
+        if (!db) return false
+        const ingest = yield* Effect.promise(() => import("@diveeoi/learning/ingest/run"))
+        return yield* Effect.tryPromise({
+          try: () => ingest.resumeIngestJob(db, ctx.params.jobID, tl.dataDir),
+          catch: () => new HttpApiError.BadRequest({}),
+        })
+      })
+
+      const cancelJob = Effect.fn("TargetedLearning.cancelJob")(function* (ctx: { params: { jobID: string } }) {
+        const db = tl.booksStore.available ? tl.booksStore.db : null
+        if (!db) return false
+        const ingest = yield* Effect.promise(() => import("@diveeoi/learning/ingest/run"))
+        return yield* Effect.tryPromise({
+          try: () => ingest.cancelIngestJob(db, ctx.params.jobID),
+          catch: () => new HttpApiError.BadRequest({}),
+        })
+      })
+
+      const retryJob = Effect.fn("TargetedLearning.retryJob")(function* (ctx: { params: { jobID: string } }) {
+        const db = tl.booksStore.available ? tl.booksStore.db : null
+        if (!db) return false
+        const ingest = yield* Effect.promise(() => import("@diveeoi/learning/ingest/run"))
+        return yield* Effect.tryPromise({
+          try: () => ingest.retryIngestJob(db, ctx.params.jobID, tl.dataDir),
+          catch: () => new HttpApiError.BadRequest({}),
+        })
       })
 
       // Add a book: validate, register, and index in the background (plan §7).
@@ -367,6 +464,11 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
         .handle("health", health)
         .handle("probe", probe)
         .handle("books", listBooks)
+        .handle("jobs", listJobs)
+        .handle("jobs-pause", pauseJob)
+        .handle("jobs-resume", resumeJob)
+        .handle("jobs-cancel", cancelJob)
+        .handle("jobs-retry", retryJob)
         .handle("books-upload", uploadBook)
         .handle("books-import", importBook)
         .handle("books-delete", deleteBookHandler)

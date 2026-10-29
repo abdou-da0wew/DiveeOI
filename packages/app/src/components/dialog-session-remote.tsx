@@ -10,6 +10,7 @@ import { useServer } from "@/context/server"
 import { authTokenFromCredentials } from "@/utils/server"
 import { useLanguage } from "@/context/language"
 import "./dialog-session-remote.css"
+import { authFetch } from "@/utils/auth-client"
 
 /**
  * Remote session setup dialog (draft-10 remote sessions).
@@ -109,7 +110,7 @@ export const DialogSessionRemote: Component<{ sessionID: string }> = (props) => 
   const testConnection = async () => {
     setStatus({ testing: true, testResult: undefined, error: undefined })
     try {
-      const res = await fetch(`${serverSDK().url}/api/v1/remote/probe`, {
+      const res = await authFetch(`${serverSDK().url}/api/v1/remote/probe`, {
         method: "POST",
         headers: { ...authHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify(remotePayload()),
@@ -131,7 +132,7 @@ export const DialogSessionRemote: Component<{ sessionID: string }> = (props) => 
     setStatus({ connecting: true, error: undefined })
     try {
       // Set the session's metadata.remote via the session API
-      const res = await fetch(`${serverSDK().url}/api/session/${props.sessionID}`, {
+      const res = await authFetch(`${serverSDK().url}/api/session/${props.sessionID}`, {
         method: "PATCH",
         headers: { ...authHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ metadata: { remote: remotePayload() } }),
@@ -152,7 +153,7 @@ export const DialogSessionRemote: Component<{ sessionID: string }> = (props) => 
   const disconnect = async () => {
     setStatus({ connecting: true, error: undefined })
     try {
-      await fetch(`${serverSDK().url}/api/session/${props.sessionID}`, {
+      await authFetch(`${serverSDK().url}/api/session/${props.sessionID}`, {
         method: "PATCH",
         headers: { ...authHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ metadata: { remote: null } }),

@@ -2,14 +2,23 @@
 // A deterministic bag-of-words hash stands in for bge-m3 so retrieval is meaningful.
 
 import { afterAll, beforeAll, expect, test } from "bun:test"
+import { createHash, randomUUID } from "node:crypto"
 import { Effect } from "effect"
-import { mkdtempSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import * as Store from "../src/store"
 import { setRuntime } from "../src/runtime"
 import { PINNED_MANIFEST } from "../src/manifest/pinned"
-import { deleteBook, startIngest } from "../src/ingest/run"
+import {
+  cancelIngestJob,
+  deleteBook,
+  listIngestJobs,
+  pauseIngestJob,
+  resumeIngestJob,
+  retryIngestJob,
+  startIngest,
+} from "../src/ingest/run"
 import { attachBookMentions, prepareTargetedTurn } from "../src/session/turn"
 
 const DIM = 1024
@@ -63,6 +72,23 @@ const waitReady = async (id: string) => {
   throw new Error("ingest timed out")
 }
 
+const waitJobStatus = async (jobId: string, expected: string[]) => {
+  const db = (store as any).db
+  for (let i = 0; i < 100; i++) {
+    const job = await db.get("SELECT status FROM ingest_jobs WHERE id = ?", jobId)
+    if (job && expected.includes(job.status)) return job
+    await new Promise((r) => setTimeout(r, 20))
+  }
+  throw new Error(`ingest job ${jobId} did not reach ${expected.join("/")}`)
+}
+
+const jobIdForBook = async (bookId: string) => {
+  const jobs = await listIngestJobs((store as any).db)
+  const job = jobs.find((entry) => entry.bookId === bookId)
+  if (!job) throw new Error(`ingest job for ${bookId} was not created`)
+  return job.id
+}
+
 test("ingest → mention → gate → grounded context, off-topic refused without LLM", async () => {
   const db = (store as any).db
   const r = await startIngest({
@@ -108,6 +134,152 @@ test("ingest → mention → gate → grounded context, off-topic refused withou
   expect(await deleteBook(db, dir, r.bookId)).toBe(true)
   const left = await db.get("SELECT count(*) AS n FROM chunks WHERE book_id = ?", r.bookId)
   expect(left.n).toBe(0)
+})
+
+test("ingest jobs pause at a checkpoint and resume to completion", async () => {
+  const db = (store as any).db
+  let notifyEmbed: (() => void) | undefined
+  const embedEntered = new Promise<void>((resolve) => {
+    notifyEmbed = resolve
+  })
+  let releaseEmbed!: () => void
+  const holdEmbed = new Promise<void>((resolve) => {
+    releaseEmbed = resolve
+  })
+  const text = `Chapter 1 Adaptive Biology\n\n${"Cells convert light into chemical energy through photosynthesis. ".repeat(20)}`
+  const result = await startIngest({
+    db,
+    dataDir: dir,
+    filename: "pause-resume.txt",
+    bytes: new TextEncoder().encode(text),
+    embedFn: async (texts) => {
+      notifyEmbed?.()
+      await holdEmbed
+      return texts.map(hashEmbed)
+    },
+    ensureFn: async () => undefined,
+  })
+  const jobId = await jobIdForBook(result.bookId)
+
+  try {
+    await embedEntered
+    expect(await pauseIngestJob(db, jobId)).toBe(true)
+    releaseEmbed()
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    expect((await db.get("SELECT status FROM ingest_jobs WHERE id = ?", jobId)).status).toBe("paused")
+    expect(await resumeIngestJob(db, jobId, dir)).toBe(true)
+    expect((await waitReady(result.bookId)).status).toBe("ready")
+    expect((await waitJobStatus(jobId, ["complete"])).status).toBe("complete")
+  } finally {
+    releaseEmbed()
+  }
+})
+
+test("ingest cancellation cleans partial rows and recovery rejects an escaped source path", async () => {
+  const db = (store as any).db
+  let notifyEmbed: (() => void) | undefined
+  const embedEntered = new Promise<void>((resolve) => {
+    notifyEmbed = resolve
+  })
+  let releaseEmbed!: () => void
+  const holdEmbed = new Promise<void>((resolve) => {
+    releaseEmbed = resolve
+  })
+  const text = `Chapter 1 Cell Safety\n\n${"Cell membranes regulate movement into and out of the cell. ".repeat(20)}`
+  const result = await startIngest({
+    db,
+    dataDir: dir,
+    filename: "cancel-job.txt",
+    bytes: new TextEncoder().encode(text),
+    embedFn: async (texts) => {
+      notifyEmbed?.()
+      await holdEmbed
+      return texts.map(hashEmbed)
+    },
+    ensureFn: async () => undefined,
+  })
+  const jobId = await jobIdForBook(result.bookId)
+
+  try {
+    await embedEntered
+    expect(await cancelIngestJob(db, jobId)).toBe(true)
+    releaseEmbed()
+    expect((await waitJobStatus(jobId, ["cancelled"])).status).toBe("cancelled")
+    const rows = await db.get("SELECT count(*) AS n FROM chunks WHERE book_id = ?", result.bookId)
+    expect(rows.n).toBe(0)
+    // Let runIngest finish its final cleanup and release the in-memory control.
+    await new Promise((resolve) => setTimeout(resolve, 30))
+
+    const escaped = join(dir, "outside-source.txt")
+    writeFileSync(escaped, text)
+    await db.run("UPDATE books SET source_path = ? WHERE id = ?", escaped, result.bookId)
+    expect(await retryIngestJob(db, jobId, dir)).toBe(false)
+    expect((await db.get("SELECT status FROM ingest_jobs WHERE id = ?", jobId)).status).toBe("failed")
+    expect(existsSync(escaped)).toBe(true)
+  } finally {
+    releaseEmbed()
+  }
+})
+
+test("cancelling a persisted job during its recovery claim prevents a worker from starting", async () => {
+  const db = (store as any).db as Store.BooksDbHandle
+  const bookId = `book_${randomUUID().replace(/-/g, "")}`
+  const jobId = `job_${randomUUID().replace(/-/g, "").slice(0, 12)}`
+  const sourcePath = join(dir, "books", `${bookId}.txt`)
+  const bytes = new TextEncoder().encode("Chapter 1 Recovery\n\nA persisted source used to test cancellation races.")
+  const hash = createHash("sha256").update(bytes).digest("hex")
+  mkdirSync(join(dir, "books"), { recursive: true })
+  writeFileSync(sourcePath, bytes)
+  await db.run(
+    "INSERT INTO books (id, slug, title, source_hash, source_path, status, embed_signature, normalizer_version, created_at) VALUES (?, ?, ?, ?, ?, 'pending', 'test', 1, ?)",
+    bookId,
+    bookId,
+    "Recovery race",
+    hash,
+    sourcePath,
+    Date.now(),
+  )
+  await db.run(
+    "INSERT INTO ingest_jobs (id, book_id, stage, status, progress, started_at) VALUES (?, ?, 'parse', 'running', 0, ?)",
+    jobId,
+    bookId,
+    Date.now(),
+  )
+
+  let notifyLookup!: () => void
+  const lookupEntered = new Promise<void>((resolve) => {
+    notifyLookup = resolve
+  })
+  let releaseLookup!: () => void
+  const lookupGate = new Promise<void>((resolve) => {
+    releaseLookup = resolve
+  })
+  const delayedDb = {
+    ...db,
+    get: async <T>(sql: string, ...params: unknown[]) => {
+      if (sql.includes("FROM ingest_jobs j JOIN books b")) {
+        notifyLookup()
+        await lookupGate
+      }
+      return db.get<T>(sql, ...params)
+    },
+  } as Store.BooksDbHandle
+
+  try {
+    const recovery = resumeIngestJob(delayedDb, jobId, dir)
+    await lookupEntered
+    const cancellation = cancelIngestJob(db, jobId)
+    releaseLookup()
+
+    expect(await cancellation).toBe(true)
+    expect(await recovery).toBe(false)
+    expect((await db.get<{ status: string }>("SELECT status FROM ingest_jobs WHERE id = ?", jobId))?.status).toBe("cancelled")
+    expect((await db.get<{ status: string }>("SELECT status FROM books WHERE id = ?", bookId))?.status).toBe("cancelled")
+  } finally {
+    releaseLookup()
+    await db.run("DELETE FROM books WHERE id = ?", bookId)
+    rmSync(sourcePath, { force: true })
+  }
 })
 
 test("model not downloaded → clear not-ready answer, never an ungrounded LLM call", async () => {

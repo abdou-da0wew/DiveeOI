@@ -1,53 +1,12 @@
 import { describe, expect } from "bun:test"
 import { Effect, Layer, Option } from "effect"
-import { sql } from "drizzle-orm"
 import { Database } from "@diveeoi/db/database/database"
 import { UserService } from "@diveeoi/db/auth-user/user"
 import { testEffect } from "../lib/effect"
 
-// schema.gen.ts doesn't include the `user` table (it was added in migration
-// 20260729000001_add_users). For a fresh database, the migration system runs
-// schema.up() and marks all migrations as completed — so individual migration
-// files never execute. We patch the database layer to create the missing tables
-// after initialization.
-const baseDbLayer = Database.layerFromPath(":memory:")
-
-const patchedDbLayer = Layer.effect(
-  Database.Service,
-  Effect.gen(function* () {
-    const { db } = yield* Database.Service
-    yield* db.run(sql`
-      CREATE TABLE IF NOT EXISTS "user" (
-        "id" text PRIMARY KEY,
-        "email" text NOT NULL UNIQUE,
-        "password_hash" text NOT NULL,
-        "role" text NOT NULL DEFAULT 'user',
-        "verified" integer NOT NULL DEFAULT 0,
-        "username" text NOT NULL DEFAULT '',
-        "message_count" integer NOT NULL DEFAULT 0,
-        "created_at" integer NOT NULL,
-        "updated_at" integer NOT NULL
-      )
-    `)
-    yield* db.run(sql`
-      CREATE TABLE IF NOT EXISTS "verification_token" (
-        "id" text PRIMARY KEY,
-        "user_id" text NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
-        "token" text NOT NULL UNIQUE,
-        "type" text NOT NULL,
-        "expires_at" integer NOT NULL,
-        "used" integer NOT NULL DEFAULT 0
-      )
-    `)
-    yield* db.run(sql`CREATE INDEX IF NOT EXISTS "idx_user_email" ON "user" ("email")`)
-    yield* db.run(
-      sql`CREATE INDEX IF NOT EXISTS "idx_verification_token_token" ON "verification_token" ("token")`,
-    )
-    return { db }
-  }),
-)
-
-const dbLayer = Layer.provideMerge(patchedDbLayer, baseDbLayer) as Layer.Layer<Database.Service>
+// Use the unpatched fresh database layer: auth tables must be present in
+// schema.gen.ts because fresh installs mark the migration journal complete.
+const dbLayer = Database.layerFromPath(":memory:") as Layer.Layer<Database.Service>
 
 const testLayer = UserService.layer.pipe(
   Layer.provide(dbLayer),
@@ -82,6 +41,23 @@ describe("UserService extended", () => {
       expect(user.email).toBe("bob@test.com")
       expect(user.username).toBe("bob-dev")
       expect(user.role).toBe("admin")
+    }),
+  )
+
+  it.effect("atomically gives admin to only one concurrent first-account claim", () =>
+    Effect.gen(function* () {
+      const svc = yield* UserService.Service
+      const hash = yield* svc.hashPassword("first-account-password")
+      const [first, second] = yield* Effect.all(
+        [
+          svc.createFirstAdmin("first@test.com", hash),
+          svc.createFirstAdmin("second@test.com", hash),
+        ],
+        { concurrency: "unbounded" },
+      )
+
+      expect([first, second].filter(Option.isSome)).toHaveLength(1)
+      expect(yield* svc.countByRole("admin")).toBe(1)
     }),
   )
 
@@ -277,6 +253,40 @@ describe("UserService extended", () => {
 
       const consumed = yield* svc.consumeVerificationToken(token, "verify_email")
       expect(Option.isNone(consumed)).toBe(true)
+    }),
+  )
+
+  it.effect("refresh sessions rotate once and revoke", () =>
+    Effect.gen(function* () {
+      const svc = yield* UserService.Service
+      const hash = yield* svc.hashPassword("long-enough-password")
+      const user = yield* svc.create("refresh@test.com", hash)
+      const now = Date.now()
+
+      yield* svc.issueRefreshSession("refresh-jti-one-123456", user.id, now + 60_000)
+      expect(yield* svc.isRefreshSessionActive("refresh-jti-one-123456", user.id, now)).toBe(true)
+      expect(
+        yield* svc.rotateRefreshSession(
+          "refresh-jti-one-123456",
+          user.id,
+          "refresh-jti-two-123456",
+          now + 120_000,
+          now + 1,
+        ),
+      ).toBe(true)
+      expect(yield* svc.isRefreshSessionActive("refresh-jti-one-123456", user.id, now + 2)).toBe(false)
+      expect(yield* svc.isRefreshSessionActive("refresh-jti-two-123456", user.id, now + 2)).toBe(true)
+      expect(
+        yield* svc.rotateRefreshSession(
+          "refresh-jti-one-123456",
+          user.id,
+          "refresh-jti-three-123456",
+          now + 180_000,
+          now + 3,
+        ),
+      ).toBe(false)
+      yield* svc.revokeAllRefreshSessions(user.id, now + 4)
+      expect(yield* svc.isRefreshSessionActive("refresh-jti-two-123456", user.id, now + 5)).toBe(false)
     }),
   )
 })

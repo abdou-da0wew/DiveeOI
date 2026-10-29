@@ -72,6 +72,7 @@ import { showToast } from "@/utils/toast"
 import { ImagePreview } from "@diveeoi/ui/image-preview"
 import { pathKey } from "@/utils/path-key"
 import { displayName } from "@/pages/layout/helpers"
+import { authFetch } from "@/utils/auth-client"
 
 export type PromptInputState = ReturnType<typeof usePrompt>
 
@@ -670,11 +671,11 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const [bookOptions, setBookOptions] = createSignal<AtOption[]>([])
   createEffect(() => {
     const base = serverSDK().url
-    fetch(`${base}/targeted-learning/health`, { headers: { "content-type": "application/json" } })
+    authFetch(`${base}/targeted-learning/health`, { headers: { "content-type": "application/json" } })
       .then((r) => r.json())
       .then((health: { booksDbAvailable?: boolean }) => {
         if (!health.booksDbAvailable) { setBookOptions([]); return }
-        return fetch(`${base}/targeted-learning/books`, { headers: { "content-type": "application/json" } })
+        return authFetch(`${base}/targeted-learning/books`, { headers: { "content-type": "application/json" } })
       })
       .then((r) => (r && r.ok ? r.json() : { books: [] }))
       .then((data: { books?: Array<{ id: string; slug: string; title: string; author?: string }> }) => {

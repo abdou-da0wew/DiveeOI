@@ -53,7 +53,8 @@ import DirectoryLayout, { DirectoryDataProvider } from "@/pages/directory-layout
 import Layout from "@/pages/layout"
 import { ErrorPage } from "./pages/error"
 import { useCheckServerHealth } from "./utils/server-health"
-import { AuthProvider } from "./context/auth"
+import { AuthProvider, useAuth } from "./context/auth"
+import { authFetch } from "@/utils/auth-client"
 
 const HomeRoute = lazy(() => import("@/pages/home"))
 const Session = lazy(() => import("@/pages/session"))
@@ -410,6 +411,26 @@ function ConnectionError(props: { onRetry?: () => void; onServerSelected?: (key:
   )
 }
 
+function AccountGate(props: ParentProps) {
+  const [auth] = useAuth()
+  const server = useServer()
+  const hasServerCredentials = () => server.current?.type === "http" && !!server.current.http.password
+  return (
+    <Show
+      when={!auth.isLoading}
+      fallback={
+        <div class="h-dvh w-screen flex flex-col items-center justify-center bg-background-base">
+          <Splash class="w-16 h-20 opacity-50 animate-pulse" />
+        </div>
+      }
+    >
+      <Show when={auth.isAuthenticated || hasServerCredentials()} fallback={<Navigate href="/login" />}>
+        {props.children}
+      </Show>
+    </Show>
+  )
+}
+
 function ServerKey(props: ParentProps) {
   const server = useServer()
   return (
@@ -427,7 +448,7 @@ function _ExternalThemeLoader() {
     const base = server.current?.http?.url
     if (!base) return
     try {
-      const res = await fetch(`${base}/_opencode/themes`)
+      const res = await authFetch(`${base}/_opencode/themes`)
       if (!res.ok) return
       const themes = (await res.json()) as Record<string, unknown>
       for (const [, data] of Object.entries(themes)) {
@@ -484,15 +505,17 @@ export function AppInterface(props: {
           >
             <Route path="/login" component={LoginPage} />
             <Route path="/register" component={RegisterPage} />
-            <Route component={SelectedServerLayout}>
-              <Route path="/" component={HomeRoute} />
-              <Route path="/:dir" component={DirectoryLayout}>
-                <Route path="/" component={() => <Navigate href="session" />} />
-                <Route path="/session/:id?" component={SessionRoute} />
+            <Route component={AccountGate}>
+              <Route component={SelectedServerLayout}>
+                <Route path="/" component={HomeRoute} />
+                <Route path="/:dir" component={DirectoryLayout}>
+                  <Route path="/" component={() => <Navigate href="session" />} />
+                  <Route path="/session/:id?" component={SessionRoute} />
+                </Route>
               </Route>
-            </Route>
-            <Route component={DraftServerLayout}>
-              <Route path="/new-session" component={DraftRoute} />
+              <Route component={DraftServerLayout}>
+                <Route path="/new-session" component={DraftRoute} />
+              </Route>
             </Route>
           </Dynamic>
         </ConnectionGate>

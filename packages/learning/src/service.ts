@@ -44,10 +44,12 @@ export interface TargetedLearningInterface {
   runStep: (
     name: Setup.StepName,
     stepFn: (state: Setup.SetupState) => Effect.Effect<unknown, unknown>,
-    options?: { force?: boolean },
+    options?: { force?: boolean; signal?: AbortSignal },
   ) => Effect.Effect<Setup.SetupState, unknown>
   /** Reset for repair. */
   resetForRepair: () => Effect.Effect<Setup.SetupState, never>
+  /** Mark any interrupted setup step pending so the pipeline can safely resume. */
+  cancelSetup: () => Effect.Effect<Setup.SetupState, never>
   /** Boot-time quick health check. */
   bootCheck: () => Effect.Effect<{ healthy: boolean; missing: string[] }, never>
 }
@@ -99,6 +101,17 @@ export const layer = Layer.effect(
     const manifest = loadManifest() ?? PINNED_MANIFEST
     setRuntime({ dataDir, modelDir: modelDirFor(dataDir), booksStore, manifest })
 
+    if (booksStore.available && booksStore.db) {
+      const ingest = yield* Effect.promise(() => import("./ingest/run"))
+      yield* Effect.tryPromise({
+        try: () => ingest.resumePersistedIngestJobs(booksStore.db!, dataDir),
+        catch: (cause) => new Error("Failed to recover Targeted Learning ingest jobs", { cause }),
+      }).pipe(
+        Effect.tap((resumed) => Effect.logInfo("Targeted Learning ingest recovery complete", { resumed })),
+        Effect.catchCause((cause) => Effect.logWarning("Targeted Learning ingest recovery failed", { cause })),
+      )
+    }
+
     return TargetedLearning.of({
       dataDir,
       modelDir: modelDirFor(dataDir),
@@ -108,6 +121,7 @@ export const layer = Layer.effect(
       runProbe: () => probe(dataDir).pipe(Effect.orElseSucceed(() => ({}) as ProbeResult)),
       runStep: (name, stepFn, options) => Setup.runStep(dataDir, name, stepFn, options),
       resetForRepair: () => Setup.resetForRepair(dataDir),
+      cancelSetup: () => Setup.cancelSetup(dataDir),
       bootCheck: () => Setup.bootCheck(dataDir),
     })
   }),
@@ -131,6 +145,7 @@ export const disabledLayer = Layer.succeed(
     runProbe: () => Effect.succeed({} as ProbeResult),
     runStep: () => Effect.die("Targeted Learning disabled"),
     resetForRepair: () => Effect.succeed({} as Setup.SetupState),
+    cancelSetup: () => Effect.succeed({} as Setup.SetupState),
     bootCheck: () => Effect.succeed({ healthy: false, missing: ["feature disabled"] }),
   }),
 )

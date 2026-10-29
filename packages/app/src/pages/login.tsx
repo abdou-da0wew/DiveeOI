@@ -1,141 +1,98 @@
-import { createSignal } from "solid-js"
-import { useAuth } from "../context/auth"
+import { createSignal, Show } from "solid-js"
 import { useNavigate } from "@solidjs/router"
-import { authApi } from "../utils/auth-client"
+import { TextField } from "@diveeoi/ui/text-field"
+import { useAuth } from "@/context/auth"
+import { useServer } from "@/context/server"
+import { AuthPanel, AuthSubmitButton } from "@/components/auth-panel"
+import { authFetch, getBaseUrl } from "@/utils/auth-client"
+import { authTokenFromCredentials } from "@/utils/server"
 
 export default function LoginPage() {
-  const [state, { login }] = useAuth()
+  const [, { login }] = useAuth()
+  const server = useServer()
   const navigate = useNavigate()
-  const [email, setEmail] = createSignal("")
+  const initialUsername = server.current?.type === "http" ? server.current.http.username : undefined
+  const [username, setUsername] = createSignal(initialUsername || "DIVEEOI")
   const [password, setPassword] = createSignal("")
   const [error, setError] = createSignal("")
   const [loading, setLoading] = createSignal(false)
-  const [resending, setResending] = createSignal(false)
-  const [resendMsg, setResendMsg] = createSignal("")
-  const [showVerifyOverlay, setShowVerifyOverlay] = createSignal(false)
-  const [overlayUsername, setOverlayUsername] = createSignal("")
 
-  async function handleSubmit(e: Event) {
-    e.preventDefault()
+  async function handleSubmit(event: SubmitEvent) {
+    event.preventDefault()
     setError("")
     setLoading(true)
     try {
-      await login(email(), password())
-      if (state.user && !state.user.verified) {
-        setOverlayUsername(state.user.username || "")
-        setShowVerifyOverlay(true)
+      const connection = server.current
+      const url = connection?.type === "http" ? connection.http.url : getBaseUrl()
+      const credential = { username: username().trim(), password: password() }
+      const basic = await authFetch(`${url}/global/health`, {
+        headers: {
+          Authorization: `Basic ${authTokenFromCredentials(credential)}`,
+        },
+        cache: "no-store",
+      }).catch(() => undefined)
+
+      if (basic?.ok) {
+        server.setCredentials({ url, ...credential })
       } else {
-        navigate("/")
+        // Do not let an old or rejected Basic secret take precedence over a
+        // successful JWT login in the session's origin-scoped fetch helper.
+        server.clearCredentials({ url })
+        // JWT account auth remains available for instances configured without
+        // Basic credentials. The same project-styled form supports either mode.
+        await login(credential.username, credential.password)
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed")
+      navigate("/", { replace: true })
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not sign in. Check your details and try again.")
     } finally {
       setLoading(false)
     }
   }
 
-  async function handleOverlaySkip() {
-    if (overlayUsername()) {
-      try {
-        if (state.accessToken) {
-          await authApi.updateProfile(state.accessToken, { username: overlayUsername() })
-        }
-      } catch {
-        // Silent: username is optional
-      }
-    }
-    setShowVerifyOverlay(false)
-    navigate("/")
-  }
-
-  async function handleResend() {
-    if (!email()) return
-    setResending(true)
-    setResendMsg("")
-    try {
-      await authApi.resendVerification(email())
-      setResendMsg("Verification email sent! Check your inbox.")
-    } catch (err) {
-      setResendMsg(err instanceof Error ? err.message : "Failed to resend")
-    } finally {
-      setResending(false)
-    }
-  }
-
   return (
-    <div style="display: flex; min-height: 100vh; align-items: center; justify-content: center; background: #f5f5f5;">
-      <div style="width: 100%; max-width: 400px; padding: 32px; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-        <h1 style="font-size: 24px; margin: 0 0 24px; text-align: center;">Sign in to DiveeOI</h1>
-        
-        <form onSubmit={handleSubmit}>
-          <div style="margin-bottom: 16px;">
-            <label style="display: block; margin-bottom: 4px; font-weight: 500;">Email</label>
-            <input
-              type="email"
-              required
-              value={email()}
-              onInput={(e) => setEmail(e.currentTarget.value)}
-              style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;"
-              placeholder="you@example.com"
-            />
+    <AuthPanel
+      title="Welcome back"
+      description="Sign in to continue to your DiveeOI workspace."
+      footer={
+        <>
+          New to this instance?{" "}
+          <a href="/register" class="font-medium text-text-strong underline decoration-border-weak-base underline-offset-4 hover:text-text-base">
+            Create an account
+          </a>
+        </>
+      }
+    >
+      <form class="flex flex-col gap-4" onSubmit={handleSubmit}>
+        <TextField
+          label="Username or email"
+          type="text"
+          name="username"
+          value={username()}
+          onChange={setUsername}
+          placeholder="DIVEEOI or you@example.com"
+          autocomplete="username"
+          required
+        />
+        <TextField
+          label="Password"
+          type="password"
+          name="password"
+          value={password()}
+          onChange={setPassword}
+          placeholder={import.meta.env.DEV ? "Default for local development: divee" : "Enter your password"}
+          autocomplete="current-password"
+          required
+        />
+        <Show when={error()}>
+          <div role="alert" class="rounded-md border border-border-critical-base bg-surface-critical-weak px-3 py-2 text-12-regular text-text-critical">
+            {error()}
           </div>
-          
-          <div style="margin-bottom: 16px;">
-            <label style="display: block; margin-bottom: 4px; font-weight: 500;">Password</label>
-            <input
-              type="password"
-              required
-              value={password()}
-              onInput={(e) => setPassword(e.currentTarget.value)}
-              style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;"
-            />
-          </div>
-
-          {error() && (
-            <div style="color: #e53e3e; font-size: 14px; margin-bottom: 12px;">{error()}</div>
-          )}
-
-          {resendMsg() && (
-            <div style="color: #38a169; font-size: 14px; margin-bottom: 12px;">{resendMsg()}</div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading()}
-            style="width: 100%; padding: 10px; background: #0066ff; color: white; border: none; border-radius: 4px; font-size: 16px; cursor: pointer;"
-          >
-            {loading() ? "Signing in..." : "Sign in"}
-          </button>
-        </form>
-
-        <div style="margin-top: 16px; text-align: center; font-size: 14px;">
-          <a href="/register" style="color: #0066ff; text-decoration: none;">Create an account</a>
-          <span style="margin: 0 8px; color: #ccc;">|</span>
-          <button onClick={handleResend} disabled={resending()} style="background: none; border: none; color: #0066ff; cursor: pointer; font-size: 14px; text-decoration: underline;">
-            {resending() ? "Sending..." : "Resend verification"}
-          </button>
-        </div>
-      </div>
-
-      {showVerifyOverlay() && (
-        <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;">
-          <div style="width: 100%; max-width: 420px; padding: 32px; background: white; border-radius: 8px; box-shadow: 0 4px 24px rgba(0,0,0,0.15);">
-            <h2 style="font-size: 20px; margin: 0 0 8px;">Verify your email</h2>
-            <p style="color: #555; margin: 0 0 20px; line-height: 1.5;">We sent a verification link to <strong>{email()}</strong>. You can also set a display name below.</p>
-            <div style="margin-bottom: 16px;">
-              <label style="display: block; margin-bottom: 4px; font-weight: 500;">Display name (optional)</label>
-              <input type="text" value={overlayUsername()} onInput={(e) => setOverlayUsername(e.currentTarget.value)} style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;" placeholder="Your display name" maxLength={30} />
-            </div>
-            <div style="color: #38a169; font-size: 14px; margin-bottom: 12px;">Checking for verification every 5 seconds...</div>
-            <div style="margin-top: 16px;">
-              <button onClick={handleOverlaySkip} style="width: 100%; padding: 10px; background: #6b7280; color: white; border: none; border-radius: 4px; font-size: 16px; cursor: pointer;">Skip for now (10 free messages)</button>
-            </div>
-            <div style="margin-top: 12px; text-align: center;">
-              <button onClick={handleResend} disabled={resending()} style="background: none; border: none; color: #0066ff; cursor: pointer; font-size: 14px; text-decoration: underline;">{resending() ? "Sending..." : "Resend verification email"}</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+        </Show>
+        <AuthSubmitButton disabled={loading()}>
+          {loading() ? "Signing in…" : "Sign in"}
+        </AuthSubmitButton>
+      </form>
+    </AuthPanel>
   )
 }
