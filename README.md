@@ -59,11 +59,18 @@ Open `http://localhost:3000` in your browser. Pick a project directory and start
 |----------|---------|-------------|
 | `PORT` | `4097` | Server listen port (`packages/server/src/main.ts`) |
 | `HOST` | `0.0.0.0` | Server listen host |
-| `CORS` | _(auto)_ | Extra CORS origins (comma-separated, split in `main.ts`) |
+| `CORS` | _(auto)_ | Additional trusted browser origins (comma-separated) |
+| `DIVEEOI_AUTH_MODE` | `both` | Accept Basic and JWT (`basic`, `jwt`, `disabled` are also available) |
+| `DIVEEOI_SERVER_USERNAME` | `DIVEEOI` | Basic-auth username; `OPENCODE_SERVER_USERNAME` is a legacy fallback |
+| `DIVEEOI_SERVER_PASSWORD` | `divee` in non-production only | Basic-auth password; production has no default password |
+| `DIVEEOI_JWT_SECRET` | generated if omitted | Stable signing key (at least 32 characters recommended) |
+| `DIVEEOI_AUTH_ALLOW_REGISTRATION` | closed after first account | Set `1`/`true`/`yes` to allow regular-user registrations |
+| `VITE_DIVEEOI_SERVER_HOST` | `127.0.0.1` | Vite development proxy target host |
+| `VITE_DIVEEOI_SERVER_PORT` | `4097` | Vite development proxy target port |
 | `OPENCODE_DB` | `~/.local/share/opencode/opencode.db` | SQLite file (channel-aware) |
 | `DIVEEOI_PROFILER` | `0` | Set `1` to enable call-tree profiler |
 
-Create a `.env` file at the project root if needed. See `docs/configuration.md` for the full list.
+Create a `.env` file at the project root if needed; start from [`.env.example`](.env.example). For authentication modes, account setup, and production security guidance, see [`docs/security-auth.md`](docs/security-auth.md) and `docs/configuration.md`.
 
 ---
 
@@ -76,10 +83,11 @@ Create a `.env` file at the project root if needed. See `docs/configuration.md` 
 | **Tools** | Read, write, edit, glob, grep, shell, webfetch, websearch, LSP, patch, skill, question, todo, plan, task |
 | **MCP** | Full Model Context Protocol support — connect external tool servers |
 | **Memory** | Knowledge graph with nodes/edges, vector recall, extraction, consolidation |
+| **Targeted Learning** | Indexed books, grounded `@book:` sessions, hybrid retrieval, student memory, OCR and resumable ingest jobs |
 | **Projects** | Multi-directory workspaces, git worktrees, per-project config |
 | **Permissions** | Fine-grained tool permission system with auto-approve rules |
 | **Plugins** | Extensible plugin SDK for custom tools and providers |
-| **Optimization** | **Adaptive resource system** — cross-platform detection, 4 profiles, GC/backpressure & 13 tuned targets |
+| **Optimization** | **Adaptive resource system** — cgroup-aware resource detection, 4 profiles, GC/backpressure and 22 tuned targets |
 | **Profiler** | In-process call-tree profiler → `.divee/profiler.jsonl` (opt-in via `DIVEEOI_PROFILER=1`) |
 | **i18n** | 17 locales (en, zh, ja, ko, fr, de, es, pt-BR, ru, ar, and more) |
 | **Themes** | Light/dark themes with a full theme engine |
@@ -144,6 +152,7 @@ See [`docs/architecture.md`](docs/architecture.md) for the full architecture bre
 | [`docs/development.md`](docs/development.md) | Dev workflow, scripts, testing, conventions |
 | [`docs/api.md`](docs/api.md) | HTTP API groups, endpoints, auth, streaming |
 | [`docs/configuration.md`](docs/configuration.md) | Config files, env vars, providers, MCP, themes |
+| [`docs/security-auth.md`](docs/security-auth.md) | Authentication modes, account flows, credentials and production hardening |
 | [`docs/optimization.md`](docs/optimization.md) | **Memory/speed/adaptive resources — the core perf work** |
 | [`docs/deployment.md`](docs/deployment.md) | Building, self-hosting, Docker, production checklist |
 | [`docs/contributing.md`](docs/contributing.md) | How to contribute, code style, PR process |
@@ -178,7 +187,7 @@ See [`docs/development.md`](docs/development.md) for the full command reference.
 
 ## How It Works (30-Second Version)
 
-1. **You open a project** — the server watches the directory, indexes files, and loads config. On boot it also samples the host (`/proc/meminfo`, `sysctl`, `os.freemem`) and picks an adaptive profile (comfortable→critical) that tunes GC, SSE/WS queue sizes, tool concurrency, and SQLite cache.
+1. **You open a project** — the server watches the directory, indexes files, and loads config. On boot it samples host/container resources (including Linux cgroup v1/v2 limits) and picks an adaptive profile (comfortable→critical) that tunes GC, SSE/WS queue sizes, tool concurrency, and SQLite cache.
 2. **You send a message** — the session engine builds a prompt (system instructions + conversation history + file context), picks a model, and streams the LLM response with an adaptive buffer/throttle.
 3. **The agent calls tools** — the LLM emits tool calls (read, edit, shell, etc.), the server executes them under a per-profile `Semaphore` and feeds results back into the loop; memory extraction at turn exit is fire-and-forget so it never stalls the next first token.
 4. **Everything is persisted** — sessions, messages, and events are stored in SQLite with lazy pagination + transparent GZIP (>10KB). The frontend syncs via SSE/WebSocket and renders the timeline in real time. A background `Bun.gc(true)` scheduler + 60s `DevMonitor` keep the process on its RSS/heap targets.
@@ -188,7 +197,7 @@ See [`docs/development.md`](docs/development.md) for the full command reference.
 > **DiveeOI is built to stay fast on ordinary hardware.** The server adapts to the machine it runs on, keeps its queues bounded, and never blocks the first token on background work.
 
 - **No stall on the first token**: `prompt.ts` loop exit + compaction stop fork the memory extraction instead of awaiting it — the first token is never blocked.
-- **Adaptive targets** (`packages/db/src/adaptive`): cross-platform detection → 4 profiles (700→250 MB RSS, 400→150 MB heap, 60→8s GC, 8→1 tool threads, 200→25 stream buffer, 128→8 MB SQLite, etc.) recomputed every 90s with 30% interpolation. Binary ceilings at 1200 MB RSS / 512 MB heap.
+- **Adaptive targets** (`packages/db/src/adaptive`): host/container-aware detection → 4 profiles. RSS/heap budgets scale with detected memory (45%/30% in comfortable mode down to 12%/8% in critical mode); GC intervals are 60s→5s, tool concurrency is capped by CPU quota (up to 16→1), stream buffers are 400→32, and SQLite cache targets are 256→16 MB. Targets refresh every 90s; pressure sheds resources immediately and recovery uses hysteresis.
 - **All hot queues bounded adaptively**: PTY tickets, WS tracker, SSE event/global queues, LLM stream, DB PRAGMA cache/mmap — each via `useAdaptiveTargets` or `makeAdaptiveLayer` so RSS tracks the profile, not the load.
 - **Profiler**: `packages/profiler` `AsyncLocalStorage` call-tree + gauges + JSONL `.divee/profiler.jsonl` — run with `DIVEEOI_PROFILER=1` to see per-route `durMs/heapDelta/concurrentMax`.
 - **Storage**: zero-deletion — full history stays queryable; disk savings come from GZIP on large tool outputs and paginated `messages({limit,before,after})`.

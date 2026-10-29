@@ -57,6 +57,18 @@ const HealthResponse = Schema.Struct({
   manifestLoaded: Schema.Boolean,
 })
 
+const IngestJobResponse = Schema.Struct({
+  id: Schema.String,
+  bookId: Schema.String,
+  stage: Schema.String,
+  status: Schema.String,
+  progress: Schema.Number,
+  checkpointJson: Schema.optional(Schema.String),
+  error: Schema.optional(Schema.String),
+  startedAt: Schema.optional(Schema.Number),
+  finishedAt: Schema.optional(Schema.Number),
+})
+
 const StartSetupRequest = Schema.Struct({
   force: Schema.optional(Schema.Boolean),
   dtype: Schema.optional(Schema.Literals(["int8", "q4f16", "fp16", "fp32"])),
@@ -225,6 +237,8 @@ export const TargetedLearningApi = HttpApi.make("targeted-learning")
                   chunkCount: Schema.Number,
                   indexedAt: Schema.optional(Schema.Number),
                   error: Schema.optional(Schema.String),
+                  jobId: Schema.optional(Schema.String),
+                  jobStatus: Schema.optional(Schema.String),
                   progress: Schema.optional(Schema.Number),
                 }),
               ),
@@ -238,6 +252,48 @@ export const TargetedLearningApi = HttpApi.make("targeted-learning")
             description: "Returns all books in the library with their indexing status. Used by the composer @book: autocomplete.",
           }),
         ),
+      )
+      // Ingest jobs — persistent pause/resume/cancel and retry after a failure.
+      .add(
+        HttpApiEndpoint.get("jobs", `${root}/jobs`, {
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Struct({ jobs: Schema.Array(IngestJobResponse) }), "Persistent ingest jobs"),
+        }).annotateMerge(OpenApi.annotations({
+          identifier: "targeted-learning.jobs.list",
+          summary: "List book-ingest jobs",
+        })),
+      )
+      .add(
+        HttpApiEndpoint.post("jobs-pause", `${root}/jobs/:jobID/pause`, {
+          params: { jobID: Schema.String },
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Boolean, "Job paused"),
+          error: HttpApiError.BadRequest,
+        }).annotateMerge(OpenApi.annotations({ identifier: "targeted-learning.jobs.pause", summary: "Pause an ingest job" })),
+      )
+      .add(
+        HttpApiEndpoint.post("jobs-resume", `${root}/jobs/:jobID/resume`, {
+          params: { jobID: Schema.String },
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Boolean, "Job resumed"),
+          error: HttpApiError.BadRequest,
+        }).annotateMerge(OpenApi.annotations({ identifier: "targeted-learning.jobs.resume", summary: "Resume an ingest job" })),
+      )
+      .add(
+        HttpApiEndpoint.post("jobs-cancel", `${root}/jobs/:jobID/cancel`, {
+          params: { jobID: Schema.String },
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Boolean, "Job cancelled"),
+          error: HttpApiError.BadRequest,
+        }).annotateMerge(OpenApi.annotations({ identifier: "targeted-learning.jobs.cancel", summary: "Cancel an ingest job" })),
+      )
+      .add(
+        HttpApiEndpoint.post("jobs-retry", `${root}/jobs/:jobID/retry`, {
+          params: { jobID: Schema.String },
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Boolean, "Job retried"),
+          error: HttpApiError.BadRequest,
+        }).annotateMerge(OpenApi.annotations({ identifier: "targeted-learning.jobs.retry", summary: "Retry a failed ingest job" })),
       )
       // Books — add (base64 upload), import (server-side path), delete
       .add(

@@ -18,7 +18,7 @@ import {
   writeStudentMemory,
 } from "../src/memory/service"
 import { recordRetrieved, resetRetrieved } from "../src/grounding/turn-state"
-import { verifyAnswerNote } from "../src/grounding/post"
+import { verifyAnswer, verifyAnswerNote } from "../src/grounding/post"
 
 let dir: string
 let store: any
@@ -120,4 +120,21 @@ test("verifier: accepts shown passages, flags never-shown or invented citations"
   const long = "x".repeat(300)
   expect(await verifyAnswerNote({ sessionId: "s1", answer: long })).toContain("cites no passages")
   expect(await verifyAnswerNote({ sessionId: "s1", answer: long, settings: { grounding: { verify: "off" } } })).toBeNull()
+})
+
+test("grounding retry returns one repair prompt, then falls back to a final warning", async () => {
+  resetRetrieved("retry-session")
+  const input = {
+    sessionId: "retry-session",
+    answer: "This claim cites an invented passage [bk_missing-s1-c1].",
+    settings: { grounding: { verify: "retry" } },
+  }
+  const retry = await verifyAnswer(input)
+  expect(retry.verified).toBe(false)
+  expect(retry.retryPrompt).toContain("bk_missing-s1-c1")
+  expect(retry.note).toBeUndefined()
+
+  const final = await verifyAnswer({ ...input, allowRetry: false })
+  expect(final.retryPrompt).toBeUndefined()
+  expect(final.note).toContain("could not be verified")
 })

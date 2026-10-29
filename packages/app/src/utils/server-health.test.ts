@@ -50,6 +50,14 @@ describe("checkServerHealth", () => {
     expect(timeoutMs).toBe(30_000)
   })
 
+  test("treats 401 as reachable so the themed login route can render", async () => {
+    const fetch = (async () => new Response("Authentication required", { status: 401 })) as unknown as typeof globalThis.fetch
+
+    const result = await checkServerHealth(server, fetch)
+
+    expect(result).toEqual({ healthy: true })
+  })
+
   test("returns unhealthy when request fails", async () => {
     const fetch = (async () => {
       throw new Error("network")

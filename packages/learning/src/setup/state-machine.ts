@@ -147,6 +147,16 @@ const markFailed = (state: SetupState, name: StepName, err: unknown): SetupState
   ),
 })
 
+const markPending = (state: SetupState, name: StepName): SetupState => ({
+  ...state,
+  status: "not-started",
+  steps: state.steps.map((step) =>
+    step.name === name
+      ? { ...step, status: "pending", finishedAt: undefined, lastError: undefined }
+      : step,
+  ),
+})
+
 const markSkipped = (state: SetupState, name: StepName): SetupState => ({
   ...state,
   steps: state.steps.map((s) => (s.name === name ? { ...s, status: "skipped" } : s)),
@@ -170,10 +180,11 @@ export const runStep = (
   dataDir: string,
   name: StepName,
   stepFn: (state: SetupState) => Effect.Effect<unknown, unknown>,
-  options?: { force?: boolean },
+  options?: { force?: boolean; signal?: AbortSignal },
 ): Effect.Effect<SetupState, unknown> =>
   Effect.gen(function* () {
     let state = yield* loadState(dataDir)
+    if (options?.signal?.aborted) return yield* Effect.fail(new Error("Setup cancelled"))
     const current = stepByName(state, name)
     if (!current) return yield* Effect.die(`Unknown setup step: ${name}`)
     if (current.status === "complete" && !options?.force) return state
@@ -199,7 +210,9 @@ export const runStep = (
         state = { ...state, status: "ready" }
       }
     } else {
-      state = markFailed(state, name, result.left)
+      state = options?.signal?.aborted
+        ? markPending(state, name)
+        : markFailed(state, name, result.left)
     }
     yield* saveState(dataDir, state)
     if (result._tag === "Left") {
@@ -222,6 +235,24 @@ export const resetForRepair = (dataDir: string): Effect.Effect<SetupState, never
     }
     yield* saveState(dataDir, repaired)
     return repaired
+  })
+
+/** Restore an interrupted step to pending so setup can be resumed cleanly. */
+export const cancelSetup = (dataDir: string): Effect.Effect<SetupState, never> =>
+  Effect.gen(function* () {
+    const state = yield* loadState(dataDir)
+    const steps = state.steps.map((step) =>
+      step.status === "running"
+        ? { ...step, status: "pending" as const, finishedAt: undefined, lastError: undefined }
+        : step,
+    )
+    const cancelled: SetupState = {
+      ...state,
+      status: steps.every((step) => step.status === "complete" || step.status === "skipped") ? "ready" : "not-started",
+      steps,
+    }
+    yield* saveState(dataDir, cancelled)
+    return cancelled
   })
 
 /**

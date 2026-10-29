@@ -3,8 +3,10 @@
 **Project**: Implementing the "Targeted Learning (RAGed-Session)" feature inside DiveeOI — a self-hosted fork of OpenCode.  
 **Plan source**: A 17-section implementation plan uploaded by the user, covering 6 phases (Foundations → Books & Ingestion → Retrieval → Targeted Sessions → UI → Hardening).  
 **Repo**: `/home/z/my-project/repos/DiveeOI` (a TS/Bun/Effect/SolidJS monorepo, fork of OpenCode).  
-**Dates**: All work done in a single session, 2026-10-26 to 2026-10-27 (UTC+8).  
-**Final state**: 157 tests passing (0 failures), typecheck clean on `@diveeoi/learning` + `@diveeoi/db`, live server integration test passes end-to-end (setup reaches `ready`, `modelReady: true`).
+**Original work dates**: 2026-10-26 to 2026-10-27 (UTC+8).
+**Original reported state**: 157 tests passing (0 failures), typecheck clean on `@diveeoi/learning` + `@diveeoi/db`, and a live server integration run was reported as passing at that earlier point. These are historical results, not current-branch verification.
+
+> **Status refresh — 2026-10-29, branch `arena/a467e26f-diveeoi`:** authentication/security, adaptive resource handling, ingest-job lifecycle/recovery, setup cancellation, grounding retry, and local-import containment were subsequently extended. Tests/typechecks/builds have not been run for those changes because Bun and workspace dependencies are unavailable in the current environment. Golden vectors remain empty until `bun run tl:selftest:freeze` is run with the pinned model installed. See root `WORKLOG.md` and `CONTEXT.md` for the current hand-off.
 
 This document is a **narrative engineering log** — every decision, every bug, every fix, every dead end, every "why did I do X" moment. It's organized chronologically by work-session, then by subsystem. Read top-to-bottom for the full story; jump to a section heading if you only care about one piece.
 

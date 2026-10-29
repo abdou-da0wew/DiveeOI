@@ -127,7 +127,7 @@ export const ocrPdfPages = async (
   pdf: Uint8Array,
   pages: number[],
   options: OcrOptions,
-  onProgress?: (done: number, total: number) => void,
+  onProgress?: (done: number, total: number) => void | Promise<void>,
 ): Promise<OcrPageResult[]> => {
   if (pages.length === 0) return []
   const langs = parseLanguages(options.languages)
@@ -163,7 +163,7 @@ export const ocrPdfPages = async (
       } else {
         results.push({ page: pages[i]!, text: "", confidence: 0 })
       }
-      onProgress?.(i + 1, pages.length)
+      await onProgress?.(i + 1, pages.length)
     }
   } finally {
     await worker.terminate()

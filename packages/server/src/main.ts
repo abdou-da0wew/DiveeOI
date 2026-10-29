@@ -70,8 +70,8 @@ try {
     ),
   )
 
-  // Adaptive GC scheduler: only intervenes when the HOST is under memory
-  // pressure. JSC collects on allocation pressure by itself, and `Bun.gc(true)`
+  // Adaptive GC scheduler: only intervenes when the detected host/container is
+  // under memory pressure. JSC collects on allocation pressure by itself, and `Bun.gc(true)`
   // is a synchronous full collection — running it unconditionally on a timer
   // produces periodic multi-millisecond event-loop stalls for no benefit.
   // Runs in its own runtime so it does not depend on the server's AppLayer

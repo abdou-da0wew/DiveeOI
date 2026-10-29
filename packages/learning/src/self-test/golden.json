@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "model": {
+    "repo": "Xenova/bge-m3",
+    "revision": "4de13258303883538bd53b696b452bf8099f0858",
+    "dtype": "int8",
+    "pooling": "cls",
+    "normalize": true
+  },
+  "cases": [
+    {
+      "id": "en-photosynthesis",
+      "text": "Photosynthesis is the process by which plants use sunlight to convert carbon dioxide and water into glucose and oxygen.",
+      "language": "en",
+      "referenceVectorB64": ""
+    },
+    {
+      "id": "ar-photosynthesis",
+      "text": "التمثيل الضوئي هو العملية التي تستخدم بها النباتات ضوء الشمس لتحويل ثاني أكسيد الكربون والماء إلى سكر جلوكوز وأكسجين.",
+      "language": "ar",
+      "referenceVectorB64": "",
+      "closerTo": "en-photosynthesis",
+      "furtherFrom": "en-history-rome"
+    },
+    {
+      "id": "en-history-rome",
+      "text": "The Roman Republic was the era of classical Roman civilization beginning with the overthrow of the Roman Kingdom and ending with the establishment of the Roman Empire.",
+      "language": "en",
+      "referenceVectorB64": ""
+    },
+    {
+      "id": "ar-grammar-nahw",
+      "text": "علم النحو هو علم يُعرف به أحوال أواخر الكلمات في الإعراب والبناء.",
+      "language": "ar",
+      "referenceVectorB64": ""
+    },
+    {
+      "id": "en-math-pythagoras",
+      "text": "The Pythagorean theorem states that in a right triangle, the square of the hypotenuse is equal to the sum of the squares of the other two sides.",
+      "language": "en",
+      "referenceVectorB64": ""
+    },
+    {
+      "id": "ar-math-jabr",
+      "text": "حل المعادلة التربيعية باستخدام الصيغة العامة يعتمد على حساب المميز تحت الجذر التربيعي.",
+      "language": "ar",
+      "referenceVectorB64": ""
+    }
+  ]
+}

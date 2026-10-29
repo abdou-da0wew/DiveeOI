@@ -1,52 +1,80 @@
-# CONTEXT — Targeted Learning (RAGed-Session) state for agent hand-off
+# CONTEXT — DiveeOI implementation hand-off
 
-Last updated: 2026-10-29. Branch: `dev`. See also `WORKLOG.md` (what happened) and `DECISIONS.md` (why).
-Older, longer notes: `docs/TARGETED_LEARNING_WORKLOG.md` (previous agent), plan doc "Targeted Learning (RAGed-Session) — Implementation Plan" (Claude Doc shared with the owner).
+Last updated: 2026-10-29. Branch: `arena/a467e26f-diveeoi` (active).
 
-## What the feature is
-A session type: the student mentions an indexed book with `@book:<slug>` and the agent then answers only from the attached books. Self-hosted, no Python, no cloud calls after the one-time model download.
+This file is the current hand-off snapshot. See `WORKLOG.md` for the chronological record, `DECISIONS.md` for design decisions, and `docs/TARGETED_LEARNING_WORKLOG.md` / `docs/WHATS_DONE.md` for the feature history and inventory. Older test counts in those historical documents are not verification of this branch.
 
-## Architecture (all in the DiveeOI Bun monorepo)
-- `packages/learning` (`@diveeoi/learning`) — everything that is not wiring:
-  - `manifest/` pinned manifest (`pinned.ts`, `types.ts`): Xenova/bge-m3 @ `4de1325…`, sizes + sha256 for tokenizer.json and the int8/q4f16/fp16/fp32 ONNX files. Three tiny JSON files are pinned by commit only (size 0 / sha256 "").
-  - `download/` resumable, hash-verified downloader (`downloadManifest`, `verifyManifestFiles`, `importFromLocalFolder`).
-  - `setup/` state machine (`state-machine.ts`, persisted in `<dataDir>/setup.json`) and real steps (`steps.ts`: runtime check, semantic self-test, benchmark).
-  - `embed/` Transformers.js pipeline (`pipeline.ts`), lazy bootstrap (`ensure.ts`), worker entry (`worker.entry.ts`).
-  - `ingest/` `run.ts` (queue → parse → [OCR] → chunk → embed → books.db), `embed-pool.ts` (N Bun Workers).
-  - `parsers/`, `chunk/` (parent/child, heading-aware), `lang/arabic.ts` (normalizer), `ocr/` (`index.ts` page-image extraction + tesseract.js, `pack.ts` pinned ara/eng tessdata).
-  - `store/` books.db (FTS5 + vectors as base64 BLOB text), degraded-mode handling.
-  - `retrieve/` hybrid BM25 + dense + RRF, gate (`gate.ts`).
-  - `session/turn.ts` — `attachBookMentions`, `prepareTargetedTurn` (retrieval + gate + grounding + memory injection), `inspectRetrieval`.
-  - `grounding/` prompt rules, `turn-state.ts` (passages shown this turn), `post.ts` (citation verifier note).
-  - `memory/service.ts` — student memory (`<dataDir>/student.db`) and book notes (`book_notes` in books.db).
-  - `settings/` schema → defaults, JSON schema, presets, `validate.ts`.
-  - `runtime.ts` — process-wide handle (books store, model dir, user settings) set by the service layer.
-- `packages/server`:
-  - `src/server/routes/instance/httpapi/groups|handlers/targeted-learning.ts` — routes under `/targeted-learning` (health, probe, setup*, settings*, books (+upload/import/delete), memory*, search).
-  - `src/session/prompt.ts` — 3 hooks: `@book:` → sticky `session.metadata.targetedLearning`; per-turn retrieval/gate (refusal answered without calling the LLM); post-answer citation verification.
-  - `src/session/tools.ts` — tool allowlist for targeted sessions; `book_*` / `student_memory_*` tools hidden elsewhere.
-  - `src/tool/learning/*` — `book_outline|search|read_section|find_term`, `memory-tools.ts` (`student_memory_*`, `book_note_*`).
-- `packages/app/src/components/` — `settings-targeted-learning.tsx` (v1) and `settings-v2/targeted-learning.tsx` (v2) mount shared `targeted-learning-library|memory|settings-form.tsx`. The settings form is generated from `GET /targeted-learning/settings/schema`.
-- `packages/db/src/v1/config/targeted-learning.ts` — config key `targetedLearning` (global config layer).
+## Verification status — read first
 
-## Data on disk (`<dataDir>` = `DIVEEOI_TL_DATA_DIR` or the app data dir + `/targeted-learning`)
-`models/Xenova/bge-m3/…` (model + tokenizer), `books.db`, `books/<hash>.<ext>` (source files), `student.db`, `ocr/*.traineddata`, `setup.json`.
+Bun 1.3.14 was installed into `/tmp/diveeoi-tools` for focused checks. A workspace install was attempted, but Bun could not verify the GitHub tarball certificate for `ghostty-web`; dependencies remain unavailable. Focused tests, source parsing, and `git diff --check` results are recorded below; full typechecks, builds, browser runs, and model-backed checks remain unverified. The optional reference-vector `runSelfTest()` fixture is empty until `tl:selftest:freeze` is run with the pinned model installed; this is separate from Setup's `golden-self-test` step, which runs the live semantic sanity check and does not require fixture vectors.
 
-## How to run / test
-- Dev server: `cd packages/server && bun run --conditions=browser ./src/main.ts` (port 4097; `PORT` env). Project pins Bun 1.3.14.
-- Learning tests: `cd packages/learning && bun test` (162 pass; 1 expected failure `embed pipeline (live)` needs HF access). OCR test: `TL_TEST_TESSDATA=<dir with ara/eng.traineddata> bun test test/ocr.test.ts`.
-- Typecheck: learning `bun x tsc --noEmit -p .`; server/app with `node …/typescript/bin/tsc --noEmit -p .` (server shows one error: missing build-generated `diveeoi-web-ui.gen.ts`, not a code problem).
-- **Real-model check + gate calibration (needs a host that reaches huggingface.co):** `BASE=http://127.0.0.1:4097 bun scripts/tl-live-check.ts [--dtype int8] [--apply] [--keep]`.
+## Authentication and security
 
-## Status
-Done and tested with stand-in embedders / local server smoke tests: setup pipeline code, downloader (fault-injected), ingest + 2-worker pool, mentions → targeted mode, gate, grounding, memory + notes, verifier, OCR (EN+AR synthetic scan), settings (persist, per-section merge, server-side validation), library/memory/settings UI (typechecks only).
+- The default auth mode is `both`: Basic or JWT is accepted. `DIVEEOI_SERVER_USERNAME` defaults to `DIVEEOI`; the non-production, non-test Basic password defaults to `divee`. Production has no default Basic password; JWT account auth remains enabled unless auth is explicitly disabled.
+- `DIVEEOI_*` settings take precedence. `OPENCODE_SERVER_USERNAME` / `OPENCODE_SERVER_PASSWORD` remain legacy environment fallbacks only.
+- The app has a DiveeOI-themed login/register surface. Basic credentials are entered there, tested against the selected server, and held in memory rather than embedded in the built JS or persisted by the login flow. They are attached only to requests for the matching configured server origin, including direct Targeted Learning fetches. If Basic auth is not accepted, login falls back to JWT account auth. No `WWW-Authenticate: Basic` challenge is emitted, preventing a browser-native credential popup.
+- JWT access tokens are memory-only in the browser. Browser login/refresh uses a rotating, revocable, HttpOnly/SameSite cookie and persisted refresh-session rows; headerless non-browser clients retain the JSON refresh-token flow. Access/refresh token purpose is validated separately; account password/email changes revoke refresh sessions. The JWT signing secret is generated in the persistent data directory when not configured; use a stable 32+ character `DIVEEOI_JWT_SECRET` in production.
+- The first admin account is claimed through a conditional database insert, preventing two concurrent first registrations from both becoming admin. Registration remains publicly exposed until that first account exists; bootstrap should happen before exposing an uninitialized instance.
+- API Bearer injection is restricted to the app origin so account tokens are not forwarded to arbitrary configured remote servers. Basic credentials are origin-scoped separately. A `401` health response is treated as reachable so the themed login can render rather than trapping users on a connection-error screen. The Vite dev server proxies API routes to a configurable backend target.
+- Previously shared external credentials should be rotated if they are still active. No credentials are intentionally stored in this repository.
 
-**Never run against the real model**: nothing in this repo has been executed with real bge-m3 weights (the agent sandbox cannot reach huggingface.co or the owner's VDS). First action for the next agent/owner: run `scripts/tl-live-check.ts` on the VDS.
+See `docs/security-auth.md` for configuration and operational guidance.
 
-## Remaining / known issues
-1. Live run on real bge-m3 (all dtypes: int8 default; q4f16/fp16/fp32 manifest entries added but **load is unverified**, esp. fp32 external `model.onnx_data` via Transformers.js).
-2. Gate threshold `gate.minDenseScore = 0.35` is uncalibrated — `tl-live-check.ts --apply` computes and applies one.
-3. `bun run test:httpapi` (coverage mode) reports 49 routes without scenarios, incl. all `/targeted-learning` routes (pre-existing gap, not fixed).
-4. Not built: pause/cancel/resume of indexing jobs; `grounding.verify = retry` (acts as `flag`); LLM summaries; multiple student profiles (`student_id` column exists, one `default` profile); formula/LaTeX OCR; rotated or vector-only scanned pages; `ocr.dpi` has no effect (embedded image is used as is).
-5. UI components were typechecked but never opened in a browser.
-6. Secrets: a GitHub PAT and a VDS password were pasted in chat by the owner; they must be rotated. Nothing secret is in the repo.
+## Adaptive resource system
+
+`packages/db/src/adaptive/` detects host/container resources and selects `comfortable`, `balanced`, `constrained`, or `critical` targets. Linux detection accounts for cgroup v1/v2 memory limits and CPU quotas at the current cgroup and all visible ancestors, plus `/proc/meminfo`; CPU capacity uses `availableParallelism`. Targets scale RSS/heap budgets to available memory, cap queues/caches/concurrency per profile, and recover with hysteresis. The adaptive service refreshes targets periodically; SQLite cache and mmap settings subscribe to updates.
+
+The focused cgroup ancestor/parser tests pass; profile tests and platform-wide resource checks remain unrun.
+
+## Targeted Learning feature
+
+A user can attach an indexed source with `@book:<slug>`. A targeted session retrieves only from the attached books, applies a retrieval gate, and injects cited grounding context. It is self-hosted and runs the pinned embedding model locally after setup.
+
+### Main code map
+
+- `packages/learning` (`@diveeoi/learning`) contains settings, model manifest/downloader, setup state machine, embedding, parsers, OCR, chunking, ingest, SQLite store, retrieval/gating, grounding, student memory, and evaluation/self-test.
+- `packages/server/src/server/routes/instance/httpapi/groups|handlers/targeted-learning.ts` wires setup, settings, books, ingest-job controls, search inspection, and memory APIs under `/targeted-learning`.
+- `packages/server/src/session/prompt.ts` connects `@book:` mentions to targeted-session metadata, retrieval/gating, answer verification, and one repair retry.
+- `packages/app/src/components/targeted-learning-*` and the settings-targeted-learning components provide the library, job controls, memory and schema-driven settings surfaces.
+- `packages/db/src/v1/config/targeted-learning.ts` provides the global config integration.
+
+### Current implementation details
+
+- Ingest persists job stage/progress/settings checkpoints. Jobs support pause, resume, cancel and retry. Recovery claims are guarded against duplicate in-process workers; cancellation signals an in-flight recovery claim before it can schedule, and pause/resume wait for the claim to settle. Queued/running jobs are recovered at boot by re-reading the stored source, checking its SHA-256 and containment under the library directory, then rebuilding the index from the beginning. Recovery does **not** continue at the exact checkpointed batch. Paused jobs remain paused across a restart.
+- OCR progress callbacks may be asynchronous; the OCR loop awaits them so failed checkpoint/progress writes propagate and do not become unhandled promise rejections.
+- Setup accepts an `AbortSignal` per step and exposes `cancelSetup`. Cancellation returns an interrupted step to pending, interrupts the setup Fiber (`Fiber.Fiber<unknown, unknown>`), and avoids starting repair/setup while cancellation is still settling. Test added; unrun.
+- `grounding.verify = retry` is wired: a failed first citation/grounding verification removes the unverified draft and makes one repair-prompt retry; if that retry still fails, the final answer carries a warning. Retrieved passage IDs are explicitly cleared after final verification and bounded/expired in memory.
+- Local-folder model import validates manifest paths and rejects traversal plus symlinks that resolve outside the selected source/destination roots.
+- `packages/learning/scripts/freeze-selftest.ts` implements `bun run tl:selftest:freeze` for the pinned int8 model; `packages/learning/src/self-test/golden.json` currently has empty vectors for the optional reference-vector regression self-test. Setup's live semantic sanity check does not depend on those vectors.
+
+### Data on disk
+
+`DIVEEOI_TL_DATA_DIR` (or the app data directory's `targeted-learning/`) holds `books.db`, `books/` source files, `models/`, OCR language data and `setup.json`. Student profile/memory data is stored separately in `student.db`. Keep the data directory on persistent storage; source files are needed for ingest recovery/re-indexing.
+
+## How to verify (on a machine with Bun 1.3.14+ and dependencies)
+
+```bash
+cd packages/learning && bun test
+cd packages/learning && bun x tsc --noEmit -p .
+cd packages/server && bun x tsc --noEmit -p .
+cd packages/app && bun x tsc --noEmit -p .
+# Optional pinned-model fixture generation for runSelfTest() (not required by Setup)
+cd packages/learning && bun run tl:selftest:freeze
+```
+
+Then rerun the learning suite and run `scripts/tl-live-check.ts` on a host where the pinned Hugging Face model can be installed. The previous branch documented a server typecheck issue caused by the build-generated `diveeoi-web-ui.gen.ts`; check whether the current build path generates that file before treating it as a source error.
+
+## Latest verification
+
+- `bun test`: 11 focused tests pass across app auth forwarding, browser-vs-non-browser refresh-token transport, and cgroup ancestor/resource parsing.
+- Bun `--no-bundle` parsing succeeded for 20 modified TypeScript/TSX files. `git diff --check` and `bash -n scripts/divee.sh` pass.
+- The atomic first-admin SQL was exercised with Node 22's built-in SQLite: the first conditional insert returned one admin row and the second returned none.
+- Full package tests, typechecks, production builds, browser checks, and model-backed checks remain unverified because the workspace dependency install could not resolve the GitHub `ghostty-web` tarball certificate.
+
+## Remaining verification / caveats
+
+1. Resolve dependency installation, then run the full tests, typechecks and builds for app, API, DB, learning, and server packages. The focused results above do not substitute for typechecking.
+2. Optionally freeze and verify golden vectors on the pinned int8 model for reproducible `runSelfTest()` checks; this is not a Setup prerequisite. Model-backed behavior and the live retrieval gate have not been validated here.
+3. Run browser checks for the login/register form, Basic and JWT flows, Vite proxy, adaptive-resource updates, setup cancel/repair, and ingest job controls.
+4. Exercise job recovery after process restart and inspect the intended full-source replay behavior. Unit additions for the recovery-claim/cancel race, pause/resume, cancellation cleanup and unsafe source paths are still unrun.
+5. Route-test coverage still needs a current run; the previous worklog recorded missing HTTP API scenarios for many routes, including Targeted Learning.

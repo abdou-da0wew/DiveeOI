@@ -14,6 +14,7 @@
 // 0.98 threshold rather than exact equality.
 
 import { Effect, Schema } from "effect"
+import golden from "./golden.json"
 
 // ---------------------------------------------------------------------------
 // Reference fixtures
@@ -31,57 +32,8 @@ export const GoldenCase = Schema.Struct({
 })
 export type GoldenCase = Schema.Schema.Type<typeof GoldenCase>
 
-/**
- * The actual golden cases. Three English + three Arabic, with one
- * cross-lingual pair (the "photosynthesis" sentence in both languages)
- * that the test expects to be closer to each other than to an unrelated
- * sentence about a different topic.
- *
- * NOTE: referenceVectorB64 is left empty here. The first Phase 1 task after
- * the runtime spike passes is to run `bun run tl:selftest:freeze` to
- * populate these. Until they are populated, the self-test fails with a
- * clear "vectors not yet frozen" message rather than silently passing.
- */
-export const GOLDEN_CASES: GoldenCase[] = [
-  {
-    id: "en-photosynthesis",
-    text: "Photosynthesis is the process by which plants use sunlight to convert carbon dioxide and water into glucose and oxygen.",
-    language: "en",
-    referenceVectorB64: "",
-  },
-  {
-    id: "ar-photosynthesis",
-    text: "التمثيل الضوئي هو العملية التي تستخدم بها النباتات ضوء الشمس لتحويل ثاني أكسيد الكربون والماء إلى سكر جلوكوز وأكسجين.",
-    language: "ar",
-    referenceVectorB64: "",
-    closerTo: "en-photosynthesis",
-    furtherFrom: "en-history-rome",
-  },
-  {
-    id: "en-history-rome",
-    text: "The Roman Republic was the era of classical Roman civilization beginning with the overthrow of the Roman Kingdom and ending with the establishment of the Roman Empire.",
-    language: "en",
-    referenceVectorB64: "",
-  },
-  {
-    id: "ar-grammar-nahw",
-    text: "علم النحو هو علم يُعرف به أحوال أواخر الكلمات في الإعراب والبناء.",
-    language: "ar",
-    referenceVectorB64: "",
-  },
-  {
-    id: "en-math-pythagoras",
-    text: "The Pythagorean theorem states that in a right triangle, the square of the hypotenuse is equal to the sum of the squares of the other two sides.",
-    language: "en",
-    referenceVectorB64: "",
-  },
-  {
-    id: "ar-math-jabr",
-    text: "حل المعادلة التربيعية باستخدام الصيغة العامة يعتمد على حساب المميز تحت الجذر التربيعي.",
-    language: "ar",
-    referenceVectorB64: "",
-  },
-]
+/** Golden Arabic/English sentences and reference vectors; frozen by scripts/freeze-selftest.ts. */
+export const GOLDEN_CASES = golden.cases as GoldenCase[]
 
 // ---------------------------------------------------------------------------
 // Cosine similarity

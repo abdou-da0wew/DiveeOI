@@ -188,7 +188,11 @@ export const maybeStart = Effect.fn("SshServer.maybeStart")(function* () {
   // with defaults if the caller hasn't read config yet.
   const host = process.env.DIVEEOI_SSH_HOST ?? "127.0.0.1"
   const port = parseInt(process.env.DIVEEOI_SSH_PORT ?? "2222", 10)
-  const password = process.env.DIVEEOI_SSH_PASSWORD ?? process.env.VITE_DIVEEOI_SERVER_PASSWORD ?? ""
+  const password =
+    process.env.DIVEEOI_SSH_PASSWORD ??
+    process.env.DIVEEOI_SERVER_PASSWORD ??
+    process.env.OPENCODE_SERVER_PASSWORD ??
+    ""
   if (!password) {
     yield* Effect.logWarning("ssh.start.skipped", { reason: "no password configured" })
     return

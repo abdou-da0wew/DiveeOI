@@ -285,7 +285,7 @@ packages/ui/                          ← Shared UI component library
 | Build tool | Vite 7.1 |
 | TypeScript | strict, ESNext target, bundler module resolution |
 | Path alias | `@/*` → `./src/*` |
-| Env vars | `VITE_DIVEEOI_CHANNEL` (dev/beta/prod), `VITE_DIVEEOI_SERVER_USERNAME`, `VITE_DIVEEOI_SERVER_PASSWORD`, `VITE_SENTRY_*` |
+| Env vars | `VITE_DIVEEOI_CHANNEL` (dev/beta/prod), `VITE_SENTRY_*`; Vite proxy target uses `VITE_DIVEEOI_SERVER_URL` or `VITE_DIVEEOI_SERVER_HOST` / `VITE_DIVEEOI_SERVER_PORT` (server credentials are never exposed as Vite defines) |
 | Plugins | `@tailwindcss/vite`, `vite-plugin-solid`, `vite-plugin-icons-spritesheet`, `@sentry/vite-plugin` |
 
 ### UI (`@diveeoi/ui`)

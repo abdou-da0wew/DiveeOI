@@ -28,9 +28,11 @@ import {
   renameSync,
   statSync,
   unlinkSync,
+  lstatSync,
+  realpathSync,
   promises as fsp,
 } from "node:fs"
-import { dirname, join } from "node:path"
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { Effect, Schema, Duration } from "effect"
 import type { Manifest, ManifestFile } from "../manifest/types"
 
@@ -75,6 +77,7 @@ export interface DownloadOptions {
   destDir: string
   endpoint?: string
   maxConcurrent?: number
+  signal?: AbortSignal
   onProgress?: (file: ManifestFile, receivedBytes: number, totalBytes: number) => void
 }
 
@@ -121,6 +124,7 @@ const downloadAttempt = async (
   manifest: Manifest,
   stallTimeoutSec: number,
   onProgress?: DownloadOptions["onProgress"],
+  signal?: AbortSignal,
 ): Promise<AttemptResult> => {
   const partPath = `${destPath}.part`
   const resumeFrom = existsSync(partPath) ? statSync(partPath).size : 0
@@ -132,6 +136,9 @@ const downloadAttempt = async (
 
   // Use AbortController for the stall timeout.
   const controller = new AbortController()
+  const abortFromCaller = () => controller.abort(signal?.reason)
+  if (signal?.aborted) abortFromCaller()
+  else signal?.addEventListener("abort", abortFromCaller, { once: true })
   let lastByteTime = Date.now()
   const watchdog = setInterval(() => {
     if (Date.now() - lastByteTime > stallTimeoutSec * 1000) {
@@ -194,6 +201,7 @@ const downloadAttempt = async (
     return { kind: "success", receivedBytes: received }
   } finally {
     clearInterval(watchdog)
+    signal?.removeEventListener("abort", abortFromCaller)
   }
 }
 
@@ -218,7 +226,7 @@ const downloadFile = (
     let attempt = 0
     while (attempt <= options.retries) {
       const result = yield* Effect.tryPromise({
-        try: () => downloadAttempt(file, destPath, endpoint, manifest, options.stallTimeoutSec, options.onProgress),
+        try: () => downloadAttempt(file, destPath, endpoint, manifest, options.stallTimeoutSec, options.onProgress, options.signal),
         catch: (err) =>
           err instanceof DownloadError
             ? err
@@ -321,6 +329,19 @@ export const downloadManifest = (
 // Local folder import (offline machines, plan §5.3 last paragraph)
 // ---------------------------------------------------------------------------
 
+const withinRoot = (root: string, candidate: string) => {
+  const rel = relative(root, candidate)
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
+}
+
+const containedPath = (root: string, candidate: string) => candidate !== root && withinRoot(root, candidate)
+
+const safeManifestPath = (value: string) =>
+  value.length > 0 &&
+  !isAbsolute(value) &&
+  !/^[a-zA-Z]:/.test(value) &&
+  !value.split(/[\\/]/).some((segment) => segment === "" || segment === "." || segment === "..")
+
 export const importFromLocalFolder = (
   manifest: Manifest,
   sourceDir: string,
@@ -328,16 +349,43 @@ export const importFromLocalFolder = (
   dtype?: "int8" | "q4f16" | "fp16" | "fp32",
 ): Effect.Effect<void, LocalImportError> =>
   Effect.gen(function* () {
+    let sourceRoot: string
+    let destRoot: string
+    try {
+      sourceRoot = realpathSync(sourceDir)
+      mkdirSync(destDir, { recursive: true })
+      destRoot = realpathSync(destDir)
+    } catch (error) {
+      return yield* Effect.fail(
+        new LocalImportError({ file: "", message: `source or destination folder is unavailable: ${String(error).slice(0, 200)}` }),
+      )
+    }
+
     for (const file of manifest.files) {
       if (!file.required && file.dtype !== (dtype ?? "int8")) continue
-      const src = join(sourceDir, file.path)
-      const dest = join(destDir, file.path)
-      if (!existsSync(src)) {
-        return yield* Effect.fail(
-          new LocalImportError({ file: file.path, message: "missing in local folder" }),
-        )
+      if (!safeManifestPath(file.path)) {
+        return yield* Effect.fail(new LocalImportError({ file: file.path, message: "unsafe path in model manifest" }))
+      }
+
+      const srcCandidate = resolve(sourceRoot, file.path)
+      const destCandidate = resolve(destRoot, file.path)
+      if (!containedPath(sourceRoot, srcCandidate) || !containedPath(destRoot, destCandidate)) {
+        return yield* Effect.fail(new LocalImportError({ file: file.path, message: "path escapes the import directory" }))
+      }
+
+      let src: string
+      try {
+        src = realpathSync(srcCandidate)
+      } catch {
+        return yield* Effect.fail(new LocalImportError({ file: file.path, message: "missing in local folder" }))
+      }
+      if (!containedPath(sourceRoot, src)) {
+        return yield* Effect.fail(new LocalImportError({ file: file.path, message: "source symlink escapes the selected folder" }))
       }
       const stat = statSync(src)
+      if (!stat.isFile()) {
+        return yield* Effect.fail(new LocalImportError({ file: file.path, message: "source is not a regular file" }))
+      }
       if (hasSize(file) && stat.size !== file.size) {
         return yield* Effect.fail(
           new LocalImportError({
@@ -355,7 +403,32 @@ export const importFromLocalFolder = (
           }),
         )
       }
-      mkdirSync(dirname(dest), { recursive: true })
+
+      let dest: string
+      try {
+        mkdirSync(dirname(destCandidate), { recursive: true })
+        const parent = realpathSync(dirname(destCandidate))
+        if (!withinRoot(destRoot, parent)) {
+          return yield* Effect.fail(new LocalImportError({ file: file.path, message: "destination symlink escapes the model directory" }))
+        }
+        dest = join(parent, basename(destCandidate))
+        if (!containedPath(destRoot, dest)) {
+          return yield* Effect.fail(new LocalImportError({ file: file.path, message: "destination path escapes the model directory" }))
+        }
+        try {
+          const existing = lstatSync(dest)
+          if (existing.isSymbolicLink() || !existing.isFile()) {
+            return yield* Effect.fail(new LocalImportError({ file: file.path, message: "destination is not a regular file" }))
+          }
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+        }
+      } catch (error) {
+        return yield* Effect.fail(
+          new LocalImportError({ file: file.path, message: `destination is unavailable: ${String(error).slice(0, 200)}` }),
+        )
+      }
+
       yield* Effect.tryPromise({
         try: () => fsp.copyFile(src, dest),
         catch: (err) =>

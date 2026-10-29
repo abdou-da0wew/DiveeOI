@@ -10,7 +10,7 @@ import { DatabaseMigration } from "./migration"
 import { InstallationChannel } from "../installation/version"
 import { LayerNode } from "../effect/layer-node"
 import { makeAdaptiveLayer, useAdaptiveTargets } from "../adaptive/hooks"
-import { node as AdaptiveResourceNode } from "../adaptive/service"
+import { AdaptiveResourceService, node as AdaptiveResourceNode } from "../adaptive/service"
 
 const makeDatabase = EffectDrizzleSqlite.makeWithDefaults()
 type DatabaseShape = Effect.Success<typeof makeDatabase>
@@ -35,6 +35,16 @@ export const layer = makeAdaptiveLayer((targets) =>
       yield* db.run("PRAGMA foreign_keys = ON")
       yield* db.run("PRAGMA wal_checkpoint(PASSIVE)")
       yield* DatabaseMigration.apply(db)
+
+      const adaptive = yield* AdaptiveResourceService
+      const unsubscribe = yield* adaptive.subscribe((next) =>
+        db.run(`PRAGMA cache_size = -${next.sqliteCacheMB * 1000}`).pipe(
+          Effect.zipRight(db.run(`PRAGMA mmap_size = ${next.sqliteCacheMB * 2 * 1024 * 1024}`)),
+          Effect.tapErrorCause((cause) => Effect.logWarning("Failed to update adaptive SQLite cache settings", { cause })),
+          Effect.ignore,
+        ),
+      )
+      yield* Effect.addFinalizer(() => Effect.sync(unsubscribe))
 
       return { db }
     }).pipe(Effect.orDie),

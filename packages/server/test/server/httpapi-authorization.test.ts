@@ -56,9 +56,9 @@ const v2ApiLayer = HttpRouter.serve(
   { disableListenLog: true, disableLogger: true },
 ).pipe(Layer.provideMerge(NodeHttpServer.layerTest))
 
-const noAuthLayer = ServerAuth.Config.layer({ password: Option.none(), username: "opencode" })
-const secretLayer = ServerAuth.Config.layer({ password: Option.some("secret"), username: "opencode" })
-const kitSecretLayer = ServerAuth.Config.layer({ password: Option.some("secret"), username: "kit" })
+const noAuthLayer = ServerAuth.Config.layer({ password: Option.none(), username: "opencode", mode: "disabled" })
+const secretLayer = ServerAuth.Config.layer({ password: Option.some("secret"), username: "opencode", mode: "both" })
+const kitSecretLayer = ServerAuth.Config.layer({ password: Option.some("secret"), username: "kit", mode: "both" })
 
 const it = testEffect(apiLayer.pipe(Layer.provide(noAuthLayer)))
 const itSecret = testEffect(apiLayer.pipe(Layer.provide(secretLayer)))
@@ -97,9 +97,10 @@ describe("HttpApi authorization middleware", () => {
       )
 
       expect(missing.status).toBe(401)
-      expect(missing.headers["www-authenticate"] ?? "").toContain("Basic")
+      // No WWW-Authenticate challenge: browsers must not open their native Basic-auth popup.
+      expect(missing.headers["www-authenticate"]).toBeUndefined()
       expect(badPassword.status).toBe(401)
-      expect(badPassword.headers["www-authenticate"] ?? "").toContain("Basic")
+      expect(badPassword.headers["www-authenticate"]).toBeUndefined()
       expect(good.status).toBe(200)
     }),
   )
@@ -167,7 +168,7 @@ describe("HttpApi authorization middleware", () => {
       const body = yield* response.json
 
       expect(response.status).toBe(401)
-      expect(response.headers["www-authenticate"] ?? "").toContain("Basic")
+      expect(response.headers["www-authenticate"]).toBeUndefined()
       expect(body).toEqual({ _tag: "UnauthorizedError", message: "Authentication required" })
     }),
   )

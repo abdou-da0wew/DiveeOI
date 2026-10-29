@@ -109,9 +109,11 @@ Provider facades (`OpenAI.configure({ apiKey, baseURL }).model("gpt-4o")`) confi
 
 ## Auth
 
-- `packages/server/src/auth` and `packages/db/src/account/auth` handle account tokens, refresh, and `auth.*` WellKnown fetching.
-- Server HTTP auth is password-only: `ServerAuth.Config { username: "opencode", password: Option<string> }`. An empty/disabled layer allows all requests; a password layer is enforced by `authorizationLayer` middleware on HttpApi and `authorizationRouterMiddleware` on raw router routes.
-- Browser passes `?auth_token=base64(user:pass)` -> `authFromToken` -> `ServerConnection.Http.authToken`.
+- `packages/api/src/handlers/auth.ts` and `packages/db/src/auth-user/user.ts` handle local account registration/login, short-lived access tokens, rotating refresh sessions, logout/revocation, and profile changes. Provider OAuth remains a separate account flow.
+- Server HTTP auth is controlled by `DIVEEOI_AUTH_MODE` (`both` by default; `basic`, `jwt`, or `disabled` are also available). Basic defaults to username `DIVEEOI`; the password defaults to `divee` only outside production/test. `DIVEEOI_*` takes precedence over legacy `OPENCODE_SERVER_*` variables. Authentication is required unless mode is explicitly `disabled`.
+- `DIVEEOI_JWT_SECRET` should be a stable random value of at least 32 characters in production. If omitted, a random secret is created in the persistent data directory. Browser access tokens remain in memory and refresh tokens use an HttpOnly/SameSite cookie; Bearer credentials are attached only to app-origin requests.
+- The app uses themed username/password inputs; Basic credentials are stored in memory for the active connection rather than embedded in the frontend bundle. The server does not emit `WWW-Authenticate: Basic`, avoiding the browser-native login popup. Legacy `?auth_token=base64(user:pass)` links remain supported.
+- See [`security-auth.md`](security-auth.md) for account bootstrap, environment variables, proxy/CORS behavior, and the production checklist.
 
 ## MCP
 

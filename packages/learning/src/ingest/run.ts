@@ -9,7 +9,7 @@
 // partial rows so a retry (re-upload) starts clean.
 
 import { createHash, randomUUID } from "node:crypto"
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { Effect } from "effect"
 import type { BooksDbHandle } from "../store"
@@ -71,7 +71,88 @@ const arabicRatio = (text: string) => {
 
 let queue: Promise<unknown> = Promise.resolve()
 const active = new Map<string, { stage: string; progress: number }>()
+
+interface IngestControl {
+  readonly jobId: string
+  readonly bookId: string
+  readonly db: BooksDbHandle
+  paused: boolean
+  cancelled: boolean
+  finishing: boolean
+  stage: string
+  progress: number
+  waiters: Set<() => void>
+  task?: Promise<void>
+}
+
+const controls = new Map<string, IngestControl>()
+interface EnqueueClaim {
+  cancelled: boolean
+  done: Promise<void>
+  finish: () => void
+}
+const enqueueClaims = new Map<string, EnqueueClaim>()
+const cancelRequests = new Set<string>()
+const waitForEnqueueClaim = async (jobId: string) => {
+  await enqueueClaims.get(jobId)?.done
+}
 export const ingestProgress = (bookId: string) => active.get(bookId)
+
+export class IngestCancelledError extends Error {
+  constructor() {
+    super("Ingest cancelled")
+    this.name = "IngestCancelledError"
+  }
+}
+
+const makeControl = (db: BooksDbHandle, jobId: string, bookId: string): IngestControl => {
+  const existing = controls.get(jobId)
+  if (existing) return existing
+  const control: IngestControl = {
+    db,
+    jobId,
+    bookId,
+    paused: false,
+    cancelled: false,
+    finishing: false,
+    stage: "parse",
+    progress: 0,
+    waiters: new Set(),
+  }
+  controls.set(jobId, control)
+  active.set(bookId, { stage: "queued", progress: 0 })
+  return control
+}
+
+const wakeControl = (control: IngestControl) => {
+  for (const wake of control.waiters) wake()
+  control.waiters.clear()
+}
+
+const waitForControl = async (control: IngestControl) => {
+  while (control.paused && !control.cancelled) {
+    await new Promise<void>((resolve) => control.waiters.add(resolve))
+  }
+  if (control.cancelled) throw new IngestCancelledError()
+}
+
+const stageBookStatus = (stage: string) => {
+  if (stage === "parse" || stage === "ocr") return "parsing"
+  if (stage === "chunk") return "chunking"
+  if (stage === "summary") return "summarizing"
+  return "embedding"
+}
+
+const checkpoint = (input: Pick<RunInput, "settings" | "format" | "title">, stage: string, progress: number) =>
+  JSON.stringify({ version: 1, stage, progress, settings: input.settings, format: input.format, title: input.title })
+
+const scheduleIngest = (input: RunInput) => {
+  const control = input.control
+  const task = queue.then(() => runIngest(input))
+  control.task = task
+  queue = task.catch(() => undefined)
+  return control
+}
 
 export interface StartIngestInput {
   db: BooksDbHandle
@@ -142,10 +223,13 @@ export const startIngest = async (input: StartIngestInput): Promise<StartIngestR
     Date.now(),
   )
 
-  active.set(bookId, { stage: "queued", progress: 0 })
-  queue = queue
-    .then(() => runIngest({ ...input, settings, format, bookId, jobId, title }))
-    .catch(() => undefined)
+  const runInput = { ...input, settings, format, bookId, jobId, title, control: makeControl(input.db, jobId, bookId) }
+  await input.db.run(
+    "UPDATE ingest_jobs SET checkpoint_json = ? WHERE id = ?",
+    checkpoint(runInput, "parse", 0),
+    jobId,
+  )
+  scheduleIngest(runInput)
   return { bookId, slug, duplicate: false }
 }
 
@@ -155,17 +239,304 @@ interface RunInput extends StartIngestInput {
   bookId: string
   jobId: string
   title: string
+  control: IngestControl
+}
+
+export interface IngestJobRecord {
+  id: string
+  bookId: string
+  stage: string
+  status: string
+  progress: number
+  checkpointJson?: string
+  error?: string
+  startedAt?: number
+  finishedAt?: number
+}
+
+export const listIngestJobs = async (db: BooksDbHandle): Promise<IngestJobRecord[]> => {
+  const rows = await db.all<{
+    id: string
+    book_id: string
+    stage: string
+    status: string
+    progress: number
+    checkpoint_json: string | null
+    error: string | null
+    started_at: number | null
+    finished_at: number | null
+  }>("SELECT id, book_id, stage, status, progress, checkpoint_json, error, started_at, finished_at FROM ingest_jobs ORDER BY started_at DESC, id")
+  return rows.map((row) => ({
+    id: row.id,
+    bookId: row.book_id,
+    stage: row.stage,
+    status: row.status,
+    progress: row.progress,
+    checkpointJson: row.checkpoint_json ?? undefined,
+    error: row.error ?? undefined,
+    startedAt: row.started_at ?? undefined,
+    finishedAt: row.finished_at ?? undefined,
+  }))
+}
+
+const loadJobForResume = async (db: BooksDbHandle, jobId: string) =>
+  db.get<{
+    id: string
+    book_id: string
+    stage: string
+    status: string
+    progress: number
+    checkpoint_json: string | null
+    source_path: string
+    source_hash: string
+    title: string
+  }>(
+    `SELECT j.id, j.book_id, j.stage, j.status, j.progress, j.checkpoint_json,
+            b.source_path, b.source_hash, b.title
+       FROM ingest_jobs j JOIN books b ON b.id = j.book_id
+      WHERE j.id = ?`,
+    jobId,
+  )
+
+const failUnresumableJob = async (db: BooksDbHandle, jobId: string, bookId: string, reason: string) => {
+  const message = reason.slice(0, 500)
+  await db.run("UPDATE books SET status = 'failed', error = ? WHERE id = ?", message, bookId)
+  await db.run("UPDATE ingest_jobs SET status = 'failed', error = ?, finished_at = ? WHERE id = ?", message, Date.now(), jobId)
+}
+
+const enqueuePersistedJob = async (
+  db: BooksDbHandle,
+  jobId: string,
+  dataDir: string,
+  allowedStatuses: readonly string[],
+): Promise<boolean> => {
+  if (controls.has(jobId) || enqueueClaims.has(jobId) || cancelRequests.has(jobId)) return false
+  let finish!: () => void
+  const claim: EnqueueClaim = {
+    cancelled: false,
+    done: new Promise<void>((resolve) => {
+      finish = resolve
+    }),
+    finish: () => finish(),
+  }
+  enqueueClaims.set(jobId, claim)
+  const isCancelled = () => claim.cancelled || cancelRequests.has(jobId)
+  const fail = async (bookId: string, reason: string) => {
+    if (!isCancelled()) await failUnresumableJob(db, jobId, bookId, reason)
+    return false
+  }
+
+  try {
+    const row = await loadJobForResume(db, jobId)
+    if (isCancelled() || controls.has(jobId) || !row || !allowedStatuses.includes(row.status)) return false
+    const root = path.resolve(dataDir, "books")
+    let sourcePath: string
+    try {
+      const candidate = path.resolve(row.source_path)
+      const relative = path.relative(root, candidate)
+      if (!row.source_path || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+        throw new Error("Stored source file is outside the Targeted Learning books directory")
+      }
+      sourcePath = realpathSync(candidate)
+      const realRelative = path.relative(realpathSync(root), sourcePath)
+      if (realRelative === ".." || realRelative.startsWith(`..${path.sep}`) || path.isAbsolute(realRelative)) {
+        throw new Error("Stored source file resolves outside the Targeted Learning books directory")
+      }
+      if (!existsSync(sourcePath)) throw new Error("Stored source file is missing")
+    } catch (error) {
+      return await fail(row.book_id, error instanceof Error ? error.message : "Stored source file is unavailable")
+    }
+
+    let bytes: Uint8Array
+    try {
+      bytes = new Uint8Array(readFileSync(sourcePath))
+    } catch {
+      return await fail(row.book_id, "Stored source file could not be read")
+    }
+    if (isCancelled()) return false
+    const actualHash = createHash("sha256").update(bytes).digest("hex")
+    if (actualHash !== row.source_hash) {
+      return await fail(row.book_id, "Stored source file hash does not match the original upload")
+    }
+
+    let saved: Record<string, unknown> = {}
+    try {
+      const parsed = JSON.parse(row.checkpoint_json ?? "{}")
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) saved = parsed as Record<string, unknown>
+    } catch {
+      // Old or corrupt checkpoints safely fall back to default settings.
+    }
+    const settings = withDefaults((saved.settings as Tree | undefined) ?? undefined)
+    const format = (saved.format === "pdf" || saved.format === "docx" || saved.format === "txt"
+      ? saved.format
+      : formatFromFilename(sourcePath))
+    if (!format) return await fail(row.book_id, "Stored source file has an unsupported format")
+    if (isCancelled()) return false
+
+    const input: Omit<RunInput, "control"> = {
+      db,
+      dataDir,
+      filename: path.basename(sourcePath),
+      bytes,
+      title: typeof saved.title === "string" ? saved.title : row.title,
+      settings,
+      format,
+      bookId: row.book_id,
+      jobId,
+    }
+    await db.run("UPDATE books SET status = 'pending', error = NULL WHERE id = ?", row.book_id)
+    if (isCancelled()) return false
+    await db.run("UPDATE ingest_jobs SET status = 'queued', error = NULL, finished_at = NULL WHERE id = ?", jobId)
+    if (isCancelled()) return false
+
+    // No await is allowed between installing the control and scheduling the
+    // worker. A cancellation either marks this claim before setup or sees the
+    // fully registered control after setup; it cannot miss the job in between.
+    const control = makeControl(db, jobId, row.book_id)
+    control.stage = row.stage
+    control.progress = row.progress
+    scheduleIngest({ ...input, control })
+    return true
+  } finally {
+    if (enqueueClaims.get(jobId) === claim) enqueueClaims.delete(jobId)
+    claim.finish()
+  }
+}
+
+export const pauseIngestJob = async (db: BooksDbHandle, jobId: string): Promise<boolean> => {
+  if (cancelRequests.has(jobId)) return false
+  await waitForEnqueueClaim(jobId)
+  if (cancelRequests.has(jobId)) return false
+  const row = await db.get<{ book_id: string; status: string }>("SELECT book_id, status FROM ingest_jobs WHERE id = ?", jobId)
+  if (!row || !["queued", "running"].includes(row.status) || cancelRequests.has(jobId)) return false
+  const control = controls.get(jobId)
+  if (control?.finishing || control?.cancelled) return false
+  if (control) control.paused = true
+  await db.run("UPDATE ingest_jobs SET status = 'paused' WHERE id = ? AND status IN ('queued', 'running')", jobId)
+  if (cancelRequests.has(jobId) || control?.cancelled) return false
+  await db.run(
+    "UPDATE books SET status = 'paused' WHERE id = ? AND status IN ('pending', 'parsing', 'chunking', 'embedding', 'summarizing', 'paused')",
+    row.book_id,
+  )
+  return true
+}
+
+export const resumeIngestJob = async (db: BooksDbHandle, jobId: string, dataDir: string): Promise<boolean> => {
+  if (cancelRequests.has(jobId)) return false
+  await waitForEnqueueClaim(jobId)
+  if (cancelRequests.has(jobId)) return false
+  const row = await db.get<{ book_id: string; status: string }>("SELECT book_id, status FROM ingest_jobs WHERE id = ?", jobId)
+  if (!row || !["paused", "queued", "running"].includes(row.status)) return false
+  const control = controls.get(jobId)
+  if (control) {
+    if (control.cancelled || control.finishing || cancelRequests.has(jobId)) return false
+    control.paused = false
+    active.set(control.bookId, { stage: control.stage, progress: control.progress })
+    await db.run(
+      "UPDATE books SET status = ? WHERE id = ? AND status IN ('paused', 'pending', 'parsing', 'chunking', 'embedding', 'summarizing')",
+      stageBookStatus(control.stage),
+      control.bookId,
+    )
+    if (control.cancelled || cancelRequests.has(jobId)) return false
+    await db.run("UPDATE ingest_jobs SET status = 'running' WHERE id = ? AND status IN ('paused', 'queued', 'running')", jobId)
+    wakeControl(control)
+    return true
+  }
+  return enqueuePersistedJob(db, jobId, dataDir, ["paused", "queued", "running"])
+}
+
+export const retryIngestJob = async (db: BooksDbHandle, jobId: string, dataDir: string): Promise<boolean> =>
+  enqueuePersistedJob(db, jobId, dataDir, ["failed", "cancelled"])
+
+export const cancelIngestJob = async (db: BooksDbHandle, jobId: string): Promise<boolean> => {
+  if (cancelRequests.has(jobId)) return false
+  cancelRequests.add(jobId)
+  try {
+    // If a resume/retry is still validating its source, signal it to stop before
+    // waiting. It will either schedule a fully registered control or leave the
+    // persisted job untouched for the cancellation below.
+    const claim = enqueueClaims.get(jobId)
+    if (claim) {
+      claim.cancelled = true
+      await claim.done
+    }
+    const row = await db.get<{ book_id: string; status: string }>("SELECT book_id, status FROM ingest_jobs WHERE id = ?", jobId)
+    if (!row || !["queued", "running", "paused"].includes(row.status)) return false
+    const control = controls.get(jobId)
+    if (control?.finishing) return false
+    if (control) {
+      control.cancelled = true
+      control.paused = false
+      wakeControl(control)
+    } else {
+      await db.run("DELETE FROM chunks WHERE book_id = ?", row.book_id)
+      await db.run("DELETE FROM sections WHERE book_id = ?", row.book_id)
+      await db.run("UPDATE books SET status = 'cancelled', error = NULL WHERE id = ?", row.book_id)
+      await db.run("UPDATE ingest_jobs SET status = 'cancelled', error = NULL, finished_at = ? WHERE id = ?", Date.now(), jobId)
+    }
+    return true
+  } finally {
+    cancelRequests.delete(jobId)
+  }
+}
+
+export const resumePersistedIngestJobs = async (db: BooksDbHandle, dataDir: string): Promise<number> => {
+  const jobs = await db.all<{ id: string }>("SELECT id FROM ingest_jobs WHERE status IN ('queued', 'running') ORDER BY started_at, id")
+  let resumed = 0
+  for (const job of jobs) {
+    if (await enqueuePersistedJob(db, job.id, dataDir, ["queued", "running"])) resumed += 1
+  }
+  return resumed
 }
 
 const runIngest = async (input: RunInput): Promise<void> => {
-  const { db, bookId, jobId } = input
+  const { db, bookId, jobId, control } = input
   const setStage = async (status: string, stage: string, progress: number) => {
+    await waitForControl(control)
+    control.stage = stage
+    control.progress = progress
     active.set(bookId, { stage, progress })
     await db.run("UPDATE books SET status = ? WHERE id = ?", status, bookId)
-    await db.run("UPDATE ingest_jobs SET stage = ?, status = 'running', progress = ? WHERE id = ?", stage, progress, jobId)
+    await db.run(
+      "UPDATE ingest_jobs SET stage = ?, status = 'running', progress = ?, checkpoint_json = ?, error = NULL WHERE id = ?",
+      stage,
+      progress,
+      checkpoint(input, stage, progress),
+      jobId,
+    )
+    // A pause can arrive while an asynchronous database write is in flight.
+    // Re-assert the persisted state before reaching the next checkpoint.
+    if (control.paused) {
+      await db.run("UPDATE books SET status = 'paused' WHERE id = ?", bookId)
+      await db.run("UPDATE ingest_jobs SET status = 'paused' WHERE id = ?", jobId)
+      await waitForControl(control)
+    }
+  }
+  const setProgress = async (stage: string, progress: number) => {
+    await waitForControl(control)
+    control.stage = stage
+    control.progress = progress
+    active.set(bookId, { stage, progress })
+    await db.run(
+      "UPDATE ingest_jobs SET stage = ?, status = 'running', progress = ?, checkpoint_json = ? WHERE id = ?",
+      stage,
+      progress,
+      checkpoint(input, stage, progress),
+      jobId,
+    )
+    if (control.paused) {
+      await db.run("UPDATE books SET status = 'paused' WHERE id = ?", bookId)
+      await db.run("UPDATE ingest_jobs SET status = 'paused' WHERE id = ?", jobId)
+      await waitForControl(control)
+    }
   }
   let poolRef: { close(): Promise<void> } | null = null
   try {
+    await waitForControl(control)
+    // A process may have stopped after any batch. Resume from the persisted
+    // source by rebuilding deterministically and deleting partial child rows.
+    await db.run("DELETE FROM chunks WHERE book_id = ?", bookId)
+    await db.run("DELETE FROM sections WHERE book_id = ?", bookId)
     const runtime = getRuntime()
     const ensure = input.ensureFn ?? (() => Effect.runPromise(ensureEmbedder(input.settings).pipe(Effect.asVoid)))
     const inProcess = input.embedFn ?? ((texts: string[]) => Effect.runPromise(embedBatch(texts)))
@@ -227,7 +598,7 @@ const runIngest = async (input: RunInput): Promise<void> => {
           input.bytes,
           scanned,
           { languages, dpi: Number(ocr.dpi ?? 200), dataDir: input.dataDir },
-          (done, total) => void setStage("parsing", "ocr", 5 + Math.floor((done / total) * 10)),
+          (done, total) => setProgress("ocr", 5 + Math.floor((done / total) * 10)),
         )
         const byPage = new Map(results.map((r) => [r.page, r.text]))
         parsed = {
@@ -261,6 +632,7 @@ const runIngest = async (input: RunInput): Promise<void> => {
     if (chunked.chunks.length === 0) throw new Error("The book produced no indexable passages.")
 
     for (const s of chunked.sections) {
+      await waitForControl(control)
       await db.run(
         "INSERT INTO sections (id, book_id, parent_id, level, title, page_start, page_end, ord, text, heading_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         s.id,
@@ -287,6 +659,7 @@ const runIngest = async (input: RunInput): Promise<void> => {
     const concurrency = pool && !poolBroken ? pool.size : 1
     let done = 0
     for (let w = 0; w < batches.length; w += concurrency) {
+      await waitForControl(control)
       const wave = batches.slice(w, w + concurrency)
       const results = await Promise.all(wave.map((b) => embedTexts(b.map((x) => x.text))))
       // This thread is the only SQLite writer: workers just return vectors.
@@ -315,6 +688,7 @@ const runIngest = async (input: RunInput): Promise<void> => {
       await new Promise((r) => setTimeout(r, 0)) // let the server breathe between waves
     }
     await pool?.close()
+    await setStage("summarizing", "summary", 96)
 
     const sample = parsed.pages.slice(0, 5).map((p) => p.text).join(" ")
     const lang = parsed.language ?? (arabicRatio(sample) > 0.5 ? "ar" : "en")
@@ -329,6 +703,10 @@ const runIngest = async (input: RunInput): Promise<void> => {
     const sig = runtime
       ? JSON.stringify({ repo: runtime.manifest.repo, revision: runtime.manifest.revision, dtype: String(((input.settings.embedding ?? {}) as Tree).dtype ?? "int8") })
       : "unknown"
+    await waitForControl(control)
+    // Close the control window before the final DB writes. A late pause/cancel
+    // request must not race the ready/complete transition.
+    control.finishing = true
     await db.run(
       "UPDATE books SET status = 'ready', lang = ?, pages = ?, author = ?, parent_count = ?, chunk_count = ?, embed_signature = ?, indexed_at = ?, summary_json = ?, error = NULL WHERE id = ?",
       lang,
@@ -343,17 +721,27 @@ const runIngest = async (input: RunInput): Promise<void> => {
     )
     await db.run("UPDATE ingest_jobs SET status = 'complete', progress = 100, finished_at = ? WHERE id = ?", Date.now(), jobId)
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    // Remove partial rows, keep the book row so the UI can show why it failed.
+    const cancelled = err instanceof IngestCancelledError || control.cancelled
+    const message = cancelled ? "Ingest cancelled" : err instanceof Error ? err.message : String(err)
+    // Remove partial rows, keeping the book row for retry/diagnostics.
     await db.run("DELETE FROM chunks WHERE book_id = ?", bookId).catch(() => undefined)
     await db.run("DELETE FROM sections WHERE book_id = ?", bookId).catch(() => undefined)
-    await db.run("UPDATE books SET status = 'failed', error = ? WHERE id = ?", message.slice(0, 500), bookId).catch(() => undefined)
     await db
-      .run("UPDATE ingest_jobs SET status = 'failed', error = ?, finished_at = ? WHERE id = ?", message.slice(0, 500), Date.now(), jobId)
+      .run("UPDATE books SET status = ?, error = ? WHERE id = ?", cancelled ? "cancelled" : "failed", cancelled ? null : message.slice(0, 500), bookId)
+      .catch(() => undefined)
+    await db
+      .run(
+        "UPDATE ingest_jobs SET status = ?, error = ?, finished_at = ? WHERE id = ?",
+        cancelled ? "cancelled" : "failed",
+        cancelled ? null : message.slice(0, 500),
+        Date.now(),
+        jobId,
+      )
       .catch(() => undefined)
   } finally {
     await poolRef?.close().catch(() => undefined)
-    active.delete(bookId)
+    if (controls.get(jobId) === control) controls.delete(jobId)
+    if (active.has(bookId)) active.delete(bookId)
   }
 }
 
@@ -364,6 +752,14 @@ export const deleteBook = async (db: BooksDbHandle, dataDir: string, bookId: str
     bookId,
   )
   if (!book) return false
+  const running = await db.all<{ id: string }>(
+    "SELECT id FROM ingest_jobs WHERE book_id = ? AND status IN ('queued', 'running', 'paused')",
+    bookId,
+  )
+  for (const job of running) {
+    await cancelIngestJob(db, job.id)
+    await controls.get(job.id)?.task
+  }
   await db.run("DELETE FROM books WHERE id = ?", bookId) // ON DELETE CASCADE clears the rest (foreign_keys = ON)
   await db.run("DELETE FROM chunks WHERE book_id = ?", bookId).catch(() => undefined)
   if (book.source_path && existsSync(book.source_path)) {

@@ -23,7 +23,9 @@ const LoginBody = Schema.Struct({
 })
 
 const RefreshBody = Schema.Struct({
-  refreshToken: Schema.String,
+  // Preferred transport is the HttpOnly refresh cookie. The body field stays
+  // optional for non-browser clients during the compatibility period.
+  refreshToken: Schema.optional(Schema.String),
 })
 
 const ResendBody = Schema.Struct({
@@ -36,7 +38,8 @@ const TokenQuery = Schema.Struct({
 
 const LoginResponse = Schema.Struct({
   accessToken: Schema.String,
-  refreshToken: Schema.String,
+  // Browser clients receive the refresh token only as an HttpOnly cookie.
+  refreshToken: Schema.optional(Schema.String),
   user: UserResponse,
 })
 
@@ -66,7 +69,7 @@ export const AuthGroup = HttpApiGroup.make("server.auth")
     HttpApiEndpoint.post("auth.register", "/api/auth/register", {
       payload: RegisterBody,
       success: Schema.Struct({ user: UserResponse }),
-      error: [ConflictError, InvalidRequestError],
+      error: [ConflictError, InvalidRequestError, ForbiddenError],
     }).annotateMerge(
       OpenApi.annotations({
         identifier: "v2.auth.register",

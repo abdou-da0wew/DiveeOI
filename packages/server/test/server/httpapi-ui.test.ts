@@ -384,7 +384,7 @@ describe("HttpApi UI fallback", () => {
       }).request("/")
 
       expect(response.status).toBe(401)
-      expect(response.headers.get("www-authenticate")).toBe('Basic realm="Secure Area"')
+      expect(response.headers.get("www-authenticate")).toBeNull()
     }),
   )
 

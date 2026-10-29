@@ -30,6 +30,7 @@ import { Persist, persisted } from "@/utils/persist"
 import { StatusPopover, StatusPopoverV2 } from "../status-popover"
 import { IconButtonV2 } from "@diveeoi/ui/v2/icon-button-v2"
 import { Icon as IconV2 } from "@diveeoi/ui/v2/icon"
+import { authFetch } from "@/utils/auth-client"
 
 const OPEN_APPS = [
   "vscode",
@@ -161,7 +162,7 @@ export function SessionHeader() {
     () => params.id,
     async (sessionID) => {
       try {
-        const res = await fetch(`${serverSDK().url}/api/session/${sessionID}`, {
+        const res = await authFetch(`${serverSDK().url}/api/session/${sessionID}`, {
           headers: authHeaders(),
         })
         if (!res.ok) return { isRemote: false }

@@ -18,6 +18,7 @@ function app(input: { password?: string; username?: string }) {
           ConfigProvider.fromUnknown({
             OPENCODE_SERVER_PASSWORD: input.password,
             OPENCODE_SERVER_USERNAME: input.username,
+            DIVEEOI_AUTH_MODE: input.password ? "both" : "disabled",
           }),
         ),
       ),

@@ -5,6 +5,7 @@
 
 import { Component, For, Show, createResource, createSignal, onCleanup } from "solid-js"
 import { useServerSDK } from "@/context/server-sdk"
+import { authFetch } from "@/utils/auth-client"
 
 interface Book {
   id: string
@@ -15,6 +16,8 @@ interface Book {
   pages?: number
   chunkCount: number
   error?: string
+  jobId?: string
+  jobStatus?: string
   progress?: number
 }
 
@@ -35,7 +38,7 @@ export const TargetedLearningLibrary: Component<{ ready: boolean }> = (props) =>
     async (ready): Promise<Book[]> => {
       if (!ready) return []
       try {
-        const resp = await fetch(`${base()}/targeted-learning/books`, { headers })
+        const resp = await authFetch(`${base()}/targeted-learning/books`, { headers })
         if (!resp.ok) return []
         return (await resp.json()).books as Book[]
       } catch {
@@ -44,7 +47,27 @@ export const TargetedLearningLibrary: Component<{ ready: boolean }> = (props) =>
     },
   )
   const [busy, setBusy] = createSignal(false)
+  const [busyJob, setBusyJob] = createSignal<string | null>(null)
   const [message, setMessage] = createSignal("")
+
+  const controlJob = async (book: Book, action: "pause" | "resume" | "cancel" | "retry") => {
+    if (!book.jobId) return
+    setBusyJob(book.jobId)
+    setMessage("")
+    try {
+      const resp = await authFetch(`${base()}/targeted-learning/jobs/${book.jobId}/${action}`, {
+        method: "POST",
+        headers,
+      })
+      if (!resp.ok) throw new Error(`${action} failed (${resp.status})`)
+      setMessage(`Ingest job ${action} requested.`)
+      await refetch()
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : `Could not ${action} the job.`)
+    } finally {
+      setBusyJob(null)
+    }
+  }
 
   const timer = setInterval(() => {
     const pending = (books() ?? []).some((b) => b.status !== "ready" && b.status !== "failed")
@@ -58,7 +81,7 @@ export const TargetedLearningLibrary: Component<{ ready: boolean }> = (props) =>
     setMessage("")
     try {
       const contentBase64 = await readBase64(file)
-      const resp = await fetch(`${base()}/targeted-learning/books`, {
+      const resp = await authFetch(`${base()}/targeted-learning/books`, {
         method: "POST",
         headers,
         body: JSON.stringify({ filename: file.name, contentBase64 }),
@@ -76,7 +99,7 @@ export const TargetedLearningLibrary: Component<{ ready: boolean }> = (props) =>
 
   const remove = async (book: Book) => {
     if (!window.confirm(`Delete "${book.title}" and its index?`)) return
-    await fetch(`${base()}/targeted-learning/books/${book.id}`, { method: "DELETE", headers })
+    await authFetch(`${base()}/targeted-learning/books/${book.id}`, { method: "DELETE", headers })
     await refetch()
   }
 
@@ -141,6 +164,42 @@ export const TargetedLearningLibrary: Component<{ ready: boolean }> = (props) =>
                       ? book.status
                       : `${book.status}${book.progress !== undefined ? ` ${book.progress}%` : ""}`}
                   </span>
+                  <Show when={book.jobId && (book.jobStatus === "running" || book.jobStatus === "queued")}>
+                    <button
+                      class="text-11-regular text-text-weak hover:text-text-strong disabled:opacity-50"
+                      disabled={busyJob() === book.jobId}
+                      onClick={() => void controlJob(book, "pause")}
+                    >
+                      Pause
+                    </button>
+                  </Show>
+                  <Show when={book.jobId && book.jobStatus === "paused"}>
+                    <button
+                      class="text-11-regular text-text-weak hover:text-text-strong disabled:opacity-50"
+                      disabled={busyJob() === book.jobId}
+                      onClick={() => void controlJob(book, "resume")}
+                    >
+                      Resume
+                    </button>
+                  </Show>
+                  <Show when={book.jobId && (book.jobStatus === "failed" || book.jobStatus === "cancelled")}>
+                    <button
+                      class="text-11-regular text-text-weak hover:text-text-strong disabled:opacity-50"
+                      disabled={busyJob() === book.jobId}
+                      onClick={() => void controlJob(book, "retry")}
+                    >
+                      Retry
+                    </button>
+                  </Show>
+                  <Show when={book.jobId && ["queued", "running", "paused"].includes(book.jobStatus ?? "")}>
+                    <button
+                      class="text-11-regular text-text-weak hover:text-[var(--warning-fg)] disabled:opacity-50"
+                      disabled={busyJob() === book.jobId}
+                      onClick={() => void controlJob(book, "cancel")}
+                    >
+                      Cancel
+                    </button>
+                  </Show>
                   <button class="text-11-regular text-text-weak hover:text-text-strong" onClick={() => void remove(book)}>
                     Delete
                   </button>
