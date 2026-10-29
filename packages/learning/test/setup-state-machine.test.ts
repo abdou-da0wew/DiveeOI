@@ -75,6 +75,31 @@ describe("setup state machine", () => {
     expect(probe.attempts).toBe(1)
   })
 
+  test("an abort-triggered step error stays pending instead of racing into failed", async () => {
+    const controller = new AbortController()
+    try {
+      await Effect.runPromise(
+        Setup.runStep(
+          tempDir,
+          "download",
+          () =>
+            Effect.gen(function* () {
+              controller.abort()
+              return yield* Effect.fail(new Error("download aborted"))
+            }),
+          { signal: controller.signal },
+        ),
+      )
+    } catch {
+      // The operation still fails, but cancellation must not persist as a setup failure.
+    }
+    const state = await Effect.runPromise(Setup.loadState(tempDir))
+    const download = state.steps.find((s) => s.name === "download")!
+    expect(state.status).toBe("not-started")
+    expect(download.status).toBe("pending")
+    expect(download.lastError).toBeUndefined()
+  })
+
   test("resetForRepair clears all step statuses", async () => {
     await Effect.runPromise(Setup.runStep(tempDir, "probe", () => Effect.succeed(1)))
     const state = await Effect.runPromise(Setup.resetForRepair(tempDir))

@@ -3,7 +3,7 @@ import { Context, Effect, Layer, Ref } from "effect"
 import { LayerNode } from "../effect/layer-node"
 import { detectSystemResources } from "./detect"
 import type { SystemResources } from "./detect"
-import { computeProfile, computeTargets, interpolateTargets } from "./profiles"
+import { computeProfile, computeTargets, interpolateTargets, resolveProfile } from "./profiles"
 import type { AdaptiveTargets, ResourceProfile } from "./profiles"
 import { Flag } from "../flag/flag"
 
@@ -13,7 +13,7 @@ export interface AdaptiveResourceService {
   readonly lastSystem: Ref.Ref<SystemResources | null>
   readonly getCurrentTargets: () => Effect.Effect<AdaptiveTargets>
   readonly getCurrentProfile: () => Effect.Effect<ResourceProfile>
-  readonly subscribe: (fn: (targets: AdaptiveTargets) => void) => Effect.Effect<() => void>
+  readonly subscribe: (fn: (targets: AdaptiveTargets) => Effect.Effect<void>) => Effect.Effect<() => void>
 }
 
 export const AdaptiveResourceService = Context.Service<AdaptiveResourceService, AdaptiveResourceService>()("@diveeoi/AdaptiveResource")
@@ -27,18 +27,21 @@ export const layer = Layer.effect(AdaptiveResourceService, Effect.gen(function* 
   // Check if adaptive resource management is disabled via flag
   const disabled = Flag.OPENCODE_DISABLE_ADAPTIVE_RESOURCE
 
-  const subscribers = new Set<(t: AdaptiveTargets) => void>()
-  const notify = (t: AdaptiveTargets) => { for (const fn of subscribers) fn(t) }
+  const subscribers = new Set<(targets: AdaptiveTargets) => Effect.Effect<void>>()
+  const notify = (targets: AdaptiveTargets) =>
+    Effect.forEach([...subscribers], (fn) => fn(targets), { concurrency: "unbounded" }).pipe(
+      Effect.catchCause((cause) => Effect.logWarning("Adaptive target subscriber failed", { cause })),
+    )
 
   if (!disabled) {
     const updater = Effect.gen(function* () {
       while (true) {
         yield* Effect.sleep("90 seconds")
         const sys = yield* detectSystemResources
-        const freshProfile = computeProfile(sys)
         const prevProfile = yield* Ref.get(profileRef)
+        const freshProfile = resolveProfile(prevProfile, sys)
         const prevTargets = yield* Ref.get(targetsRef)
-        const freshTargets = computeTargets(sys)
+        const freshTargets = computeTargets(sys, freshProfile)
         // Smooth interpolation when profile is unchanged; snap when it flips
         const target = freshProfile === prevProfile
           ? interpolateTargets(prevTargets, freshTargets, 0.3)
@@ -46,7 +49,7 @@ export const layer = Layer.effect(AdaptiveResourceService, Effect.gen(function* 
         yield* Ref.set(lastSystemRef, sys)
         yield* Ref.set(profileRef, freshProfile)
         yield* Ref.set(targetsRef, target)
-        yield* Effect.sync(() => notify(target))
+        yield* notify(target)
         yield* Effect.logInfo("Adaptive targets updated", { profile: freshProfile, rssTargetMB: target.rssTargetMB, heapTargetMB: target.heapTargetMB, gcIntervalMs: target.gcIntervalMs })
       }
     }).pipe(

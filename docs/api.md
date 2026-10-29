@@ -13,16 +13,11 @@ Both expose `GET /openapi.json` (via `openapiPath: "/openapi.json"`). `GET /doc`
 
 ## Auth
 
-Configured via `ServerAuth.Config.defaultLayer` (disabled) or `ServerAuth.Config.layer({ username: "opencode", password: Option.some(password) })` when `createRoutes(password)` receives a password. Middleware is `Authorization` / `SchemaErrorMiddleware`.
+The current server uses `DIVEEOI_AUTH_MODE` (`both` by default; `basic`, `jwt`, and `disabled` are also supported). Authentication is required unless explicitly disabled. Basic defaults to username `DIVEEOI`; the `divee` password is a non-production/non-test default only. `DIVEEOI_SERVER_*` values take precedence over legacy `OPENCODE_SERVER_*` environment fallbacks. See [`security-auth.md`](security-auth.md) for modes, account bootstrap, refresh sessions, cookies, proxy/CORS guidance, and the production checklist.
 
-In the browser, credentials flow as:
+The browser has a project-styled login/register form. Basic credentials are entered there, held in memory, and not compiled into the frontend. The app does not emit `WWW-Authenticate: Basic`, avoiding the browser-native login popup. Bearer tokens are automatically attached only to app-origin requests. Legacy `?auth_token=<base64(username:password)>` links remain supported; Vite development uses the same-origin API proxy.
 
-```
-?auth_token=<base64(username:password)> -> authFromToken -> ServerConnection.Http.authToken = true
-VITE_DIVEEOI_SERVER_USERNAME/PASSWORD  -> same
-```
-
-`CORS` is evaluated before auth (`packages/api/src/cors.ts`). Health and static assets may bypass auth depending on the route layer.
+`CORS` is evaluated before auth (`packages/api/src/cors.ts`); do not add permissive cross-origin allowances as a substitute for server authentication.
 
 ## CORS
 

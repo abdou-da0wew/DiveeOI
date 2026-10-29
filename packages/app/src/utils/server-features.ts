@@ -1,5 +1,6 @@
 import type { ServerConnection } from "@/context/server"
 import { authTokenFromCredentials } from "@/utils/server"
+import { authFetch } from "@/utils/auth-client"
 
 export interface FeatureFlagsState {
   memory: boolean
@@ -43,7 +44,7 @@ const authHeaders = (server: ServerConnection.HttpBase): Record<string, string> 
 }
 
 export async function fetchServerFeatures(server: ServerConnection.HttpBase): Promise<ServerFeatures> {
-  const response = await fetch(endpoint(server, "global/features"), {
+  const response = await authFetch(endpoint(server, "global/features"), {
     headers: authHeaders(server),
     cache: "no-store",
   })
@@ -52,7 +53,7 @@ export async function fetchServerFeatures(server: ServerConnection.HttpBase): Pr
 }
 
 export async function patchGlobalConfig(server: ServerConnection.HttpBase, patch: ConfigPatch): Promise<void> {
-  const response = await fetch(endpoint(server, "global/config"), {
+  const response = await authFetch(endpoint(server, "global/config"), {
     method: "PATCH",
     headers: { "Content-Type": "application/json", ...authHeaders(server) },
     body: JSON.stringify(patch),
@@ -63,7 +64,7 @@ export async function patchGlobalConfig(server: ServerConnection.HttpBase, patch
 /** Ask the server to restart. Resolves false only when the server explicitly refused the respawn. */
 export async function restartServer(server: ServerConnection.HttpBase): Promise<boolean> {
   try {
-    const response = await fetch(endpoint(server, "global/restart"), {
+    const response = await authFetch(endpoint(server, "global/restart"), {
       method: "POST",
       headers: authHeaders(server),
     })
@@ -88,7 +89,7 @@ export async function waitUntilRestarted(
   let sawDown = false
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(endpoint(server, "global/health"), {
+      const response = await authFetch(endpoint(server, "global/health"), {
         headers: authHeaders(server),
         cache: "no-store",
       })

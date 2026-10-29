@@ -62,8 +62,9 @@ packages/memory/*.md
 # Build artifacts
 packages/*/dist/
 packages/*/build/
-# Runtime data
+# Runtime data (includes per-install JWT signing keys)
 .divee/
+**/jwt-secret.txt
 videos/
 .paper-preview-*
 videos-legacy/

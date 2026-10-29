@@ -6,6 +6,7 @@
 
 import { Component, For, Show, createResource, createSignal } from "solid-js"
 import { useServerSDK } from "@/context/server-sdk"
+import { authFetch } from "@/utils/auth-client"
 
 type Json = Record<string, any>
 
@@ -37,7 +38,7 @@ export const TargetedLearningSettingsForm: Component<{ ready: boolean }> = (prop
   const headers = { "content-type": "application/json" }
   const [schema] = createResource(async (): Promise<Json | null> => {
     try {
-      const r = await fetch(`${base()}/settings/schema`, { headers })
+      const r = await authFetch(`${base()}/settings/schema`, { headers })
       return r.ok ? await r.json() : null
     } catch {
       return null
@@ -46,7 +47,7 @@ export const TargetedLearningSettingsForm: Component<{ ready: boolean }> = (prop
   const [values, setValues] = createSignal<Json>({})
   const [loaded] = createResource(async () => {
     try {
-      const r = await fetch(`${base()}/settings`, { headers })
+      const r = await authFetch(`${base()}/settings`, { headers })
       if (r.ok) setValues((await r.json()).values ?? {})
     } catch {
       // leave empty
@@ -60,7 +61,7 @@ export const TargetedLearningSettingsForm: Component<{ ready: boolean }> = (prop
     const current = values()
     const body = group ? { [group]: { ...(current[group] ?? {}), [key]: value } } : { [key]: value }
     try {
-      const r = await fetch(`${base()}/settings`, { method: "PATCH", headers, body: JSON.stringify(body) })
+      const r = await authFetch(`${base()}/settings`, { method: "PATCH", headers, body: JSON.stringify(body) })
       if (!r.ok) throw new Error(`rejected (${r.status})`)
       setValues((await r.json()).values ?? current)
       setStatus(`Saved ${prop["x-label"] ?? key} — ${APPLIES[prop["x-applies"] ?? "live"] ?? ""}`)
@@ -71,11 +72,11 @@ export const TargetedLearningSettingsForm: Component<{ ready: boolean }> = (prop
 
   const applyPreset = async (name: "low" | "balanced" | "high") => {
     try {
-      const presets = await (await fetch(`${base()}/settings/presets`, { headers })).json()
+      const presets = await (await authFetch(`${base()}/settings/presets`, { headers })).json()
       const preset = presets[name] ?? {}
       const merged: Json = {}
       for (const [group, section] of Object.entries<Json>(preset)) merged[group] = { ...(values()[group] ?? {}), ...section }
-      const r = await fetch(`${base()}/settings`, { method: "PATCH", headers, body: JSON.stringify(merged) })
+      const r = await authFetch(`${base()}/settings`, { method: "PATCH", headers, body: JSON.stringify(merged) })
       if (!r.ok) throw new Error(`rejected (${r.status})`)
       setValues((await r.json()).values ?? values())
       setStatus(`Applied the ${name} preset.`)

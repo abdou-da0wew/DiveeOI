@@ -1283,6 +1283,8 @@ export const layer = Layer.effect(
         const ctx = yield* InstanceState.context
         let structured: unknown
         let step = 0
+        let groundingRetryPrompt: string | undefined
+        let groundingRetryUsed = false
         // Consecutive steps that ended in the same repetition diagnosis (draft-10 P3).
         let loopStrikes = 0
         let loopDiagnosis: LoopDiagnosis | undefined
@@ -1678,6 +1680,11 @@ Tool: {name}
               }
             }
 
+            if (groundingRetryPrompt) {
+              system.push(`<grounding-retry>\n${groundingRetryPrompt}\n</grounding-retry>`)
+              groundingRetryPrompt = undefined
+            }
+
             const result = yield* handle.process({
               user: lastUser,
               agent,
@@ -1791,8 +1798,8 @@ Tool: {name}
               }
             }
 
-            // Targeted Learning: verify the citations of the final answer (plan §9.6) and append a
-            // note for anything the model cited that it was never shown.
+            // Targeted Learning: verify citations before accepting the final answer. Retry mode
+            // removes the unverified draft and asks the model once more with the failed citations.
             if (
               tlSession?.mode === "targeted" &&
               handle.message.finish &&
@@ -1804,26 +1811,34 @@ Tool: {name}
                 .filter((p) => p.type === "text" && !p.synthetic)
                 .map((p) => p.text ?? "")
                 .join("\n")
-              const note = yield* Effect.promise(async () => {
+              const verification = yield* Effect.promise(async () => {
                 try {
                   const post = await import("@diveeoi/learning/grounding/post")
-                  return await post.verifyAnswerNote({
+                  return await post.verifyAnswer({
                     sessionId: sessionID,
                     answer,
                     settings: (cfg as { targetedLearning?: Record<string, unknown> }).targetedLearning,
+                    allowRetry: !groundingRetryUsed,
                   })
                 } catch {
-                  return null
+                  return { verified: true as const, note: undefined, retryPrompt: undefined }
                 }
               })
-              if (note) {
+              if (verification.retryPrompt && !groundingRetryUsed) {
+                groundingRetryUsed = true
+                groundingRetryPrompt = verification.retryPrompt
+                yield* Effect.logWarning("targeted-learning grounding retry", { sessionID, messageID: handle.message.id })
+                yield* sessions.removeMessage({ sessionID, messageID: handle.message.id })
+                return "continue" as const
+              }
+              if (verification.note) {
                 const now = Date.now()
                 yield* sessions.updatePart({
                   id: PartID.ascending(),
                   messageID: handle.message.id,
                   sessionID,
                   type: "text",
-                  text: `\n\n${note}`,
+                  text: `\n\n${verification.note}`,
                   time: { start: now, end: now },
                 } as never)
               }

@@ -2,6 +2,7 @@ import { createEffect, type Accessor } from "solid-js"
 import type { SetStoreFunction, Store } from "solid-js/store"
 import { persisted, type PersistTarget } from "@/utils/persist"
 import { authTokenFromCredentials } from "@/utils/server"
+import { authFetch } from "@/utils/auth-client"
 
 export interface StorageApiServer {
   url: string
@@ -55,7 +56,7 @@ export function useStorageApi<T extends Record<string, any>>(
 
     syncingFromServer = true
 
-    fetch(`${cfg.server.url}/api/prefs/${cfg.scope}`, { headers })
+    authFetch(`${cfg.server.url}/api/prefs/${cfg.scope}`, { headers })
       .then((r) =>
         r.ok ? (r.json() as Promise<{ data: Array<{ name: string; value: string }> }>) : null,
       )
@@ -105,7 +106,7 @@ export function useStorageApi<T extends Record<string, any>>(
     }
 
     const timer = setTimeout(() => {
-      fetch(`${cfg.server.url}/api/prefs/${cfg.scope}`, {
+      authFetch(`${cfg.server.url}/api/prefs/${cfg.scope}`, {
         method: "PUT",
         headers,
         body: JSON.stringify({ name: prefName, value: serialized }),

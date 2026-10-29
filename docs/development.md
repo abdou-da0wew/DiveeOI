@@ -106,8 +106,8 @@ No barrel `index.ts` in multi-sibling directories — each file is its own modul
 
 ### CORS / Auth
 
-- CORS is server-side only (`packages/api/src/cors.ts`). Health check (`/api/health`) and `WebSocket` upgrade share the same `CorsConfig` reference.
-- Auth is password-only (`ServerAuth.Config` with `Option<string>`). `authorizationLayer` is middleware; `ServerAuth.Config.defaultLayer` means disabled.
+- CORS is server-side only (`packages/api/src/cors.ts`). In web development the app uses the Vite same-origin API/WebSocket proxy; configure `VITE_DIVEEOI_SERVER_HOST` / `VITE_DIVEEOI_SERVER_PORT` rather than adding a broad CORS exception.
+- Server auth defaults to `DIVEEOI_AUTH_MODE=both`; local non-production Basic credentials default to `DIVEEOI` / `divee`, while production has no default Basic password. JWT account auth is also supported. Do not assume `ServerAuth.Config.defaultLayer` disables auth; see [`security-auth.md`](security-auth.md).
 
 ## Gotchas (from `PROJECT_LESSONS.md`)
 

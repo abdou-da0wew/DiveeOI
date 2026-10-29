@@ -252,7 +252,7 @@ Layer composition: `SessionMemoryIntegration.node` -> `Session.node` + `Memory.n
 
 `packages/api/src/cors.ts` (54 lines): allows `http://localhost:`, `http://127.0.0.1:`, `oc://renderer`, `tauri://localhost`, `*.opencode.ai`, private RFC1918 + CGNAT 100.64/10, or explicit `opts.cors`. `sameHost` compares `new URL(origin).host === host`.
 
-Server auth is simply `ServerAuth.Config` with `username: opencode, password: Option<string>`. `authorizationLayer` vs `authorizationRouterMiddleware` split handles HttpApi vs raw router; `JwtAuth` is present for the v2 API.
+Server HTTP auth is controlled by `DIVEEOI_AUTH_MODE` (`both` by default): Basic defaults to username `DIVEEOI` and development-only password `divee`, while JWT account auth is available in `both`/`jwt` modes. `DIVEEOI_*` values take precedence over legacy `OPENCODE_SERVER_*` environment fallbacks. `authorizationLayer` and `authorizationRouterMiddleware` cover HttpApi and raw-router paths; JWT access/refresh token purposes and refresh-session rotation are validated separately. Browser login uses a themed credential form and does not rely on `WWW-Authenticate: Basic`; see [`security-auth.md`](security-auth.md).
 
 ## Permissions
 

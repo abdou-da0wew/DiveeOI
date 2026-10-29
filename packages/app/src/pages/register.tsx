@@ -1,9 +1,12 @@
-import { createSignal } from "solid-js"
-import { useAuth } from "../context/auth"
+import { createSignal, Show } from "solid-js"
 import { useNavigate } from "@solidjs/router"
+import { Button } from "@diveeoi/ui/button"
+import { TextField } from "@diveeoi/ui/text-field"
+import { useAuth } from "@/context/auth"
+import { AuthPanel, AuthSubmitButton } from "@/components/auth-panel"
 
 export default function RegisterPage() {
-  const [{ isAuthenticated }, { register }] = useAuth()
+  const [, { register }] = useAuth()
   const navigate = useNavigate()
   const [email, setEmail] = createSignal("")
   const [username, setUsername] = createSignal("")
@@ -13,39 +16,34 @@ export default function RegisterPage() {
   const [loading, setLoading] = createSignal(false)
   const [registered, setRegistered] = createSignal(false)
 
-  async function handleSubmit(e: Event) {
-    e.preventDefault()
+  async function handleSubmit(event: SubmitEvent) {
+    event.preventDefault()
     setError("")
 
-    const uname = username().trim()
-    if (uname && uname.length > 30) {
-      setError("Username must be 30 characters or fewer")
+    const displayName = username().trim()
+    if (displayName.length > 30) {
+      setError("Display name must be 30 characters or fewer.")
       return
     }
-    if (uname && !/^[a-zA-Z0-9_-]+$/.test(uname)) {
-      setError("Username can only contain letters, numbers, underscores, and hyphens")
+    if (displayName && !/^[a-zA-Z0-9_-]+$/.test(displayName)) {
+      setError("Use only letters, numbers, underscores, or hyphens in your display name.")
       return
     }
-
-    if (!email().includes("@")) {
-      setError("Please enter a valid email address")
-      return
-    }
-    if (password().length < 8) {
-      setError("Password must be at least 8 characters")
+    if (password().length < 12 || new TextEncoder().encode(password()).byteLength > 72) {
+      setError("Password must be 12–72 bytes long.")
       return
     }
     if (password() !== confirm()) {
-      setError("Passwords do not match")
+      setError("The passwords do not match.")
       return
     }
 
     setLoading(true)
     try {
-      await register(email(), password(), uname || undefined)
+      await register(email(), password(), displayName || undefined)
       setRegistered(true)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Registration failed")
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not create your account. Please try again.")
     } finally {
       setLoading(false)
     }
@@ -53,91 +51,83 @@ export default function RegisterPage() {
 
   if (registered()) {
     return (
-      <div style="display: flex; min-height: 100vh; align-items: center; justify-content: center; background: #f5f5f5;">
-        <div style="width: 100%; max-width: 400px; padding: 32px; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); text-align: center;">
-          <h1 style="font-size: 24px; margin: 0 0 16px;">Check your email</h1>
-          <p style="color: #555; line-height: 1.5; margin: 0 0 24px;">
-            We sent a verification link to <strong>{email()}</strong>.
-            Click the link in the email to activate your account, then sign in.
+      <AuthPanel title="Account created" description="Your account is ready to use.">
+        <div class="flex flex-col gap-5">
+          <p class="text-13-regular leading-5 text-text-base">
+            You can now sign in as <strong class="font-medium text-text-strong">{email()}</strong>.
           </p>
-          <a href="/login" style="color: #0066ff; text-decoration: none;">Go to sign in</a>
+          <Button type="button" variant="primary" size="large" class="w-full" onClick={() => navigate("/login", { replace: true })}>
+            Continue to sign in
+          </Button>
         </div>
-      </div>
+      </AuthPanel>
     )
   }
 
   return (
-    <div style="display: flex; min-height: 100vh; align-items: center; justify-content: center; background: #f5f5f5;">
-      <div style="width: 100%; max-width: 400px; padding: 32px; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-        <h1 style="font-size: 24px; margin: 0 0 24px; text-align: center;">Create your account</h1>
-        
-        <form onSubmit={handleSubmit}>
-          <div style="margin-bottom: 16px;">
-            <label style="display: block; margin-bottom: 4px; font-weight: 500;">Email</label>
-            <input
-              type="email"
-              required
-              value={email()}
-              onInput={(e) => setEmail(e.currentTarget.value)}
-              style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;"
-              placeholder="you@example.com"
-            />
-          </div>
-
-          <div style="margin-bottom: 16px;">
-            <label style="display: block; margin-bottom: 4px; font-weight: 500;">Username (optional)</label>
-            <input
-              type="text"
-              value={username()}
-              onInput={(e) => setUsername(e.currentTarget.value)}
-              style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;"
-              placeholder="Your display name"
-              maxLength={30}
-            />
-          </div>
-          
-          <div style="margin-bottom: 16px;">
-            <label style="display: block; margin-bottom: 4px; font-weight: 500;">Password</label>
-            <input
-              type="password"
-              required
-              minLength={8}
-              value={password()}
-              onInput={(e) => setPassword(e.currentTarget.value)}
-              style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;"
-              placeholder="At least 8 characters"
-            />
-          </div>
-
-          <div style="margin-bottom: 16px;">
-            <label style="display: block; margin-bottom: 4px; font-weight: 500;">Confirm password</label>
-            <input
-              type="password"
-              required
-              value={confirm()}
-              onInput={(e) => setConfirm(e.currentTarget.value)}
-              style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;"
-            />
-          </div>
-
-          {error() && (
-            <div style="color: #e53e3e; font-size: 14px; margin-bottom: 12px;">{error()}</div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading()}
-            style="width: 100%; padding: 10px; background: #0066ff; color: white; border: none; border-radius: 4px; font-size: 16px; cursor: pointer;"
-          >
-            {loading() ? "Creating account..." : "Create account"}
-          </button>
-        </form>
-
-        <div style="margin-top: 16px; text-align: center; font-size: 14px;">
+    <AuthPanel
+      title="Create your account"
+      description="Set up an account for this DiveeOI instance."
+      footer={
+        <>
           Already have an account?{" "}
-          <a href="/login" style="color: #0066ff; text-decoration: none;">Sign in</a>
-        </div>
-      </div>
-    </div>
+          <a href="/login" class="font-medium text-text-strong underline decoration-border-weak-base underline-offset-4 hover:text-text-base">
+            Sign in
+          </a>
+        </>
+      }
+    >
+      <form class="flex flex-col gap-4" onSubmit={handleSubmit}>
+        <TextField
+          label="Email address"
+          type="email"
+          name="email"
+          value={email()}
+          onChange={setEmail}
+          placeholder="you@example.com"
+          autocomplete="email"
+          required
+        />
+        <TextField
+          label="Display name (optional)"
+          type="text"
+          name="username"
+          value={username()}
+          onChange={setUsername}
+          placeholder="How should we address you?"
+          autocomplete="nickname"
+          maxLength={30}
+        />
+        <TextField
+          label="Password"
+          type="password"
+          name="new-password"
+          value={password()}
+          onChange={setPassword}
+          placeholder="12–72 bytes"
+          autocomplete="new-password"
+          minLength={12}
+          required
+        />
+        <TextField
+          label="Confirm password"
+          type="password"
+          name="confirm-password"
+          value={confirm()}
+          onChange={setConfirm}
+          placeholder="Re-enter your password"
+          autocomplete="new-password"
+          required
+        />
+        <Show when={error()}>
+          <div role="alert" class="rounded-md border border-border-critical-base bg-surface-critical-weak px-3 py-2 text-12-regular text-text-critical">
+            {error()}
+          </div>
+        </Show>
+        <AuthSubmitButton disabled={loading()}>
+          {loading() ? "Creating account…" : "Create account"}
+        </AuthSubmitButton>
+      </form>
+    </AuthPanel>
   )
 }

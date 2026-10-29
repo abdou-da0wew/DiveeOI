@@ -5,6 +5,7 @@
 
 import { Component, For, Show, createResource } from "solid-js"
 import { useServerSDK } from "@/context/server-sdk"
+import { authFetch } from "@/utils/auth-client"
 
 interface Memory {
   student: { id: string; kind: string; text: string; pinned: boolean; uses: number }[]
@@ -20,7 +21,7 @@ export const TargetedLearningMemory: Component<{ ready: boolean }> = (props) => 
     async (ready): Promise<Memory> => {
       if (!ready) return { student: [], notes: [] }
       try {
-        const r = await fetch(`${base()}/memory`, { headers })
+        const r = await authFetch(`${base()}/memory`, { headers })
         return r.ok ? await r.json() : { student: [], notes: [] }
       } catch {
         return { student: [], notes: [] }
@@ -28,7 +29,7 @@ export const TargetedLearningMemory: Component<{ ready: boolean }> = (props) => 
     },
   )
   const act = async (url: string, init: RequestInit) => {
-    await fetch(`${base()}${url}`, { headers, ...init })
+    await authFetch(`${base()}${url}`, { headers, ...init })
     await refetch()
   }
   const empty = () => (memory()?.student.length ?? 0) === 0 && (memory()?.notes.length ?? 0) === 0
