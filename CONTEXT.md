@@ -22,12 +22,12 @@ See `docs/security-auth.md` for configuration and operational guidance.
 
 ## Embedded skills and metadata
 
-- Current draft PR: [#6](https://github.com/abdou-da0wew/DiveeOI/pull/6) on `arena/40d798db-diveeoi`; the initial implementation is commit `30a2dbf`, with the validated follow-up recorded in this worklog.
+- Current draft PR: [#6](https://github.com/abdou-da0wew/DiveeOI/pull/6) on `arena/40d798db-diveeoi`; the initial implementation is commit `30a2dbf` and the validated code/test/SDK follow-up is commit `858a1f0`.
 - The DB plugin registers 19 curated embedded skills from `packages/db/src/plugin/skill/bundled/`, with 85 static text resource imports. `SkillV2` parses category/tags/version/author/license/compatibility, links and source provenance, triggers/requirements, allowed tools, argument hints, invocation flags, and unknown attributes. Embedded resources are path-validated and materialized in the global cache by the DB/server skill tools.
 - The server V1 skill adapter uses the DB plugin's pure `SkillPlugin.embeddedSources()` catalog, avoiding a second PluginBoot instance while exposing the same metadata and resource files. Slash-command generation respects `slash` and `user-invocable`, and command responses include `argumentHint`.
 - API/OpenAPI/SDK synchronization was run with `cd packages/sdk && bun ./script/build.ts`; generated client types include skill metadata/source and command argument hints. SDK TypeScript compilation passes. Codegen also synchronized previously stale Targeted Learning endpoints.
 - **Licensing gate:** `abdou-da0wew/zcode-skills` has no root license and redistribution authorization for remaining adapted upstream content is unresolved. PR #6 is draft only. Do not merge or release until cleared. Source `charts`, `docx`, `pdf`, and `xlsx` trees with non-commercial-only terms were excluded and replaced by original DiveeOI guides; applicable Apache license copies are included.
-- Focused validation: DB skill/plugin/tool/config tests pass (8 tests, 42 expectations); server skill/command/system tests pass (20 tests, 57 expectations). DB full typecheck has 69 diagnostics in existing files but none in the changed skill files. Server full/filtered typechecks were SIGKILLed; see the PR for details.
+- Focused validation: DB skill/plugin/tool/config tests pass (8 tests, 42 expectations); server skill/command/system tests pass (20 tests, 57 expectations). DB full typecheck has 69 diagnostics in existing files but none in the changed skill files. The full server typecheck was SIGKILLed, while the restricted check timed out after about five minutes without diagnostics; see the PR for details.
 
 ## Memory system status
 
