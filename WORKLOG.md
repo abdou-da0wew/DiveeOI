@@ -1,14 +1,17 @@
 # WORKLOG — Targeted Learning (newest last)
 
 ## 2026-10-26/27 — previous agent
+
 Built `packages/learning` skeleton, settings schema, download/state-machine, store, parsers, chunker, retrieval, gate, tools, settings UI placeholders. Details: `docs/TARGETED_LEARNING_WORKLOG.md`.
 
 ## 2026-10-27 — review + first fixes (commit b788e8d, 5f79c1d, 59b8f19)
+
 - Review found the feature not wired: `prompt.ts` untouched, mode never set, gate/verifier unused, no ingest orchestrator, setup reported Ready without the model, fake pinned revision.
 - Fixed: real pinned manifest (rev 4de1325, hashes from HF pointer files); downloader (Range ignored → restart, streaming hash, unpinned small files); `int8` dtype → `model_int8.onnx`; real setup steps run in background; ingest orchestrator + upload/import/delete routes; `@book:` mention → sticky targeted mode; pre-retrieval + gate + grounding prompt, refusal without LLM; book tools only in targeted sessions; book-search gate no longer hardcoded open; Library UI.
 - Tests: ingest→mention→gate e2e with a stand-in embedder; downloader fault injection (ignored Range, 503, bad hash, unpinned, missing).
 
 ## 2026-10-28 — five missing pieces (commits b3a9c94, b1d4e4a, 09f4282)
+
 - Student memory (`student.db`) + book notes + 4 tools, injection per turn, guards (caps, dedupe, ≤3 writes/turn, citations validated, stale on hash change).
 - Citation verifier after answers; tools record passages shown (`turn-state.ts`).
 - Embedding worker pool (2 workers/book), length-bucketed batches, in-process fallback. Bug found: pool `close()` left in-flight jobs pending → hang; fixed.
@@ -18,6 +21,7 @@ Built `packages/learning` skeleton, settings schema, download/state-machine, sto
 - Commands used: `bun test`, `bun x tsc --noEmit -p .`, local server boot with `PORT=4197 DIVEEOI_TL_DATA_DIR=/tmp/dv-tl bun run --conditions=browser ./src/main.ts`.
 
 ## 2026-10-29 — hardening + hand-off (this commit)
+
 - Server typecheck: 14 → 1 error (remaining one is the build-generated `diveeoi-web-ui.gen.ts`). Fixed `Effect.tryPromise({catch: () => fallback})` misuse (turned DB errors into failures carrying an array) across book tools, book-mentions and the books handler; error types on import-local; tool `metadata` typing.
 - Manifest: added q4f16, fp16, fp32 (`model.onnx` + `model.onnx_data`) with real sizes/sha256 (HF pointer files). **Loading these dtypes is untested.**
 - Added `POST /targeted-learning/search` (retrieval inspector: gate decision, best scores, thresholds, top passages) and exposed `bestDenseScore/bestFusedScore` from `retrieve()`.
@@ -124,3 +128,12 @@ Built `packages/learning` skeleton, settings schema, download/state-machine, sto
 - Added memory tests for automatic session linking, query ranking, project scoping, and escaped reference-only prompt injection. Bun was absent initially, so Bun 1.4.2 was bootstrapped temporarily under `/tmp` without adding repository files. `packages/memory` tests pass (2 tests, 16 expectations).
 - Typecheck status: `packages/memory` `bun run typecheck` still fails on errors in unchanged files `packages/db/src/adaptive/detect.ts`, `packages/db/src/database/database.ts`, and `packages/memory/src/index.ts`; it reported no diagnostics in the edited memory implementation files. The server typecheck process was SIGKILLed after about 9 minutes without diagnostics. Dependency setup for the server also hit a `tree-sitter-powershell` native build failure while fetching Node headers, so server typechecking and runtime integration remain unverified.
 - TypeScript syntax parsing passed for all 13 changed `.ts` files. `git diff --check` passes.
+
+## 2026-10-30 — curated embedded skills and metadata (draft PR #6)
+
+- Added 19 curated built-in skills with 85 statically embedded text resources under `packages/db/src/plugin/skill/bundled/`. Adapted the guidance to DiveeOI tools, portable file paths, and the available skill/resource behavior; UI/UX data/scripts remain local resources. Four non-commercial-only source trees (`charts`, `docx`, `pdf`, `xlsx`) were not copied; original DiveeOI guides replace them. Apache-2.0 license copies are included for applicable bundles.
+- Expanded DB skill frontmatter/metadata parsing, preserving unknown extension keys and provenance; added source origin, model/slash-invocation flags, argument hints, allowed tools and requirements. Embedded resources are path-validated, materialized under the global cache, and surfaced to both DB and server skill tools. The server adapter reads the same pure embedded catalog without booting a second PluginBoot layer.
+- Added metadata to server skill/command schemas, filtering for `disable-model-invocation`, `slash: false`, and `user-invocable: false`, and XML-safe metadata in the skill prompt listing. API descriptions and generated SDK output now include skill metadata/source and command argument hints.
+- **Focused tests:** DB skill/plugin/tool/config tests pass (8 tests, 42 expectations); server skill/command/system tests pass (20 tests, 57 expectations). `packages/sdk` codegen (`bun ./script/build.ts`) and TypeScript compilation pass. The generator also synchronized previously stale Targeted Learning API routes.
+- **Typecheck caveats:** DB package typecheck still reports 69 diagnostics in existing files, with no diagnostics in changed skill files. The full server typecheck was SIGKILLed; a restricted typecheck timed out after about five minutes without diagnostics. Full workspace install remains incomplete; tests used a temporary filtered install.
+- **Licensing gate:** the upstream `abdou-da0wew/zcode-skills` repository has no root license. Authorization to redistribute the remaining adapted content is unresolved, so [PR #6](https://github.com/abdou-da0wew/DiveeOI/pull/6) is draft only and must not be merged or released before clearance.

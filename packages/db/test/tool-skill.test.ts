@@ -4,6 +4,7 @@ import { pathToFileURL } from "url"
 import { describe, expect } from "bun:test"
 import { Effect, Layer } from "effect"
 import { FSUtil } from "@diveeoi/db/fs-util"
+import { Global } from "@diveeoi/db/global"
 import { PermissionV2 } from "@diveeoi/db/permission"
 import { PluginBoot } from "@diveeoi/db/plugin/boot"
 import { AbsolutePath } from "@diveeoi/db/schema"
@@ -40,6 +41,7 @@ describe("SkillTool", () => {
             content: "# Effect\n\nGuidance",
           }
           let current = [info]
+          let embeddedFiles: Record<string, string> = {}
           const assertions: PermissionV2.AssertInput[] = []
           let deny = false
           let bootWaited = false
@@ -72,6 +74,7 @@ describe("SkillTool", () => {
               transform: () => Effect.die("unused"),
               sources: () => Effect.die("unused"),
               list: () => Effect.succeed(current),
+              resources: () => Effect.succeed(embeddedFiles),
             }),
           )
           const registry = ToolRegistry.defaultLayer.pipe(Layer.provide(permission))
@@ -79,6 +82,7 @@ describe("SkillTool", () => {
             Layer.provide(registry),
             Layer.provide(permission),
             Layer.provide(FSUtil.defaultLayer),
+            Layer.provide(Global.layerWith({ cache: tmp.path })),
             Layer.provide(boot),
             Layer.provide(skills),
           )
@@ -154,6 +158,33 @@ describe("SkillTool", () => {
                 call: { type: "tool-call", id: "call-flat-skill", name: "skill", input: { name: "public" } },
               }),
             ).toEqual({ type: "text", value: SkillTool.toModelOutput(flat, []) })
+
+            const embedded = new SkillV2.Info({
+              name: "embedded",
+              location: AbsolutePath.make("/builtin/embedded/SKILL.md"),
+              content: "# Embedded skill",
+              source: "embedded",
+              metadata: new SkillV2.Metadata({ version: "1.0.0" }),
+            })
+            current = [embedded]
+            embeddedFiles = {
+              "SKILL.md": "---\nname: embedded\n---\n\n# Embedded skill",
+              "references/guide.md": "Bundled guide text",
+            }
+            const embeddedDirectory = SkillV2.embeddedDirectory(tmp.path, "embedded", "1.0.0")
+            const loaded = yield* executeTool(registry, {
+              sessionID,
+              ...toolIdentity,
+              call: { type: "tool-call", id: "call-embedded-skill", name: "skill", input: { name: "embedded" } },
+            })
+            expect(loaded.type).toBe("text")
+            if (loaded.type === "text") {
+              expect(loaded.value).toContain(`Base directory for this skill: ${pathToFileURL(embeddedDirectory).href}`)
+              expect(loaded.value).toContain(`<file>${path.join(embeddedDirectory, "references", "guide.md")}</file>`)
+            }
+            expect(
+              yield* Effect.promise(() => fs.readFile(path.join(embeddedDirectory, "references", "guide.md"), "utf8")),
+            ).toBe("Bundled guide text")
           }).pipe(Effect.provide(layer))
         }),
       ),

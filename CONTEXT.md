@@ -1,18 +1,12 @@
 # CONTEXT — DiveeOI implementation hand-off
 
-Last updated: 2026-10-30. Branch: `arena/ace5e304-diveeoi` (active; based on `dev` at `bce67e67c7bd0a9bdd4c02a23ba6d21b7d549726`).
+Last updated: 2026-10-30. Branch: `arena/40d798db-diveeoi` (active; based on `dev` at `989d1287cff175f522a69f0aa895899364b97dcc`). Draft PR #6 is open against `dev`.
 
 This file is the current hand-off snapshot. See `WORKLOG.md` for the chronological record, `DECISIONS.md` for design decisions, and `docs/TARGETED_LEARNING_WORKLOG.md` / `docs/WHATS_DONE.md` for the feature history and inventory. Older test counts in those historical documents are not verification of this branch.
 
 ## Verification status — read first
 
-Bun 1.3.14 was installed into `/tmp/diveeoi-tools` for the earlier auth/resource checks. On this branch, Bun 1.4.2
-was used for Targeted Learning diagnostics tests and source transpilation. A full workspace install was attempted but could not
-verify the GitHub `ghostty-web` tarball certificate; workspace dependencies remain incomplete. Focused diagnostics tests,
-selected-module typechecks, source parsing, and `git diff --check` are recorded below. Full package typechecks/builds, browser
-runs, and model-backed checks remain unverified. The optional reference-vector `runSelfTest()` fixture is empty until
-`tl:selftest:freeze` is run with the pinned model installed; this is separate from Setup's `golden-self-test` step, which
-runs the live semantic sanity check and does not require fixture vectors.
+Bun 1.3.14 was used via `npx` for the current skill work. A temporary filtered install enabled focused DB/server tests and SDK generation; the full workspace install remains incomplete because GitHub certificate validation failed while resolving `ghostty-web`. The DB skill tests pass (8 tests / 42 expectations), the server skill/command/system tests pass (20 / 57), and the SDK generation/typecheck passes. DB package typecheck still reports 69 errors in existing files, with no diagnostics in the changed skill files; server typecheck was SIGKILLed without diagnostics. Licensing clearance for adapted content from the unlicensed `zcode-skills` repository is still pending; PR #6 remains draft and must not be merged/released before clearance. Earlier Targeted Learning diagnostics, source parsing, and `git diff --check` results are recorded below. Full package builds, browser runs, and model-backed checks remain unverified. The optional reference-vector `runSelfTest()` fixture is empty until `tl:selftest:freeze` is run with the pinned model installed; this is separate from Setup's `golden-self-test` step, which runs the live semantic sanity check and does not require fixture vectors.
 
 ## Authentication and security
 
@@ -25,6 +19,15 @@ runs the live semantic sanity check and does not require fixture vectors.
 - Previously shared external credentials should be rotated if they are still active. No credentials are intentionally stored in this repository.
 
 See `docs/security-auth.md` for configuration and operational guidance.
+
+## Embedded skills and metadata
+
+- Current draft PR: [#6](https://github.com/abdou-da0wew/DiveeOI/pull/6) on `arena/40d798db-diveeoi`; the initial implementation is commit `30a2dbf` and the validated code/test/SDK follow-up is commit `858a1f0`.
+- The DB plugin registers 19 curated embedded skills from `packages/db/src/plugin/skill/bundled/`, with 85 static text resource imports. `SkillV2` parses category/tags/version/author/license/compatibility, links and source provenance, triggers/requirements, allowed tools, argument hints, invocation flags, and unknown attributes. Embedded resources are path-validated and materialized in the global cache by the DB/server skill tools.
+- The server V1 skill adapter uses the DB plugin's pure `SkillPlugin.embeddedSources()` catalog, avoiding a second PluginBoot instance while exposing the same metadata and resource files. Slash-command generation respects `slash` and `user-invocable`, and command responses include `argumentHint`.
+- API/OpenAPI/SDK synchronization was run with `cd packages/sdk && bun ./script/build.ts`; generated client types include skill metadata/source and command argument hints. SDK TypeScript compilation passes. Codegen also synchronized previously stale Targeted Learning endpoints.
+- **Licensing gate:** `abdou-da0wew/zcode-skills` has no root license and redistribution authorization for remaining adapted upstream content is unresolved. PR #6 is draft only. Do not merge or release until cleared. Source `charts`, `docx`, `pdf`, and `xlsx` trees with non-commercial-only terms were excluded and replaced by original DiveeOI guides; applicable Apache license copies are included.
+- Focused validation: DB skill/plugin/tool/config tests pass (8 tests, 42 expectations); server skill/command/system tests pass (20 tests, 57 expectations). DB full typecheck has 69 diagnostics in existing files but none in the changed skill files. The full server typecheck was SIGKILLed, while the restricted check timed out after about five minutes without diagnostics; see the PR for details.
 
 ## Memory system status
 

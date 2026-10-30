@@ -1,0 +1,3 @@
+This directory contains an adapted skill based on the Apache-2.0-licensed skill-creator distributed in https://github.com/abdou-da0wew/zcode-skills at commit 67bcca5e0467bda037dfe18d691d91f3386191f9.
+
+DiveeOI modified SKILL.md for DiveeOI's tools, metadata, portability, and authorization model, and added references/diveeoi-metadata.md. The upstream LICENSE.txt is retained. No upstream helper scripts or agent files are bundled.

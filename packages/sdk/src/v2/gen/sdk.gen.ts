@@ -24,6 +24,7 @@ import type {
   ConfigGetResponses,
   ConfigProvidersErrors,
   ConfigProvidersResponses,
+  ConfigTargetedLearning1,
   ConfigUpdateErrors,
   ConfigUpdateResponses,
   EventSubscribeResponses,
@@ -244,6 +245,58 @@ import type {
   SyncStartResponses,
   SyncStealErrors,
   SyncStealResponses,
+  TargetedLearningBooksDeleteErrors,
+  TargetedLearningBooksDeleteResponses,
+  TargetedLearningBooksImportErrors,
+  TargetedLearningBooksImportResponses,
+  TargetedLearningBooksListErrors,
+  TargetedLearningBooksListResponses,
+  TargetedLearningBooksUploadErrors,
+  TargetedLearningBooksUploadResponses,
+  TargetedLearningDebugStatusErrors,
+  TargetedLearningDebugStatusResponses,
+  TargetedLearningHealthErrors,
+  TargetedLearningHealthResponses,
+  TargetedLearningJobsCancelErrors,
+  TargetedLearningJobsCancelResponses,
+  TargetedLearningJobsListErrors,
+  TargetedLearningJobsListResponses,
+  TargetedLearningJobsPauseErrors,
+  TargetedLearningJobsPauseResponses,
+  TargetedLearningJobsResumeErrors,
+  TargetedLearningJobsResumeResponses,
+  TargetedLearningJobsRetryErrors,
+  TargetedLearningJobsRetryResponses,
+  TargetedLearningMemoryListErrors,
+  TargetedLearningMemoryListResponses,
+  TargetedLearningMemoryNoteDeleteErrors,
+  TargetedLearningMemoryNoteDeleteResponses,
+  TargetedLearningMemoryStudentDeleteErrors,
+  TargetedLearningMemoryStudentDeleteResponses,
+  TargetedLearningMemoryStudentPinErrors,
+  TargetedLearningMemoryStudentPinResponses,
+  TargetedLearningProbeErrors,
+  TargetedLearningProbeResponses,
+  TargetedLearningSearchErrors,
+  TargetedLearningSearchResponses,
+  TargetedLearningSettingsGetErrors,
+  TargetedLearningSettingsGetResponses,
+  TargetedLearningSettingsPresetsErrors,
+  TargetedLearningSettingsPresetsResponses,
+  TargetedLearningSettingsSchemaErrors,
+  TargetedLearningSettingsSchemaResponses,
+  TargetedLearningSettingsUpdateErrors,
+  TargetedLearningSettingsUpdateResponses,
+  TargetedLearningSetupCancelErrors,
+  TargetedLearningSetupCancelResponses,
+  TargetedLearningSetupImportLocalErrors,
+  TargetedLearningSetupImportLocalResponses,
+  TargetedLearningSetupRepairErrors,
+  TargetedLearningSetupRepairResponses,
+  TargetedLearningSetupStartErrors,
+  TargetedLearningSetupStartResponses,
+  TargetedLearningSetupStatusErrors,
+  TargetedLearningSetupStatusResponses,
   TextPartInput,
   ToolIdsErrors,
   ToolIdsResponses,
@@ -401,6 +454,10 @@ import type {
   V2TaskCancelResponses,
   V2TaskCreateErrors,
   V2TaskCreateResponses,
+  V2TaskEventsErrors,
+  V2TaskEventsResponses,
+  V2TaskGenerateErrors,
+  V2TaskGenerateResponses,
   V2TaskGetErrors,
   V2TaskGetResponses,
   V2TaskListErrors,
@@ -409,6 +466,8 @@ import type {
   V2TaskPauseResponses,
   V2TaskResumeErrors,
   V2TaskResumeResponses,
+  V2TaskRunErrors,
+  V2TaskRunResponses,
   V2TaskUpdateErrors,
   V2TaskUpdateResponses,
   VcsApplyErrors,
@@ -612,7 +671,7 @@ export class App extends HeyApiClient {
   /**
    * List skills
    *
-   * Get a list of all available skills in the OpenCode system.
+   * Get available skills and their compatibility, provenance, and invocation metadata.
    */
   public skills<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -2381,7 +2440,7 @@ export class Command extends HeyApiClient {
   /**
    * List commands
    *
-   * Get a list of all available commands in the OpenCode system.
+   * Get available commands, including skill argument hints.
    */
   public list<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -4843,6 +4902,1001 @@ export class Sync extends HeyApiClient {
   }
 }
 
+export class Setup extends HeyApiClient {
+  /**
+   * Get Targeted Learning setup status
+   *
+   * Returns the persisted setup state: which steps are complete, which failed, and the recommended profile.
+   */
+  public status<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      TargetedLearningSetupStatusResponses,
+      TargetedLearningSetupStatusErrors,
+      ThrowOnError
+    >({
+      url: "/targeted-learning/setup",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Start (or resume) Targeted Learning setup
+   *
+   * Runs setup steps from where they left off. The first call triggers the probe + preflight + download + verify + runtime-check + golden-self-test + benchmark + recommend-profile pipeline.
+   */
+  public start<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      force?: boolean
+      dtype?: "int8" | "q4f16" | "fp16" | "fp32"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "force" },
+            { in: "body", key: "dtype" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      TargetedLearningSetupStartResponses,
+      TargetedLearningSetupStartErrors,
+      ThrowOnError
+    >({
+      url: "/targeted-learning/setup/start",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Reset setup state for repair
+   *
+   * Clears all step statuses and re-runs from probe. Used by the Repair button in the UI.
+   */
+  public repair<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      TargetedLearningSetupRepairResponses,
+      TargetedLearningSetupRepairErrors,
+      ThrowOnError
+    >({
+      url: "/targeted-learning/setup/repair",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Cancel a running setup
+   */
+  public cancel<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      TargetedLearningSetupCancelResponses,
+      TargetedLearningSetupCancelErrors,
+      ThrowOnError
+    >({
+      url: "/targeted-learning/setup/cancel",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Import model from a local folder
+   *
+   * For offline machines. Verifies the folder against the manifest, then copies files into the data dir.
+   */
+  public importLocal<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      folder?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "folder" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      TargetedLearningSetupImportLocalResponses,
+      TargetedLearningSetupImportLocalErrors,
+      ThrowOnError
+    >({
+      url: "/targeted-learning/setup/import-local",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Settings extends HeyApiClient {
+  /**
+   * Get Targeted Learning settings
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      TargetedLearningSettingsGetResponses,
+      TargetedLearningSettingsGetErrors,
+      ThrowOnError
+    >({
+      url: "/targeted-learning/settings",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Update Targeted Learning settings
+   *
+   * UI edits are written to the global config layer so the file and the UI never drift (plan §11.2).
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      configTargetedLearning1?: ConfigTargetedLearning1
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "configTargetedLearning1", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<
+      TargetedLearningSettingsUpdateResponses,
+      TargetedLearningSettingsUpdateErrors,
+      ThrowOnError
+    >({
+      url: "/targeted-learning/settings",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Get the settings JSON schema
+   *
+   * Returns the full Effect Schema as JSON Schema, including the custom @diveeoi/learning* annotations the UI form generator reads.
+   */
+  public schema<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      TargetedLearningSettingsSchemaResponses,
+      TargetedLearningSettingsSchemaErrors,
+      ThrowOnError
+    >({
+      url: "/targeted-learning/settings/schema",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * List available presets (low / balanced / high)
+   */
+  public presets<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      TargetedLearningSettingsPresetsResponses,
+      TargetedLearningSettingsPresetsErrors,
+      ThrowOnError
+    >({
+      url: "/targeted-learning/settings/presets",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Debug extends HeyApiClient {
+  /**
+   * Inspect runtime Targeted Learning diagnostics
+   *
+   * Returns active operation spans, detected stalls, recent errors, event counts, and the configured debug log path. Detailed diagnostics must be enabled with DIVEEOI_TL_DEBUG.
+   */
+  public status<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      TargetedLearningDebugStatusResponses,
+      TargetedLearningDebugStatusErrors,
+      ThrowOnError
+    >({
+      url: "/targeted-learning/debug/status",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Books extends HeyApiClient {
+  /**
+   * List indexed books
+   *
+   * Returns all books in the library with their indexing status. Used by the composer @book: autocomplete.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      TargetedLearningBooksListResponses,
+      TargetedLearningBooksListErrors,
+      ThrowOnError
+    >({
+      url: "/targeted-learning/books",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Add a book
+   *
+   * Upload a PDF, DOCX or TXT (base64). Indexing runs in the background; poll the book list for status.
+   */
+  public upload<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      filename?: string
+      contentBase64?: string
+      title?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "filename" },
+            { in: "body", key: "contentBase64" },
+            { in: "body", key: "title" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      TargetedLearningBooksUploadResponses,
+      TargetedLearningBooksUploadErrors,
+      ThrowOnError
+    >({
+      url: "/targeted-learning/books",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Add a book from a path on the server
+   *
+   * For large books on the machine running DiveeOI. Same indexing as upload.
+   */
+  public import<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      path?: string
+      title?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+            { in: "body", key: "title" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      TargetedLearningBooksImportResponses,
+      TargetedLearningBooksImportErrors,
+      ThrowOnError
+    >({
+      url: "/targeted-learning/books/import",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Delete a book
+   *
+   * Removes the book, its passages and vectors, and its stored source file.
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      bookID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "bookID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<
+      TargetedLearningBooksDeleteResponses,
+      TargetedLearningBooksDeleteErrors,
+      ThrowOnError
+    >({
+      url: "/targeted-learning/books/{bookID}",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Jobs extends HeyApiClient {
+  /**
+   * List book-ingest jobs
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      TargetedLearningJobsListResponses,
+      TargetedLearningJobsListErrors,
+      ThrowOnError
+    >({
+      url: "/targeted-learning/jobs",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Pause an ingest job
+   */
+  public pause<ThrowOnError extends boolean = false>(
+    parameters: {
+      jobID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "jobID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      TargetedLearningJobsPauseResponses,
+      TargetedLearningJobsPauseErrors,
+      ThrowOnError
+    >({
+      url: "/targeted-learning/jobs/{jobID}/pause",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Resume an ingest job
+   */
+  public resume<ThrowOnError extends boolean = false>(
+    parameters: {
+      jobID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "jobID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      TargetedLearningJobsResumeResponses,
+      TargetedLearningJobsResumeErrors,
+      ThrowOnError
+    >({
+      url: "/targeted-learning/jobs/{jobID}/resume",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Cancel an ingest job
+   */
+  public cancel<ThrowOnError extends boolean = false>(
+    parameters: {
+      jobID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "jobID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      TargetedLearningJobsCancelResponses,
+      TargetedLearningJobsCancelErrors,
+      ThrowOnError
+    >({
+      url: "/targeted-learning/jobs/{jobID}/cancel",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Retry a failed ingest job
+   */
+  public retry<ThrowOnError extends boolean = false>(
+    parameters: {
+      jobID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "jobID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      TargetedLearningJobsRetryResponses,
+      TargetedLearningJobsRetryErrors,
+      ThrowOnError
+    >({
+      url: "/targeted-learning/jobs/{jobID}/retry",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Student extends HeyApiClient {
+  /**
+   * Delete a student memory
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      memoryID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "memoryID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<
+      TargetedLearningMemoryStudentDeleteResponses,
+      TargetedLearningMemoryStudentDeleteErrors,
+      ThrowOnError
+    >({
+      url: "/targeted-learning/memory/student/{memoryID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Pin or unpin a student memory
+   */
+  public pin<ThrowOnError extends boolean = false>(
+    parameters: {
+      memoryID: string
+      directory?: string
+      workspace?: string
+      pinned?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "memoryID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "pinned" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      TargetedLearningMemoryStudentPinResponses,
+      TargetedLearningMemoryStudentPinErrors,
+      ThrowOnError
+    >({
+      url: "/targeted-learning/memory/student/{memoryID}/pin",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Note extends HeyApiClient {
+  /**
+   * Delete a book note
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      noteID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "noteID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<
+      TargetedLearningMemoryNoteDeleteResponses,
+      TargetedLearningMemoryNoteDeleteErrors,
+      ThrowOnError
+    >({
+      url: "/targeted-learning/memory/notes/{noteID}",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Memory extends HeyApiClient {
+  /**
+   * List student memory and book notes
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      TargetedLearningMemoryListResponses,
+      TargetedLearningMemoryListErrors,
+      ThrowOnError
+    >({
+      url: "/targeted-learning/memory",
+      ...options,
+      ...params,
+    })
+  }
+
+  private _student?: Student
+  get student(): Student {
+    return (this._student ??= new Student({ client: this.client }))
+  }
+
+  private _note?: Note
+  get note(): Note {
+    return (this._note ??= new Note({ client: this.client }))
+  }
+}
+
+export class TargetedLearning extends HeyApiClient {
+  /**
+   * Health check
+   *
+   * Returns setup status, books.db availability, model readiness, and manifest presence.
+   */
+  public health<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      TargetedLearningHealthResponses,
+      TargetedLearningHealthErrors,
+      ThrowOnError
+    >({
+      url: "/targeted-learning/health",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Run the system probe
+   *
+   * Detects OS, arch, CPU, AVX, RAM, disk, libc, and recommends a profile.
+   */
+  public probe<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      TargetedLearningProbeResponses,
+      TargetedLearningProbeErrors,
+      ThrowOnError
+    >({
+      url: "/targeted-learning/probe",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Inspect retrieval
+   *
+   * Runs the real retrieval and gate for a question without calling an LLM. Used to tune gate thresholds.
+   */
+  public search<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      query?: string
+      bookIds?: Array<string>
+      recentUserTurns?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "query" },
+            { in: "body", key: "bookIds" },
+            { in: "body", key: "recentUserTurns" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      TargetedLearningSearchResponses,
+      TargetedLearningSearchErrors,
+      ThrowOnError
+    >({
+      url: "/targeted-learning/search",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  private _setup?: Setup
+  get setup(): Setup {
+    return (this._setup ??= new Setup({ client: this.client }))
+  }
+
+  private _settings?: Settings
+  get settings(): Settings {
+    return (this._settings ??= new Settings({ client: this.client }))
+  }
+
+  private _debug?: Debug
+  get debug(): Debug {
+    return (this._debug ??= new Debug({ client: this.client }))
+  }
+
+  private _books?: Books
+  get books(): Books {
+    return (this._books ??= new Books({ client: this.client }))
+  }
+
+  private _jobs?: Jobs
+  get jobs(): Jobs {
+    return (this._jobs ??= new Jobs({ client: this.client }))
+  }
+
+  private _memory?: Memory
+  get memory(): Memory {
+    return (this._memory ??= new Memory({ client: this.client }))
+  }
+}
+
 export class Control extends HeyApiClient {
   /**
    * Get next TUI request
@@ -6421,7 +7475,7 @@ export class Skill extends HeyApiClient {
   /**
    * List skills
    *
-   * Retrieve currently registered skills.
+   * Retrieve currently registered skills and their invocation metadata.
    */
   public list<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -7331,6 +8385,61 @@ export class Task extends HeyApiClient {
   }
 
   /**
+   * Run a task now
+   *
+   * Runs the task immediately, whatever its schedule says.
+   */
+  public run<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "id" }] }])
+    return (options?.client ?? this.client).post<V2TaskRunResponses, V2TaskRunErrors, ThrowOnError>({
+      url: "/api/v1/tasks/{id}/run",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Let the generator agent build the task
+   *
+   * Runs the task generator once: it expands the request into a complete task (prompt, schedule, triggers, agent, models) and then stops.
+   */
+  public generate<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "id" }] }])
+    return (options?.client ?? this.client).post<V2TaskGenerateResponses, V2TaskGenerateErrors, ThrowOnError>({
+      url: "/api/v1/tasks/{id}/generate",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * The hook audit trail of a task
+   */
+  public events<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "id" }] }])
+    return (options?.client ?? this.client).get<V2TaskEventsResponses, V2TaskEventsErrors, ThrowOnError>({
+      url: "/api/v1/tasks/{id}/events",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Resume a paused task
    */
   public resume<ThrowOnError extends boolean = false>(
@@ -7581,6 +8690,11 @@ export class OpencodeClient extends HeyApiClient {
   private _sync?: Sync
   get sync(): Sync {
     return (this._sync ??= new Sync({ client: this.client }))
+  }
+
+  private _targetedLearning?: TargetedLearning
+  get targetedLearning(): TargetedLearning {
+    return (this._targetedLearning ??= new TargetedLearning({ client: this.client }))
   }
 
   private _tui?: Tui

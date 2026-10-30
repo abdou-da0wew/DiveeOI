@@ -143,7 +143,7 @@ export const InstanceApi = HttpApi.make("instance")
           OpenApi.annotations({
             identifier: "command.list",
             summary: "List commands",
-            description: "Get a list of all available commands in the OpenCode system.",
+            description: "Get available commands, including skill argument hints.",
           }),
         ),
         HttpApiEndpoint.get("agent", InstancePaths.agent, {
@@ -163,7 +163,7 @@ export const InstanceApi = HttpApi.make("instance")
           OpenApi.annotations({
             identifier: "app.skills",
             summary: "List skills",
-            description: "Get a list of all available skills in the OpenCode system.",
+            description: "Get available skills and their compatibility, provenance, and invocation metadata.",
           }),
         ),
         HttpApiEndpoint.get("lsp", InstancePaths.lsp, {

@@ -50,14 +50,24 @@ export type Event =
   | EventModelsDevRefreshed
   | EventSessionDiff
   | EventSessionError
-  | EventPermissionAsked
-  | EventPermissionReplied
+  | EventLspUpdated
+  | EventTuiPromptAppend2
+  | EventTuiCommandExecute2
+  | EventTuiToastShow2
+  | EventTuiSessionSelect2
+  | EventMcpToolsChanged
+  | EventMcpBrowserOpenFailed
   | EventPermissionV2Asked
   | EventPermissionV2Replied
+  | EventPermissionAsked
+  | EventPermissionReplied
+  | EventCommandExecuted
+  | EventProjectUpdated
+  | EventFileWatcherUpdated
+  | EventVcsBranchUpdated
   | EventReferenceUpdated
   | EventProjectDirectoriesUpdated
   | EventFileEdited
-  | EventFileWatcherUpdated
   | EventPtyCreated
   | EventPtyUpdated
   | EventPtyExited
@@ -66,33 +76,22 @@ export type Event =
   | EventQuestionV2Replied
   | EventQuestionV2Rejected
   | EventTodoUpdated
-  | EventTuiPromptAppend2
-  | EventTuiCommandExecute2
-  | EventTuiToastShow2
-  | EventTuiSessionSelect2
-  | EventMcpToolsChanged
-  | EventMcpBrowserOpenFailed
-  | EventCommandExecuted
-  | EventProjectUpdated
-  | EventSessionStatus
-  | EventSessionIdle
   | EventReminderUpdated
+  | EventAnchorCreated
+  | EventTaskUpdated
   | EventQuestionAsked
   | EventQuestionReplied
   | EventQuestionRejected
-  | EventAnchorCreated
+  | EventServerConnected
+  | EventGlobalDisposed
+  | EventSessionStatus
+  | EventSessionIdle
   | EventSessionCompacted
-  | EventLspUpdated
-  | EventVcsBranchUpdated
   | EventWorkspaceReady
   | EventWorkspaceFailed
   | EventWorkspaceStatus
-  | EventInstallationUpdated
-  | EventInstallationUpdateAvailable
   | EventWorktreeReady
   | EventWorktreeFailed
-  | EventServerConnected
-  | EventGlobalDisposed
   | EventServerInstanceDisposed
 
 export type QuestionReplied = {
@@ -670,28 +669,6 @@ export type Todo = {
   priority: string
 }
 
-export type SessionStatus =
-  | {
-      type: "idle"
-    }
-  | {
-      type: "retry"
-      attempt: number
-      message: string
-      action?: {
-        reason: string
-        provider: string
-        title: string
-        message: string
-        label: string
-        link?: string
-      }
-      next: number
-    }
-  | {
-      type: "busy"
-    }
-
 export type QuestionOption = {
   /**
    * Display text (1-5 words, concise)
@@ -726,6 +703,28 @@ export type QuestionTool = {
 }
 
 export type QuestionAnswer = Array<string>
+
+export type SessionStatus =
+  | {
+      type: "idle"
+    }
+  | {
+      type: "retry"
+      attempt: number
+      message: string
+      action?: {
+        reason: string
+        provider: string
+        title: string
+        message: string
+        label: string
+        link?: string
+      }
+      next: number
+    }
+  | {
+      type: "busy"
+    }
 
 export type GlobalEvent = {
   directory: string
@@ -1247,29 +1246,75 @@ export type GlobalEvent = {
       }
     | {
         id: string
-        type: "permission.asked"
+        type: "lsp.updated"
         properties: {
-          id: string
-          sessionID: string
-          permission: string
-          patterns: Array<string>
-          metadata: {
-            [key: string]: unknown
-          }
-          always: Array<string>
-          tool?: {
-            messageID: string
-            callID: string
-          }
+          [key: string]: unknown
         }
       }
     | {
         id: string
-        type: "permission.replied"
+        type: "tui.prompt.append"
         properties: {
+          text: string
+        }
+      }
+    | {
+        id: string
+        type: "tui.command.execute"
+        properties: {
+          command:
+            | "session.list"
+            | "session.new"
+            | "session.share"
+            | "session.interrupt"
+            | "session.compact"
+            | "session.page.up"
+            | "session.page.down"
+            | "session.line.up"
+            | "session.line.down"
+            | "session.half.page.up"
+            | "session.half.page.down"
+            | "session.first"
+            | "session.last"
+            | "prompt.clear"
+            | "prompt.submit"
+            | "agent.cycle"
+            | string
+        }
+      }
+    | {
+        id: string
+        type: "tui.toast.show"
+        properties: {
+          title?: string
+          message: string
+          variant: "info" | "success" | "warning" | "error"
+          duration?: number
+        }
+      }
+    | {
+        id: string
+        type: "tui.session.select"
+        properties: {
+          /**
+           * Session ID to navigate to
+           */
           sessionID: string
-          requestID: string
-          reply: "once" | "always" | "reject"
+        }
+      }
+    | {
+        id: string
+        type: "mcp.tools.changed"
+        properties: {
+          server: string
+        }
+      }
+    | {
+        id: string
+        type: "mcp.browser.open.failed"
+        properties: {
+          mcpName: string
+          url: string
         }
       }
     | {
@@ -1298,6 +1343,85 @@ export type GlobalEvent = {
       }
     | {
         id: string
+        type: "permission.asked"
+        properties: {
+          id: string
+          sessionID: string
+          permission: string
+          patterns: Array<string>
+          metadata: {
+            [key: string]: unknown
+          }
+          always: Array<string>
+          tool?: {
+            messageID: string
+            callID: string
+          }
+        }
+      }
+    | {
+        id: string
+        type: "permission.replied"
+        properties: {
+          sessionID: string
+          requestID: string
+          reply: "once" | "always" | "reject"
+        }
+      }
+    | {
+        id: string
+        type: "command.executed"
+        properties: {
+          name: string
+          sessionID: string
+          arguments: string
+          messageID: string
+        }
+      }
+    | {
+        id: string
+        type: "project.updated"
+        properties: {
+          id: string
+          worktree: string
+          vcs?: "git"
+          name?: string
+          icon?: {
+            url?: string
+            override?: string
+            color?: string
+          }
+          commands?: {
+            /**
+             * Startup script to run when creating a new workspace (worktree)
+             */
+            start?: string
+          }
+          time: {
+            created: number
+            updated: number
+            initialized?: number
+          }
+          sandboxes: Array<string>
+        }
+      }
+    | {
+        id: string
+        type: "file.watcher.updated"
+        properties: {
+          file: string
+          event: "add" | "change" | "unlink"
+        }
+      }
+    | {
+        id: string
+        type: "vcs.branch.updated"
+        properties: {
+          branch?: string
+        }
+      }
+    | {
+        id: string
         type: "reference.updated"
         properties: {
           [key: string]: unknown
@@ -1315,14 +1439,6 @@ export type GlobalEvent = {
         type: "file.edited"
         properties: {
           file: string
-        }
-      }
-    | {
-        id: string
-        type: "file.watcher.updated"
-        properties: {
-          file: string
-          event: "add" | "change" | "unlink"
         }
       }
     | {
@@ -1394,124 +1510,6 @@ export type GlobalEvent = {
       }
     | {
         id: string
-        type: "tui.prompt.append"
-        properties: {
-          text: string
-        }
-      }
-    | {
-        id: string
-        type: "tui.command.execute"
-        properties: {
-          command:
-            | "session.list"
-            | "session.new"
-            | "session.share"
-            | "session.interrupt"
-            | "session.compact"
-            | "session.page.up"
-            | "session.page.down"
-            | "session.line.up"
-            | "session.line.down"
-            | "session.half.page.up"
-            | "session.half.page.down"
-            | "session.first"
-            | "session.last"
-            | "prompt.clear"
-            | "prompt.submit"
-            | "agent.cycle"
-            | string
-        }
-      }
-    | {
-        id: string
-        type: "tui.toast.show"
-        properties: {
-          title?: string
-          message: string
-          variant: "info" | "success" | "warning" | "error"
-          duration?: number
-        }
-      }
-    | {
-        id: string
-        type: "tui.session.select"
-        properties: {
-          /**
-           * Session ID to navigate to
-           */
-          sessionID: string
-        }
-      }
-    | {
-        id: string
-        type: "mcp.tools.changed"
-        properties: {
-          server: string
-        }
-      }
-    | {
-        id: string
-        type: "mcp.browser.open.failed"
-        properties: {
-          mcpName: string
-          url: string
-        }
-      }
-    | {
-        id: string
-        type: "command.executed"
-        properties: {
-          name: string
-          sessionID: string
-          arguments: string
-          messageID: string
-        }
-      }
-    | {
-        id: string
-        type: "project.updated"
-        properties: {
-          id: string
-          worktree: string
-          vcs?: "git"
-          name?: string
-          icon?: {
-            url?: string
-            override?: string
-            color?: string
-          }
-          commands?: {
-            /**
-             * Startup script to run when creating a new workspace (worktree)
-             */
-            start?: string
-          }
-          time: {
-            created: number
-            updated: number
-            initialized?: number
-          }
-          sandboxes: Array<string>
-        }
-      }
-    | {
-        id: string
-        type: "session.status"
-        properties: {
-          sessionID: string
-          status: SessionStatus
-        }
-      }
-    | {
-        id: string
-        type: "session.idle"
-        properties: {
-          sessionID: string
-        }
-      }
-    | {
-        id: string
         type: "reminder.updated"
         properties: {
           sessionID: string
@@ -1524,6 +1522,25 @@ export type GlobalEvent = {
             done: boolean
             createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
           }>
+        }
+      }
+    | {
+        id: string
+        type: "anchor.created"
+        properties: {
+          sessionID: string
+          anchorID: string
+          epoch: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+          degraded: boolean
+        }
+      }
+    | {
+        id: string
+        type: "task.updated"
+        properties: {
+          taskID: string
+          status: string
+          sessionID: string
         }
       }
     | {
@@ -1558,12 +1575,31 @@ export type GlobalEvent = {
       }
     | {
         id: string
-        type: "anchor.created"
+        type: "server.connected"
+        properties: {
+          [key: string]: unknown
+        }
+      }
+    | {
+        id: string
+        type: "global.disposed"
+        properties: {
+          [key: string]: unknown
+        }
+      }
+    | {
+        id: string
+        type: "session.status"
         properties: {
           sessionID: string
-          anchorID: string
-          epoch: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-          degraded: boolean
+          status: SessionStatus
+        }
+      }
+    | {
+        id: string
+        type: "session.idle"
+        properties: {
+          sessionID: string
         }
       }
     | {
@@ -1571,20 +1607,6 @@ export type GlobalEvent = {
         type: "session.compacted"
         properties: {
           sessionID: string
-        }
-      }
-    | {
-        id: string
-        type: "lsp.updated"
-        properties: {
-          [key: string]: unknown
-        }
-      }
-    | {
-        id: string
-        type: "vcs.branch.updated"
-        properties: {
-          branch?: string
         }
       }
     | {
@@ -1611,20 +1633,6 @@ export type GlobalEvent = {
       }
     | {
         id: string
-        type: "installation.updated"
-        properties: {
-          version: string
-        }
-      }
-    | {
-        id: string
-        type: "installation.update-available"
-        properties: {
-          version: string
-        }
-      }
-    | {
-        id: string
         type: "worktree.ready"
         properties: {
           name: string
@@ -1636,20 +1644,6 @@ export type GlobalEvent = {
         type: "worktree.failed"
         properties: {
           message: string
-        }
-      }
-    | {
-        id: string
-        type: "server.connected"
-        properties: {
-          [key: string]: unknown
-        }
-      }
-    | {
-        id: string
-        type: "global.disposed"
-        properties: {
-          [key: string]: unknown
         }
       }
     | EventServerInstanceDisposed
@@ -1930,6 +1924,112 @@ export type AttachmentConfig = {
   image?: ImageAttachmentConfig
 }
 
+export type ConfigTargetedLearning = {
+  enabled?: boolean
+  dataDir?: string
+  /**
+   * Upload size cap in MB.
+   */
+  maxBookSizeMB?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  keepSourceFiles?: boolean
+  download?: {
+    endpoint?: string
+    maxConcurrent?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    retries?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    stallTimeoutSec?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    verifyOnBoot?: "size" | "sha256"
+  }
+  embedding?: {
+    dtype?: "int8" | "q4f16" | "fp16" | "fp32"
+    device?: "auto" | "cpu" | "wasm"
+    maxLength?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    batchSize?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    intraOpThreads?: "auto" | string
+    interOpThreads?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    idleUnloadSec?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    modelRevision?: string
+  }
+  chunking?: {
+    childTargetTokens?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    childMaxTokens?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    childOverlapTokens?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    minChunkTokens?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    parentMaxTokens?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    prependHeadingPath?: boolean
+    stripHeadersFooters?: boolean
+  }
+  indexing?: {
+    workersPerBook?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    maxWorkers?: "auto" | string
+    maxConcurrentBooks?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    pauseWhileChatting?: boolean
+    cpuPriority?: "low" | "normal" | "high"
+    maxMemoryMB?: "auto" | string
+    checkpointEveryBatches?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+  ocr?: {
+    enabled?: boolean
+    languages?: string
+    dpi?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+  retrieval?: {
+    bm25TopK?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    denseTopK?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    rrfK?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    weightBm25?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    weightDense?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    autoWeightByLanguage?: boolean
+    finalTopK?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    parentExpansion?: boolean
+    parentContextMaxTokens?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    queryRewrite?: "heuristic" | "llm" | "off"
+    rewriteTurns?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    vectorBackend?: "bruteforce" | "sqlite-vec"
+    vectorCacheMB?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+  gate?: {
+    enabled?: boolean
+    minDenseScore?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    minFusedScore?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    allowSmallTalk?: boolean
+    refusalMessages?: {
+      [key: string]: string
+    }
+  }
+  grounding?: {
+    verify?: "off" | "flag" | "retry"
+    requireCitations?: boolean
+    maxContextTokens?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    allowCalculator?: boolean
+    answerLanguage?: "auto" | "ar" | "en"
+  }
+  memory?: {
+    enabled?: boolean
+    studentBudgetTokens?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    bookNotesTopK?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    bookNotesBudgetTokens?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    maxStudentMemories?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    maxBookNotesPerBook?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    dedupeSimilarity?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    autoWrite?: "auto" | "ask"
+    requireNoteCitations?: boolean
+  }
+  language?: {
+    normalizeAlef?: boolean
+    normalizeYa?: boolean
+    normalizeTaMarbuta?: boolean
+    stripDiacritics?: boolean
+    stripTatweel?: boolean
+    nfkc?: boolean
+    fixReversedRuns?: "auto" | "on" | "off"
+    lightStemming?: boolean
+  }
+  summaries?: {
+    mode?: "extractive" | "llm"
+    llmModel?: string
+  }
+}
+
 export type Config = {
   $schema?: string
   shell?: string
@@ -2125,6 +2225,13 @@ export type Config = {
     lsp?: boolean
     profiler?: boolean
   }
+  performance?: {
+    keep_projects_warm?: boolean
+    composer?: {
+      preferred?: Array<string>
+      min_tier?: number
+    }
+  }
   compatibility?: {
     legacy_config?: boolean
   }
@@ -2158,6 +2265,7 @@ export type Config = {
     mcp_timeout?: number
     policies?: Array<ConfigV2ExperimentalPolicy>
   }
+  targetedLearning?: ConfigTargetedLearning
 }
 
 export type GlobalFeaturesState = {
@@ -2174,6 +2282,9 @@ export type GlobalFeaturesState = {
     extensions: Array<string>
     disabled: boolean
   }>
+  performance: {
+    keepProjectsWarm: boolean
+  }
   probes: {
     fts5: string
     ssh2: string
@@ -2523,6 +2634,7 @@ export type Command = {
   source?: "command" | "mcp" | "skill"
   template: string
   subtask?: boolean
+  argumentHint?: string
   hints: Array<string>
 }
 
@@ -3295,6 +3407,250 @@ export type Session9 = {
     partID?: string
     snapshot?: string
     diff?: string
+  }
+}
+
+/**
+ * Targeted Learning
+ */
+export type ConfigTargetedLearning1 = {
+  enabled?: boolean
+  dataDir?: string
+  /**
+   * Upload size cap.
+   */
+  maxBookSizeMB?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  keepSourceFiles?: boolean
+  /**
+   * Model download pipeline settings
+   */
+  download?: {
+    endpoint?: string
+    /**
+     * Files download one at a time by default. Raise only on fast links.
+     */
+    maxConcurrent?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    /**
+     * Retry count for network errors, 429 and 5xx.
+     */
+    retries?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    /**
+     * Abort a download if no bytes arrive for this many seconds.
+     */
+    stallTimeoutSec?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    verifyOnBoot?: "size" | "sha256"
+  }
+  /**
+   * Embedding model and runtime settings
+   */
+  embedding?: {
+    dtype?: "int8" | "q4f16" | "fp16" | "fp32"
+    device?: "auto" | "cpu" | "wasm"
+    /**
+     * bge-m3 max tokens per chunk. Higher = more context, more memory.
+     */
+    maxLength?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    /**
+     * Embedding batches per worker call.
+     */
+    batchSize?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    intraOpThreads?: "auto" | "1" | "2" | "4" | "8"
+    /**
+     * ONNX inter-op parallelism.
+     */
+    interOpThreads?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    /**
+     * Workers unload the model after this many seconds idle.
+     */
+    idleUnloadSec?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    modelRevision?: string
+  }
+  /**
+   * Chunking strategy settings
+   */
+  chunking?: {
+    /**
+     * Target size for child chunks that get embedded.
+     */
+    childTargetTokens?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    /**
+     * Hard cap on child chunk size.
+     */
+    childMaxTokens?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    /**
+     * Overlap between consecutive child chunks.
+     */
+    childOverlapTokens?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    /**
+     * Chunks smaller than this are merged into neighbours.
+     */
+    minChunkTokens?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    /**
+     * Hard cap on parent (section) size. Parents larger than this split with overlap.
+     */
+    parentMaxTokens?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    prependHeadingPath?: boolean
+    stripHeadersFooters?: boolean
+  }
+  /**
+   * Indexing worker pool settings
+   */
+  indexing?: {
+    /**
+     * Bun Workers spawned per book during indexing.
+     */
+    workersPerBook?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    maxWorkers?: "auto" | "1" | "2" | "3" | "4" | "6" | "8"
+    /**
+     * Books indexed in parallel.
+     */
+    maxConcurrentBooks?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    pauseWhileChatting?: boolean
+    cpuPriority?: "low" | "normal" | "high"
+    maxMemoryMB?: "auto" | "512" | "1024" | "2048" | "4096"
+    /**
+     * Persist ingest progress after this many embedding batches.
+     */
+    checkpointEveryBatches?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+  /**
+   * OCR settings (optional pack)
+   */
+  ocr?: {
+    enabled?: boolean
+    languages?: string
+    /**
+     * Render DPI for OCR.
+     */
+    dpi?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+  /**
+   * Hybrid retrieval settings
+   */
+  retrieval?: {
+    /**
+     * Candidate count from lexical search before fusion.
+     */
+    bm25TopK?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    /**
+     * Candidate count from vector search before fusion.
+     */
+    denseTopK?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    /**
+     * Reciprocal Rank Fusion constant.
+     */
+    rrfK?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    /**
+     * RRF weight for the lexical list.
+     */
+    weightBm25?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    /**
+     * RRF weight for the dense list.
+     */
+    weightDense?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    autoWeightByLanguage?: boolean
+    /**
+     * Chunks sent to the LLM after fusion and parent expansion.
+     */
+    finalTopK?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    parentExpansion?: boolean
+    /**
+     * Token cap on the expanded parent context window.
+     */
+    parentContextMaxTokens?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    queryRewrite?: "heuristic" | "llm" | "off"
+    /**
+     * How many recent turns the rewriter can see.
+     */
+    rewriteTurns?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    vectorBackend?: "bruteforce" | "sqlite-vec"
+    /**
+     * Per-process LRU cache for loaded book vector matrices.
+     */
+    vectorCacheMB?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+  /**
+   * Retrieval gate settings
+   */
+  gate?: {
+    enabled?: boolean
+    /**
+     * Below this cosine, the gate refuses. Calibrated by the eval harness.
+     */
+    minDenseScore?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    /**
+     * Below this RRF score, the gate refuses.
+     */
+    minFusedScore?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    allowSmallTalk?: boolean
+    refusalMessages?: {
+      [key: string]: string
+    }
+  }
+  /**
+   * Grounding and citation settings
+   */
+  grounding?: {
+    verify?: "off" | "flag" | "retry"
+    requireCitations?: boolean
+    /**
+     * Token budget for the injected book context.
+     */
+    maxContextTokens?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    allowCalculator?: boolean
+    answerLanguage?: "auto" | "ar" | "en"
+  }
+  /**
+   * Student memory and book notes settings
+   */
+  memory?: {
+    enabled?: boolean
+    /**
+     * Token budget for injected student profile memories.
+     */
+    studentBudgetTokens?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    /**
+     * Top-K most relevant book notes injected per turn.
+     */
+    bookNotesTopK?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    /**
+     * Token budget for injected book notes.
+     */
+    bookNotesBudgetTokens?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    /**
+     * Per-instance cap on student memories.
+     */
+    maxStudentMemories?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    /**
+     * Per-book cap on book notes.
+     */
+    maxBookNotesPerBook?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    /**
+     * Cosine above this is treated as a duplicate when writing.
+     */
+    dedupeSimilarity?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    autoWrite?: "auto" | "ask"
+    requireNoteCitations?: boolean
+  }
+  /**
+   * Arabic / English text normalization settings
+   */
+  language?: {
+    normalizeAlef?: boolean
+    normalizeYa?: boolean
+    normalizeTaMarbuta?: boolean
+    stripDiacritics?: boolean
+    stripTatweel?: boolean
+    nfkc?: boolean
+    fixReversedRuns?: "auto" | "on" | "off"
+    lightStemming?: boolean
+  }
+  /**
+   * Book summary settings
+   */
+  summaries?: {
+    mode?: "extractive" | "llm"
+    llmModel?: string
   }
 }
 
@@ -4296,10 +4652,54 @@ export type ConfigV2ExperimentalPolicy = {
   resource: string
 }
 
+export type SkillV2Metadata = {
+  category?: string
+  tags?: Array<string>
+  version?: string
+  author?: string
+  license?: string
+  compatibility?: string
+  homepage?: string
+  repository?: string
+  sourceRepository?: string
+  sourceRevision?: string
+  triggers?: Array<string>
+  requirements?: {
+    [key: string]: unknown
+  }
+  allowedTools?: Array<string>
+  argumentHint?: string
+  userInvocable?: boolean
+  disableModelInvocation?: boolean
+  attributes?: {
+    [key: string]: unknown
+  }
+}
+
 export type ProjectDirectories = Array<{
   directory: string
   strategy?: string
 }>
+
+export type TargetedLearningProbeResult = {
+  platform: "linux" | "darwin" | "win32" | "other"
+  arch: "x64" | "arm64" | "ia32" | "arm" | "other"
+  libc: "glibc" | "musl" | "darwin" | "unknown"
+  container: "none" | "docker" | "podman" | "lxc" | "k8s" | "unknown"
+  cpuCores: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  cpuModel: string
+  avx: {
+    avx: boolean
+    avx2: boolean
+    avx512: boolean
+  }
+  totalMemoryMB: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  freeDiskMB: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  dataDirWritable: boolean
+  gpu?: string
+  wasmFallbackRecommended: boolean
+  recommendedProfile: "low" | "balanced" | "high"
+}
 
 export type LocationInfo = {
   directory: string
@@ -4862,6 +5262,8 @@ export type SkillV2Info = {
   slash?: boolean
   location: string
   content: string
+  metadata?: SkillV2Metadata
+  source?: "embedded" | "directory" | "url"
 }
 
 export type QuestionV2Request = {
@@ -4908,6 +5310,13 @@ export type ProjectCopyCopy = {
   directory: string
 }
 
+export type AgentTaskHook = {
+  trigger: "on_complete" | "on_fail" | "on_timeout" | "on_output_match"
+  action: "run_command" | "notify" | "webhook" | "create_task"
+  payload?: string
+  pattern?: string
+}
+
 export type AgentTaskCreateBody = {
   prompt: string
   model?: {
@@ -4917,6 +5326,19 @@ export type AgentTaskCreateBody = {
   autoRun?: boolean
   subagentTypes?: Array<string>
   parentSessionID?: string
+  directory?: string
+  source?: "user" | "agent"
+  creatorAgent?: string
+  autoGenerate?: boolean
+  agent?: string
+  bigPrompt?: string
+  smallPrompt?: string
+  smallModel?: {
+    providerID: string
+    modelID: string
+  }
+  schedule?: string
+  hooks?: Array<AgentTaskHook>
 }
 
 export type AgentTaskInfo = {
@@ -4933,6 +5355,18 @@ export type AgentTaskInfo = {
   checkpointAnchorID?: string
   worktree?: string
   error?: string
+  agent?: string
+  directory?: string
+  source?: string
+  creatorAgent?: string
+  bigPrompt?: string
+  smallPrompt?: string
+  smallProviderID?: string
+  smallModelID?: string
+  schedule?: string
+  nextRunAt?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  lastRunAt?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  runCount?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
   createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
   updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
 }
@@ -4942,6 +5376,16 @@ export type AgentTaskUpdateBody = {
   modelID?: string
   providerID?: string
   subagentTypes?: Array<string>
+  agent?: string
+  directory?: string
+  source?: string
+  creatorAgent?: string
+  bigPrompt?: string
+  smallPrompt?: string
+  smallProviderID?: string
+  smallModelID?: string
+  schedule?: string
+  eventHooks?: Array<AgentTaskHook>
 }
 
 export type EventPluginAdded = {
@@ -5502,32 +5946,28 @@ export type EventSessionError = {
   }
 }
 
-export type EventPermissionAsked = {
+export type EventLspUpdated = {
   id: string
-  type: "permission.asked"
+  type: "lsp.updated"
   properties: {
-    id: string
-    sessionID: string
-    permission: string
-    patterns: Array<string>
-    metadata: {
-      [key: string]: unknown
-    }
-    always: Array<string>
-    tool?: {
-      messageID: string
-      callID: string
-    }
+    [key: string]: unknown
   }
 }
 
-export type EventPermissionReplied = {
+export type EventMcpToolsChanged = {
   id: string
-  type: "permission.replied"
+  type: "mcp.tools.changed"
   properties: {
-    sessionID: string
-    requestID: string
-    reply: "once" | "always" | "reject"
+    server: string
+  }
+}
+
+export type EventMcpBrowserOpenFailed = {
+  id: string
+  type: "mcp.browser.open.failed"
+  properties: {
+    mcpName: string
+    url: string
   }
 }
 
@@ -5557,6 +5997,91 @@ export type EventPermissionV2Replied = {
   }
 }
 
+export type EventPermissionAsked = {
+  id: string
+  type: "permission.asked"
+  properties: {
+    id: string
+    sessionID: string
+    permission: string
+    patterns: Array<string>
+    metadata: {
+      [key: string]: unknown
+    }
+    always: Array<string>
+    tool?: {
+      messageID: string
+      callID: string
+    }
+  }
+}
+
+export type EventPermissionReplied = {
+  id: string
+  type: "permission.replied"
+  properties: {
+    sessionID: string
+    requestID: string
+    reply: "once" | "always" | "reject"
+  }
+}
+
+export type EventCommandExecuted = {
+  id: string
+  type: "command.executed"
+  properties: {
+    name: string
+    sessionID: string
+    arguments: string
+    messageID: string
+  }
+}
+
+export type EventProjectUpdated = {
+  id: string
+  type: "project.updated"
+  properties: {
+    id: string
+    worktree: string
+    vcs?: "git"
+    name?: string
+    icon?: {
+      url?: string
+      override?: string
+      color?: string
+    }
+    commands?: {
+      /**
+       * Startup script to run when creating a new workspace (worktree)
+       */
+      start?: string
+    }
+    time: {
+      created: number
+      updated: number
+      initialized?: number
+    }
+    sandboxes: Array<string>
+  }
+}
+
+export type EventFileWatcherUpdated = {
+  id: string
+  type: "file.watcher.updated"
+  properties: {
+    file: string
+    event: "add" | "change" | "unlink"
+  }
+}
+
+export type EventVcsBranchUpdated = {
+  id: string
+  type: "vcs.branch.updated"
+  properties: {
+    branch?: string
+  }
+}
+
 export type EventReferenceUpdated = {
   id: string
   type: "reference.updated"
@@ -5578,15 +6103,6 @@ export type EventFileEdited = {
   type: "file.edited"
   properties: {
     file: string
-  }
-}
-
-export type EventFileWatcherUpdated = {
-  id: string
-  type: "file.watcher.updated"
-  properties: {
-    file: string
-    event: "add" | "change" | "unlink"
   }
 }
 
@@ -5665,79 +6181,6 @@ export type EventTodoUpdated = {
   }
 }
 
-export type EventMcpToolsChanged = {
-  id: string
-  type: "mcp.tools.changed"
-  properties: {
-    server: string
-  }
-}
-
-export type EventMcpBrowserOpenFailed = {
-  id: string
-  type: "mcp.browser.open.failed"
-  properties: {
-    mcpName: string
-    url: string
-  }
-}
-
-export type EventCommandExecuted = {
-  id: string
-  type: "command.executed"
-  properties: {
-    name: string
-    sessionID: string
-    arguments: string
-    messageID: string
-  }
-}
-
-export type EventProjectUpdated = {
-  id: string
-  type: "project.updated"
-  properties: {
-    id: string
-    worktree: string
-    vcs?: "git"
-    name?: string
-    icon?: {
-      url?: string
-      override?: string
-      color?: string
-    }
-    commands?: {
-      /**
-       * Startup script to run when creating a new workspace (worktree)
-       */
-      start?: string
-    }
-    time: {
-      created: number
-      updated: number
-      initialized?: number
-    }
-    sandboxes: Array<string>
-  }
-}
-
-export type EventSessionStatus = {
-  id: string
-  type: "session.status"
-  properties: {
-    sessionID: string
-    status: SessionStatus
-  }
-}
-
-export type EventSessionIdle = {
-  id: string
-  type: "session.idle"
-  properties: {
-    sessionID: string
-  }
-}
-
 export type EventReminderUpdated = {
   id: string
   type: "reminder.updated"
@@ -5752,6 +6195,27 @@ export type EventReminderUpdated = {
       done: boolean
       createdAt: number | "NaN" | "Infinity" | "-Infinity"
     }>
+  }
+}
+
+export type EventAnchorCreated = {
+  id: string
+  type: "anchor.created"
+  properties: {
+    sessionID: string
+    anchorID: string
+    epoch: number | "NaN" | "Infinity" | "-Infinity"
+    degraded: boolean
+  }
+}
+
+export type EventTaskUpdated = {
+  id: string
+  type: "task.updated"
+  properties: {
+    taskID: string
+    status: string
+    sessionID: string
   }
 }
 
@@ -5788,14 +6252,36 @@ export type EventQuestionRejected = {
   }
 }
 
-export type EventAnchorCreated = {
+export type EventServerConnected = {
   id: string
-  type: "anchor.created"
+  type: "server.connected"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
+export type EventGlobalDisposed = {
+  id: string
+  type: "global.disposed"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
+export type EventSessionStatus = {
+  id: string
+  type: "session.status"
   properties: {
     sessionID: string
-    anchorID: string
-    epoch: number | "NaN" | "Infinity" | "-Infinity"
-    degraded: boolean
+    status: SessionStatus
+  }
+}
+
+export type EventSessionIdle = {
+  id: string
+  type: "session.idle"
+  properties: {
+    sessionID: string
   }
 }
 
@@ -5804,22 +6290,6 @@ export type EventSessionCompacted = {
   type: "session.compacted"
   properties: {
     sessionID: string
-  }
-}
-
-export type EventLspUpdated = {
-  id: string
-  type: "lsp.updated"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
-export type EventVcsBranchUpdated = {
-  id: string
-  type: "vcs.branch.updated"
-  properties: {
-    branch?: string
   }
 }
 
@@ -5848,22 +6318,6 @@ export type EventWorkspaceStatus = {
   }
 }
 
-export type EventInstallationUpdated = {
-  id: string
-  type: "installation.updated"
-  properties: {
-    version: string
-  }
-}
-
-export type EventInstallationUpdateAvailable = {
-  id: string
-  type: "installation.update-available"
-  properties: {
-    version: string
-  }
-}
-
 export type EventWorktreeReady = {
   id: string
   type: "worktree.ready"
@@ -5878,22 +6332,6 @@ export type EventWorktreeFailed = {
   type: "worktree.failed"
   properties: {
     message: string
-  }
-}
-
-export type EventServerConnected = {
-  id: string
-  type: "server.connected"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
-export type EventGlobalDisposed = {
-  id: string
-  type: "global.disposed"
-  properties: {
-    [key: string]: unknown
   }
 }
 
@@ -7349,8 +7787,11 @@ export type AppSkillsResponses = {
   200: Array<{
     name: string
     description?: string
+    slash?: boolean
     location: string
     content: string
+    metadata?: SkillV2Metadata
+    source?: "embedded" | "directory" | "url"
   }>
 }
 
@@ -9648,6 +10089,914 @@ export type SyncHistoryListResponses = {
 }
 
 export type SyncHistoryListResponse = SyncHistoryListResponses[keyof SyncHistoryListResponses]
+
+export type TargetedLearningSetupStatusData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/targeted-learning/setup"
+}
+
+export type TargetedLearningSetupStatusErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type TargetedLearningSetupStatusError =
+  TargetedLearningSetupStatusErrors[keyof TargetedLearningSetupStatusErrors]
+
+export type TargetedLearningSetupStatusResponses = {
+  /**
+   * Setup status
+   */
+  200: {
+    status: "not-started" | "in-progress" | "ready" | "needs-repair"
+    steps: Array<{
+      name: string
+      status: "pending" | "running" | "complete" | "failed" | "skipped"
+      attempts: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      lastError?: string
+      result?: unknown
+    }>
+    recommendedProfile?: "low" | "balanced" | "high"
+  }
+}
+
+export type TargetedLearningSetupStatusResponse =
+  TargetedLearningSetupStatusResponses[keyof TargetedLearningSetupStatusResponses]
+
+export type TargetedLearningSetupStartData = {
+  body?: {
+    force?: boolean
+    dtype?: "int8" | "q4f16" | "fp16" | "fp32"
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/targeted-learning/setup/start"
+}
+
+export type TargetedLearningSetupStartErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type TargetedLearningSetupStartError = TargetedLearningSetupStartErrors[keyof TargetedLearningSetupStartErrors]
+
+export type TargetedLearningSetupStartResponses = {
+  /**
+   * Setup started
+   */
+  200: {
+    status: "not-started" | "in-progress" | "ready" | "needs-repair"
+    steps: Array<{
+      name: string
+      status: "pending" | "running" | "complete" | "failed" | "skipped"
+      attempts: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      lastError?: string
+      result?: unknown
+    }>
+    recommendedProfile?: "low" | "balanced" | "high"
+  }
+}
+
+export type TargetedLearningSetupStartResponse =
+  TargetedLearningSetupStartResponses[keyof TargetedLearningSetupStartResponses]
+
+export type TargetedLearningSetupRepairData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/targeted-learning/setup/repair"
+}
+
+export type TargetedLearningSetupRepairErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type TargetedLearningSetupRepairError =
+  TargetedLearningSetupRepairErrors[keyof TargetedLearningSetupRepairErrors]
+
+export type TargetedLearningSetupRepairResponses = {
+  /**
+   * Setup reset for repair
+   */
+  200: {
+    status: "not-started" | "in-progress" | "ready" | "needs-repair"
+    steps: Array<{
+      name: string
+      status: "pending" | "running" | "complete" | "failed" | "skipped"
+      attempts: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      lastError?: string
+      result?: unknown
+    }>
+    recommendedProfile?: "low" | "balanced" | "high"
+  }
+}
+
+export type TargetedLearningSetupRepairResponse =
+  TargetedLearningSetupRepairResponses[keyof TargetedLearningSetupRepairResponses]
+
+export type TargetedLearningSetupCancelData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/targeted-learning/setup/cancel"
+}
+
+export type TargetedLearningSetupCancelErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type TargetedLearningSetupCancelError =
+  TargetedLearningSetupCancelErrors[keyof TargetedLearningSetupCancelErrors]
+
+export type TargetedLearningSetupCancelResponses = {
+  /**
+   * Setup cancelled
+   */
+  200: {
+    status: "not-started" | "in-progress" | "ready" | "needs-repair"
+    steps: Array<{
+      name: string
+      status: "pending" | "running" | "complete" | "failed" | "skipped"
+      attempts: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      lastError?: string
+      result?: unknown
+    }>
+    recommendedProfile?: "low" | "balanced" | "high"
+  }
+}
+
+export type TargetedLearningSetupCancelResponse =
+  TargetedLearningSetupCancelResponses[keyof TargetedLearningSetupCancelResponses]
+
+export type TargetedLearningSetupImportLocalData = {
+  body?: {
+    folder: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/targeted-learning/setup/import-local"
+}
+
+export type TargetedLearningSetupImportLocalErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type TargetedLearningSetupImportLocalError =
+  TargetedLearningSetupImportLocalErrors[keyof TargetedLearningSetupImportLocalErrors]
+
+export type TargetedLearningSetupImportLocalResponses = {
+  /**
+   * Import completed
+   */
+  200: {
+    status: "not-started" | "in-progress" | "ready" | "needs-repair"
+    steps: Array<{
+      name: string
+      status: "pending" | "running" | "complete" | "failed" | "skipped"
+      attempts: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      lastError?: string
+      result?: unknown
+    }>
+    recommendedProfile?: "low" | "balanced" | "high"
+  }
+}
+
+export type TargetedLearningSetupImportLocalResponse =
+  TargetedLearningSetupImportLocalResponses[keyof TargetedLearningSetupImportLocalResponses]
+
+export type TargetedLearningSettingsGetData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/targeted-learning/settings"
+}
+
+export type TargetedLearningSettingsGetErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type TargetedLearningSettingsGetError =
+  TargetedLearningSettingsGetErrors[keyof TargetedLearningSettingsGetErrors]
+
+export type TargetedLearningSettingsGetResponses = {
+  /**
+   * Settings values and effective config
+   */
+  200: {
+    values: ConfigTargetedLearning1
+    effective: unknown
+  }
+}
+
+export type TargetedLearningSettingsGetResponse =
+  TargetedLearningSettingsGetResponses[keyof TargetedLearningSettingsGetResponses]
+
+export type TargetedLearningSettingsUpdateData = {
+  body?: ConfigTargetedLearning1
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/targeted-learning/settings"
+}
+
+export type TargetedLearningSettingsUpdateErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type TargetedLearningSettingsUpdateError =
+  TargetedLearningSettingsUpdateErrors[keyof TargetedLearningSettingsUpdateErrors]
+
+export type TargetedLearningSettingsUpdateResponses = {
+  /**
+   * Updated settings
+   */
+  200: {
+    values: ConfigTargetedLearning1
+    effective: unknown
+  }
+}
+
+export type TargetedLearningSettingsUpdateResponse =
+  TargetedLearningSettingsUpdateResponses[keyof TargetedLearningSettingsUpdateResponses]
+
+export type TargetedLearningSettingsSchemaData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/targeted-learning/settings/schema"
+}
+
+export type TargetedLearningSettingsSchemaErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type TargetedLearningSettingsSchemaError =
+  TargetedLearningSettingsSchemaErrors[keyof TargetedLearningSettingsSchemaErrors]
+
+export type TargetedLearningSettingsSchemaResponses = {
+  /**
+   * JSON Schema with custom annotations
+   */
+  200: unknown
+}
+
+export type TargetedLearningSettingsPresetsData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/targeted-learning/settings/presets"
+}
+
+export type TargetedLearningSettingsPresetsErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type TargetedLearningSettingsPresetsError =
+  TargetedLearningSettingsPresetsErrors[keyof TargetedLearningSettingsPresetsErrors]
+
+export type TargetedLearningSettingsPresetsResponses = {
+  /**
+   * Presets
+   */
+  200: {
+    [key: string]: unknown
+  }
+}
+
+export type TargetedLearningSettingsPresetsResponse =
+  TargetedLearningSettingsPresetsResponses[keyof TargetedLearningSettingsPresetsResponses]
+
+export type TargetedLearningHealthData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/targeted-learning/health"
+}
+
+export type TargetedLearningHealthErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type TargetedLearningHealthError = TargetedLearningHealthErrors[keyof TargetedLearningHealthErrors]
+
+export type TargetedLearningHealthResponses = {
+  /**
+   * Health
+   */
+  200: {
+    setupStatus: string
+    booksDbAvailable: boolean
+    booksDbReason?: string
+    modelReady: boolean
+    manifestLoaded: boolean
+  }
+}
+
+export type TargetedLearningHealthResponse = TargetedLearningHealthResponses[keyof TargetedLearningHealthResponses]
+
+export type TargetedLearningDebugStatusData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/targeted-learning/debug/status"
+}
+
+export type TargetedLearningDebugStatusErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type TargetedLearningDebugStatusError =
+  TargetedLearningDebugStatusErrors[keyof TargetedLearningDebugStatusErrors]
+
+export type TargetedLearningDebugStatusResponses = {
+  /**
+   * Opt-in Targeted Learning diagnostics snapshot
+   */
+  200: unknown
+}
+
+export type TargetedLearningProbeData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/targeted-learning/probe"
+}
+
+export type TargetedLearningProbeErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type TargetedLearningProbeError = TargetedLearningProbeErrors[keyof TargetedLearningProbeErrors]
+
+export type TargetedLearningProbeResponses = {
+  /**
+   * Probe result
+   */
+  200: TargetedLearningProbeResult
+}
+
+export type TargetedLearningProbeResponse = TargetedLearningProbeResponses[keyof TargetedLearningProbeResponses]
+
+export type TargetedLearningBooksListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/targeted-learning/books"
+}
+
+export type TargetedLearningBooksListErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type TargetedLearningBooksListError = TargetedLearningBooksListErrors[keyof TargetedLearningBooksListErrors]
+
+export type TargetedLearningBooksListResponses = {
+  /**
+   * List of indexed books
+   */
+  200: {
+    books: Array<{
+      id: string
+      slug: string
+      title: string
+      author?: string
+      lang?: string
+      status: string
+      pages?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      chunkCount: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      indexedAt?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      error?: string
+      jobId?: string
+      jobStatus?: string
+      progress?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }>
+  }
+}
+
+export type TargetedLearningBooksListResponse =
+  TargetedLearningBooksListResponses[keyof TargetedLearningBooksListResponses]
+
+export type TargetedLearningBooksUploadData = {
+  body?: {
+    filename: string
+    contentBase64: string
+    title?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/targeted-learning/books"
+}
+
+export type TargetedLearningBooksUploadErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type TargetedLearningBooksUploadError =
+  TargetedLearningBooksUploadErrors[keyof TargetedLearningBooksUploadErrors]
+
+export type TargetedLearningBooksUploadResponses = {
+  /**
+   * Book accepted; indexing runs in the background
+   */
+  200: {
+    bookId: string
+    slug: string
+    duplicate: boolean
+  }
+}
+
+export type TargetedLearningBooksUploadResponse =
+  TargetedLearningBooksUploadResponses[keyof TargetedLearningBooksUploadResponses]
+
+export type TargetedLearningJobsListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/targeted-learning/jobs"
+}
+
+export type TargetedLearningJobsListErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type TargetedLearningJobsListError = TargetedLearningJobsListErrors[keyof TargetedLearningJobsListErrors]
+
+export type TargetedLearningJobsListResponses = {
+  /**
+   * Persistent ingest jobs
+   */
+  200: {
+    jobs: Array<{
+      id: string
+      bookId: string
+      stage: string
+      status: string
+      progress: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      checkpointJson?: string
+      error?: string
+      startedAt?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      finishedAt?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }>
+  }
+}
+
+export type TargetedLearningJobsListResponse =
+  TargetedLearningJobsListResponses[keyof TargetedLearningJobsListResponses]
+
+export type TargetedLearningJobsPauseData = {
+  body?: never
+  path: {
+    jobID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/targeted-learning/jobs/{jobID}/pause"
+}
+
+export type TargetedLearningJobsPauseErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type TargetedLearningJobsPauseError = TargetedLearningJobsPauseErrors[keyof TargetedLearningJobsPauseErrors]
+
+export type TargetedLearningJobsPauseResponses = {
+  /**
+   * Job paused
+   */
+  200: boolean
+}
+
+export type TargetedLearningJobsPauseResponse =
+  TargetedLearningJobsPauseResponses[keyof TargetedLearningJobsPauseResponses]
+
+export type TargetedLearningJobsResumeData = {
+  body?: never
+  path: {
+    jobID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/targeted-learning/jobs/{jobID}/resume"
+}
+
+export type TargetedLearningJobsResumeErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type TargetedLearningJobsResumeError = TargetedLearningJobsResumeErrors[keyof TargetedLearningJobsResumeErrors]
+
+export type TargetedLearningJobsResumeResponses = {
+  /**
+   * Job resumed
+   */
+  200: boolean
+}
+
+export type TargetedLearningJobsResumeResponse =
+  TargetedLearningJobsResumeResponses[keyof TargetedLearningJobsResumeResponses]
+
+export type TargetedLearningJobsCancelData = {
+  body?: never
+  path: {
+    jobID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/targeted-learning/jobs/{jobID}/cancel"
+}
+
+export type TargetedLearningJobsCancelErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type TargetedLearningJobsCancelError = TargetedLearningJobsCancelErrors[keyof TargetedLearningJobsCancelErrors]
+
+export type TargetedLearningJobsCancelResponses = {
+  /**
+   * Job cancelled
+   */
+  200: boolean
+}
+
+export type TargetedLearningJobsCancelResponse =
+  TargetedLearningJobsCancelResponses[keyof TargetedLearningJobsCancelResponses]
+
+export type TargetedLearningJobsRetryData = {
+  body?: never
+  path: {
+    jobID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/targeted-learning/jobs/{jobID}/retry"
+}
+
+export type TargetedLearningJobsRetryErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type TargetedLearningJobsRetryError = TargetedLearningJobsRetryErrors[keyof TargetedLearningJobsRetryErrors]
+
+export type TargetedLearningJobsRetryResponses = {
+  /**
+   * Job retried
+   */
+  200: boolean
+}
+
+export type TargetedLearningJobsRetryResponse =
+  TargetedLearningJobsRetryResponses[keyof TargetedLearningJobsRetryResponses]
+
+export type TargetedLearningBooksImportData = {
+  body?: {
+    path: string
+    title?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/targeted-learning/books/import"
+}
+
+export type TargetedLearningBooksImportErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type TargetedLearningBooksImportError =
+  TargetedLearningBooksImportErrors[keyof TargetedLearningBooksImportErrors]
+
+export type TargetedLearningBooksImportResponses = {
+  /**
+   * Book accepted; indexing runs in the background
+   */
+  200: {
+    bookId: string
+    slug: string
+    duplicate: boolean
+  }
+}
+
+export type TargetedLearningBooksImportResponse =
+  TargetedLearningBooksImportResponses[keyof TargetedLearningBooksImportResponses]
+
+export type TargetedLearningBooksDeleteData = {
+  body?: never
+  path: {
+    bookID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/targeted-learning/books/{bookID}"
+}
+
+export type TargetedLearningBooksDeleteErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type TargetedLearningBooksDeleteError =
+  TargetedLearningBooksDeleteErrors[keyof TargetedLearningBooksDeleteErrors]
+
+export type TargetedLearningBooksDeleteResponses = {
+  /**
+   * Book removed
+   */
+  200: boolean
+}
+
+export type TargetedLearningBooksDeleteResponse =
+  TargetedLearningBooksDeleteResponses[keyof TargetedLearningBooksDeleteResponses]
+
+export type TargetedLearningSearchData = {
+  body?: {
+    query: string
+    bookIds?: Array<string>
+    recentUserTurns?: Array<string>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/targeted-learning/search"
+}
+
+export type TargetedLearningSearchErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type TargetedLearningSearchError = TargetedLearningSearchErrors[keyof TargetedLearningSearchErrors]
+
+export type TargetedLearningSearchResponses = {
+  /**
+   * Gate decision, best scores, thresholds and the top passages
+   */
+  200: unknown
+}
+
+export type TargetedLearningMemoryListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/targeted-learning/memory"
+}
+
+export type TargetedLearningMemoryListErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type TargetedLearningMemoryListError = TargetedLearningMemoryListErrors[keyof TargetedLearningMemoryListErrors]
+
+export type TargetedLearningMemoryListResponses = {
+  /**
+   * Everything remembered about the student and about books
+   */
+  200: {
+    student: Array<{
+      id: string
+      kind: string
+      text: string
+      pinned: boolean
+      uses: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }>
+    notes: Array<{
+      id: string
+      bookId: string
+      bookTitle?: string
+      kind: string
+      text: string
+      stale: boolean
+    }>
+  }
+}
+
+export type TargetedLearningMemoryListResponse =
+  TargetedLearningMemoryListResponses[keyof TargetedLearningMemoryListResponses]
+
+export type TargetedLearningMemoryStudentDeleteData = {
+  body?: never
+  path: {
+    memoryID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/targeted-learning/memory/student/{memoryID}"
+}
+
+export type TargetedLearningMemoryStudentDeleteErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type TargetedLearningMemoryStudentDeleteError =
+  TargetedLearningMemoryStudentDeleteErrors[keyof TargetedLearningMemoryStudentDeleteErrors]
+
+export type TargetedLearningMemoryStudentDeleteResponses = {
+  /**
+   * Removed
+   */
+  200: boolean
+}
+
+export type TargetedLearningMemoryStudentDeleteResponse =
+  TargetedLearningMemoryStudentDeleteResponses[keyof TargetedLearningMemoryStudentDeleteResponses]
+
+export type TargetedLearningMemoryStudentPinData = {
+  body?: {
+    pinned: boolean
+  }
+  path: {
+    memoryID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/targeted-learning/memory/student/{memoryID}/pin"
+}
+
+export type TargetedLearningMemoryStudentPinErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type TargetedLearningMemoryStudentPinError =
+  TargetedLearningMemoryStudentPinErrors[keyof TargetedLearningMemoryStudentPinErrors]
+
+export type TargetedLearningMemoryStudentPinResponses = {
+  /**
+   * Updated
+   */
+  200: boolean
+}
+
+export type TargetedLearningMemoryStudentPinResponse =
+  TargetedLearningMemoryStudentPinResponses[keyof TargetedLearningMemoryStudentPinResponses]
+
+export type TargetedLearningMemoryNoteDeleteData = {
+  body?: never
+  path: {
+    noteID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/targeted-learning/memory/notes/{noteID}"
+}
+
+export type TargetedLearningMemoryNoteDeleteErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type TargetedLearningMemoryNoteDeleteError =
+  TargetedLearningMemoryNoteDeleteErrors[keyof TargetedLearningMemoryNoteDeleteErrors]
+
+export type TargetedLearningMemoryNoteDeleteResponses = {
+  /**
+   * Removed
+   */
+  200: boolean
+}
+
+export type TargetedLearningMemoryNoteDeleteResponse =
+  TargetedLearningMemoryNoteDeleteResponses[keyof TargetedLearningMemoryNoteDeleteResponses]
 
 export type TuiAppendPromptData = {
   body?: {
@@ -12346,6 +13695,10 @@ export type V2AuthRegisterErrors = {
    */
   401: UnauthorizedError
   /**
+   * ForbiddenError
+   */
+  403: ForbiddenError
+  /**
    * ConflictError
    */
   409: ConflictError
@@ -12400,7 +13753,7 @@ export type V2AuthLoginResponses = {
    */
   200: {
     accessToken: string
-    refreshToken: string
+    refreshToken?: string
     user: {
       id: string
       email: string
@@ -12416,7 +13769,7 @@ export type V2AuthLoginResponse = V2AuthLoginResponses[keyof V2AuthLoginResponse
 
 export type V2AuthRefreshData = {
   body: {
-    refreshToken: string
+    refreshToken?: string
   }
   path?: never
   query?: never
@@ -12442,7 +13795,7 @@ export type V2AuthRefreshResponses = {
    */
   200: {
     accessToken: string
-    refreshToken: string
+    refreshToken?: string
     user: {
       id: string
       email: string
@@ -12839,6 +14192,121 @@ export type V2TaskPauseResponses = {
 }
 
 export type V2TaskPauseResponse = V2TaskPauseResponses[keyof V2TaskPauseResponses]
+
+export type V2TaskRunData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: "/api/v1/tasks/{id}/run"
+}
+
+export type V2TaskRunErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * TaskNotFoundError
+   */
+  500: TaskNotFoundError
+}
+
+export type V2TaskRunError = V2TaskRunErrors[keyof V2TaskRunErrors]
+
+export type V2TaskRunResponses = {
+  /**
+   * Success
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type V2TaskRunResponse = V2TaskRunResponses[keyof V2TaskRunResponses]
+
+export type V2TaskGenerateData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: "/api/v1/tasks/{id}/generate"
+}
+
+export type V2TaskGenerateErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * TaskNotFoundError
+   */
+  500: TaskNotFoundError
+}
+
+export type V2TaskGenerateError = V2TaskGenerateErrors[keyof V2TaskGenerateErrors]
+
+export type V2TaskGenerateResponses = {
+  /**
+   * Success
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type V2TaskGenerateResponse = V2TaskGenerateResponses[keyof V2TaskGenerateResponses]
+
+export type V2TaskEventsData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: "/api/v1/tasks/{id}/events"
+}
+
+export type V2TaskEventsErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2TaskEventsError = V2TaskEventsErrors[keyof V2TaskEventsErrors]
+
+export type V2TaskEventsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data: Array<{
+      id: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      trigger: string
+      action: string
+      payload?: string
+      status?: string
+      result?: string
+      firedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }>
+  }
+}
+
+export type V2TaskEventsResponse = V2TaskEventsResponses[keyof V2TaskEventsResponses]
 
 export type V2TaskResumeData = {
   body?: never

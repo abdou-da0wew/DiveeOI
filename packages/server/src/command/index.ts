@@ -36,10 +36,23 @@ export const Info = Schema.Struct({
   // Some command templates are lazy promises from MCP prompt resolution.
   template: Schema.Unknown,
   subtask: Schema.optional(Schema.Boolean),
+  argumentHint: Schema.optional(Schema.String),
   hints: Schema.Array(Schema.String),
 }).annotate({ identifier: "Command" })
 
 export type Info = Omit<Schema.Schema.Type<typeof Info>, "template"> & { template: Promise<string> | string }
+
+export function fromSkill(item: Skill.Info): Info | undefined {
+  if (item.slash === false || item.metadata?.userInvocable === false) return undefined
+  return {
+    name: item.name,
+    description: item.description,
+    source: "skill",
+    template: item.content,
+    argumentHint: item.metadata?.argumentHint,
+    hints: [],
+  }
+}
 
 export function hints(template: string) {
   const result: string[] = []
@@ -141,15 +154,9 @@ export const layer = Layer.effect(
 
       for (const item of yield* skill.all()) {
         if (commands[item.name]) continue
-        commands[item.name] = {
-          name: item.name,
-          description: item.description,
-          source: "skill",
-          get template() {
-            return item.content
-          },
-          hints: [],
-        }
+        const command = fromSkill(item)
+        if (!command) continue
+        commands[item.name] = command
       }
 
       return {
