@@ -24,7 +24,7 @@ const discovery = Layer.succeed(
 const it = testEffect(
   SkillV2.layer.pipe(
     Layer.provide(discovery),
-    Layer.provide(FSUtil.defaultLayer),
+    Layer.provideMerge(FSUtil.defaultLayer),
     Layer.provideMerge(AgentV2.locationLayer),
   ),
 )

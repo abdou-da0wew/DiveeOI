@@ -36,8 +36,10 @@ describe("SkillPlugin.Plugin", () => {
       const coding = registered.find((item) => item.name === "coding-agent")
       expect(coding?.metadata?.sourceRepository).toBe("https://github.com/abdou-da0wew/zcode-skills")
       expect(coding?.metadata?.sourceRevision).toBe("67bcca5e0467bda037dfe18d691d91f3386191f9")
-      expect(yield* skill.resources("coding-agent")).toHaveProperty("criteria.md")
-      expect(yield* skill.resources("skill-creator")).toHaveProperty("LICENSE.txt")
+      const codingResources = yield* skill.resources("coding-agent")
+      expect(codingResources["criteria.md"]).toContain("# Coding Task Criteria")
+      const creatorResources = yield* skill.resources("skill-creator")
+      expect(creatorResources["LICENSE.txt"]).toContain("Apache License")
     }),
   )
 })

@@ -7,7 +7,6 @@ triggers: [write SEO content, SEO article, optimize a page, search-focused conte
 argument-hint: Give the topic, audience, target query, and content goal
 license: Apache-2.0
 compatibility: Uses available DiveeOI search tools when configured. No SEO connector or proprietary metrics are assumed.
-license: Apache-2.0
 ---
 
 > **Adaptation notice:** This skill has been adapted for DiveeOI; the upstream Apache-2.0 license is included in `LICENSE.txt`.

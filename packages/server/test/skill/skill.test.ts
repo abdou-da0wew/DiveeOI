@@ -8,7 +8,6 @@ import { Config } from "../../src/config/config"
 import { CrossSpawnSpawner } from "@diveeoi/db/cross-spawn-spawner"
 import { FSUtil } from "@diveeoi/db/fs-util"
 import { Global } from "@diveeoi/db/global"
-import { PluginBoot } from "@diveeoi/db/plugin/boot"
 import { provideInstance, provideTmpdirInstance, testInstanceStoreLayer, tmpdir } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import path from "path"
@@ -26,7 +25,6 @@ const itWithoutClaudeCodeSkills = testEffect(
       Layer.provide(FSUtil.defaultLayer),
       Layer.provide(Global.layer),
       Layer.provide(RuntimeFlags.layer({ disableClaudeCodeSkills: true })),
-      Layer.provide(PluginBoot.locationLayer),
     ),
     node,
     testInstanceStoreLayer,
@@ -41,7 +39,6 @@ const itWithoutExternalSkills = testEffect(
       Layer.provide(FSUtil.defaultLayer),
       Layer.provide(Global.layer),
       Layer.provide(RuntimeFlags.layer({ disableExternalSkills: true })),
-      Layer.provide(PluginBoot.locationLayer),
     ),
     node,
     testInstanceStoreLayer,
@@ -612,7 +609,8 @@ metadata:
           })
           expect((yield* skill.available()).some((candidate) => candidate.name === "metadata-skill")).toBe(false)
           expect((yield* skill.all()).some((candidate) => candidate.name === "coding-agent")).toBe(true)
-          expect(yield* skill.resources("coding-agent")).toHaveProperty("criteria.md")
+          const resources = yield* skill.resources("coding-agent")
+          expect(resources["criteria.md"]).toContain("# Coding Task Criteria")
         }),
       { git: true },
     ),

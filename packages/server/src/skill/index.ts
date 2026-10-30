@@ -7,7 +7,7 @@ import type { Agent } from "@/agent/agent"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { InstanceState } from "@/effect/instance-state"
 import { Global } from "@diveeoi/db/global"
-import { PluginBoot } from "@diveeoi/db/plugin/boot"
+import { SkillPlugin } from "@diveeoi/db/plugin/skill"
 import { SkillV2 } from "@diveeoi/db/skill"
 import { Permission } from "@/permission"
 import { FSUtil } from "@diveeoi/db/fs-util"
@@ -245,8 +245,8 @@ export const layer = Layer.effect(
     const events = yield* EventV2Bridge.Service
     const fsys = yield* FSUtil.Service
     const global = yield* Global.Service
-    const pluginBoot = yield* PluginBoot.Service
-    const bundledSkills = yield* SkillV2.Service
+    const embeddedSkills = SkillPlugin.embeddedSources()
+    const embeddedResources = new Map(embeddedSkills.map((source) => [source.skill.name, source.files ?? {}]))
     const flags = yield* RuntimeFlags.Service
     const discovered = yield* InstanceState.make(
       Effect.fn("Skill.discovery")(function* (ctx) {
@@ -264,12 +264,11 @@ export const layer = Layer.effect(
     )
     const state = yield* InstanceState.make(
       Effect.fn("Skill.state")(function* () {
-        yield* pluginBoot.wait()
         const s: State = { skills: {}, dirs: new Set() }
         // Register embedded skills before disk discovery so project/global skills
         // with the same name retain the established override behavior.
-        for (const item of yield* bundledSkills.list()) {
-          if (item.source !== "embedded") continue
+        for (const source of embeddedSkills) {
+          const item = source.skill
           s.skills[item.name] = {
             name: item.name,
             description: item.description,
@@ -317,7 +316,7 @@ export const layer = Layer.effect(
     })
 
     const resources = Effect.fn("Skill.resources")(function* (name: string) {
-      return yield* bundledSkills.resources(name)
+      return embeddedResources.get(name) ?? {}
     })
 
     return Service.of({ get, require, all, dirs, available, resources })
@@ -331,7 +330,6 @@ export const defaultLayer = layer.pipe(
   Layer.provide(FSUtil.defaultLayer),
   Layer.provide(Global.layer),
   Layer.provide(RuntimeFlags.defaultLayer),
-  Layer.provide(PluginBoot.locationLayer),
 )
 
 const xmlText = (value: string) =>
@@ -393,7 +391,6 @@ export const node = LayerNode.make(layer, [
   FSUtil.node,
   Global.node,
   RuntimeFlags.node,
-  PluginBoot.node,
 ])
 
 export * as Skill from "."
