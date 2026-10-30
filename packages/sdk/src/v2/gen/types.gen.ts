@@ -2523,6 +2523,7 @@ export type Command = {
   source?: "command" | "mcp" | "skill"
   template: string
   subtask?: boolean
+  argumentHint?: string
   hints: Array<string>
 }
 
@@ -4856,12 +4857,38 @@ export type CommandV2Info = {
   subtask?: boolean
 }
 
+export type SkillMetadata = {
+  category?: string
+  tags?: Array<string>
+  version?: string
+  author?: string
+  license?: string
+  compatibility?: string
+  homepage?: string
+  repository?: string
+  sourceRepository?: string
+  sourceRevision?: string
+  triggers?: Array<string>
+  requirements?: {
+    [key: string]: unknown
+  }
+  allowedTools?: Array<string>
+  argumentHint?: string
+  userInvocable?: boolean
+  disableModelInvocation?: boolean
+  attributes?: {
+    [key: string]: unknown
+  }
+}
+
 export type SkillV2Info = {
   name: string
   description?: string
   slash?: boolean
   location: string
   content: string
+  metadata?: SkillMetadata
+  source?: "embedded" | "directory" | "url"
 }
 
 export type QuestionV2Request = {
@@ -7346,12 +7373,7 @@ export type AppSkillsResponses = {
   /**
    * List of skills
    */
-  200: Array<{
-    name: string
-    description?: string
-    location: string
-    content: string
-  }>
+  200: Array<SkillV2Info>
 }
 
 export type AppSkillsResponse = AppSkillsResponses[keyof AppSkillsResponses]

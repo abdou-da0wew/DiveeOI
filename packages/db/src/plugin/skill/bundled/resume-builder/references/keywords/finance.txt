@@ -1,0 +1,50 @@
+DCF
+LBO
+Comps
+M&A
+IPO
+Pitchbook
+Bloomberg
+Capital IQ
+Wind
+Choice
+financial modeling
+valuation
+sensitivity analysis
+sector research
+deal
+roadshow
+prospectus
+investment thesis
+catalyst
+catalysts
+risk factors
+ROE
+ROIC
+EBITDA
+PE
+PB
+EV
+sizing
+case interview
+hypothesis
+MECE
+issue tree
+PowerPoint
+advanced Excel
+VBA
+SQL
+Python
+CFA
+CPA
+FRM
+ACCA
+PMP
+quant
+strategy
+backtesting
+factor
+fundamentals
+technical analysis
+Sharpe
+max drawdown

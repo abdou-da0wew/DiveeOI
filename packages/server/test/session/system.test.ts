@@ -53,6 +53,7 @@ const it = testEffect(
       // Deliberately unsorted (the `skills` array is in declaration order) so this case fails if
       // Skill.fmt ever stops sorting on its own.
       available: () => Effect.succeed(skills),
+      resources: () => Effect.succeed({}),
     }),
   ),
 )

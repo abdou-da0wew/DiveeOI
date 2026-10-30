@@ -5,6 +5,7 @@ import { pathToFileURL } from "url"
 import { ToolFailure } from "@diveeoi/llm"
 import { Effect, Layer, Schema } from "effect"
 import { FSUtil } from "../fs-util"
+import { Global } from "../global"
 import { PluginBoot } from "../plugin/boot"
 import { SkillV2 } from "../skill"
 import { PermissionV2 } from "../permission"
@@ -32,8 +33,11 @@ export const description = [
   "The skill name must match one of the available skills in the system context.",
 ].join("\n")
 
-export const toModelOutput = (skill: SkillV2.Info, files: ReadonlyArray<string>) => {
-  const directory = path.dirname(skill.location)
+export const toModelOutput = (
+  skill: SkillV2.Info,
+  files: ReadonlyArray<string>,
+  directory = path.dirname(skill.location),
+) => {
   return [
     `<skill_content name="${skill.name}">`,
     `# Skill: ${skill.name}`,
@@ -58,6 +62,7 @@ export const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const tools = yield* Tools.Service
     const fs = yield* FSUtil.Service
+    const global = yield* Global.Service
     const boot = yield* PluginBoot.Service
     const skills = yield* SkillV2.Service
     const permission = yield* PermissionV2.Service
@@ -83,9 +88,22 @@ export const layer = Layer.effectDiscard(
                   agent: context.agent,
                   source: { type: "tool", messageID: context.assistantMessageID, callID: context.toolCallID },
                 })
-                const directory = path.dirname(skill.location)
+                const directory =
+                  skill.source === "embedded"
+                    ? SkillV2.embeddedDirectory(
+                        global.cache,
+                        skill.name,
+                        skill.metadata?.sourceRevision ?? skill.metadata?.version,
+                      )
+                    : path.dirname(skill.location)
+                if (skill.source === "embedded") {
+                  yield* SkillV2.materialize(fs, directory, {
+                    "SKILL.md": skill.content,
+                    ...(yield* skills.resources(skill.name)),
+                  })
+                }
                 const files =
-                  path.basename(skill.location) === "SKILL.md"
+                  path.basename(skill.location) === "SKILL.md" || skill.source === "embedded"
                     ? (yield* fs.glob("**/*", { cwd: directory, absolute: true, include: "file", dot: true }))
                         .filter((file) => path.basename(file) !== "SKILL.md")
                         .toSorted()
@@ -94,7 +112,7 @@ export const layer = Layer.effectDiscard(
                 return {
                   name: skill.name,
                   directory,
-                  output: toModelOutput(skill, files),
+                  output: toModelOutput(skill, files, directory),
                 }
               }).pipe(Effect.mapError((error) => unableToLoad(input.name, error)))
             }),

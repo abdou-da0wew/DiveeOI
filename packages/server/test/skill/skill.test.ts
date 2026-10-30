@@ -8,6 +8,7 @@ import { Config } from "../../src/config/config"
 import { CrossSpawnSpawner } from "@diveeoi/db/cross-spawn-spawner"
 import { FSUtil } from "@diveeoi/db/fs-util"
 import { Global } from "@diveeoi/db/global"
+import { PluginBoot } from "@diveeoi/db/plugin/boot"
 import { provideInstance, provideTmpdirInstance, testInstanceStoreLayer, tmpdir } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import path from "path"
@@ -25,6 +26,7 @@ const itWithoutClaudeCodeSkills = testEffect(
       Layer.provide(FSUtil.defaultLayer),
       Layer.provide(Global.layer),
       Layer.provide(RuntimeFlags.layer({ disableClaudeCodeSkills: true })),
+      Layer.provide(PluginBoot.locationLayer),
     ),
     node,
     testInstanceStoreLayer,
@@ -39,6 +41,7 @@ const itWithoutExternalSkills = testEffect(
       Layer.provide(FSUtil.defaultLayer),
       Layer.provide(Global.layer),
       Layer.provide(RuntimeFlags.layer({ disableExternalSkills: true })),
+      Layer.provide(PluginBoot.locationLayer),
     ),
     node,
     testInstanceStoreLayer,
@@ -97,7 +100,7 @@ Instructions here.
           )
 
           const skill = yield* Skill.Service
-          const list = (yield* skill.all()).filter((s) => s.location !== "<built-in>")
+          const list = (yield* skill.all()).filter((s) => s.source !== "embedded")
           expect(list.length).toBe(1)
           const item = list.find((x) => x.name === "test-skill")
           expect(item).toBeDefined()
@@ -167,7 +170,7 @@ description: Second test skill.
           )
 
           const skill = yield* Skill.Service
-          const list = (yield* skill.all()).filter((s) => s.location !== "<built-in>")
+          const list = (yield* skill.all()).filter((s) => s.source !== "embedded")
           expect(list.length).toBe(2)
           expect(list.find((x) => x.name === "skill-one")).toBeDefined()
           expect(list.find((x) => x.name === "skill-two")).toBeDefined()
@@ -191,7 +194,7 @@ Just some content without YAML frontmatter.
           )
 
           const skill = yield* Skill.Service
-          expect((yield* skill.all()).filter((s) => s.location !== "<built-in>")).toEqual([])
+          expect((yield* skill.all()).filter((s) => s.source !== "embedded")).toEqual([])
         }),
       { git: true },
     ),
@@ -216,7 +219,7 @@ Instructions here.
           )
 
           const skill = yield* Skill.Service
-          const list = (yield* skill.all()).filter((s) => s.location !== "<built-in>")
+          const list = (yield* skill.all()).filter((s) => s.source !== "embedded")
           expect(list.length).toBe(1)
           const item = list.find((x) => x.name === "manual-skill")
           expect(item).toBeDefined()
@@ -246,7 +249,7 @@ description: A skill in the .claude/skills directory.
           )
 
           const skill = yield* Skill.Service
-          const list = (yield* skill.all()).filter((s) => s.location !== "<built-in>")
+          const list = (yield* skill.all()).filter((s) => s.source !== "embedded")
           expect(list.length).toBe(1)
           const item = list.find((x) => x.name === "claude-skill")
           expect(item).toBeDefined()
@@ -269,7 +272,7 @@ description: A skill in the .claude/skills directory.
           yield* Effect.promise(() => createGlobalSkill(tmp.path))
           yield* Effect.gen(function* () {
             const skill = yield* Skill.Service
-            const list = (yield* skill.all()).filter((s) => s.location !== "<built-in>")
+            const list = (yield* skill.all()).filter((s) => s.source !== "embedded")
             expect(list.length).toBe(1)
             expect(list[0].name).toBe("global-test-skill")
             expect(list[0].description).toBe("A global skill from ~/.claude/skills for testing.")
@@ -285,7 +288,7 @@ description: A skill in the .claude/skills directory.
       () =>
         Effect.gen(function* () {
           const skill = yield* Skill.Service
-          expect((yield* skill.all()).filter((s) => s.location !== "<built-in>")).toEqual([])
+          expect((yield* skill.all()).filter((s) => s.source !== "embedded")).toEqual([])
         }),
       { git: true },
     ),
@@ -340,7 +343,7 @@ description: A skill in the .agents/skills directory.
           )
 
           const skill = yield* Skill.Service
-          const list = (yield* skill.all()).filter((s) => s.location !== "<built-in>")
+          const list = (yield* skill.all()).filter((s) => s.source !== "embedded")
           expect(list.length).toBe(1)
           const item = list.find((x) => x.name === "agent-skill")
           expect(item).toBeDefined()
@@ -379,7 +382,7 @@ This skill is loaded from the global home directory.
 
           yield* Effect.gen(function* () {
             const skill = yield* Skill.Service
-            const list = (yield* skill.all()).filter((s) => s.location !== "<built-in>")
+            const list = (yield* skill.all()).filter((s) => s.source !== "embedded")
             expect(list.length).toBe(1)
             expect(list[0].name).toBe("global-agent-skill")
             expect(list[0].description).toBe("A global skill from ~/.agents/skills for testing.")
@@ -420,7 +423,7 @@ description: A skill in the .agents/skills directory.
           )
 
           const skill = yield* Skill.Service
-          const list = (yield* skill.all()).filter((s) => s.location !== "<built-in>")
+          const list = (yield* skill.all()).filter((s) => s.source !== "embedded")
           expect(list.length).toBe(2)
           expect(list.find((x) => x.name === "claude-skill")).toBeDefined()
           expect(list.find((x) => x.name === "agent-skill")).toBeDefined()
@@ -459,7 +462,7 @@ description: A skill in the .agents/skills directory.
           )
 
           const skill = yield* Skill.Service
-          const list = (yield* skill.all()).filter((s) => s.location !== "<built-in>")
+          const list = (yield* skill.all()).filter((s) => s.source !== "embedded")
           expect(list.map((s) => s.name)).toEqual(["agent-skill"])
         }),
       { git: true },
@@ -506,7 +509,7 @@ description: A skill in the .opencode/skill directory.
           )
 
           const skill = yield* Skill.Service
-          const list = (yield* skill.all()).filter((s) => s.location !== "<built-in>")
+          const list = (yield* skill.all()).filter((s) => s.source !== "embedded")
           expect(list.map((s) => s.name)).toEqual(["opencode-skill"])
         }),
       { git: true },
@@ -564,6 +567,52 @@ description: A skill in the .opencode/skills directory.
 
           const skill = yield* Skill.Service
           expect((yield* skill.dirs()).length).toBe(4)
+        }),
+      { git: true },
+    ),
+  )
+
+  it.live("parses skill metadata and excludes model-disabled skills from availability", () =>
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          yield* Effect.promise(() =>
+            Bun.write(
+              path.join(dir, ".opencode", "skill", "metadata-skill", "SKILL.md"),
+              `---
+name: metadata-skill
+description: A metadata test skill.
+category: Research
+tags: [evidence, review]
+triggers: [compare sources]
+argument-hint: State the research question
+user-invocable: false
+disable-model-invocation: true
+metadata:
+  vendor-field:
+    supported: true
+---
+
+# Metadata Skill
+`,
+            ),
+          )
+
+          const skill = yield* Skill.Service
+          const item = (yield* skill.all()).find((candidate) => candidate.name === "metadata-skill")
+          expect(item?.source).toBe("directory")
+          expect(item?.metadata).toMatchObject({
+            category: "Research",
+            tags: ["evidence", "review"],
+            triggers: ["compare sources"],
+            argumentHint: "State the research question",
+            userInvocable: false,
+            disableModelInvocation: true,
+            attributes: { "vendor-field": { supported: true } },
+          })
+          expect((yield* skill.available()).some((candidate) => candidate.name === "metadata-skill")).toBe(false)
+          expect((yield* skill.all()).some((candidate) => candidate.name === "coding-agent")).toBe(true)
+          expect(yield* skill.resources("coding-agent")).toHaveProperty("criteria.md")
         }),
       { git: true },
     ),

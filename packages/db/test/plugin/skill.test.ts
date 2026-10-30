@@ -16,17 +16,28 @@ const it = testEffect(
 )
 
 describe("SkillPlugin.Plugin", () => {
-  it.effect("registers the built-in customize-diveeoi skill", () =>
+  it.effect("registers the DiveeOI and curated bundled skills with embedded resources", () =>
     Effect.gen(function* () {
       const skill = yield* SkillV2.Service
       yield* SkillPlugin.Plugin.effect.pipe(Effect.provideService(SkillV2.Service, skill))
 
-      expect(yield* skill.list()).toContainEqual(
+      const registered = yield* skill.list()
+      expect(registered).toContainEqual(
         expect.objectContaining({
           name: "customize-diveeoi",
           description: expect.stringContaining("DiveeOI's own configuration"),
+          source: "embedded",
         }),
       )
+      expect(registered.map((item) => item.name)).toContain("coding-agent")
+      expect(registered.map((item) => item.name)).toContain("research-explorer")
+      expect(registered.map((item) => item.name)).toContain("xlsx")
+
+      const coding = registered.find((item) => item.name === "coding-agent")
+      expect(coding?.metadata?.sourceRepository).toBe("https://github.com/abdou-da0wew/zcode-skills")
+      expect(coding?.metadata?.sourceRevision).toBe("67bcca5e0467bda037dfe18d691d91f3386191f9")
+      expect(yield* skill.resources("coding-agent")).toHaveProperty("criteria.md")
+      expect(yield* skill.resources("skill-creator")).toHaveProperty("LICENSE.txt")
     }),
   )
 })

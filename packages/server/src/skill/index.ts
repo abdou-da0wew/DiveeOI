@@ -7,7 +7,8 @@ import type { Agent } from "@/agent/agent"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { InstanceState } from "@/effect/instance-state"
 import { Global } from "@diveeoi/db/global"
-import { SkillPlugin } from "@diveeoi/db/plugin/skill"
+import { PluginBoot } from "@diveeoi/db/plugin/boot"
+import { SkillV2 } from "@diveeoi/db/skill"
 import { Permission } from "@/permission"
 import { FSUtil } from "@diveeoi/db/fs-util"
 import { Config } from "@/config/config"
@@ -16,7 +17,6 @@ import { ConfigMarkdown } from "@/config/markdown"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Glob } from "@diveeoi/db/util/glob"
 import { Discovery } from "./discovery"
-import { isRecord } from "@/util/record"
 
 const CLAUDE_EXTERNAL_DIR = ".claude"
 const AGENTS_EXTERNAL_DIR = ".agents"
@@ -24,21 +24,14 @@ const EXTERNAL_SKILL_PATTERN = "skills/**/SKILL.md"
 const OPENCODE_SKILL_PATTERN = "{skill,skills}/**/SKILL.md"
 const SKILL_PATTERN = "**/SKILL.md"
 
-// Built-in skill that ships with DiveeOI. The model's intuition for what a
-// diveeoi.json should look like is often wrong, and DiveeOI hard-fails on
-// invalid config, so users hit cryptic startup errors. Loading this skill
-// when the model is asked to touch DiveeOI's own config files gives it the
-// actual schemas instead of guesses.
-const CUSTOMIZE_DIVEEOI_SKILL_NAME = "customize-diveeoi"
-const CUSTOMIZE_DIVEEOI_SKILL_DESCRIPTION =
-  "Use ONLY when the user is editing or creating DiveeOI's own configuration: diveeoi.json, diveeoi.jsonc, opencode.json, files under .opencode/, or files under ~/.config/diveeoi/. Also use when creating or fixing DiveeOI agents, subagents, commands, skills, plugins, MCP servers, or permission rules. Do not use for the user's own application code, or for any project that is not configuring DiveeOI itself."
-const CUSTOMIZE_DIVEEOI_SKILL_BODY = SkillPlugin.CustomizeDiveeoiContent
-
 export const Info = Schema.Struct({
   name: Schema.String,
   description: Schema.optional(Schema.String),
+  slash: Schema.optional(Schema.Boolean),
   location: Schema.String,
   content: Schema.String,
+  metadata: SkillV2.Metadata.pipe(Schema.optional),
+  source: SkillV2.Origin.pipe(Schema.optional),
 })
 export type Info = Schema.Schema.Type<typeof Info>
 
@@ -49,14 +42,6 @@ const Issue = Schema.StructWithRest(
   }),
   [Schema.Record(Schema.String, Schema.Unknown)],
 )
-
-function isSkillFrontmatter(data: unknown): data is { name: string; description?: string } {
-  return (
-    isRecord(data) &&
-    typeof data.name === "string" &&
-    (data.description === undefined || typeof data.description === "string")
-  )
-}
 
 export class InvalidError extends Schema.TaggedErrorClass<InvalidError>()("SkillInvalidError", {
   path: Schema.String,
@@ -100,6 +85,7 @@ export interface Interface {
   readonly all: () => Effect.Effect<Info[]>
   readonly dirs: () => Effect.Effect<string[]>
   readonly available: (agent?: Agent.Info) => Effect.Effect<Info[]>
+  readonly resources: (name: string) => Effect.Effect<Record<string, string>>
 }
 
 const add = Effect.fnUntraced(function* (state: State, match: string, events: EventV2Bridge.Service["Service"]) {
@@ -120,22 +106,26 @@ const add = Effect.fnUntraced(function* (state: State, match: string, events: Ev
 
   if (!md) return
 
-  if (!isSkillFrontmatter(md.data)) return
+  const frontmatter = SkillV2.parseFrontmatter(md.data)
+  if (!frontmatter?.name) return
 
-  if (state.skills[md.data.name]) {
+  if (state.skills[frontmatter.name]) {
     yield* Effect.logWarning("duplicate skill name", {
-      name: md.data.name,
-      existing: state.skills[md.data.name].location,
+      name: frontmatter.name,
+      existing: state.skills[frontmatter.name].location,
       duplicate: match,
     })
   }
 
   state.dirs.add(path.dirname(match))
-  state.skills[md.data.name] = {
-    name: md.data.name,
-    description: md.data.description,
+  state.skills[frontmatter.name] = {
+    name: frontmatter.name,
+    description: frontmatter.description,
+    slash: frontmatter.slash,
     location: match,
     content: md.content,
+    metadata: frontmatter.metadata,
+    source: "directory",
   }
 })
 
@@ -255,6 +245,8 @@ export const layer = Layer.effect(
     const events = yield* EventV2Bridge.Service
     const fsys = yield* FSUtil.Service
     const global = yield* Global.Service
+    const pluginBoot = yield* PluginBoot.Service
+    const bundledSkills = yield* SkillV2.Service
     const flags = yield* RuntimeFlags.Service
     const discovered = yield* InstanceState.make(
       Effect.fn("Skill.discovery")(function* (ctx) {
@@ -272,14 +264,21 @@ export const layer = Layer.effect(
     )
     const state = yield* InstanceState.make(
       Effect.fn("Skill.state")(function* () {
+        yield* pluginBoot.wait()
         const s: State = { skills: {}, dirs: new Set() }
-        // Register the built-in skill BEFORE disk discovery so a user-disk
-        // skill with the same name can override it.
-        s.skills[CUSTOMIZE_DIVEEOI_SKILL_NAME] = {
-          name: CUSTOMIZE_DIVEEOI_SKILL_NAME,
-          description: CUSTOMIZE_DIVEEOI_SKILL_DESCRIPTION,
-          location: "<built-in>",
-          content: CUSTOMIZE_DIVEEOI_SKILL_BODY,
+        // Register embedded skills before disk discovery so project/global skills
+        // with the same name retain the established override behavior.
+        for (const item of yield* bundledSkills.list()) {
+          if (item.source !== "embedded") continue
+          s.skills[item.name] = {
+            name: item.name,
+            description: item.description,
+            slash: item.slash,
+            location: item.location,
+            content: item.content,
+            metadata: item.metadata,
+            source: item.source,
+          }
         }
         yield* loadSkills(s, yield* InstanceState.get(discovered), events)
         return s
@@ -310,11 +309,18 @@ export const layer = Layer.effect(
     const available = Effect.fn("Skill.available")(function* (agent?: Agent.Info) {
       const s = yield* InstanceState.get(state)
       const list = Object.values(s.skills).toSorted((a, b) => a.name.localeCompare(b.name))
-      if (!agent) return list
-      return list.filter((skill) => Permission.evaluate("skill", skill.name, agent.permission).action !== "deny")
+      return list.filter(
+        (skill) =>
+          !skill.metadata?.disableModelInvocation &&
+          (!agent || Permission.evaluate("skill", skill.name, agent.permission).action !== "deny"),
+      )
     })
 
-    return Service.of({ get, require, all, dirs, available })
+    const resources = Effect.fn("Skill.resources")(function* (name: string) {
+      return yield* bundledSkills.resources(name)
+    })
+
+    return Service.of({ get, require, all, dirs, available, resources })
   }),
 )
 
@@ -325,7 +331,26 @@ export const defaultLayer = layer.pipe(
   Layer.provide(FSUtil.defaultLayer),
   Layer.provide(Global.layer),
   Layer.provide(RuntimeFlags.defaultLayer),
+  Layer.provide(PluginBoot.locationLayer),
 )
+
+const xmlText = (value: string) =>
+  value
+    .replace(/[&<>\"']/g, (character) => {
+      switch (character) {
+        case "&":
+          return "&amp;"
+        case "<":
+          return "&lt;"
+        case ">":
+          return "&gt;"
+        case '\"':
+          return "&quot;"
+        default:
+          return "&apos;"
+      }
+    })
+    .replace(/[\r\n]+/g, " ")
 
 export function fmt(list: Info[], opts: { verbose: boolean }) {
   const described = list.filter((skill) => skill.description !== undefined)
@@ -337,9 +362,16 @@ export function fmt(list: Info[], opts: { verbose: boolean }) {
         .toSorted((a, b) => a.name.localeCompare(b.name))
         .flatMap((skill) => [
           "  <skill>",
-          `    <name>${skill.name}</name>`,
-          `    <description>${skill.description}</description>`,
-          `    <location>${pathToFileURL(skill.location).href}</location>`,
+          `    <name>${xmlText(skill.name)}</name>`,
+          `    <description>${xmlText(skill.description!)}</description>`,
+          ...(skill.metadata?.category ? [`    <category>${xmlText(skill.metadata.category)}</category>`] : []),
+          ...(skill.metadata?.tags?.length ? [`    <tags>${skill.metadata.tags.map(xmlText).join(", ")}</tags>`] : []),
+          ...(skill.metadata?.triggers?.length
+            ? [`    <triggers>${skill.metadata.triggers.map(xmlText).join(", ")}</triggers>`]
+            : []),
+          ...(skill.source === "embedded"
+            ? [`    <source>embedded</source>`]
+            : [`    <location>${pathToFileURL(skill.location).href}</location>`]),
           "  </skill>",
         ]),
       "</available_skills>",
@@ -361,6 +393,7 @@ export const node = LayerNode.make(layer, [
   FSUtil.node,
   Global.node,
   RuntimeFlags.node,
+  PluginBoot.node,
 ])
 
 export * as Skill from "."

@@ -2,6 +2,9 @@ import path from "path"
 import { pathToFileURL } from "url"
 import { Effect, Schema } from "effect"
 import { Ripgrep } from "@diveeoi/db/ripgrep"
+import { Global } from "@diveeoi/db/global"
+import { FSUtil } from "@diveeoi/db/fs-util"
+import { SkillV2 } from "@diveeoi/db/skill"
 import { Skill } from "../skill"
 import * as Tool from "./tool"
 import DESCRIPTION from "./skill.txt"
@@ -15,6 +18,8 @@ export const SkillTool = Tool.define(
   Effect.gen(function* () {
     const skill = yield* Skill.Service
     const ripgrep = yield* Ripgrep.Service
+    const fs = yield* FSUtil.Service
+    const global = yield* Global.Service
 
     return {
       description: DESCRIPTION,
@@ -32,7 +37,21 @@ export const SkillTool = Tool.define(
             metadata: {},
           })
 
-          const dir = path.dirname(info.location)
+          const embeddedResources = info.source === "embedded" ? yield* skill.resources(info.name) : undefined
+          const dir =
+            info.source === "embedded"
+              ? SkillV2.embeddedDirectory(
+                  global.cache,
+                  info.name,
+                  info.metadata?.sourceRevision ?? info.metadata?.version,
+                )
+              : path.dirname(info.location)
+          if (embeddedResources) {
+            yield* SkillV2.materialize(fs, dir, {
+              "SKILL.md": info.content,
+              ...embeddedResources,
+            })
+          }
           const base = pathToFileURL(dir).href
           const files = yield* ripgrep.find({
             cwd: dir,
