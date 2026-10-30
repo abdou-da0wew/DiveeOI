@@ -50,6 +50,7 @@ coverage/
 *.tmp
 *.temp
 .cache
+__pycache__
 
 # Database
 *.db
