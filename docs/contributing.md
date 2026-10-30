@@ -43,7 +43,7 @@ For features touching 3+ packages, a plan is short but real:
 - migration/rollback (SQLite `PRAGMA` changes, data migration files, config migration),
 - what could go wrong and how you'd notice.
 
-`PROJECT_GUIDE.md` is the map to sanity-check against; `plans/diveeOI-typeerror-campaign/` is an example of a per-file plan directory.
+`PROJECT_GUIDE.md` is the map to sanity-check against. For larger changes, keep any per-file plan and its status alongside the work, and remove or archive it when the campaign is complete.
 
 ## Reviews
 

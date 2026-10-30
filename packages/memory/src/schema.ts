@@ -77,6 +77,7 @@ export class CreateNodeInput extends Schema.Class<CreateNodeInput>("CreateNodeIn
   tags: Schema.Array(Schema.String),
   sessionId: SessionID,
   confidence: optionalOmitUndefined(Schema.Number),
+  projectRoot: optionalOmitUndefined(AbsolutePath),
   links: optionalOmitUndefined(Schema.Array(Schema.Struct({
     targetId: MemoryNodeID,
     type: optionalOmitUndefined(LinkType)
@@ -104,7 +105,8 @@ export class RecallOptions extends Schema.Class<RecallOptions>("RecallOptions")(
     to: Schema.Number
   })),
   queryTags: optionalOmitUndefined(Schema.Array(Schema.String)),
-  currentSession: optionalOmitUndefined(SessionID)
+  currentSession: optionalOmitUndefined(SessionID),
+  projectRoot: optionalOmitUndefined(AbsolutePath)
 }) {}
 
 // Recall result with scored nodes

@@ -1,6 +1,6 @@
 # CONTEXT — DiveeOI implementation hand-off
 
-Last updated: 2026-10-30. Branch: `arena/e59349ee-diveeoi` (active; based on `dev` at `01dc834`).
+Last updated: 2026-10-30. Branch: `arena/ace5e304-diveeoi` (active; based on `dev` at `bce67e67c7bd0a9bdd4c02a23ba6d21b7d549726`).
 
 This file is the current hand-off snapshot. See `WORKLOG.md` for the chronological record, `DECISIONS.md` for design decisions, and `docs/TARGETED_LEARNING_WORKLOG.md` / `docs/WHATS_DONE.md` for the feature history and inventory. Older test counts in those historical documents are not verification of this branch.
 
@@ -25,6 +25,13 @@ runs the live semantic sanity check and does not require fixture vectors.
 - Previously shared external credentials should be rotated if they are still active. No credentials are intentionally stored in this repository.
 
 See `docs/security-auth.md` for configuration and operational guidance.
+
+## Memory system status
+
+- Server integration source is present: prompt assembly passes the latest user message and active worktree into memory recall, scopes text search and graph traversal to the project, ranks query-matched/session-linked memories by relevance and importance, and injects up to eight escaped durable records. New manual and extracted memories inherit project metadata and link to the session root. Extraction is detached at prompt/compaction exits; an initial/daily extraction scheduler and eight tools are registered. The normal session-create path does not eagerly call `initializeSessionMemory`.
+- `packages/memory` tests pass (2 tests, 16 expectations), including query ranking, session-root linking, project-scoped recall, and escaped reference-only prompt injection. Memory typecheck reports errors in unchanged DB adaptive/database files and `packages/memory/src/index.ts`; the server typecheck process was SIGKILLed without diagnostics. Server boot/runtime behavior and full create→link→retrieve→update→delete coverage remain unverified; see `plans/MemoryPlan/MEMORY_SERVER_INTEGRATION_PLAN.md`.
+- Daily scheduler work is extraction, not consolidation. The consolidation service and manual tool exist, but scheduled `runMaintenance()` is not wired.
+- `packages/memory/src/consolidation.ts:194–265` has a potential merge atomicity/data-loss risk: duplicate nodes/links are modified or deleted before the primary update, without an enclosing transaction. This was not addressed in the memory/prompt implementation.
 
 ## Self-hosted CI runner — Go implementation in progress
 
@@ -109,6 +116,7 @@ Then rerun the learning suite and run `scripts/tl-live-check.ts` on a host where
 - Current startup-fix follow-up: moved the shared `JwtAuth.defaultLayer` provider around the full merged HTTP route tree
   because several route-specific auth middleware layers depend on it. Bun 1.4.2 `build --no-bundle` transpilation and
   `git diff --check` pass; full server startup is not verified in this dependency-free workspace.
+- Memory/prompt work: Bun 1.4.2 `packages/memory` tests pass (2 tests, 10 expectations); TypeScript syntax parsing passed for 13 changed `.ts` files. Memory typecheck reports existing errors in `packages/db/src/adaptive/detect.ts`, `packages/db/src/database/database.ts`, and `packages/memory/src/index.ts`. Server typecheck was SIGKILLed after about 9 minutes without diagnostics. A filtered server dependency install also failed while `tree-sitter-powershell` tried to download Node headers; full server typecheck/runtime checks remain pending.
 
 ## Remaining verification / caveats
 

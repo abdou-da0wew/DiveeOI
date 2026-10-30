@@ -1,1 +1,0 @@
-/home/aboood/Documents/Projects/DiveeOI/packages/server/src/acp/permission.ts

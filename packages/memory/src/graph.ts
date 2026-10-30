@@ -48,16 +48,33 @@ export interface GraphService {
 
 export const GraphService = Context.Service<GraphService, GraphService>()("@diveeoi/memory/GraphService")
 
-// Type weight constants
+// Type weights provide a fallback for older or partial configurations.
 const TYPE_WEIGHTS: Record<MemoryType, number> = {
   decision: 1.0,
   pattern: 0.9,
   error: 0.8,
   entity: 0.7,
-  preference: 0.6,
-  fact: 0.5,
-  constraint: 0.5,
-  session: 0.4
+  preference: 0.9,
+  fact: 0.6,
+  constraint: 0.95,
+  session: 0.2
+}
+
+const tokenize = (value: string): string[] =>
+  value.normalize("NFKC").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
+
+const normalizeProjectPath = (value: string): string => {
+  const normalized = value.replace(/[\\/]+$/u, "")
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized
+}
+
+const belongsToProject = (node: MemoryNode, projectRoot: string): boolean => {
+  const root = normalizeProjectPath(projectRoot)
+  if (!root) return true
+  if (node.projectRoot) return normalizeProjectPath(node.projectRoot) === root
+
+  const nodePath = normalizeProjectPath(node.path)
+  return nodePath === root || nodePath.startsWith(`${root}/`) || nodePath.startsWith(`${root}\\`)
 }
 
 // True 30-day half-life constant
@@ -77,45 +94,37 @@ const makeGraphService = Effect.gen(function* () {
     depth: number,
     totalDegree: number
   ): number => {
-    // 1. Recency: true exponential decay with 30-day half-life (weight: 0.25)
     const ageMs = Math.max(0, context.now - node.updated)
     const recencyScore = Math.exp(-Math.LN2 * ageMs / RECENCY_HALF_LIFE_MS)
-
-    // 2. Link density: hub boost, capped at 10 connections (weight: 0.20)
     const linkDensityScore = Math.min(totalDegree / 10, 1)
-
-    // 3. Type weight: lookup from constants (weight: 0.20)
-    const typeWeight = TYPE_WEIGHTS[node.type] ?? 0.5
-
-    // 4. Confidence: direct from node (weight: 0.10)
+    const typeWeight = config.recall.typeWeights[node.type] ?? TYPE_WEIGHTS[node.type] ?? 0.5
     const confidenceScore = node.confidence
+    const sessionBoost = context.currentSession && node.sessionId === context.currentSession ? 1 : 0
 
-    // 5. Session relevance: binary feature (weight: 0.10)
-    const sessionBoost = (context.currentSession && node.sessionId === context.currentSession) ? 1.0 : 0.0
+    const titleTokens = new Set(tokenize(node.title))
+    const contentTokens = new Set(tokenize(node.content.slice(0, 12_000)))
+    const tagTokens = new Set(node.tags.flatMap(tokenize))
+    const queryTokens = [...new Set(context.queryTags.flatMap(tokenize))]
+    const queryRelevance = queryTokens.reduce((score, term) => {
+      if (tagTokens.has(term)) return score + 1
+      if (titleTokens.has(term)) return score + 0.9
+      if (contentTokens.has(term)) return score + 0.55
+      return score
+    }, 0)
+    const queryRelevanceScore = Math.min(queryRelevance / 3, 1)
 
-    // 6. Tag overlap: normalized by 3 (weight: 0.15)
-    let tagOverlapScore = 0
-    if (context.queryTags.length > 0) {
-      const overlap = node.tags.filter(t => context.queryTags.includes(t)).length
-      tagOverlapScore = Math.min(overlap / 3, 1)
-    }
-
-    // 7. Depth penalty: subtractive, lambda from config with fallback (weight: subtractive)
     const lambda = config.recall.depthPenaltyLambda ?? 0.15
     const depthPenalty = 1 - Math.exp(-depth * lambda)
-
-    // 8. Seed boost: multiplicative 20% for seeds (weight: multiplicative)
     const isSeed = context.seedNodes.includes(node.id)
     const seedMultiplier = isSeed ? 1.2 : 1.0
 
-    // Weighted sum: 0.25 + 0.20 + 0.20 + 0.10 + 0.10 + 0.15 = 1.00
     let score =
-      0.25 * recencyScore +
-      0.20 * linkDensityScore +
+      0.20 * recencyScore +
+      0.15 * linkDensityScore +
       0.20 * typeWeight +
       0.10 * confidenceScore +
       0.10 * sessionBoost +
-      0.15 * tagOverlapScore
+      0.25 * queryRelevanceScore
 
     // Apply seed multiplier
     score *= seedMultiplier
@@ -136,12 +145,13 @@ const makeGraphService = Effect.gen(function* () {
     seeds: MemoryNodeID[],
     maxDepth: number,
     maxVisited: number,
-    contextParams?: { queryTags?: string[]; currentSession?: string }
+    contextParams?: { queryTags?: string[]; currentSession?: string; projectRoot?: string }
   ) =>
     Effect.gen(function* () {
       const now = Date.now()
       const queryTags = contextParams?.queryTags ?? []
       const currentSession = contextParams?.currentSession
+      const projectRoot = contextParams?.projectRoot
 
       const context: RecallContext = {
         seedNodes: seeds,
@@ -176,6 +186,7 @@ const makeGraphService = Effect.gen(function* () {
               const nodeOpt = yield* indexer.getNode(entry.id)
               if (Option.isNone(nodeOpt)) return null
               const node = nodeOpt.value
+              if (projectRoot && node.sessionId !== currentSession && !belongsToProject(node, projectRoot)) return null
 
               const [outLinks, inLinks] = yield* Effect.all([
                 indexer.getLinks(entry.id).pipe(Effect.mapError(e => new MemoryError(e))),
@@ -235,7 +246,8 @@ const makeGraphService = Effect.gen(function* () {
 
       const { nodes: nodeMap, edges } = yield* traverse(seeds, maxDepth, maxVisited, {
         queryTags: [...(options.queryTags ?? [])],
-        currentSession: options.currentSession
+        currentSession: options.currentSession,
+        projectRoot: options.projectRoot,
       })
 
       let filteredNodes = Array.from(nodeMap.values())

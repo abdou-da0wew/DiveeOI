@@ -2,7 +2,7 @@ import { Tool } from "../tool"
 import { Effect, Schema } from "effect"
 import { MemoryService } from "@diveeoi/memory"
 import { MemoryNodeID, MemoryType, LinkType } from "@diveeoi/memory/schema"
-import { MemoryError, NodeNotFoundError } from "@diveeoi/memory/schema"
+import { InstanceState } from "@/effect/instance-state"
 
 interface Parameters {
   type: MemoryType
@@ -65,6 +65,8 @@ export const MemoryCreateTool = Tool.define(
         Effect.gen(function* () {
           const { type, title, content, tags, sessionId, confidence, links, deduplicate } = params
           const resolvedSessionId = sessionId ?? ctx.sessionID
+          const instance = yield* InstanceState.context
+          const projectRoot = instance.worktree !== "/" ? instance.worktree : instance.directory
 
           if (deduplicate !== false) {
             const existing = yield* memory.search(title, 5)
@@ -93,6 +95,7 @@ export const MemoryCreateTool = Tool.define(
             tags,
             sessionId: resolvedSessionId as any,
             confidence: confidence ?? 0.8,
+            projectRoot: projectRoot as any,
             links: links?.map((l) => ({
               targetId: l.targetId as MemoryNodeID,
               type: l.type ?? "references",

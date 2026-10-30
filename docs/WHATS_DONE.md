@@ -2,7 +2,7 @@
 
 **A historical inventory of the Targeted Learning (RAGed-Session) files, features, tests, and integration points.**
 
-> **Verification status — 2026-10-29:** this inventory predates the current auth/security, adaptive-resource, setup-cancellation, ingest-control/recovery, and grounding-retry changes. Counts and pass/typecheck claims below are historical snapshots, not verification of branch `arena/a467e26f-diveeoi`. No tests, typechecks, builds, browser runs, or model-backed checks have been run for the current changes. The pinned-model golden-vector fixture is still empty. See `WORKLOG.md` and `CONTEXT.md` for the current state and remaining checks.
+> **Historical verification note — 2026-10-29:** this inventory predates the auth/security, adaptive-resource, setup-cancellation, ingest-control/recovery, and grounding-retry changes recorded in later hand-offs. Counts and pass/typecheck claims below are historical snapshots, not verification of the present worktree. At the time of this note, tests, typechecks, builds, browser runs, and model-backed checks for those changes had not been run; the pinned-model golden-vector fixture was empty. See `WORKLOG.md` and `CONTEXT.md` for later verification and remaining checks.
 
 For the implementation history, see `TARGETED_LEARNING_WORKLOG.md`.
 
@@ -800,11 +800,11 @@ MiniLM-L6-v2 (the test stand-in) has a severely anisotropic embedding space: off
 
 ---
 
-# 2026-10-29 Status Refresh — Current Branch
+# 2026-10-29 Status Refresh — Historical Snapshot
 
-This addendum supersedes earlier status/checklist claims above wherever they conflict. Implementation exists in source, but no tests, typechecks, builds, browser runs, or model-backed checks have been run for the current branch because Bun and workspace dependencies are unavailable.
+This addendum supersedes earlier status/checklist claims above wherever they conflict. It records the state at that checkpoint, not the current branch's verification. Implementation existed in source, but tests, typechecks, builds, browser runs, and model-backed checks for that checkpoint had not been run because Bun and workspace dependencies were unavailable.
 
-## Current Targeted Learning additions
+## Targeted Learning additions recorded at that checkpoint
 
 - Persistent ingest jobs now support pause, resume, cancel and retry. `GET /targeted-learning/jobs` lists them; `POST /targeted-learning/jobs/:jobID/{pause,resume,cancel,retry}` controls a job. Queued/running jobs are recovered at boot by validating the stored source path and SHA-256, then replaying the whole ingest from source (not continuing the exact checkpoint stage). Paused jobs stay paused across restart.
 - Setup has `POST /targeted-learning/setup/cancel`; step execution accepts an abort signal, cancellation restores interrupted steps to pending, and the server stops the setup Fiber before allowing repair/restart.
@@ -812,7 +812,7 @@ This addendum supersedes earlier status/checklist claims above wherever they con
 - Local model import and persisted ingest recovery reject traversal and symlink paths that escape their selected roots. Recovery verifies the original source hash.
 - `packages/learning/scripts/freeze-selftest.ts` and `bun run tl:selftest:freeze` are present. `src/self-test/golden.json` still contains empty vectors, so the optional `runSelfTest()` reference-vector regression check is not ready until vectors are frozen with the pinned int8 model. Setup's separately named `golden-self-test` step runs the live semantic sanity check and does not depend on those fixtures.
 
-## Current cross-cutting changes
+## Cross-cutting changes recorded at that checkpoint
 
 - Auth now supports Basic/JWT modes, rotating/revocable refresh-session records, explicit JWT access/refresh purpose validation, a themed login/register UI, and no `WWW-Authenticate` Basic challenge. The default username is `DIVEEOI`; non-production/non-test Basic password is `divee`. `DIVEEOI_*` settings take precedence over legacy `OPENCODE_*` fallbacks. Production has no default Basic password.
 - Basic credentials from the login form stay in memory and are no longer embedded in the built frontend; they are attached only to the matching configured server origin, including direct Targeted Learning requests. Account Bearer tokens are only attached to app-origin requests. A protected 401 health response is treated as reachable so the themed login can render. Docker persists the generated JWT signing key under `/data` and treats HTTP 401 as a live healthcheck response.

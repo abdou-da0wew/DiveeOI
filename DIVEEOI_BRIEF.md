@@ -209,7 +209,7 @@ DiveeOI's stalling, leaks, and unconstrained queues were fixed as a single syste
 
 **Every unbounded queue is now bounded by the live profile** via `useAdaptiveTargets` or `makeAdaptiveLayer`: PTY ticket cache `200-5000/15-120s`, WS tracker `100-1000`, SSE `100-1000`, LLM stream `25-200+throttle`, tool semaphore `1-8 capped cpuCores`, SQLite `cache_size 8-128 mmap*2`, storage `messages({limit,before,after})` + GZIP spill. Binary ceilings `scripts/build.ts --memory-limit=1200 --max-old-space-size=512` sit above adaptive but below OOM. `profiler` (`core 366 + writer 158`) streams `AsyncLocalStorage` call-tree + gauges as JSONL `scope_done/proc/states/snapshot` under `.divee/profiler.jsonl`.
 
-Targets table and phase checklist live at `docs/optimization.md#success-targets`. Verifier defects (`FINDINGS_AUDIT.md H1-H4`) detail what must not regress (duplicate `memoryExtractRoute` import, dead `memory.extract` init, `writer.ts ENOENT/exit(0)`, `publish-llm-event.ts` 21 `die` sites).
+Targets and current verification limits are summarized in `docs/optimization.md`; the old verifier audit was a historical snapshot and has been removed.
 
 ## 15. Limitations and Sharp Edges
 

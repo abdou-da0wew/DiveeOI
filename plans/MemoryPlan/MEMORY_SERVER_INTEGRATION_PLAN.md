@@ -1,210 +1,27 @@
-# Plan: Wire @diveeoi/memory into Main Server
+# Memory Server Integration — Status and Validation
 
-## Overview
-Integrate the memory system into the DiveeOI server so it:
-1. Initializes on server startup
-2. Runs per-session memory context injection
-3. Runs daily consolidation at "sleep time" (nightly cron)
-4. Provides agent tools for manual memory management
+Last reviewed: 2026-10-30.
 
----
+This replaces the original proposed integration checklist. Server integration is present in source, but current runtime verification is incomplete. The workspace-wide test/typecheck/build caveat is recorded in `CONTEXT.md`.
 
-## Architecture Integration Points
+## Implemented in source
 
-### 1. Layer Composition (serverLayer)
-**File:** `packages/server/src/server/routes/instance/httpapi/server.ts`
-- Add `Memory.node` to `LayerNode.group([...])` (line 207-263)
-- This provides: `MemoryService`, `IndexerService`, `GraphService`, `RecallService`, `SessionService`, `ExtractorService`, `ConsolidationService`, `MemoryConfig`
+- **Layer composition:** `packages/server/src/app-services.ts` provides the memory integration and scheduler nodes; `packages/server/src/session/memory.ts` wraps the package services and supplies a disabled no-op layer when the memory feature is off.
+- **Session context:** `packages/server/src/session/system.ts` passes the latest user message and active worktree into recall. `packages/memory/src/memory.ts` combines session-graph candidates with text-matched memories scoped to the active project root, then ranks by title/tag/content match, configured type importance, confidence, recency, links, and session relevance. Graph traversal also rejects explicitly cross-project nodes. The prompt includes up to eight escaped, durable memory records and labels them as reference data, never instructions. New memory nodes and extracted nodes are linked to the session root and inherit project metadata so future recall can find them without cross-project leakage.
+- **Extraction:** `packages/server/src/session/prompt.ts` detaches extraction at prompt-loop and compaction exits. `packages/server/src/session/memory-scheduler.ts` also performs an initial and daily **extraction** pass and exposes a manual extraction trigger. The extractor prompt permits an empty result and its parser accepts `[]`, so sessions with nothing durable do not require a fabricated memory or retry.
+- **Tools and route:** eight memory tools are registered in `packages/server/src/tool/registry.ts`; the manual extraction endpoint is in `packages/server/src/server/routes/instance/httpapi/handlers/memory.ts`.
+- **Consolidation:** the consolidation service exists and the `memory.consolidate` tool can invoke it manually. The scheduler does **not** currently call `ConsolidationService.runMaintenance()`; daily consolidation/maintenance from the original proposal is not implemented.
 
-### 2. Session Initialization Hook
-**File:** `packages/server/src/session/session.ts` or new `packages/server/src/session/memory.ts`
-- On session creation/load: call `MemoryService.initializeSession(sessionId, title)`
-- On session end: call `MemoryService.extractOnSessionEnd(sessionId, messages)`
-- Hook into `SessionProcessor` or `SessionRunState` for message access
+## Verification still pending
 
-### 3. Memory Context Injection
-**File:** `packages/server/src/session/prompt.ts` or `packages/server/src/session/llm.ts`
-- Before each LLM request: call `MemoryService.loadSessionContext(sessionId)`
-- Inject returned memory block into system prompt
+Do not mark these complete based only on source presence:
 
-### 4. Daily Consolidation (Sleep Time)
-**File:** New `packages/server/src/background/memory-consolidation.ts`
-- Use `BackgroundJob` service with cron schedule
-- Run at 3 AM daily (configurable)
-- For each active session: `MemoryService.consolidate(sessionId)`
-- Log results, handle errors gracefully
-
-### 5. Agent Tools for Memory Management
-**Files:** New `packages/server/src/tool/memory/*.ts` + register in `packages/server/src/tool/registry.ts`
-
----
-
-## Tool Specifications
-
-| Tool | Purpose | Safety |
-|------|---------|--------|
-| `memory_retrieve` | Search/recall memories with filters | Read-only, no mutations |
-| `memory_create` | Create new memory node | Validates input, deduplicates |
-| `memory_update` | Update existing memory (content, tags, confidence) | Optimistic locking via version |
-| `memory_delete` | Delete memory node + edges | Soft delete option, confirmation |
-| `memory_link` | Add/remove links between nodes | Validates link types, prevents cycles |
-| `memory_consolidate` | Trigger consolidation for current session | Idempotent, rate-limited |
-| `memory_stats` | Show memory graph statistics | Read-only |
-| `memory_enable` / `memory_disable` | Toggle memory for session/project | Persists to config |
-
----
-
-## Implementation Order
-
-### Phase 1: Core Layer Integration
-1. Add `Memory.node` to server layer group
-2. Verify typecheck passes
-3. Test server boots with memory layer
-
-### Phase 2: Session Hooks
-1. Create `SessionMemoryService` in `packages/server/src/session/memory.ts`
-2. Hook `initializeSession` on session create/load
-3. Hook `extractOnSessionEnd` on session end
-4. Add memory context injection to prompt building
-
-### Phase 3: Daily Consolidation Job
-1. Create `MemoryConsolidationJob` using `BackgroundJob`
-2. Schedule via cron (3 AM daily)
-3. Iterate sessions, call `consolidate`
-4. Add config for schedule/timezone
-
-### Phase 4: Agent Tools
-1. Create tool files in `packages/server/src/tool/memory/`
-2. Register in `ToolRegistry` (registry.ts)
-3. Add proper schemas, validation, error handling
-4. Test each tool end-to-end
-
-### Phase 5: Config & Polish
-1. Add memory config to server config (enable/disable, schedule, paths)
-2. Update API routes if needed for tool exposure
-3. Integration tests
-
----
-
-## Key Technical Details
-
-### Memory Layer Node (in memory package)
-```typescript
-// packages/memory/src/index.ts - already exports MemoryLayer
-export const MemoryLayer = LayerNode.buildLayer(
-  LayerNode.group([memory, session, recall, consolidation, extractor, indexer, graph, node])
-)
-```
-
-### Server Layer Integration
-```typescript
-// In server.ts LayerNode.group([...]):
-Memory.node,  // Add this line
-```
-
-### Session Memory Hook
-```typescript
-// In session processor or run-state:
-const memory = yield* MemoryService
-yield* memory.initializeSession(sessionId, title)
-// ... on session end:
-yield* memory.extractOnSessionEnd(sessionId, messages)
-```
-
-### Prompt Injection
-```typescript
-// In prompt.ts or llm.ts:
-const memory = yield* MemoryService
-const context = yield* memory.loadSessionContext(sessionId)
-// Inject context into system prompt
-```
-
-### Background Consolidation
-```typescript
-// New file: packages/server/src/background/memory-consolidation.ts
-const consolidationJob = BackgroundJob.start({
-  type: "memory-consolidation",
-  title: "Daily Memory Consolidation",
-  run: Effect.gen(function* () {
-    const memory = yield* MemoryService
-    const sessions = yield* getActiveSessions()
-    for (const session of sessions) {
-      yield* memory.consolidate(session.id)
-    }
-    return `Consolidated ${sessions.length} sessions`
-  })
-})
-// Schedule via cron in server startup
-```
-
-### Tool Pattern (following existing tools)
-```typescript
-// packages/server/src/tool/memory/retrieve.ts
-export const MemoryRetrieveTool = Tool.make("memory_retrieve", {
-  description: "Search and retrieve memories from the knowledge graph",
-  parameters: Schema.Struct({
-    query: Schema.String,
-    sessionId: Schema.optional(Schema.String),
-    types: Schema.optional(Schema.Array(MemoryType)),
-    limit: Schema.optional(Schema.Int.pipe(Schema.between(1, 50))),
-  }),
-  execute: Effect.fn("MemoryRetrieveTool.execute")(function* (args, ctx) {
-    const memory = yield* MemoryService
-    return yield* memory.recall({
-      seedNodes: args.sessionId ? [args.sessionId as MemoryNodeID] : [],
-      queryTags: args.query.split(/\s+/).filter(t => t.length > 2),
-      maxNodes: args.limit ?? 20,
-      types: args.types,
-    })
-  }),
-})
-```
-
----
-
-## Safety & Error Handling Requirements
-
-1. **All tools**: Wrap in `Effect.catchAll` → return structured `MemoryError` with user-friendly message
-2. **Validation**: Schema validation on all inputs (Effect Schema)
-3. **Rate limiting**: Per-session rate limits on mutating tools
-4. **Confirmation**: Destructive operations (delete) require explicit confirmation flag
-5. **Audit logging**: All tool executions logged with session, user, params
-6. **Rollback**: Failed multi-step operations (link + node create) use transactions
-7. **Permissions**: Check `Permission` service before allowing memory operations
-
----
-
-## Config Schema (add to packages/server/src/config/config.ts)
-```typescript
-export const MemoryServerConfig = Schema.Struct({
-  enabled: Schema.Boolean,
-  sleepTime: Schema.String, // cron expression or "03:00"
-  timezone: Schema.String,  // "UTC"
-  maxSessionMemories: Schema.Int,
-  consolidationTriggerTokens: Schema.Int,
-  autoExtractOnSessionEnd: Schema.Boolean,
-}).pipe(Schema.defaults({
-  enabled: true,
-  sleepTime: "0 3 * * *",
-  timezone: "UTC",
-  maxSessionMemories: 1000,
-  consolidationTriggerTokens: 10000,
-  autoExtractOnSessionEnd: true,
-}))
-```
-
----
-
-## Verification Checklist
-
-- [ ] `bun run typecheck` clean in packages/server
-- [ ] Server boots with memory layer
-- [ ] Session create/load triggers `initializeSession`
-- [ ] Session end triggers `extractOnSessionEnd`
-- [ ] Prompt injection works (memory context appears in LLM requests)
-- [ ] Daily consolidation job runs at scheduled time
-- [ ] All 8 tools registered and executable
-- [ ] Tools handle edge cases (empty graph, missing nodes, invalid IDs)
-- [ ] Tools return structured errors, not stack traces
-- [ ] Integration test: create → link → retrieve → update → delete cycle
-- [ ] Memory config respected (disable stops all operations)
+- [x] Run `bun run test` in `packages/memory`: 2 tests and 16 expectations pass, including query ranking, session-root linking, project-scoped recall, and escaped reference-only prompt injection.
+- [ ] Complete typechecks: `packages/memory` reports errors in unchanged `packages/db/src/adaptive/detect.ts`, `packages/db/src/database/database.ts`, and `packages/memory/src/index.ts`; the server typecheck process was SIGKILLed without diagnostics. No errors were reported in the edited memory implementation files.
+- [ ] Boot the server with memory enabled and exercise prompt-context loading, lazy root creation, extraction, and the manual extraction route.
+- [ ] Verify daily extraction scheduling and manual extraction behavior in a runtime/integration test.
+- [ ] Add or run a full create → link → retrieve → update → delete integration test. `packages/memory/test/memory.test.ts` now covers create/retrieve and query-ranked session linking, but not the full CRUD/link cycle.
+- [ ] Exercise all eight tools against empty/missing/invalid data and confirm public failures are structured.
+- [ ] Verify disabling the memory feature prevents layer, scheduler, route, and tool work.
+- [ ] Decide whether daily consolidation is still required; if yes, wire scheduled `runMaintenance()` separately from daily extraction and test it.
+- [ ] Review/fix the merge atomicity risk in `packages/memory/src/consolidation.ts:194–265`: duplicate links/nodes are changed or deleted before the primary node update, with no enclosing transaction despite the inline comment.

@@ -12,7 +12,10 @@ The anchor tools let you recover any compacted content:
 - `anchor_edit` — update the index when it's stale. A decision reversed,
   a question answered, a file that no longer matters — fix it here.
 
-The anchor is per-session. Long-term memory (memory-create/retrieve) is
-cross-session. All memory is local — no cloud, no privacy concern. Save
-proactively: if you spent time figuring it out, it's worth remembering.
+The anchor is per-session. Long-term memory uses memory_retrieve, memory_create,
+memory_update, and memory_link across sessions. Check relevant memories at the
+start of substantial work; at meaningful checkpoints, save only durable facts,
+decisions, preferences, or verified solutions. Avoid duplicates and never save
+secrets. Memory files/index are local, but extraction may use the configured
+model provider.
 </anchor>

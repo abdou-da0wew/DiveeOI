@@ -1,5 +1,7 @@
 # Memory System Implementation Plan
 
+> **Status refresh — 2026-10-30:** Core package and server integration code exist. The earlier Phase 8 typecheck/test results are historical; current workspace verification is incomplete. Phase 9 and the integration status below distinguish implemented source from runtime checks still pending. See `CONTEXT.md` for the current workspace verification status.
+
 ## Package: `@diveeoi/memory`
 
 ### Core Philosophy
@@ -234,13 +236,13 @@ const sessionMemory = yield* memory.getSessionMemory(sessionId)
 - [x] Memory Service (main API wiring)
 
 ### Batch 3: Integration (sequential)
-- [x] Session binding + auto-load
+- [x] Session binding + auto-load (context is loaded lazily during prompt assembly)
 - [x] LLM Extractor
-- [x] Background consolidation
+- [x] Consolidation service and manual consolidation tool. **Daily scheduled maintenance is not wired**; the server scheduler currently performs daily extraction, not `ConsolidationService.runMaintenance()`.
 
-### Batch 4: Server Integration
-- [ ] Server memory integration layer
-- [ ] Hook into session start/end
+### Batch 4: Server Integration — implemented in source, runtime verification pending
+- [x] Server memory integration layer (`packages/server/src/session/memory.ts`, provided by the app layer)
+- [x] Session/prompt integration (lazy root creation/context injection; extraction at prompt loop and compaction exits; see `MEMORY_SERVER_INTEGRATION_PLAN.md` for verification gaps)
 
 ---
 
@@ -255,13 +257,13 @@ const defaultConfig = {
     minConfidence: 0.3,
     typeWeights: {
       decision: 1.0,
+      constraint: 0.95,
+      preference: 0.9,
       pattern: 0.9,
       error: 0.8,
       entity: 0.7,
-      preference: 0.6,
-      fact: 0.5,
-      constraint: 0.5,
-      session: 0.4
+      fact: 0.6,
+      session: 0.2
     }
   },
   session: {
@@ -358,20 +360,16 @@ const response = yield* llmClient.generate(request).pipe(
 const parsed = JSON.parse(response.text)
 ```
 
-### Verification
-- ✅ `bun run typecheck` — clean (0 errors)
-- ✅ `bun test` — 1 pass / 0 fail
+### Verification (historical plan snapshot; not rerun in this status refresh)
+- Previously recorded: `bun run typecheck` — clean (0 errors)
+- Previously recorded: `bun test` — 1 pass / 0 fail
+
+These historical results do not establish that the current workspace passes typecheck or tests.
 
 ---
 
-## Phase 9: Server Integration (NEXT)
+## Phase 9: Server Integration — implemented, with follow-ups
 
-### Required
-1. Compose `MemoryLayer` in server's layer graph with:
-   - `Database.defaultLayer`
-   - `LLMClient.layer` (with routed model + API keys)
-   - `RequestExecutor.defaultLayer`
-2. Add `MemoryConfig` to server config (memory dir, consolidation, recall params)
-3. Call `indexer.initialize()` at startup
-4. Hook into session start: `memory.getSessionMemory(sessionId)` → inject into prompt
-5. Hook into session end: `memory.extractFromSession(sessionId, messages)` (fire-and-forget)
+The original layer-composition/session-hook work is present in `packages/server/src/app-services.ts`, `session/memory.ts`, `session/system.ts`, `session/prompt.ts`, and `session/memory-scheduler.ts`. Prompt memory recall now uses the current user message and active project root to rank a bounded, project-scoped set by text relevance and importance; graph traversal rejects explicitly cross-project records. New records inherit project metadata and link to the session root. The prompt injects up to eight durable records. Extraction runs at prompt-loop/compaction exits and in the daily extraction scheduler. Eight memory tools are registered in `tool/registry.ts`.
+
+**Still open:** the scheduler does not run `ConsolidationService.runMaintenance()` on a daily schedule (the `memory.consolidate` tool is manual). The memory tests pass, but memory typecheck is blocked by errors in unchanged DB/package-entry files; the server typecheck was SIGKILLed without diagnostics, and server boot/runtime integration remains unverified. Track those checks in `MEMORY_SERVER_INTEGRATION_PLAN.md`.
