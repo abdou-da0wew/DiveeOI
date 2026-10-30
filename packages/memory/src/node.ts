@@ -61,7 +61,8 @@ export const serializeNode = (node: MemoryNode): string => {
     sessionId: node.sessionId,
     created: node.created,
     updated: node.updated,
-    confidence: node.confidence
+    confidence: node.confidence,
+    ...(node.projectRoot ? { projectRoot: node.projectRoot } : {})
   }
 
   const yaml = stringifyYaml(frontmatter, { indent: 2 })
@@ -160,7 +161,8 @@ export const readNodeFile = (memoryDir: string, nodeId: MemoryNodeID): Effect.Ef
       created: parsed.frontmatter.created as number,
       updated: parsed.frontmatter.updated as number,
       confidence: parsed.frontmatter.confidence as number,
-path: filePath as AbsolutePath
+      projectRoot: parsed.frontmatter.projectRoot as AbsolutePath | undefined,
+      path: filePath as AbsolutePath
     }
 
     return node
@@ -250,6 +252,7 @@ export const createNodeFromInput = (input: CreateNodeInput, memoryDir: string): 
       created: now,
       updated: now,
       confidence: input.confidence ?? 1.0,
+      projectRoot: input.projectRoot,
       path: "" as AbsolutePath // Will be set by createNodeFile
     }
 

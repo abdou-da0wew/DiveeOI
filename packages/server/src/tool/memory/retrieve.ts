@@ -1,8 +1,8 @@
 import { Tool } from "../tool"
 import { Effect, Schema } from "effect"
-import { MemoryService } from "@diveeoi/memory"
-import { MemoryNodeID, MemoryType, LinkType } from "@diveeoi/memory/schema"
-import { SessionMemoryIntegration } from "@/session/memory"
+import { MemoryConfig, MemoryService } from "@diveeoi/memory"
+import { MemoryNodeID, MemoryType, SessionID } from "@diveeoi/memory/schema"
+import { InstanceState } from "@/effect/instance-state"
 
 const ParametersSchema = Schema.Struct({
   query: Schema.optional(Schema.String),
@@ -27,10 +27,10 @@ export const MemoryRetrieveTool = Tool.define(
   "memory_retrieve",
   Effect.gen(function* () {
     const memory = yield* MemoryService
-    const sessionMemory = yield* SessionMemoryIntegration.Service
+    const config = yield* MemoryConfig
 
     return {
-      description: "Search and retrieve memories from the knowledge graph. Supports querying by text, tags, types, session, and graph traversal from methods (seedNodes).",
+      description: "Search and retrieve memories by text, tags, type, or session context. Searches are scoped to the current project by default; explicit seed nodes enable graph traversal within the active project boundary.",
       parameters: ParametersSchema,
       execute: (
         params: Schema.Schema.Type<typeof ParametersSchema>,
@@ -38,26 +38,39 @@ export const MemoryRetrieveTool = Tool.define(
       ): Effect.Effect<Tool.ExecuteResult> =>
         Effect.gen(function* () {
           const resolvedSessionId = params.sessionId ?? ctx.sessionID
+          const instance = yield* InstanceState.context
+          const projectRoot = instance.worktree !== "/" ? instance.worktree : instance.directory
+          const scopedProjectRoot = config.features.projectBoundaries ? projectRoot : undefined
+          const query = [params.query, ...(params.tags ?? [])].filter(Boolean).join(" ")
+          const queryTags = [...new Set([
+            ...(params.tags ?? []),
+            ...(params.query?.match(/[\p{L}\p{N}]+/gu) ?? []),
+          ])]
 
-          const recallOptions: any = {
-            seedNodes: params.seedNodes ?? (resolvedSessionId ? [resolvedSessionId as MemoryNodeID] : []),
-            maxDepth: params.maxDepth ?? 2,
-            maxNodes: params.maxNodes ?? 20,
-            types: params.types,
-            minConfidence: params.minConfidence,
-            timeRange: params.timeRange,
-            queryTags: params.tags ?? (params.query ? params.query.split(/\s+/).filter((t: string) => t.length > 2) : []),
-            currentSession: resolvedSessionId,
-          }
-
-          if (recallOptions.seedNodes.length === 0 && !params.query && !params.tags?.length) {
-            const session = yield* memory.loadSessionContext(resolvedSessionId)
-            if (session.nodes.length > 0) {
-              recallOptions.seedNodes = [resolvedSessionId as MemoryNodeID]
-            }
-          }
-
-          const result = yield* memory.recall(recallOptions)
+          const result = yield* (params.seedNodes?.length
+            ? memory.recall({
+                seedNodes: params.seedNodes,
+                maxDepth: params.maxDepth ?? 2,
+                maxNodes: params.maxNodes ?? 20,
+                types: params.types,
+                minConfidence: params.minConfidence,
+                timeRange: params.timeRange,
+                queryTags,
+                currentSession: resolvedSessionId as SessionID,
+                projectRoot: scopedProjectRoot as any,
+              })
+            : memory.loadSessionContext(
+                resolvedSessionId,
+                params.maxDepth ?? 2,
+                params.maxNodes ?? 20,
+                query,
+                {
+                  types: params.types,
+                  minConfidence: params.minConfidence,
+                  timeRange: params.timeRange,
+                  projectRoot: scopedProjectRoot,
+                },
+              ))
 
           const memories = result.nodes.map((node) => ({
             id: node.id,

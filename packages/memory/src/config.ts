@@ -64,13 +64,13 @@ export const defaultMemoryConfig = MemoryConfig.make({
     minConfidence: 0.3,
     typeWeights: {
       decision: 1.0,
+      constraint: 0.95,
+      preference: 0.9,
       pattern: 0.9,
       error: 0.8,
       entity: 0.7,
-      preference: 0.6,
-      fact: 0.5,
-      constraint: 0.5,
-      session: 0.4
+      fact: 0.6,
+      session: 0.2
     },
     depthPenaltyLambda: 0.15
   }),

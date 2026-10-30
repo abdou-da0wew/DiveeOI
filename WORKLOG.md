@@ -106,3 +106,21 @@ Built `packages/learning` skeleton, settings schema, download/state-machine, sto
   no container integration test. On a staging Linux host with Go 1.22+ and Docker, run
   `cd tools/self-hosted-ci && gofmt -w $(find cmd internal -type f -name '*.go') && go test ./... && go vet ./... && mkdir -p bin && go build -o ./bin/diveeoi-ci ./cmd/diveeoi-ci`,
   then follow `tools/self-hosted-ci/README.md` for Docker, pipeline, secret, manual-run, log, and artifact checks.
+
+## 2026-10-30 — documentation cleanup and status refresh
+
+- Removed historical auth/session plan docs, the auth task sheet that linked to them, the type-error campaign folder, the optimization findings audit, and the stale-path-only `TODOS.md`.
+- Rewrote references in the brief, architecture, contributing, optimization, DB, and profiler docs; labelled old worklog/draft material historical and corrected stale branch metadata in `CONTEXT.md`.
+- Refreshed the memory status docs: source implementation is separated from unrun tests/runtime checks; daily extraction is not described as scheduled consolidation. The potential non-atomic merge/data-loss risk in `packages/memory/src/consolidation.ts` remains open.
+- **Branch:** the active Arena worktree remains `arena/ace5e304-diveeoi`; no branch switch was made. `dev` is its base/PR target, not the active session branch.
+- **Validation:** `git diff --check` passes and searches found no remaining references to the removed docs. No tests or builds were run for these documentation-only changes.
+
+## 2026-10-30 — query-aware memory context and agent guidance
+
+- System prompt memory recall now uses the latest user message and active worktree, searches a bounded set of project-scoped candidates, and ranks records by query match across title/tags/content plus configured type importance, confidence, recency, graph links, and session relevance. Graph traversal rejects explicitly cross-project nodes. Prompt injection is capped at eight records, escapes XML delimiters, and marks memory content as reference data rather than instructions.
+- New manually created and automatically extracted memories inherit project metadata and are attached to their session root so subsequent recall can find them without cross-project leakage. `memory_retrieve` without explicit graph seeds now routes through session/project/query-aware recall instead of treating the session ID as a memory-node ID.
+- Agent guidance now asks for a relevant memory check at the start of substantive work and a save/update review at meaningful checkpoints and before wrapping substantial sessions. The extractor now accepts `[]` when no durable memory exists and its prompt rejects filler/duplicates/secrets. The guidance does not claim extraction is always offline.
+- Tone guidance permits relaxed language and occasional emojis only for informal social chat; serious, important, factual, technical, coding, debugging, and operational work remains direct, professional, and emoji-free.
+- Added memory tests for automatic session linking, query ranking, project scoping, and escaped reference-only prompt injection. Bun was absent initially, so Bun 1.4.2 was bootstrapped temporarily under `/tmp` without adding repository files. `packages/memory` tests pass (2 tests, 16 expectations).
+- Typecheck status: `packages/memory` `bun run typecheck` still fails on errors in unchanged files `packages/db/src/adaptive/detect.ts`, `packages/db/src/database/database.ts`, and `packages/memory/src/index.ts`; it reported no diagnostics in the edited memory implementation files. The server typecheck process was SIGKILLed after about 9 minutes without diagnostics. Dependency setup for the server also hit a `tree-sitter-powershell` native build failure while fetching Node headers, so server typechecking and runtime integration remain unverified.
+- TypeScript syntax parsing passed for all 13 changed `.ts` files. `git diff --check` passes.

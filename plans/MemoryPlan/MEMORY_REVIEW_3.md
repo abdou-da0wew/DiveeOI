@@ -1,5 +1,7 @@
 # Memory Package Security & Reliability Review
 
+> **Historical review snapshot.** Findings were written against an earlier implementation and have not all been revalidated. Some items are already fixed or the relevant code has changed. Re-check current source before treating any finding below as an open defect.
+
 ## node.ts - File I/O & Path Security
 
 ### CRITICAL: Path Traversal in resolveNodePath

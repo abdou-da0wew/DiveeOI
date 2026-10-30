@@ -2,9 +2,9 @@
 
 > DiveeOI includes an adaptive resource manager: it detects host/container memory and CPU limits, selects one of four profiles, and adjusts bounded resources and GC scheduling under pressure.
 
-> **Verification note — 2026-10-29:** resource targets below reflect current source configuration. Benchmark and historical measurement claims from earlier work are not fresh results for this branch; Bun and workspace dependencies were unavailable here.
+> **Historical verification note — 2026-10-29:** at that checkpoint, the resource targets below matched the source configuration. Benchmark and measurement claims are not fresh results for the current branch; Bun and workspace dependencies were unavailable then. See `CONTEXT.md` for current verification status.
 
-This document explains **what was slow, what leaks were fixed, what was measured historically, and how the adaptive system works**. For the phase-by-phase plan, see `plans/Optimization_1.0/OPTIMIZATION_PLAN.md`. For repro-grade numbers, see `plans/Optimization_1.0/FINDINGS_AUDIT.md` and `packages/profiler/DESIGN.md`.
+This document explains **what was slow, what leaks were fixed, what was measured historically, and how the adaptive system works**. For the phase-by-phase plan, see `plans/Optimization_1.0/OPTIMIZATION_PLAN.md`; profiler design details are in `packages/profiler/DESIGN.md`. Historical benchmark claims are not fresh results for this branch.
 
 ---
 
@@ -131,20 +131,6 @@ export const layer = makeAdaptiveLayer((targets) =>
 ```
 
 `makeAdaptiveLayer` wraps the layer with `Layer.unwrap( gen(detect -> compute -> makeLayer(targets)) ).pipe(Layer.provide(AdaptiveResourceDefaultLayer))` so `RIn` does not leak `AdaptiveResource`.
-
----
-
-## Verified defects (and what not to re-introduce)
-
-From `FINDINGS_AUDIT.md` on `dev@d1c4627`:
-
-- **H1** `server.ts:99/116 duplicate import memoryExtractRoute` -> TS2300. Fix: keep the first.
-- **H2** `registry.ts:124-125 + 239-248` two memory extract tools are `Tool.init`'d but never added to `builtin[]` — dead `Layer.succeed` + schema compile every boot. HTTP route alone serves them. Fix: delete the two inits or register them.
-- **H3** `profiler/src/writer.ts:39 openSync(".divee/profiler.jsonl")` ENOENT on fresh clones; `50 process.exit(0)` inside signal handler prevents graceful drains. Fix: `mkdirSync(dirname(output), {recursive:true})` before `openSync`; signal handler does only `onFlushTick+ drain` and relies on `unref()` to exit.
-- **H4** `publish-llm-event.ts` 21 `Effect.die` calls abort the session runner's fiber as a defect — untyped, not retryable. Keep `die` only for true invariants; convert recoverable sites to `Effect.fail(TypedError)`.
-- **H5/H6** theme route auth + ToolRegistry memory layers are already fixed.
-
-Each fix criterion matches the user requirement: *must NOT decrease speed/effectiveness/functionality*.
 
 ---
 

@@ -1,4 +1,7 @@
 # DiveeOI Adaptive Resource Optimization Plan
+
+> **Status note — 2026-10-30:** This is the original design/rollout plan, not a current completion ledger. The platform matrix and performance checks later in this file are historical claims and have not been rerun for the current branch. See [`docs/optimization.md`](../../docs/optimization.md) for current implementation context and verification caveats.
+
 **Philosophy**: Dynamic, cross-platform, zero-deletion, lightweight adaptive system with live reconfiguration that's actually implementable.
 
 ---

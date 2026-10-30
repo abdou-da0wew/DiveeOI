@@ -122,7 +122,8 @@ export const layer = Layer.effect(
         }).pipe(Effect.provide(locations.get(Location.Ref.make({ directory: AbsolutePath.make(ctx.directory) }))))
 
         // Load memory context
-        const memoryContext = yield* memory.loadSessionContext(sessionID)
+        const projectRoot = ctx.worktree !== "/" ? ctx.worktree : ctx.directory
+        const memoryContext = yield* memory.loadSessionContext(sessionID, lastUserContent, projectRoot)
 
         const envParts: string[] = [
           [

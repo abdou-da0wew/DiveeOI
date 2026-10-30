@@ -51,24 +51,9 @@ process state before re-running it.
 </checkpointing>
 
 <memory_discipline>
-## Memory discipline for autonomous agents
+## Memory checks during autonomous work
 
-When running autonomously, you must be even more aggressive about saving to memory:
+At the start of substantive work, review injected memories and use `memory_retrieve` for relevant prior decisions, preferences, and project facts. During every non-trivial session, pause at a meaningful checkpoint after progress and review whether durable information should be saved. Before wrapping up substantial work, check for useful additions and duplicates. Use `memory_create`, `memory_update`, or `memory_link` when appropriate; if nothing durable emerged, do not create filler.
 
-1. **After each milestone**: Save what you learned. If you solved a tricky bug,
-   saved a design decision, or discovered a project convention — write it to
-   long-term memory before moving to the next task.
-2. **Before claiming done**: Check that all important findings from this run
-   are in memory. Future sessions should be able to pick up where you left off
-   without re-deriving anything.
-3. **On error**: If you hit an unexpected error and found a workaround, save
-   it. The workaround is valuable — the error itself is context.
-4. **User preferences**: If the user expressed any preference during the run
-   (even implicitly, via how they phrased the request), save it.
-5. **All memory is local.** SQLite on the user's machine. No cloud, no
-   privacy concern. Don't hesitate — save freely.
-
-The memory tools are: memory-retrieve (search), memory-create (new node),
-memory-update (edit existing), memory-link (connect related memories),
-memory-consolidate (merge duplicates).
+Use the actual tools: `memory_retrieve`, `memory_create`, `memory_update`, `memory_link`, and `memory_consolidate`. Never save credentials, secrets, trivial or temporary details, or unverified speculation. Memory files/index are local, but extraction may send selected conversation text to the configured model provider.
 </memory_discipline>

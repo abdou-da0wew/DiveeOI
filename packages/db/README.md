@@ -34,7 +34,7 @@ Canonical 18 tool impls in `src/tool/`: `bash, edit, glob, grep, read, write, we
 - `src/effect/layer-node.ts` — the `make/group/buildLayer` app-graph primitive (see `docs/architecture.md#effect-layer-graph`).
 - `src/effect/{runtime,memo-map,service-use,keyed-mutex,layer-node-platform}` — `makeRuntime` dedup, `memoMap` shared by `server`, `serviceUse` shortcut, `PtyEnvironment` from `layer-node-platform`.
 - `src/observability/{logging,otlp,shared}` — OTel + Effect logging bridge.
-- `src/adaptive/{detect,profiles,service,hooks,index}` — **core perf subsystem** (the fork's largest change). See [`docs/optimization.md`](../../docs/optimization.md): cross-platform `detect` (`/proc/meminfo`/`sysctl`+`vm_stat`/`os.freemem`), 4 `profiles` with 13 `AdaptiveTargets` (rss/heap/gc/tool/LLM/SSE/WS/pty/cache/sqlite/timeouts across 700→250 MB), `service` `Ref` + 90s jittered updater with 0.3 interpolation, `hooks` (`useAdaptiveTargets`/`makeAdaptiveLayer`) used by `Database` PRAGMA, PTY `Cache`, SSE/WS queues, tool `Semaphore`, LLM `Stream.buffer`. The `FINDINGS_AUDIT.md H1-H4` defects are guarded against here.
+- `src/adaptive/{detect,profiles,service,hooks,index}` — **core perf subsystem** (the fork's largest change): cross-platform `detect` (`/proc/meminfo`/`sysctl`+`vm_stat`/`os.freemem`), 4 `profiles` with 13 `AdaptiveTargets` (rss/heap/gc/tool/LLM/SSE/WS/pty/cache/sqlite/timeouts across 700→250 MB), `service` `Ref` + 90s jittered updater with 0.3 interpolation, and `hooks` (`useAdaptiveTargets`/`makeAdaptiveLayer`) used by `Database` PRAGMA, PTY `Cache`, SSE/WS queues, tool `Semaphore`, and LLM `Stream.buffer`. See [`docs/optimization.md`](../../docs/optimization.md) for current resource behavior and verification limits.
 
 ## Test
 

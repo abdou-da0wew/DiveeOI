@@ -345,7 +345,7 @@ This is DiveeOI's headline change: a **live, cross-platform adaptive system** th
 
 **What it drives** (all bounded adaptively): PTY ticket `Cache capacity/TTL` via `makeAdaptiveLayer`, `websocket-tracker.ts:add` + `handlers/event.ts + global.ts` `Queue.bounded(maxSSEQueueSize)` via `useAdaptiveTargets`, `runner/llm.ts` `Stream.buffer(maxLLMStreamBuffer)`, `tool/registry.ts` `Semaphore(maxToolConcurrency)`, `database.ts` `PRAGMA cache_size/mmap_size`, `message-v2.ts + storage.ts` lazy pagination + transparent GZIP (>10KB) with zero deletion, `scripts/build.ts` binary ceilings `--memory-limit=1200 --max-old-space-size=512`, `profiler` sampling (`DIVEEOI_PROFILER=1`) and `dev/monitor.ts` `DevMonitorSnapshot { rssMB, heapMB, adaptive{profile,profileChanged,rssTargetMB,heapTargetMB,gcIntervalMs,rssDeviationPct,heapDeviationPct} }` every 60s.
 
-The only user-visible stall — blocking `extractSessionMemory` at loop exit/compaction stop — was fixed by `Effect.forkDetach(... extract ...).catch(logError)` at `prompt.ts:1263/1294` (see `FINDINGS_AUDIT.md H2/H3`).
+The only user-visible stall — blocking `extractSessionMemory` at loop exit/compaction stop — was fixed by `Effect.forkDetach(... extract ...).catch(logError)` at `prompt.ts:1263/1294` (see [the stall analysis](optimization.md#the-stall-that-mattered-most)).
 
 `sst-env.d.ts` exposes SST deployment env (`SST_STAGE`, `SST_APP`).
 

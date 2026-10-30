@@ -91,7 +91,7 @@ export interface IndexerService {
   readonly getNodesBySession: (sessionId: string) => Effect.Effect<MemoryNode[], MemoryError>
   readonly getNodesByType: (type: MemoryType) => Effect.Effect<MemoryNode[], MemoryError>
   readonly getNodesByProject: (projectId: ProjectID) => Effect.Effect<MemoryNode[], MemoryError>
-  readonly searchNodes: (query: string, limit?: number) => Effect.Effect<MemoryNode[], MemoryError>
+  readonly searchNodes: (query: string, limit?: number, projectRoot?: string) => Effect.Effect<MemoryNode[], MemoryError>
   readonly bindSession: (sessionId: string, rootNodeId: MemoryNodeID) => Effect.Effect<void, MemoryError>
   readonly getSessionRoot: (sessionId: string) => Effect.Effect<Option.Option<MemoryNodeID>, MemoryError>
   readonly getSessionNodes: (sessionId: string) => Effect.Effect<MemoryNode[], MemoryError>
@@ -278,13 +278,38 @@ const makeIndexer: Effect.Effect<IndexerService, never, Database.Service | Memor
       return rows.map(rowToNode)
     })
 
-  const searchNodes = (query: string, limit = 20): Effect.Effect<MemoryNode[], MemoryError> =>
+  const searchNodes = (query: string, limit = 20, projectRoot?: string): Effect.Effect<MemoryNode[], MemoryError> =>
     Effect.gen(function* () {
       const searchTerm = `%${query.toLowerCase()}%`
+      const scopedRoot = projectRoot?.replace(/[\\/]+$/u, "")
+      const projectScope = scopedRoot
+        ? sql`AND (
+            rtrim(project_root, '/' || char(92)) = ${scopedRoot}
+            OR (
+              project_root IS NULL
+              AND substr(path, 1, length(${scopedRoot})) = ${scopedRoot}
+              AND substr(path, length(${scopedRoot}) + 1, 1) IN ('/', char(92))
+            )
+          )`
+        : sql``
       const rows = yield* mapDbError(db.all(sql`
         SELECT * FROM memory_nodes
-        WHERE LOWER(title) LIKE ${searchTerm} OR LOWER(content) LIKE ${searchTerm}
-        ORDER BY updated DESC LIMIT ${limit}
+        WHERE (
+          LOWER(title) LIKE ${searchTerm}
+          OR LOWER(content) LIKE ${searchTerm}
+          OR LOWER(tags) LIKE ${searchTerm}
+        )
+        ${projectScope}
+        ORDER BY
+          CASE
+            WHEN LOWER(title) = ${query.toLowerCase()} THEN 0
+            WHEN LOWER(title) LIKE ${searchTerm} THEN 1
+            WHEN LOWER(tags) LIKE ${searchTerm} THEN 2
+            ELSE 3
+          END,
+          confidence DESC,
+          updated DESC
+        LIMIT ${limit}
       `))
       return rows.map(rowToNode)
     })
@@ -509,7 +534,7 @@ const getLinkedNodes = (nodeId: MemoryNodeID, depth: number): Effect.Effect<Memo
     getNodesBySession: (sessionId) => afterReady(getNodesBySession(sessionId)),
     getNodesByType: (type) => afterReady(getNodesByType(type)),
     getNodesByProject: (projectId) => afterReady(getNodesByProject(projectId)),
-    searchNodes: (query, limit) => afterReady(searchNodes(query, limit)),
+    searchNodes: (query, limit, projectRoot) => afterReady(searchNodes(query, limit, projectRoot)),
     bindSession: (sessionId, rootNodeId) => afterReady(bindSession(sessionId, rootNodeId)),
     getSessionRoot: (sessionId) => afterReady(getSessionRoot(sessionId)),
     getSessionNodes: (sessionId) => afterReady(getSessionNodes(sessionId)),
