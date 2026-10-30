@@ -1,6 +1,6 @@
 # CONTEXT — DiveeOI implementation hand-off
 
-Last updated: 2026-10-30. Branch: `arena/6d23f575-diveeoi` (active; based on `dev` at `4586a0c`).
+Last updated: 2026-10-30. Branch: `arena/e59349ee-diveeoi` (active; based on `dev` at `01dc834`).
 
 This file is the current hand-off snapshot. See `WORKLOG.md` for the chronological record, `DECISIONS.md` for design decisions, and `docs/TARGETED_LEARNING_WORKLOG.md` / `docs/WHATS_DONE.md` for the feature history and inventory. Older test counts in those historical documents are not verification of this branch.
 
@@ -25,6 +25,14 @@ runs the live semantic sanity check and does not require fixture vectors.
 - Previously shared external credentials should be rotated if they are still active. No credentials are intentionally stored in this repository.
 
 See `docs/security-auth.md` for configuration and operational guidance.
+
+## Self-hosted CI runner — Go implementation in progress
+
+- Standalone runner source: `tools/self-hosted-ci/`; operator/VPS guide: `tools/self-hosted-ci/README.md`; example systemd unit: `tools/self-hosted-ci/deploy/diveeoi-ci.service`.
+- Current design is Linux + local Docker (rootless strongly recommended), generic Git remotes with polling, selected branch/tag patterns, repository YAML workflows, per-job environment, encrypted per-repository secrets with trusted-ref gating, stream log redaction, and explicit retained artifacts. This is an early MVP, not a GitHub Actions-compatible or hosted service.
+- Added the DiveeOI monorepo pipeline at `.diveeoi/pipeline.yml`: frozen Bun install, Targeted Learning tests, app/server typechecks, `build:nobin`, and retention of `packages/app/dist`. Equivalent starter pipeline/config are under `tools/self-hosted-ci/examples/`.
+- CLI includes `daemon`, `check`, `validate`, `status`, `logs`, `artifacts`, `run`, and `secret set/list/delete`. Work state and vault are stored in the configured private storage directory; Docker logs are bounded, declared artifacts have size/file-count limits and retention, and completed run workspaces are cleaned.
+- **Verification is incomplete:** this sandbox has no Go toolchain (`go`, native `gofmt`, and `gccgo` are absent), so no Go compilation, `go test`, or `go vet` has run. All 29 `.go` files were formatted with a WASM build of gofmt and accepted by Tree-sitter; that checks formatting/syntax only, not Go type correctness. The systemd unit passed `systemd-analyze verify` with `/bin/true` substituted for the not-yet-built binary, but service startup was not exercised. Docker/Podman are also absent, so no container or VPS integration test has run. Install Go 1.22+ and Docker on a staging Linux host, then run `cd tools/self-hosted-ci && gofmt -w $(find cmd internal -type f -name '*.go') && go test ./... && go vet ./... && mkdir -p bin && go build -o ./bin/diveeoi-ci ./cmd/diveeoi-ci`; follow the README for `check`, pipeline validation, a manual run, logs, and artifact inspection. Treat the implementation as unverified until those checks pass.
 
 ## Adaptive resource system
 

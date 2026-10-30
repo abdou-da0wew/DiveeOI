@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "storageDir": "/var/lib/diveeoi-ci",
+  "pollIntervalSeconds": 60,
+  "maxConcurrentRuns": 1,
+  "maxArtifactBytesPerRun": 1073741824,
+  "artifactRetentionDays": 14,
+  "docker": {
+    "binary": "docker",
+    "defaultImage": "oven/bun:1.3.14",
+    "rootless": false,
+    "cpus": 2,
+    "memory": "4g",
+    "pidsLimit": 256
+  },
+  "repositories": [
+    {
+      "id": "diveeoi",
+      "url": "https://github.com/abdou-da0wew/DiveeOI.git",
+      "branches": ["dev"],
+      "tags": ["v*"],
+      "workflow": ".diveeoi/pipeline.yml",
+      "runOnStart": false,
+      "trustedBranches": ["dev"],
+      "trustedTags": ["v*"],
+      "allowedSecrets": []
+    }
+  ]
+}

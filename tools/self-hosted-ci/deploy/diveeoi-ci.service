@@ -1,0 +1,41 @@
+[Unit]
+Description=DiveeOI self-hosted CI runner
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=diveeoi-ci
+Group=diveeoi-ci
+# Set this to the UID-specific rootless Docker socket when using rootless Docker.
+# Environment=DOCKER_HOST=unix:///run/user/1001/docker.sock
+Environment=HOME=/var/lib/diveeoi-ci
+EnvironmentFile=-/etc/diveeoi-ci/runner.env
+WorkingDirectory=/var/lib/diveeoi-ci
+ExecStartPre=/usr/local/bin/diveeoi-ci check --config /etc/diveeoi-ci/config.json
+ExecStart=/usr/local/bin/diveeoi-ci daemon --config /etc/diveeoi-ci/config.json
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=60s
+KillMode=mixed
+UMask=0077
+LimitNOFILE=65536
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectClock=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/lib/diveeoi-ci
+ReadOnlyPaths=/etc/diveeoi-ci
+
+[Install]
+WantedBy=multi-user.target
