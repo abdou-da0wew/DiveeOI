@@ -50,7 +50,7 @@ const isRunError = (error: unknown): error is RunError =>
   error instanceof SessionContextEpoch.AgentReplacementBlocked ||
   error instanceof StorageError
 
-import { createLLMEventPublisher } from "./publish-llm-event"
+import { createLLMEventPublisher, PublishError } from "./publish-llm-event"
 import { toLLMMessages } from "./to-llm-message"
 
 /**
@@ -380,7 +380,9 @@ export const layer = Layer.effect(
         Effect.catch((error: unknown) =>
           isRunError(error)
             ? Effect.fail(error)
-            : Effect.die(error),
+            // PublishError failures carry their developer-facing detail; die with the detail string
+            // so callers surfacing defects (see resume tests) observe the plain message.
+            : Effect.die(error instanceof PublishError ? error.detail : error),
         ),
         Effect.catchDefect(
           Effect.fnUntraced(function* (defect) {
@@ -403,7 +405,9 @@ export const layer = Layer.effect(
         Effect.catch((error: unknown) =>
           isRunError(error)
             ? Effect.fail(error)
-            : Effect.die(error),
+            // PublishError failures carry their developer-facing detail; die with the detail string
+            // so callers surfacing defects (see resume tests) observe the plain message.
+            : Effect.die(error instanceof PublishError ? error.detail : error),
         ),
         Effect.catchDefect(
           Effect.fnUntraced(function* (defect) {
