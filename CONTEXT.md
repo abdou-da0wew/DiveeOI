@@ -128,3 +128,6 @@ Then rerun the learning suite and run `scripts/tl-live-check.ts` on a host where
 3. Run browser checks for the login/register form, Basic and JWT flows, Vite proxy, adaptive-resource updates, setup cancel/repair, and ingest job controls.
 4. Exercise job recovery after process restart and inspect the intended full-source replay behavior. Unit additions for the recovery-claim/cancel race, pause/resume, cancellation cleanup and unsafe source paths are still unrun.
 5. Route-test coverage still needs a current run; the previous worklog recorded missing HTTP API scenarios for many routes, including Targeted Learning.
+
+## Embedding concurrency (updated 2026-10-30)
+`indexing.workersPerBook` (default 2) = number of batches in flight at once on ONE shared in-process model session (split work, no model duplication). Bun Worker threads, one model copy each, are opt-in only (`DIVEEOI_TL_WORKER_THREADS=1`): on the VDS (Bun 1.4.2) two Workers loading onnxruntime-node while a PDF was parsed crashed Bun (`NAPI FATAL ERROR: napi_define_properties`). Concurrent runs on a real ORT session are untested; compare `workersPerBook` 1 vs 2 with the benchmark in `scripts/tl-live-check.ts`.

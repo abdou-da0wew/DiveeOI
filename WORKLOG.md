@@ -146,3 +146,6 @@ Built `packages/learning` skeleton, settings schema, download/state-machine, sto
 - ONNX `pthread_setaffinity_np failed` warnings: `embedding.intraOpThreads/interOpThreads` were never passed to ONNX Runtime; now passed as explicit `session_options`.
 - Tests: learning 178 pass / 1 expected (live model). Typecheck: learning 0, app 0, server 2 (build-generated `diveeoi-web-ui.gen.ts`; test `httpapi-ui.test.ts`).
 - Push to GitHub not done this session (no credentials available); changes delivered as a patch.
+
+## 2026-10-30 (later) — shared-session concurrency
+- Pushed to dev. `workersPerBook` now means concurrent batches on one shared embedder (no model duplication); Worker threads opt-in only. New test `shared-session.test.ts` (3 in flight, each passage embedded once). learning 179 pass / 1 expected (live model); learning tsc clean. Not run against real ORT.
