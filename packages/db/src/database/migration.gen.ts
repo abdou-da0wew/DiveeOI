@@ -49,5 +49,6 @@ export const migrations = (
     import("./migration/20261020000003_agent_task_source"),
     import("./migration/20261020000004_agent_task_auto_generate"),
     import("./migration/20261029000001_auth_refresh_sessions"),
+    import("./migration/20261031123734_declare_auth_tables"),
   ])
 ).map((module) => module.default) satisfies DatabaseMigration.Migration[]
