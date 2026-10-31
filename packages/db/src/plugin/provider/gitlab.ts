@@ -1,13 +1,37 @@
 import os from "os"
 import { InstallationVersion } from "../../installation/version"
 import { Effect } from "effect"
+import { Credential } from "../../credential"
+import { Integration } from "../../integration"
 import { PluginV2 } from "../../plugin"
 import { ProviderV2 } from "../../provider"
 
 export const GitLabPlugin = PluginV2.define({
   id: PluginV2.ID.make("gitlab"),
   effect: Effect.gen(function* () {
+    const integrations = yield* Integration.Service
+    const credentials = yield* Credential.Service
+
+    const accountToken = Effect.fnUntraced(function* () {
+      const connection = yield* integrations.connection.forIntegration(Integration.ID.make("gitlab"))
+      if (!connection || connection.type !== "credential") return undefined
+      const value = (yield* credentials.get(connection.id))?.value
+      if (!value) return undefined
+      if (value.type === "key") return value.key
+      return value.access
+    })
+
     return {
+      "catalog.transform": Effect.fn(function* (evt) {
+        const item = evt.provider.get(ProviderV2.ID.gitlab)
+        if (!item) return
+        const token = yield* accountToken()
+        if (!token) return
+        if (typeof item.provider.request.body.apiKey === "string" && item.provider.request.body.apiKey !== "") return
+        evt.provider.update(item.provider.id, (provider) => {
+          provider.request.body.apiKey = token
+        })
+      }),
       "aisdk.sdk": Effect.fn(function* (evt) {
         if (evt.package !== "gitlab-ai-provider") return
         const mod = yield* Effect.promise(() => import("gitlab-ai-provider"))

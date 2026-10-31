@@ -532,16 +532,19 @@ const verifyPartialFlushOnInterruption = (kind: FragmentKind) =>
     const session = yield* SessionV2.Service
     const prompt = `Interrupt after ${kind}`
     const fixture = fragmentFixture(kind, fragmentID(kind, "interrupted"), ["Partial"])
-    const streamed = yield* Deferred.make<void>()
     yield* session.prompt({ sessionID, prompt: new Prompt({ text: prompt }), resume: false })
-    responseStream = Stream.concat(
-      Stream.fromIterable(fixture.partialEvents),
-      Stream.fromEffect(Deferred.succeed(streamed, undefined)).pipe(Stream.flatMap(() => Stream.never)),
-    )
+    responseStream = Stream.concat(Stream.fromIterable(fixture.partialEvents), Stream.never)
+    const events = yield* EventV2.Service
+    // Synchronize on publication: the producer's buffered exhaust does not imply the
+    // consumer has published the partial fragments. Await the first durable-visible
+    // delta event so interruption lands after publisher state exists.
+    const observed = yield* events
+      .subscribe(fixture.delta)
+      .pipe(Stream.take(1), Stream.runDrain, Effect.forkChild)
 
     const runner = yield* SessionRunner.Service
     const fiber = yield* runner.run({ sessionID, force: true }).pipe(Effect.forkChild)
-    yield* Deferred.await(streamed)
+    yield* Fiber.join(observed)
     yield* Fiber.interrupt(fiber)
     expect(yield* session.context(sessionID)).toMatchObject([
       { type: "user", text: prompt },
@@ -624,6 +627,7 @@ describe("SessionRunnerLLM", () => {
       response = []
 
       const message = yield* session.prompt({ sessionID, prompt: new Prompt({ text: "Run automatically" }) })
+      while (requests.length === 0) yield* Effect.yieldNow
 
       expect(requests).toHaveLength(1)
       expect(yield* session.messages({ sessionID })).toMatchObject([
@@ -704,7 +708,7 @@ describe("SessionRunnerLLM", () => {
       yield* events.publish(SessionEvent.Moved, {
         sessionID,
         timestamp: DateTime.makeUnsafe(1),
-        location: { directory: AbsolutePath.make("/moved") },
+        location: Location.Ref.make({ directory: AbsolutePath.make("/moved") }),
       })
       expect(
         yield* db
@@ -762,7 +766,7 @@ describe("SessionRunnerLLM", () => {
           .publish(SessionEvent.Moved, {
             sessionID,
             timestamp: DateTime.makeUnsafe(1),
-            location: { directory: AbsolutePath.make("/moved") },
+            location: Location.Ref.make({ directory: AbsolutePath.make("/moved") }),
           })
           .pipe(Effect.asVoid)
       })
@@ -2811,7 +2815,7 @@ describe("SessionRunnerLLM", () => {
       const first = yield* session.resume(sessionID).pipe(Effect.forkChild)
       yield* Deferred.await(streamStarted)
       const second = yield* session.resume(otherSessionID).pipe(Effect.forkChild)
-      yield* Effect.yieldNow
+      while (requests.length < 2) yield* Effect.yieldNow
 
       expect(requests).toHaveLength(2)
       expect(requests.map((request) => request.providerOptions?.openai?.promptCacheKey)).toEqual([

@@ -1,12 +1,24 @@
 import fs from "fs/promises"
 import path from "path"
-import { describe, expect } from "bun:test"
+import { afterAll, beforeAll, describe, expect } from "bun:test"
 import { Effect, Layer, Schema } from "effect"
 import { AbsolutePath, Location, Model, OpenCode, Session, Tool } from "@diveeoi/db/public"
+import { Flag } from "@diveeoi/db/flag/flag"
 import { tmpdir } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
 
 const it = testEffect(OpenCode.layer as unknown as Layer.Layer<OpenCode.Service, unknown>)
+
+// The tests run under a TestClock: models.dev retry sleeps are virtual and would
+// never fire, stalling PluginBoot.wait(). These tests exercise config-defined
+// providers only, so disable the models.dev fetch like models.test.ts does.
+const ORIGINAL_DISABLE_FETCH = Flag.OPENCODE_DISABLE_MODELS_FETCH
+beforeAll(() => {
+  Flag.OPENCODE_DISABLE_MODELS_FETCH = true
+})
+afterAll(() => {
+  Flag.OPENCODE_DISABLE_MODELS_FETCH = ORIGINAL_DISABLE_FETCH
+})
 
 describe("public native OpenCode API", () => {
   it.effect("exposes only the intentional Session capabilities", () =>

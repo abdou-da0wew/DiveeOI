@@ -208,7 +208,14 @@ export const layer = Layer.effect(
           yield* Flock.effect(lockKey)
           return yield* fetchAndWrite()
         }),
+      ).pipe(
+        // Embedding without a network path (or with a stalled transport) must not
+        // turn populate into a defect: retrying sleeps are clock-bound, and a
+        // defect here hangs every plugin boot waiting for models.dev.
+        Effect.tapCause((cause) => Effect.logError("Failed to fetch models.dev", { cause })),
+        Effect.catch(() => Effect.succeed(undefined)),
       )
+      if (text === undefined) return {}
       return JSON.parse(text) as Record<string, Provider>
     }).pipe(Effect.withSpan("ModelsDev.populate"), Effect.orDie)
 

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os"
 import * as Store from "../src/store"
 import { setRuntime } from "../src/runtime"
 import { PINNED_MANIFEST } from "../src/manifest/pinned"
+import { withDefaults } from "../src/settings/defaults"
 import { startIngest } from "../src/ingest/run"
 import {
   deleteStudentMemory,
@@ -48,15 +49,26 @@ beforeAll(async () => {
     title: "Math 5",
     embedFn: async (t) => t.map(hashEmbed),
     ensureFn: async () => undefined,
+    // chunk.test.ts installs a 1-word ≈ 1-token stub tokenizer process-globally;
+    // with the default minChunkTokens (30) this tiny fixture ingests zero chunks.
+    settings: withDefaults({ chunking: { minChunkTokens: 5 } }),
   })
   bookId = r.bookId
-  for (let i = 0; i < 100; i++) {
+  let ready = false
+  for (let i = 0; i < 400; i++) {
     const row = await store.db.get("SELECT status FROM books WHERE id = ?", bookId)
-    if (row.status === "ready") break
+    if (row.status === "ready") {
+      ready = true
+      break
+    }
     await new Promise((x) => setTimeout(x, 50))
   }
+  if (!ready) {
+    const err = await store.db.get("SELECT status, error FROM books WHERE id = ?", bookId)
+    throw new Error(`book ingest did not finish within 25s during memory-verify setup: status=${err?.status} error=${err?.error}`)
+  }
   chunkId = (await store.db.get("SELECT id FROM chunks WHERE book_id = ? LIMIT 1", bookId)).id
-})
+}, 30_000)
 afterAll(() => {
   delete process.env.DIVEEOI_TL_DATA_DIR
   setRuntime(null)

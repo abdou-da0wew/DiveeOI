@@ -332,6 +332,51 @@ describe("HttpApi UI fallback", () => {
     }),
   )
 
+  // Deep links are extension-less client-side routes such as
+  // `/L3RtcA/session/ses_123`. They resolve to index.html, and the response must
+  // be served as HTML — deriving the MIME type from the request path yielded
+  // application/octet-stream, so browsers downloaded the page instead of
+  // rendering the app.
+  it.live("serves embedded UI client-side routes as HTML rather than a download", () =>
+    Effect.gen(function* () {
+      const fs = yield* FSUtil.Service
+      const html = new TextEncoder().encode("<html><body>app</body></html>")
+      const response = yield* serveEmbeddedUIEffect(
+        "/L3RtcA/session/ses_123",
+        fs,
+        { "index.html": html } as Record<string, Uint8Array>,
+      ).pipe(Effect.map(HttpServerResponse.toWeb))
+
+      expect(response.status).toBe(200)
+      const contentType = response.headers.get("content-type") ?? ""
+      expect(contentType).toContain("text/html")
+      expect(contentType).not.toContain("octet-stream")
+      expect(response.headers.get("content-disposition")).toBeNull()
+      expect(yield* responseText(response)).toContain("<html>")
+    }),
+  )
+
+  it.live("serves embedded UI directory deep links as HTML through the filesystem fallback", () =>
+    Effect.gen(function* () {
+      const fs = yield* FSUtil.Service
+      const response = yield* serveEmbeddedUIEffect(
+        "/L3RtcA/session/ses_123",
+        {
+          ...fs,
+          readFile: (path) =>
+            path === "/$bunfs/root/index.html"
+              ? Effect.succeed(new TextEncoder().encode("<html>app</html>"))
+              : Effect.die(`unexpected embedded UI path: ${path}`),
+        },
+        { "index.html": "/$bunfs/root/index.html" },
+      ).pipe(Effect.map(HttpServerResponse.toWeb))
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get("content-type")).toContain("text/html")
+      expect(yield* responseText(response)).toBe("<html>app</html>")
+    }),
+  )
+
   it.live("allows embedded UI terminal wasm and theme preload CSP", () =>
     Effect.gen(function* () {
       const script = 'document.documentElement.dataset.theme = "dark"'

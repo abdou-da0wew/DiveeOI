@@ -66,8 +66,14 @@ export function serveEmbeddedUIEffect(
   embeddedWebUI: Record<string, string | Uint8Array | Buffer>,
 ) {
   const key = requestPath.replace(/^\//, "") || "index.html"
-  const file = embeddedWebUI[key] ?? embeddedWebUI["index.html"] ?? null
+  const requested = embeddedWebUI[key]
+  const file = requested ?? embeddedWebUI["index.html"] ?? null
   if (!file) return Effect.succeed(notFound())
+  // Client-side routes (e.g. `/…/session/<id>`) fall back to index.html. The
+  // content type must follow the file actually served: deriving it from the
+  // request path gave extension-less deep links `application/octet-stream`,
+  // which made browsers download the page instead of rendering the app.
+  const servedAs = requested === undefined ? "index.html" : key
 
   // The embedded UI map can contain either:
   // 1. A string path (dev mode — read from disk via fs.readFile)
@@ -80,7 +86,7 @@ export function serveEmbeddedUIEffect(
   }
   // Compiled binary: serve from the embedded buffer directly
   const body = file instanceof Uint8Array ? file : new Uint8Array(file)
-  return Effect.succeed(embeddedUIResponse(key, body))
+  return Effect.succeed(embeddedUIResponse(servedAs, body))
 }
 
 export function serveUIEffect(

@@ -57,6 +57,40 @@ export default {
         );
       `)
       yield* tx.run(`
+        CREATE TABLE \`auth_refresh_token\` (
+          \`jti\` text PRIMARY KEY,
+          \`user_id\` text NOT NULL,
+          \`expires_at\` integer NOT NULL,
+          \`created_at\` integer NOT NULL,
+          \`revoked_at\` integer,
+          CONSTRAINT \`fk_auth_refresh_token_user_id_user_id_fk\` FOREIGN KEY (\`user_id\`) REFERENCES \`user\`(\`id\`) ON DELETE CASCADE
+        );
+      `)
+      yield* tx.run(`
+        CREATE TABLE \`user\` (
+          \`id\` text PRIMARY KEY,
+          \`email\` text NOT NULL UNIQUE,
+          \`password_hash\` text NOT NULL,
+          \`role\` text DEFAULT 'user' NOT NULL,
+          \`verified\` integer DEFAULT 0 NOT NULL,
+          \`created_at\` integer NOT NULL,
+          \`updated_at\` integer NOT NULL,
+          \`username\` text DEFAULT '' NOT NULL,
+          \`message_count\` integer DEFAULT 0 NOT NULL
+        );
+      `)
+      yield* tx.run(`
+        CREATE TABLE \`verification_token\` (
+          \`id\` text PRIMARY KEY,
+          \`user_id\` text NOT NULL,
+          \`token\` text NOT NULL UNIQUE,
+          \`type\` text NOT NULL,
+          \`expires_at\` integer NOT NULL,
+          \`used\` integer DEFAULT 0 NOT NULL,
+          CONSTRAINT \`fk_verification_token_user_id_user_id_fk\` FOREIGN KEY (\`user_id\`) REFERENCES \`user\`(\`id\`) ON DELETE CASCADE
+        );
+      `)
+      yield* tx.run(`
         CREATE TABLE \`credential\` (
           \`id\` text PRIMARY KEY,
           \`integration_id\` text,
@@ -67,41 +101,6 @@ export default {
           \`active\` integer,
           \`time_created\` integer NOT NULL,
           \`time_updated\` integer NOT NULL
-        );
-      `)
-      // Auth tables are kept in the fresh-install snapshot as well as migrations.
-      // Fresh databases seed the migration journal after schema.up(), so migrations
-      // (including repair_missing_tables) are intentionally not replayed there.
-      yield* tx.run(`
-        CREATE TABLE \`user\` (
-          \`id\` text PRIMARY KEY,
-          \`email\` text NOT NULL UNIQUE,
-          \`password_hash\` text NOT NULL,
-          \`role\` text NOT NULL DEFAULT 'user',
-          \`verified\` integer NOT NULL DEFAULT 0,
-          \`created_at\` integer NOT NULL,
-          \`updated_at\` integer NOT NULL,
-          \`username\` text NOT NULL DEFAULT '',
-          \`message_count\` integer NOT NULL DEFAULT 0
-        );
-      `)
-      yield* tx.run(`
-        CREATE TABLE \`verification_token\` (
-          \`id\` text PRIMARY KEY,
-          \`user_id\` text NOT NULL REFERENCES \`user\`(\`id\`) ON DELETE CASCADE,
-          \`token\` text NOT NULL UNIQUE,
-          \`type\` text NOT NULL,
-          \`expires_at\` integer NOT NULL,
-          \`used\` integer NOT NULL DEFAULT 0
-        );
-      `)
-      yield* tx.run(`
-        CREATE TABLE \`auth_refresh_token\` (
-          \`jti\` text PRIMARY KEY,
-          \`user_id\` text NOT NULL REFERENCES \`user\`(\`id\`) ON DELETE CASCADE,
-          \`expires_at\` integer NOT NULL,
-          \`created_at\` integer NOT NULL,
-          \`revoked_at\` integer
         );
       `)
       yield* tx.run(`
@@ -382,6 +381,8 @@ export default {
           CONSTRAINT \`fk_session_share_session_id_session_id_fk\` FOREIGN KEY (\`session_id\`) REFERENCES \`session\`(\`id\`) ON DELETE CASCADE
         );
       `)
+      yield* tx.run(`CREATE INDEX \`auth_refresh_user_idx\` ON \`auth_refresh_token\` (\`user_id\`,\`revoked_at\`);`)
+      yield* tx.run(`CREATE INDEX \`auth_refresh_expiry_idx\` ON \`auth_refresh_token\` (\`expires_at\`);`)
       yield* tx.run(`CREATE UNIQUE INDEX \`event_aggregate_seq_idx\` ON \`event\` (\`aggregate_id\`,\`seq\`);`)
       yield* tx.run(`CREATE INDEX \`event_aggregate_type_seq_idx\` ON \`event\` (\`aggregate_id\`,\`type\`,\`seq\`);`)
       yield* tx.run(`CREATE UNIQUE INDEX \`permission_project_action_resource_idx\` ON \`permission\` (\`project_id\`,\`action\`,\`resource\`);`)
@@ -405,10 +406,6 @@ export default {
       yield* tx.run(`CREATE INDEX \`session_workspace_idx\` ON \`session\` (\`workspace_id\`);`)
       yield* tx.run(`CREATE INDEX \`session_parent_idx\` ON \`session\` (\`parent_id\`);`)
       yield* tx.run(`CREATE INDEX \`todo_session_idx\` ON \`todo\` (\`session_id\`);`)
-      yield* tx.run(`CREATE INDEX \`idx_user_email\` ON \`user\` (\`email\`);`)
-      yield* tx.run(`CREATE INDEX \`idx_verification_token_token\` ON \`verification_token\` (\`token\`);`)
-      yield* tx.run(`CREATE INDEX \`auth_refresh_user_idx\` ON \`auth_refresh_token\` (\`user_id\`, \`revoked_at\`);`)
-      yield* tx.run(`CREATE INDEX \`auth_refresh_expiry_idx\` ON \`auth_refresh_token\` (\`expires_at\`);`)
     })
   },
 } satisfies Omit<DatabaseMigration.Migration, "id">
