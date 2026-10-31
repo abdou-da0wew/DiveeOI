@@ -69,10 +69,10 @@ export function define<R>(input: { id: ID; effect: Effect.Effect<HookFunctions |
 }
 
 export interface Interface {
-  readonly add: (input: {
+  readonly add: <R>(input: {
     id: ID
-    effect: Effect.Effect<void | HookFunctions, never, Scope.Scope>
-  }) => Effect.Effect<void, never, never>
+    effect: Effect.Effect<void | HookFunctions, never, R | Scope.Scope>
+  }) => Effect.Effect<void, never, Exclude<R, Scope.Scope>>
   readonly remove: (id: ID) => Effect.Effect<void>
   readonly triggerFor: <Name extends keyof Hooks>(
     id: ID,

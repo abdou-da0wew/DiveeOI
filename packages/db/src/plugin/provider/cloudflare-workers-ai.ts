@@ -1,6 +1,8 @@
 import os from "os"
 import { InstallationVersion } from "../../installation/version"
 import { Effect } from "effect"
+import { Credential } from "../../credential"
+import { Integration } from "../../integration"
 import { PluginV2 } from "../../plugin"
 import { ProviderV2 } from "../../provider"
 
@@ -9,11 +11,35 @@ const providerID = ProviderV2.ID.make("cloudflare-workers-ai")
 export const CloudflareWorkersAIPlugin = PluginV2.define({
   id: PluginV2.ID.make("cloudflare-workers-ai"),
   effect: Effect.gen(function* () {
+    const integrations = yield* Integration.Service
+    const credentials = yield* Credential.Service
+
+    const account = Effect.fnUntraced(function* () {
+      const connection = yield* integrations.connection.forIntegration(Integration.ID.make("cloudflare-workers-ai"))
+      if (!connection || connection.type !== "credential") return undefined
+      return yield* credentials.get(connection.id)
+    })
+
     return {
       "catalog.transform": Effect.fn(function* (evt) {
         const item = evt.provider.get(providerID)
         if (!item) return
+        const stored = yield* account()
+        const key = stored?.value.type === "key" ? stored.value : undefined
+        const metadataAccountId = stored?.value.metadata?.accountId
         evt.provider.update(item.provider.id, (provider) => {
+          if (
+            key &&
+            !process.env.CLOUDFLARE_API_KEY &&
+            (typeof provider.request.body.apiKey !== "string" || provider.request.body.apiKey === "")
+          )
+            provider.request.body.apiKey = key.key
+          if (
+            metadataAccountId &&
+            !process.env.CLOUDFLARE_ACCOUNT_ID &&
+            (typeof provider.request.body.accountId !== "string" || provider.request.body.accountId === "")
+          )
+            provider.request.body.accountId = metadataAccountId
           if (provider.api.type !== "aisdk") return
           if (provider.api.url) return
           const accountId = resolveAccountId(provider.request.body)
