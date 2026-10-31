@@ -97,7 +97,7 @@ export const authorizationRouterMiddleware = HttpRouter.middleware<{ handles: un
         const request = yield* HttpServerRequest.HttpServerRequest
         const url = new URL(request.url, "http://localhost")
         if (isPublicUIPath(request.method, url.pathname)) return yield* effect
-        return yield* authorize(effect as Effect.Effect<unknown, unknown, never>, request, config, jwtAuth, true)
+        return (yield* authorize(effect as Effect.Effect<unknown, unknown, never>, request, config, jwtAuth, true)) as HttpServerResponse.HttpServerResponse
       })
   }),
 )

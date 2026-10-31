@@ -104,7 +104,7 @@ export function isSameOriginRequest(input: RequestInfo | URL, origin?: string): 
   return requestOrigin(input, base) === requestOrigin(base, base)
 }
 
-export const authFetch: typeof fetch = async (input, init = {}) => {
+export const authFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> = async (input, init = {}) => {
   const headers = new Headers(input instanceof Request ? input.headers : undefined)
   new Headers(init.headers).forEach((value, key) => headers.set(key, value))
   if (!headers.has("Authorization")) {

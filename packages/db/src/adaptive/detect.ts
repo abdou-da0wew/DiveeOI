@@ -205,7 +205,7 @@ const detectInternal = Effect.fn("Adaptive.detect")(function* () {
     const cgroup = yield* Effect.tryPromise({
       try: readLinuxCgroupLimits,
       catch: () => new Error("Failed to read cgroup limits"),
-    }).pipe(Effect.orElseSucceed(() => ({})))
+    }).pipe(Effect.orElseSucceed(() => ({}) as Awaited<ReturnType<typeof readLinuxCgroupLimits>>))
     const memoryLimitMB = cgroup.memoryLimitBytes ? cgroup.memoryLimitBytes / 1024 / 1024 : undefined
     const cgroupAvailableMB =
       cgroup.memoryAvailableBytes === undefined ? undefined : cgroup.memoryAvailableBytes / 1024 / 1024

@@ -30,7 +30,7 @@ export function createSdkForServer({
     return { Authorization: basicAuthorizationHeader({ username: server.username, password: server.password }) }
   })()
   const baseFetch = config.fetch ?? globalThis.fetch
-  const sessionFetch: typeof fetch = async (input, init) => {
+  const sessionFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> = async (input, init) => {
     const headers = new Headers(input instanceof Request ? input.headers : undefined)
     new Headers(init?.headers).forEach((value, key) => headers.set(key, value))
     // Explicit Basic credentials retain precedence for shared-password servers;

@@ -30,6 +30,7 @@ import { InstanceStore } from "@/project/instance-store"
 import { InstanceBootstrap } from "@/project/bootstrap"
 import { Config } from "@/config/config"
 import {
+  sharedAdaptive,
   AdaptiveResourceService,
   defaultLayer as AdaptiveResourceDefaultLayer,
   node as AdaptiveResourceNode,
@@ -58,7 +59,7 @@ export const layer = Layer.effect(
     const events = yield* EventV2Bridge.Service
     // Captured at construction so the runner does not carry a per-call
     // requirement for the adaptive service.
-    const adaptive = yield* AdaptiveResourceService
+    const adaptive = yield* sharedAdaptive
     // The instance bootstrap reads the global config while it loads; outside a
     // request that service is not in the context, so hand it over explicitly.
     const configService = yield* Config.Service

@@ -1,6 +1,6 @@
 // packages/server/src/dev/monitor.ts
-import { Effect, ManagedRuntime } from "effect"
-import { AdaptiveResourceService, defaultLayer as AdaptiveResourceDefaultLayer } from "@diveeoi/db/adaptive"
+import { Effect, Layer, ManagedRuntime } from "effect"
+import { sharedAdaptive } from "@diveeoi/db/adaptive"
 import type { ResourceProfile } from "@diveeoi/db/adaptive"
 
 export interface MemoryMetrics {
@@ -29,7 +29,7 @@ export interface DevMonitorSnapshot {
 
 export class DevMonitor {
   static #interval: ReturnType<typeof setInterval> | null = null
-  static #runtime: ManagedRuntime.ManagedRuntime<AdaptiveResourceService, never> | null = null
+  static #runtime: ManagedRuntime.ManagedRuntime<never, never> | null = null
   static #lastSnapshot: DevMonitorSnapshot | null = null
 
   static start() {
@@ -42,7 +42,7 @@ export class DevMonitor {
 
     // Own runtime so snapshots can read adaptive profile/targets without
     // depending on the server's layer composition in main.ts.
-    this.#runtime = ManagedRuntime.make(AdaptiveResourceDefaultLayer)
+    this.#runtime = ManagedRuntime.make(Layer.empty)
 
     const check = () => {
       const mem = process.memoryUsage()
@@ -68,7 +68,7 @@ export class DevMonitor {
 
       runtime.runPromise(
         Effect.gen(function* () {
-          const { getCurrentProfile, getCurrentTargets } = yield* AdaptiveResourceService
+          const { getCurrentProfile, getCurrentTargets } = yield* sharedAdaptive
           const [targets, profile] = yield* Effect.all([getCurrentTargets(), getCurrentProfile()])
           return { targets, profile }
         }),

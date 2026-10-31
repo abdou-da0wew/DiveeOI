@@ -14,6 +14,7 @@
 //   - Transformers.js never downloads anything itself
 //   - pooling: 'cls', normalize: true (fixed — changing invalidates vectors)
 
+import { availableParallelism } from "node:os"
 import { Effect, Schema } from "effect"
 
 // ---------------------------------------------------------------------------
@@ -130,11 +131,20 @@ export const init = (modelDir: string, signature: EmbedSignature, options: Embed
     // Map our device option to Transformers.js device.
     const deviceOpt = options.device === "wasm" ? "wasm" : options.device === "cpu" ? "cpu" : undefined
 
+    // Always give ONNX Runtime explicit thread counts. Left unset it tries to pin threads to cores
+    // and logs "pthread_setaffinity_np failed" in containers/VPS cpusets; the threads setting was
+    // also never applied before.
+    const cores = Math.max(1, availableParallelism())
+    const parsedIntra = Number.parseInt(String(options.intraOpThreads), 10)
+    const intraOpNumThreads = Number.isFinite(parsedIntra) && parsedIntra > 0 ? parsedIntra : cores
+    const interOpNumThreads = Math.max(1, Number(options.interOpThreads) || 1)
+
     const pipe = yield* Effect.tryPromise({
       try: () =>
         transformers.pipeline("feature-extraction", signature.repo, {
           dtype: dtypeMap[options.dtype] as never,
           device: deviceOpt as never,
+          session_options: { intraOpNumThreads, interOpNumThreads } as never,
         }) as Promise<Pipeline>,
       catch: (err: unknown) =>
         new EmbedError({

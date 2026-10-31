@@ -1,4 +1,4 @@
-import { Effect, ManagedRuntime, Ref } from "effect"
+import { Effect, Layer, ManagedRuntime, Ref } from "effect"
 import { Features } from "./features"
 import { waitForParentExit } from "./server/restart"
 
@@ -9,7 +9,7 @@ await waitForParentExit()
 // The profiler is a startup feature: its module (and writer fiber) is only
 // loaded when enabled. Actual activation stays gated by DIVEEOI_PROFILER.
 if (Features.flags.profiler) await import("@diveeoi/profiler")
-import { AdaptiveResourceService, defaultLayer as AdaptiveResourceDefaultLayer } from "@diveeoi/db/adaptive"
+import { sharedAdaptive } from "@diveeoi/db/adaptive"
 import { handleCLI } from "./cli/index"
 import { Server } from "./server/server"
 import { DevMonitor } from "./dev/monitor"
@@ -46,7 +46,6 @@ try {
   Effect.runFork(
     taskBootResume().pipe(
       Effect.provide(AgentTaskDefaultLayer),
-      Effect.provide(AdaptiveResourceDefaultLayer),
       Effect.catchCause((cause) => Effect.logWarning("Task boot resume failed", { cause })),
     ),
   )
@@ -76,10 +75,10 @@ try {
   // produces periodic multi-millisecond event-loop stalls for no benefit.
   // Runs in its own runtime so it does not depend on the server's AppLayer
   // lifecycle.
-  const adaptiveRuntime = ManagedRuntime.make(AdaptiveResourceDefaultLayer)
+  const adaptiveRuntime = ManagedRuntime.make(Layer.empty)
   adaptiveRuntime.runFork(
     Effect.gen(function* () {
-      const adaptive = yield* AdaptiveResourceService
+      const adaptive = yield* sharedAdaptive
       let lastProfile: string | undefined
 
       yield* Effect.forever(
