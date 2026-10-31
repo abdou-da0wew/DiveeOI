@@ -86,10 +86,22 @@ export function getBaseUrl(): string {
   return "http://localhost:4097"
 }
 
+/**
+ * The origin the app itself is served from. `"null"` (opaque origins such as
+ * file://, happy-dom, some webview schemes) is not a usable base: new URL(url,
+ * "null") throws. Never trust it — treat it as absent so same-origin
+ * resolution fails closed instead of leaking tokens to arbitrary remotes.
+ */
+function runtimeOrigin(): string | undefined {
+  if (typeof window === "undefined") return undefined
+  const origin = window.location.origin
+  return origin && origin !== "null" ? origin : undefined
+}
+
 /** Resolve a request's origin without treating remote server URLs as app-origin requests. */
 export function requestOrigin(input: RequestInfo | URL, base?: string): string | undefined {
   try {
-    const fallback = base ?? (typeof window !== "undefined" ? window.location.origin : undefined)
+    const fallback = base ?? runtimeOrigin()
     const target = input instanceof Request ? input.url : input instanceof URL ? input.href : String(input)
     return new URL(target, fallback).origin
   } catch {
@@ -99,9 +111,13 @@ export function requestOrigin(input: RequestInfo | URL, base?: string): string |
 
 /** Restrict account Bearer tokens to requests sent to the app's own origin. */
 export function isSameOriginRequest(input: RequestInfo | URL, origin?: string): boolean {
-  const base = origin ?? (typeof window !== "undefined" ? window.location.origin : undefined)
-  if (!base) return false
-  return requestOrigin(input, base) === requestOrigin(base, base)
+  const base = origin ?? runtimeOrigin()
+  if (!base || base === "null") return false
+  const target = requestOrigin(input, base)
+  const home = requestOrigin(base, base)
+  // Fail closed: if either origin could not be resolved, it is not same-origin.
+  if (!target || !home) return false
+  return target === home
 }
 
 export const authFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> = async (input, init = {}) => {
