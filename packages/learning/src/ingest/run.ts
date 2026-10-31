@@ -572,7 +572,13 @@ const runIngest = async (input: RunInput): Promise<void> => {
     const ensure = input.ensureFn ?? (() => Effect.runPromise(ensureEmbedder(input.settings).pipe(Effect.asVoid)))
     const inProcess = input.embedFn ?? ((texts: string[]) => Effect.runPromise(embedBatch(texts)))
     const indexing = (input.settings.indexing ?? {}) as Tree
-    const workerCount = input.embedFn && !input.workerUrl ? 1 : Math.max(1, Number(indexing.workersPerBook ?? 2))
+    // `workersPerBook` = how many batches are in flight at once on ONE shared model session (ONNX
+    // Runtime sessions are thread-safe and already multi-threaded natively): the work is split, the
+    // model is not duplicated. Separate Bun Worker threads (one model copy each) are opt-in only:
+    // DIVEEOI_TL_WORKER_THREADS=1. They crashed Bun with onnxruntime-node on a VPS.
+    const configured = Math.max(1, Number(indexing.workersPerBook ?? 1))
+    const useThreads = process.env.DIVEEOI_TL_WORKER_THREADS === "1" || Boolean(input.workerUrl)
+    const workerCount = useThreads ? configured : 1
 
     // Workers: N Bun Workers each hold their own model copy and embed batches in parallel (plan §7.7).
     // They start loading now, while this thread parses the book.
@@ -687,7 +693,7 @@ const runIngest = async (input: RunInput): Promise<void> => {
       .sort((x, y) => x.text.length - y.text.length)
     const batches: (typeof items)[] = []
     for (let i = 0; i < items.length; i += batchSize) batches.push(items.slice(i, i + batchSize))
-    const concurrency = pool && !poolBroken ? pool.size : 1
+    const concurrency = pool && !poolBroken ? pool.size : configured
     let done = 0
     for (let w = 0; w < batches.length; w += concurrency) {
       await waitForControl(control)

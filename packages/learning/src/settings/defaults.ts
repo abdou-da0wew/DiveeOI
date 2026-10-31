@@ -49,7 +49,7 @@ export const DEFAULTS: SettingsTree = {
   },
 
   indexing: {
-    workersPerBook: 1,
+    workersPerBook: 2,
     maxWorkers: "auto",
     maxConcurrentBooks: 1,
     pauseWhileChatting: true,
