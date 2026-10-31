@@ -44,7 +44,7 @@ export function createSdkForServer({
 
   return createOpencodeClient({
     ...config,
-    fetch: sessionFetch,
+    fetch: sessionFetch as typeof fetch,
     headers: {
       ...(config.headers instanceof Headers ? Object.fromEntries(config.headers.entries()) : config.headers),
       ...auth,
