@@ -203,7 +203,12 @@ const select = (
   // Truncate head to prevent very old context from consuming too much budget
   const HEAD_MAX_TOKENS = Math.max(2000, Math.floor(tokens * 0.25))
 
-  let headText = [...conversation.slice(0, split), splitPrefix].filter(Boolean).join("\n\n")
+  // NOTE: the boundary message at `index` is NOT part of the full head when
+  // splitPrefix/splitSuffix were computed (split = index + 1); using `split`
+  // here would duplicate it. Recent starts at conversation[split]; head is
+  // everything strictly before the boundary plus its (truncated) prefix.
+  const headEnd = splitPrefix === "" && splitSuffix === "" ? split : split - 1
+  let headText = [...conversation.slice(0, headEnd), splitPrefix].filter(Boolean).join("\n\n")
   let headTokens = Token.estimate(headText)
   if (headTokens > HEAD_MAX_TOKENS) {
     const truncatedHead: string[] = []

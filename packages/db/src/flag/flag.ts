@@ -50,10 +50,14 @@ export const Flag = {
   OPENCODE_DISABLE_ADAPTIVE_RESOURCE: truthyWithFallback("DIVEEOI_DISABLE_ADAPTIVE_RESOURCE", "OPENCODE_DISABLE_ADAPTIVE_RESOURCE"),
 
   // Experimental
-  OPENCODE_EXPERIMENTAL_FILEWATCHER: Config.boolean(readEnvWithFallback("DIVEEOI_EXPERIMENTAL_FILEWATCHER", "OPENCODE_EXPERIMENTAL_FILEWATCHER") ?? "").pipe(
+  // Note: Config.boolean takes the config NAME, not a pre-resolved value, and is resolved
+  // lazily against the ambient ConfigProvider so tests can override it via a provider layer.
+  OPENCODE_EXPERIMENTAL_FILEWATCHER: Config.boolean("DIVEEOI_EXPERIMENTAL_FILEWATCHER").pipe(
+    Config.orElse(() => Config.boolean("OPENCODE_EXPERIMENTAL_FILEWATCHER")),
     Config.withDefault(false),
   ),
-  OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: Config.boolean(readEnvWithFallback("DIVEEOI_EXPERIMENTAL_DISABLE_FILEWATCHER", "OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER") ?? "").pipe(
+  OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: Config.boolean("DIVEEOI_EXPERIMENTAL_DISABLE_FILEWATCHER").pipe(
+    Config.orElse(() => Config.boolean("OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER")),
     Config.withDefault(false),
   ),
   OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT:
