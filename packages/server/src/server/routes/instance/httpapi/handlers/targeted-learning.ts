@@ -416,7 +416,7 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
       }) {
         const cfg = yield* configSvc.get().pipe(Effect.orElseSucceed(() => ({}) as Record<string, unknown>))
         const turn = yield* Effect.promise(() => import("@diveeoi/learning/session/turn"))
-        return yield* Effect.promise(() =>
+        const result = yield* Effect.promise(() =>
           turn.inspectRetrieval({
             query: ctx.payload.query,
             bookIds: ctx.payload.bookIds ? [...ctx.payload.bookIds] : undefined,
@@ -424,6 +424,8 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
             settings: (cfg as Record<string, unknown>).targetedLearning as never,
           }),
         )
+        // Schema.Unknown requires plain JSON: drop `undefined` fields.
+        return JSON.parse(JSON.stringify(result)) as unknown
       })
 
       const listMemory = Effect.fn("TargetedLearning.listMemory")(function* () {
