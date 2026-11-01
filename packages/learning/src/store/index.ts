@@ -14,7 +14,7 @@
 // optional Layer at the top level (see service.ts / node.ts).
 
 import path from "node:path"
-import { existsSync, mkdirSync, renameSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, renameSync, unlinkSync } from "node:fs"
 import { Context, Effect, Layer, Schema } from "effect"
 import { Global } from "@diveeoi/db/global"
 import { SCHEMA_SQL } from "./schema"
@@ -90,10 +90,12 @@ const SCHEMA_VERSION = 1
 const quickCheck = (db: BooksDbHandle): Effect.Effect<boolean, never> =>
   Effect.gen(function* () {
     const result = yield* Effect.tryPromise({
-      try: () => db.all<{ integrity_check: string }>("PRAGMA quick_check"),
+      try: () => db.all<Record<string, string>>("PRAGMA quick_check"),
       catch: () => new Error("quick_check failed"),
-    }).pipe(Effect.orElseSucceed(() => [] as { integrity_check: string }[]))
-    return result.length === 1 && result[0]?.integrity_check === "ok"
+    }).pipe(Effect.orElseSucceed(() => [] as Record<string, string>[]))
+    // The result column is named `quick_check` (not `integrity_check`); read the first value.
+    // Reading the wrong column name made EVERY start look corrupt and moved the library aside.
+    return result.length === 1 && Object.values(result[0] ?? {})[0] === "ok"
   })
 
 const initSchema = (db: BooksDbHandle): Effect.Effect<void, unknown> =>
@@ -108,6 +110,11 @@ const initSchema = (db: BooksDbHandle): Effect.Effect<void, unknown> =>
         await db.run("PRAGMA synchronous = NORMAL")
         await db.run("PRAGMA foreign_keys = ON")
         await db.run("PRAGMA busy_timeout = 5000")
+        // Low-I/O, low-RAM tuning: small page cache, temp tables in memory, bounded WAL file.
+        await db.run("PRAGMA cache_size = -16384") // 16 MB
+        await db.run("PRAGMA temp_store = MEMORY")
+        await db.run("PRAGMA wal_autocheckpoint = 1000")
+        await db.run("PRAGMA journal_size_limit = 67108864") // truncate WAL back to <= 64 MB
       },
       catch: (err) => err,
     })
@@ -195,6 +202,15 @@ const openBooksDb = (dbPath: string): Effect.Effect<BooksStoreInterface, unknown
       const corrupt = `${dbPath}.corrupt-${Date.now()}`
       try {
         renameSync(dbPath, corrupt)
+      try {
+        // Keep the 3 newest quarantined copies; older ones only waste disk.
+        const dir = path.dirname(dbPath)
+        const base = `${path.basename(dbPath)}.corrupt-`
+        const old = readdirSync(dir).filter((f) => f.startsWith(base)).sort().slice(0, -3)
+        for (const f of old) unlinkSync(path.join(dir, f))
+      } catch {
+        // best effort
+      }
       } catch {
         // best effort
       }

@@ -144,7 +144,9 @@ export const init = (modelDir: string, signature: EmbedSignature, options: Embed
         transformers.pipeline("feature-extraction", signature.repo, {
           dtype: dtypeMap[options.dtype] as never,
           device: deviceOpt as never,
-          session_options: { intraOpNumThreads, interOpNumThreads } as never,
+          // Arena/mem-pattern off: batches have different shapes every call and the arena otherwise
+          // keeps the largest allocation forever (RSS grew to ~6 GB on the VDS).
+          session_options: { intraOpNumThreads, interOpNumThreads, enableCpuMemArena: false, enableMemPattern: false } as never,
         }) as Promise<Pipeline>,
       catch: (err: unknown) =>
         new EmbedError({

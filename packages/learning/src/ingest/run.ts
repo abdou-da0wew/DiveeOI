@@ -704,21 +704,16 @@ const runIngest = async (input: RunInput): Promise<void> => {
         const batch = wave[k]!
         const vectors = results[k]!
         if (vectors.length !== batch.length) throw new Error(`embedder returned ${vectors.length} vectors for ${batch.length} passages`)
-        for (let j = 0; j < batch.length; j++) {
-          const c = batch[j]!.c
-          await db.run(
-            "INSERT INTO chunks (id, book_id, section_id, ord, page, text, text_norm, token_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            c.id,
-            bookId,
-            c.sectionId,
-            c.ord,
-            c.page ?? null,
-            c.text,
-            c.textNorm,
-            c.tokenCount,
-          )
-          await db.run("INSERT INTO chunk_vecs (chunk_id, vec) VALUES (?, ?)", c.id, toBase64(vectors[j]!))
-        }
+        // One statement per table per batch (instead of two per chunk): far fewer journal writes.
+        const rows = batch.map((b) => b.c)
+        await db.run(
+          `INSERT INTO chunks (id, book_id, section_id, ord, page, text, text_norm, token_count) VALUES ${rows.map(() => "(?, ?, ?, ?, ?, ?, ?, ?)").join(",")}`,
+          ...rows.flatMap((c) => [c.id, bookId, c.sectionId, c.ord, c.page ?? null, c.text, c.textNorm, c.tokenCount]),
+        )
+        await db.run(
+          `INSERT INTO chunk_vecs (chunk_id, vec) VALUES ${rows.map(() => "(?, ?)").join(",")}`,
+          ...rows.flatMap((c, j) => [c.id, toBase64(vectors[j]!)]),
+        )
         done += batch.length
       }
       await setStage("embedding", "embed", 15 + Math.floor((done / total) * 80))

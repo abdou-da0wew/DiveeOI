@@ -87,6 +87,9 @@ const studentDb = (): Database | null => {
     mkdirSync(runtime.dataDir, { recursive: true })
     const db = new Database(file, { create: true })
     db.exec("PRAGMA journal_mode = WAL")
+    db.exec("PRAGMA synchronous = NORMAL")
+    db.exec("PRAGMA busy_timeout = 5000")
+    db.exec("PRAGMA temp_store = MEMORY")
     db.exec(`
       CREATE TABLE IF NOT EXISTS student_profiles (id TEXT PRIMARY KEY, name TEXT, locale TEXT, created_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS student_memories (
