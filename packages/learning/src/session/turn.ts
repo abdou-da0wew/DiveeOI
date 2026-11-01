@@ -226,7 +226,7 @@ const prepareTargetedTurnImpl = async (input: {
         recentUserTurns: input.recentUserTurns,
         gate: {
           enabled: gate.enabled !== false,
-          minDenseScore: Number(gate.minDenseScore ?? 0.35),
+          minDenseScore: Number(gate.minDenseScore ?? 0.5),
           minFusedScore: Number(gate.minFusedScore ?? 0.1),
           allowSmallTalk: gate.allowSmallTalk !== false,
           language: lang,
@@ -305,7 +305,7 @@ const inspectRetrievalImpl = async (input: {
   const gate = (settings.gate ?? {}) as Tree
   const ret = (settings.retrieval ?? {}) as Tree
   const lang: "ar" | "en" = isArabic(input.query) ? "ar" : "en"
-  const thresholds = { minDenseScore: Number(gate.minDenseScore ?? 0.35), minFusedScore: Number(gate.minFusedScore ?? 0.1) }
+  const thresholds = { minDenseScore: Number(gate.minDenseScore ?? 0.5), minFusedScore: Number(gate.minFusedScore ?? 0.1) }
   const empty = (decision: string, note: string): InspectResult => ({
     decision,
     lang,

@@ -82,7 +82,7 @@ export const DEFAULTS: SettingsTree = {
 
   gate: {
     enabled: true,
-    minDenseScore: 0.35,
+    minDenseScore: 0.5,
     minFusedScore: 0.1,
     allowSmallTalk: true,
     refusalMessages: {

@@ -183,7 +183,7 @@ const main = async () => {
   // 3. Scores ---------------------------------------------------------------------------------
   log("\n-- Gate scores (real bge-m3) --")
   const settings = (await api("/settings")).body.values
-  const current = Number(settings?.gate?.minDenseScore ?? 0.35)
+  const current = Number(settings?.gate?.minDenseScore ?? 0.5)
   const rows: { q: Q; dense: number; decision: string }[] = []
   for (const q of QUESTIONS) {
     const r = await api("/search", { method: "POST", body: JSON.stringify({ query: q.q, bookIds }) })
@@ -200,8 +200,12 @@ const main = async () => {
   // 4. Calibration ----------------------------------------------------------------------------
   const inLow = pct(inScores, 5)
   const offHigh = pct(offScores, 95)
-  const separated = inLow > offHigh
-  const recommended = Math.round(((inLow + offHigh) / 2) * 100) / 100
+  const separated = Math.min(...inScores) > Math.max(...offScores) || inLow > offHigh
+  // When the groups are fully separated, sit halfway between the weakest in-book score and the
+  // strongest off-topic score; otherwise fall back to the p5/p95 midpoint.
+  const inMin = Math.min(...inScores)
+  const offMax = Math.max(...offScores)
+  const recommended = Math.round(((inMin > offMax ? (inMin + offMax) / 2 : (inLow + offHigh) / 2)) * 100) / 100
   log(`\nin-book   dense: min ${Math.min(...inScores).toFixed(3)}  p5 ${inLow.toFixed(3)}  median ${pct(inScores, 50).toFixed(3)}`)
   log(`off-topic dense: median ${pct(offScores, 50).toFixed(3)}  p95 ${offHigh.toFixed(3)}  max ${Math.max(...offScores).toFixed(3)}`)
   log(`current threshold ${current}; recommended ${recommended}${separated ? "" : "  (the two groups overlap: raise quality, not the threshold)"}`)

@@ -75,7 +75,7 @@ export const BookSearchTool = Tool.define(
               recentUserTurns: [],
               gate: {
                 enabled: true,
-                minDenseScore: 0.35,
+                minDenseScore: 0.5,
                 minFusedScore: 0.1,
                 allowSmallTalk: true,
                 language: "en",

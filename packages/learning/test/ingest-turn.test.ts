@@ -115,7 +115,7 @@ test("ingest → mention → gate → grounded context, off-topic refused withou
   expect(meta?.bookIds).toEqual([r.bookId])
   expect(await attachBookMentions("no mention here", undefined)).toBeNull()
 
-  const seams = { ensureFn: async () => true, embedFn: async (q: string) => hashEmbed(q) }
+  const seams = { ensureFn: async () => true, embedFn: async (q: string) => hashEmbed(q), settings: { gate: { minDenseScore: 0.3 } } as never } // stand-in embedder scores lower than bge-m3
   const onTopic = await prepareTargetedTurn({ meta: meta!, query: "how do green plants convert light energy into chemical energy by photosynthesis", recentUserTurns: [], ...seams })
   expect(onTopic.refusal).toBeUndefined()
   expect(onTopic.system.join("\n")).toContain("<book_context>")

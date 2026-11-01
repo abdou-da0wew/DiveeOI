@@ -534,7 +534,7 @@ export const GateSettings = Schema.Struct({
     min: 0,
     max: 1,
     applies: "live",
-    default: 0.35,
+    default: 0.5,
     advanced: true,
   }),
   minFusedScore: Number_({
