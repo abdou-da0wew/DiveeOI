@@ -149,3 +149,11 @@ Built `packages/learning` skeleton, settings schema, download/state-machine, sto
 
 ## 2026-10-30 (later) — shared-session concurrency
 - Pushed to dev. `workersPerBook` now means concurrent batches on one shared embedder (no model duplication); Worker threads opt-in only. New test `shared-session.test.ts` (3 in flight, each passage embedded once). learning 179 pass / 1 expected (live model); learning tsc clean. Not run against real ORT.
+
+## 2026-11-01 — VDS verification (real bge-m3) + fixes (commits 8f7bb73, d2fb262, 3de4231)
+- Server binds from env: `HOST` (default 0.0.0.0) and `PORT` (default 4097); if the port is taken it scans upward (`listenWithFallback`). The VDS shell env has `PORT=3333 HOST=127.0.0.1` (the production `diveeoi.service` runs behind cloudflared on loopback), which is why a server started from that shell bound 127.0.0.1:3334. With `PORT=4097 HOST=0.0.0.0` it binds `0.0.0.0:4097` and answers on the public IP (401 without credentials, 200 with Basic auth).
+- **Critical bug fixed:** `PRAGMA quick_check` returns column `quick_check`, code read `integrity_check` → every start treated a healthy `books.db` as corrupt and moved it aside (45 `.corrupt-*` copies on the VDS; library emptied on every restart). Test `store-reopen.test.ts` (fails on old code). Now only the 3 newest quarantined copies are kept.
+- Inspector `/targeted-learning/search` failed to encode (undefined fields) → plain JSON.
+- **Real-model run on VDS** (`scripts/tl-live-check.ts --skip-setup`): setup was already Ready; EN+AR test books indexed; in-book dense scores 0.525–0.76, off-topic 0.29–0.49, small talk 0.39–0.41. Old default 0.35 let 5 off-topic questions pass; default `gate.minDenseScore` is now 0.50 → 31/31 checks pass. Calibrated on two tiny books; re-run on real books. Benchmark: 15.2 chunks/s (8 cores, int8, batch 16). Server RSS: ~1.1 GB idle, ~2.3 GB after model load/indexing (peak ~3.0 GB).
+- Resource tuning added: ORT arena/mem-pattern off, SQLite cache 16 MB / temp in memory / WAL ≤ 64 MB, multi-row inserts per batch. Effect on peak RSS not demonstrated (peak ≈ same as before); disk writes reduced by construction, not measured.
+- Incident: `pkill -f "src/main.ts"` on the VDS also killed `bun apps/bot-gateway/src/main.ts`; pm2 restarted it within seconds. Do not use broad pkill patterns on that host; use PID files.
