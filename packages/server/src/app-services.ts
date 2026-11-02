@@ -65,6 +65,7 @@ import { Truncate } from "@/tool/truncate"
 import { Worktree } from "@/worktree"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Database } from "@diveeoi/db/database/database"
+import { Global } from "@diveeoi/db/global"
 import { EventV2 } from "@diveeoi/db/event"
 import { ModelsDev } from "@diveeoi/db/models-dev"
 import { Npm } from "@diveeoi/db/npm"
@@ -99,6 +100,7 @@ const learningNode = Features.flags.learning ? enabledLearningNode : disabledLea
  * The application services, in the order they are wired into the HTTP application graph.
  */
 export const serviceNodes = [
+  Global.node,
   Npm.node,
   FSUtil.node,
   Database.node,

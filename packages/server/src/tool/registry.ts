@@ -16,6 +16,7 @@ import { ReadTool } from "./read"
 import { TaskTool } from "./task"
 import { TaskControlTool, TaskCreateTool, TaskListTool, TaskLogsTool, TaskStatusTool } from "./tasks"
 import { Database } from "@diveeoi/db/database/database"
+import { Global } from "@diveeoi/db/global"
 import { TodoWriteTool } from "./todo"
 import { WebFetchTool } from "./webfetch"
 import { WriteTool } from "./write"
@@ -700,6 +701,7 @@ function isJsonSchemaObject(value: unknown): value is Record<string, unknown> {
 const adaptiveNode = LayerNode.make(AdaptiveResourceDefaultLayer, [])
 
 export const node = LayerNode.make(layer, [
+  Global.node,
   Config.node,
   // The background task tools read and write tasks.
   AgentTask.node,
