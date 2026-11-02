@@ -1746,6 +1746,7 @@ export const layer = Layer.effect(
           1,
           composer?.context_headroom_ratio ?? Composer.DEFAULT_OPTIONS.contextHeadroomRatio ?? 1.2,
         ),
+        allowUnmeasuredRanking: composer?.allow_unmeasured_ranking ?? false,
       } satisfies Composer.Options
     })
 

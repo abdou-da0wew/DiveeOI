@@ -16,7 +16,8 @@
 //   1. Configured providers only; provider/model quota failures are learned and cooled down.
 //   2. Free models only, with tool calling enabled and live availability metadata.
 //   3. A model must fit the active session's existing context usage.
-//   4. Measured Artificial Analysis quality/performance, live success history and capabilities.
+//   4. Artificial Analysis measurements where available; otherwise local estimates only after
+//      explicit user consent, with successful-turn history as a bounded reliability signal.
 //
 // A model that errors, or answers with nothing, is not used again for a day. The ban
 // outlives the process: it is written to the database and read back at boot, so a restart
@@ -50,6 +51,8 @@ export interface Options {
   readonly knownFreeModels?: ReadonlySet<string>
   /** Latest measured input-token usage for the active session, if known. */
   readonly contextUsageTokens?: number
+  /** Explicit user consent to use catalog heuristics when no AA measurement exists. */
+  readonly allowUnmeasuredRanking?: boolean
 }
 
 export const DEFAULT_OPTIONS: Options = {
@@ -57,6 +60,7 @@ export const DEFAULT_OPTIONS: Options = {
   minTier: 3,
   useAllProviders: true,
   contextHeadroomRatio: 1.2,
+  allowUnmeasuredRanking: false,
 }
 
 /** A resolved route: the concrete model a composer turn is actually sent to. */
@@ -220,19 +224,18 @@ export function isBanned(providerID: string, modelID: string) {
 /**
  * How much evidence there is that a model works, 0 to 100.
  *
- * A model that answered a turn minutes ago is the one the user is actually getting
- * answers from; a model that last worked days ago is stale evidence; a model that never
- * answered is no evidence at all.
+ * A recent successful turn is useful evidence, but one lucky response is not enough to
+ * certify a model. Confidence grows with repeated successes and decays with age.
  */
 export function workingScore(providerID: string, modelID: string) {
   const record = successes.get(key(providerID, modelID))
   if (!record) return 0
-  const age = Date.now() - record.lastAt
-  if (age <= 60 * 60 * 1000) return 100
-  if (age <= 6 * 60 * 60 * 1000) return 70
-  if (age <= BAN_MS) return 40
-  if (age <= 7 * BAN_MS) return 10
-  return 0
+  const age = Math.max(0, Date.now() - record.lastAt)
+  const freshness =
+    age <= 60 * 60 * 1000 ? 1 : age <= 6 * 60 * 60 * 1000 ? 0.85 : age <= BAN_MS ? 0.65 : age <= 7 * BAN_MS ? 0.4 : 0
+  if (freshness === 0) return 0
+  const confidence = Math.min(1, Math.log2(record.count + 1) / Math.log2(9))
+  return Math.round(confidence * freshness * 100)
 }
 
 /** Free (zero-price) model that can drive an agent loop. */
@@ -285,29 +288,33 @@ function candidates(providers: Record<ProviderV2.ID, Info>, options: Options): C
       if (!usable(model)) continue
       if (options.knownFreeModels && !options.knownFreeModels.has(key(String(providerID), String(model.id)))) continue
       if (!ProviderFreeTier.isRoutable(String(providerID), String(model.id))) continue
-      const baseQuality = ComposerQuality.classify(model, options.preferred)
       const measured = ArtificialAnalysis.scoreFor(model)
+      // Missing measurements are never silently presented as benchmark-backed rankings.
+      // The user must explicitly enable the lower-confidence local estimate in Models settings.
+      if (!measured && !(options.allowUnmeasuredRanking ?? false)) continue
+
+      const baseQuality = ComposerQuality.classify(model, options.preferred)
       const working = workingScore(String(providerID), String(model.id))
       const context = model.limit?.context ?? 0
-      const qualityScore = measured ? baseQuality.score * 0.35 + measured.score * 0.65 : baseQuality.score
-      // An Artificial Analysis measurement is the quality gate when available. Heuristic
-      // family/capability scoring helps break ties, but cannot promote a low benchmark score
-      // over the configured minimum tier.
-      const tier = measured ? measured.score / 20 : baseQuality.tier
+      const qualityScore = measured ? baseQuality.score * 0.25 + measured.score * 0.75 : baseQuality.score
+      // Keep the catalog estimate as a small stabilizer around measured results. For an
+      // unmeasured model, the local tier is the estimate and is labelled as such.
+      const tier = measured ? (measured.score / 20) * 0.8 + baseQuality.tier * 0.2 : baseQuality.tier
       const quality = {
         ...baseQuality,
         tier: Math.max(0, Math.min(5, tier)),
         score: Math.round(qualityScore),
         reasons: measured
           ? [...baseQuality.reasons, `Artificial Analysis ${measured.score}/100 (${measured.slug})`]
-          : baseQuality.reasons,
+          : [...baseQuality.reasons, "local catalog heuristic; no Artificial Analysis measurement"],
       }
       out.push({
         providerID,
         modelID: model.id,
         model,
         quality,
-        score: qualityScore + working / 10,
+        // Successful history is a bounded tie-breaker, never a reason to ignore a stronger model.
+        score: qualityScore + Math.min(8, working * 0.08),
         working,
         context,
         analyticsScore: measured?.score,
@@ -328,12 +335,11 @@ function candidates(providers: Record<ProviderV2.ID, Info>, options: Options): C
   return out.sort((a, b) => {
     // The user's similarity list outranks everything else, including reachability.
     if (a.preferred !== b.preferred) return a.preferred ? -1 : 1
-    // A model that actually answers comes before a model that only looks good in the
-    // catalog. The free tier refuses models for reasons the catalog never shows, so
-    // "it worked ten minutes ago" is worth more than "it is the biggest model".
-    if (a.working !== b.working) return b.working - a.working
+    // Quality leads. Recent successful turns provide a bounded reliability boost rather
+    // than permanently locking Composer to the first model that happened to work.
     if (a.quality.tier !== b.quality.tier) return b.quality.tier - a.quality.tier
     if (a.score !== b.score) return b.score - a.score
+    if (a.working !== b.working) return b.working - a.working
     // Between two models of the same quality, the one that holds more of the conversation
     // wins: a bigger window means fewer compactions and fewer lost turns.
     if (a.context !== b.context) return b.context - a.context
@@ -363,11 +369,9 @@ export function select(
   )
   if (qualified.length === 0) return undefined
 
-  // Prefer proven models when at least one context-compatible model has completed a real
-  // turn in the last week. On a fresh installation, the highest-scoring candidate gets the
-  // first attempt and establishes the health history.
-  const verified = qualified.filter((candidate) => candidate.working > 0)
-  return (verified.length > 0 ? verified : qualified)[0]
+  // The candidate list already incorporates a bounded success-history boost. Keep the
+  // quality-first order so a newly available stronger model can replace an older known-good one.
+  return qualified[0]
 }
 
 /**

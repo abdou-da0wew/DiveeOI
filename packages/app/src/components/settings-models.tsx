@@ -170,7 +170,8 @@ const SettingsModelsContent: Component = () => {
           <div class="flex flex-col gap-1">
             <h3 class="text-14-medium text-text-strong">DiveeComposer</h3>
             <p class="text-13-regular text-text-weak">
-              Automatically routes to free, reachable models using live provider metadata and measurements from{" "}
+              Automatically routes to free, reachable models using provider metadata and, when available, measurements
+              from{" "}
               <a
                 href="https://artificialanalysis.ai/"
                 target="_blank"
@@ -200,6 +201,32 @@ const SettingsModelsContent: Component = () => {
               </Switch>
             </div>
           </SettingsList>
+          <SettingsList>
+            <div class="flex items-center justify-between gap-4 py-3">
+              <div class="min-w-0">
+                <span class="text-14-medium text-text-strong block">
+                  Allow local ranking without Artificial Analysis
+                </span>
+                <span class="text-13-regular text-text-weak block">
+                  By enabling this, you acknowledge that Composer will estimate model quality from catalog metadata,
+                  model-family and variant hints, capabilities, context limits, release dates, and successful turns when
+                  no benchmark measurement is available. These estimates can be less accurate and answers may be weaker
+                  or less consistent than benchmark-backed selection.
+                </span>
+              </div>
+              <Switch
+                checked={composer().allow_unmeasured_ranking ?? false}
+                onChange={(checked) => updateComposer({ allow_unmeasured_ranking: checked })}
+                hideLabel
+              >
+                Allow local ranking without Artificial Analysis
+              </Switch>
+            </div>
+          </SettingsList>
+          <p class="text-12-regular text-text-weak">
+            The Artificial Analysis key is optional. Without matching measurements, Composer will only use local
+            catalog-based estimates when the acknowledgement above is enabled.
+          </p>
           <div class="flex flex-col gap-2">
             <div class="flex items-center justify-between gap-3">
               <span class="text-14-medium text-text-strong">Artificial Analysis API key</span>

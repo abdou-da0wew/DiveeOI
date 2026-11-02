@@ -292,6 +292,10 @@ export const Info = Schema.Struct({
             description:
               "Preferred context-window headroom over the latest session input-token usage. Must be greater than or equal to 1. Default: 1.2.",
           }),
+          allow_unmeasured_ranking: Schema.optional(Schema.Boolean).annotate({
+            description:
+              "Explicitly allow catalog-based heuristic rankings for free models without an Artificial Analysis measurement. These estimates can be less accurate than independent benchmark data. Default: false.",
+          }),
           artificial_analysis_api_key_env: Schema.optional(Schema.String).annotate({
             description:
               "Environment variable containing an Artificial Analysis API key. Defaults to ARTIFICIAL_ANALYSIS_API_KEY. The key entered in Settings is encrypted separately and is never stored in this config file.",

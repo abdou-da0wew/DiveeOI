@@ -32,7 +32,9 @@ const model = (input: {
 describe("ComposerQuality", () => {
   it("ranks a frontier family above a small model", () => {
     const strong = ComposerQuality.classify(model({ id: "deepseek-v4.1-flash-free", name: "DeepSeek V4.1 Flash Free" }))
-    const weak = ComposerQuality.classify(model({ id: "nemotron-3.5-lightning-free", name: "Nemotron 3.5 Lightning Free" }))
+    const weak = ComposerQuality.classify(
+      model({ id: "nemotron-3.5-lightning-free", name: "Nemotron 3.5 Lightning Free" }),
+    )
     expect(strong.tier).toBeGreaterThan(weak.tier)
     expect(strong.score).toBeGreaterThan(weak.score)
   })
@@ -73,9 +75,35 @@ describe("ComposerQuality", () => {
     expect(ComposerQuality.matches(model_, "glm-5*")).toBe(false)
   })
 
+  it("uses capability and practical token limits to separate otherwise similar models", () => {
+    const compact = ComposerQuality.classify(
+      model({
+        id: "DeepSeek V4.1 Base",
+        reasoning: false,
+        context: 32_000,
+        output: 8_000,
+      }),
+    )
+    const capable = ComposerQuality.classify(
+      model({
+        id: "DeepSeek V4.1 Base",
+        reasoning: true,
+        image: true,
+        context: 256_000,
+        output: 64_000,
+      }),
+    )
+    expect(capable.tier).toBe(compact.tier)
+    expect(capable.score).toBeGreaterThan(compact.score)
+    expect(capable.reasons).toContain("vision input")
+    expect(capable.reasons).toContain("context 256k")
+  })
+
   it("sorts by tier first, then score", () => {
     const a = ComposerQuality.classify(model({ id: "glm-5.3-flash-free", name: "GLM-5.3 Flash Free" }))
-    const b = ComposerQuality.classify(model({ id: "nemotron-3.5-lightning-free", name: "Nemotron 3.5 Lightning Free" }))
+    const b = ComposerQuality.classify(
+      model({ id: "nemotron-3.5-lightning-free", name: "Nemotron 3.5 Lightning Free" }),
+    )
     expect(ComposerQuality.compareQuality(a, b)).toBeLessThan(0)
   })
 })

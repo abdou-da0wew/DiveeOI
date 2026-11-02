@@ -2232,6 +2232,7 @@ export type Config = {
       min_tier?: number
       use_all_providers?: boolean
       context_headroom_ratio?: number
+      allow_unmeasured_ranking?: boolean
       artificial_analysis_api_key_env?: string
     }
   }

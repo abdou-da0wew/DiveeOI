@@ -65,8 +65,19 @@ const providers = () => ({
 })
 
 describe("DiveeComposer", () => {
+  it("requires explicit consent before using local estimates without Artificial Analysis", () => {
+    // The fixture pool intentionally has no Artificial Analysis measurements.
+    expect(Composer.select(providers())).toBeUndefined()
+    const selected = Composer.select(providers(), {
+      ...Composer.DEFAULT_OPTIONS,
+      allowUnmeasuredRanking: true,
+    })
+    expect(selected).toBeDefined()
+    expect(selected?.quality.reasons).toContain("local catalog heuristic; no Artificial Analysis measurement")
+  })
+
   it("routes to the best free model and mirrors its capabilities", () => {
-    const info = Composer.build(providers())
+    const info = Composer.build(providers(), { ...Composer.DEFAULT_OPTIONS, allowUnmeasuredRanking: true })
     expect(info?.id).toBe(Composer.PROVIDER_ID)
     expect(info?.name).toBe("Divee")
     const resolved = info?.models[Composer.MODEL_ID]
@@ -87,7 +98,11 @@ describe("DiveeComposer", () => {
   })
 
   it("requires the configured minimum quality tier instead of choosing a weak fallback", () => {
-    const selected = Composer.select(providers(), { ...Composer.DEFAULT_OPTIONS, minTier: 5 })
+    const selected = Composer.select(providers(), {
+      ...Composer.DEFAULT_OPTIONS,
+      allowUnmeasuredRanking: true,
+      minTier: 5,
+    })
     expect(selected).toBeUndefined()
   })
 
@@ -99,28 +114,32 @@ describe("DiveeComposer", () => {
     }
     const candidate = priced[ProviderV2.ID.make("opencode")].models["Cache Priced Free Model"]
     candidate.cost.cache.read = 0.1
-    expect(Composer.select(priced, { ...Composer.DEFAULT_OPTIONS, minTier: 0 })).toBeUndefined()
+    expect(
+      Composer.select(priced, { ...Composer.DEFAULT_OPTIONS, allowUnmeasuredRanking: true, minTier: 0 }),
+    ).toBeUndefined()
     candidate.cost.cache.read = 0
     candidate.cost.experimentalOver200K = {
       input: 0.1,
       output: 0,
       cache: { read: 0, write: 0 },
     }
-    expect(Composer.select(priced, { ...Composer.DEFAULT_OPTIONS, minTier: 0 })).toBeUndefined()
+    expect(
+      Composer.select(priced, { ...Composer.DEFAULT_OPTIONS, allowUnmeasuredRanking: true, minTier: 0 }),
+    ).toBeUndefined()
   })
 
   it("never offers a paid model", () => {
-    const selected = Composer.select(providers())
+    const selected = Composer.select(providers(), { ...Composer.DEFAULT_OPTIONS, allowUnmeasuredRanking: true })
     expect(String(selected?.modelID)).not.toBe("Paid Model")
   })
 
   it("honours the user's similarity list", () => {
-    const selected = Composer.select(providers(), { preferred: ["mimo-*"], minTier: 0 })
+    const selected = Composer.select(providers(), { preferred: ["mimo-*"], minTier: 0, allowUnmeasuredRanking: true })
     expect(String(selected?.modelID)).toBe("MiMo-V2.6-Flash Free")
   })
 
   it("is the first provider in the list", () => {
-    const merged = Composer.withProvider(providers())
+    const merged = Composer.withProvider(providers(), { ...Composer.DEFAULT_OPTIONS, allowUnmeasuredRanking: true })
     expect(Object.keys(merged)[0]).toBe(Composer.PROVIDER_ID)
     // Free models stay selectable exactly as before.
     expect(Object.keys(merged[ProviderV2.ID.make("opencode")].models)).toContain("DeepSeek V4.1 Flash Free")
@@ -129,7 +148,7 @@ describe("DiveeComposer", () => {
   it("skips a model that failed for a day", () => {
     Composer.reset()
     Composer.recordFailure("opencode", "DeepSeek V4.1 Flash Free")
-    const selected = Composer.select(providers())
+    const selected = Composer.select(providers(), { ...Composer.DEFAULT_OPTIONS, allowUnmeasuredRanking: true })
     expect(String(selected?.modelID)).not.toBe("DeepSeek V4.1 Flash Free")
     // The ban lasts a day, not a minute.
     expect(Composer.isBanned("opencode", "DeepSeek V4.1 Flash Free")).toBe(true)
@@ -147,7 +166,7 @@ describe("DiveeComposer", () => {
     Composer.reset()
   })
 
-  it("does not route to unverified models once a working model is known", () => {
+  it("does not freeze selection to the first model that completed a turn", () => {
     Composer.reset()
     const pool = {
       [ProviderV2.ID.make("opencode")]: provider("opencode", [
@@ -156,17 +175,23 @@ describe("DiveeComposer", () => {
       ]),
     }
     Composer.recordSuccess("opencode", "Verified Model")
-    const selected = Composer.select(pool, { ...Composer.DEFAULT_OPTIONS, minTier: 0 })
-    expect(String(selected?.modelID)).toBe("Verified Model")
+    const selected = Composer.select(pool, { ...Composer.DEFAULT_OPTIONS, allowUnmeasuredRanking: true, minTier: 0 })
+    expect(String(selected?.modelID)).toBe("Unverified Flagship Model")
     Composer.reset()
   })
 
-  it("prefers a model that actually works", () => {
+  it("uses successful-turn evidence as a reliability tie-breaker", () => {
     Composer.reset()
-    // The MiMo model measured better on paper, but the DeepSeek one answered a turn.
+    const pool = {
+      [ProviderV2.ID.make("opencode")]: provider("opencode", [
+        model({ id: "DeepSeek V4.1 Flash Free", providerID: "opencode" }),
+        model({ id: "DeepSeek V4.1 Flash Free Mirror", providerID: "opencode" }),
+      ]),
+    }
     Composer.recordSuccess("opencode", "DeepSeek V4.1 Flash Free")
-    const selected = Composer.select(providers(), { preferred: [], minTier: 0 })
+    const selected = Composer.select(pool, { preferred: [], minTier: 0, allowUnmeasuredRanking: true })
     expect(String(selected?.modelID)).toBe("DeepSeek V4.1 Flash Free")
+    expect(Composer.workingScore("opencode", "DeepSeek V4.1 Flash Free")).toBeGreaterThan(0)
     Composer.reset()
   })
 
@@ -178,7 +203,7 @@ describe("DiveeComposer", () => {
         model({ id: "Big Context Model", providerID: "opencode", context: 1_000_000 }),
       ]),
     }
-    const selected = Composer.select(two, { preferred: [], minTier: 0 })
+    const selected = Composer.select(two, { preferred: [], minTier: 0, allowUnmeasuredRanking: true })
     expect(String(selected?.modelID)).toBe("Big Context Model")
   })
 
@@ -194,7 +219,11 @@ describe("DiveeComposer", () => {
   })
 
   it("can be restricted to the OpenCode provider", () => {
-    const selected = Composer.select(providers(), { ...Composer.DEFAULT_OPTIONS, useAllProviders: false })
+    const selected = Composer.select(providers(), {
+      ...Composer.DEFAULT_OPTIONS,
+      allowUnmeasuredRanking: true,
+      useAllProviders: false,
+    })
     expect(String(selected?.providerID)).toBe("opencode")
   })
 
@@ -202,12 +231,14 @@ describe("DiveeComposer", () => {
     const pool = providers()
     const selected = Composer.select(pool, {
       ...Composer.DEFAULT_OPTIONS,
+      allowUnmeasuredRanking: true,
       knownFreeModels: new Set(["other/MiMo-V2.6-Flash Free"]),
     })
     expect(String(selected?.providerID)).toBe("other")
     expect(
       Composer.select(pool, {
         ...Composer.DEFAULT_OPTIONS,
+        allowUnmeasuredRanking: true,
         knownFreeModels: new Set(),
       }),
     ).toBeUndefined()
@@ -217,12 +248,14 @@ describe("DiveeComposer", () => {
     const pool = providers()
     const selected = Composer.select(pool, {
       ...Composer.DEFAULT_OPTIONS,
+      allowUnmeasuredRanking: true,
       availableProviders: new Set(["other"]),
     })
     expect(String(selected?.providerID)).toBe("other")
     expect(
       Composer.select(pool, {
         ...Composer.DEFAULT_OPTIONS,
+        allowUnmeasuredRanking: true,
         availableProviders: new Set(["not-connected"]),
       }),
     ).toBeUndefined()
@@ -232,8 +265,12 @@ describe("DiveeComposer", () => {
     const onlyOther = {
       [ProviderV2.ID.make("other")]: provider("other", [model({ id: "MiMo-V2.6-Flash Free", providerID: "other" })]),
     }
-    expect(String(Composer.select(onlyOther)?.providerID)).toBe("other")
-    expect(Composer.select(onlyOther, { ...Composer.DEFAULT_OPTIONS, useAllProviders: false })).toBeUndefined()
+    expect(
+      String(Composer.select(onlyOther, { ...Composer.DEFAULT_OPTIONS, allowUnmeasuredRanking: true })?.providerID),
+    ).toBe("other")
+    expect(
+      Composer.select(onlyOther, { ...Composer.DEFAULT_OPTIONS, allowUnmeasuredRanking: true, useAllProviders: false }),
+    ).toBeUndefined()
   })
 
   it("rejects free models with unknown context limits", () => {
@@ -242,7 +279,9 @@ describe("DiveeComposer", () => {
         model({ id: "Unknown Context Free Model", providerID: "opencode", context: 0 }),
       ]),
     }
-    expect(Composer.select(unknown, { ...Composer.DEFAULT_OPTIONS, minTier: 0 })).toBeUndefined()
+    expect(
+      Composer.select(unknown, { ...Composer.DEFAULT_OPTIONS, allowUnmeasuredRanking: true, minTier: 0 }),
+    ).toBeUndefined()
   })
 
   it("never chooses a context window smaller than the active session context", () => {
@@ -254,7 +293,7 @@ describe("DiveeComposer", () => {
     }
     const selected = Composer.select(
       two,
-      { ...Composer.DEFAULT_OPTIONS, minTier: 0, contextHeadroomRatio: 1.2 },
+      { ...Composer.DEFAULT_OPTIONS, allowUnmeasuredRanking: true, minTier: 0, contextHeadroomRatio: 1.2 },
       90_000,
     )
     expect(String(selected?.modelID)).toBe("Adequate Context Model")
@@ -267,7 +306,9 @@ describe("DiveeComposer", () => {
         model({ id: "Tiny Context Model", providerID: "opencode", context: 32_000 }),
       ]),
     }
-    expect(Composer.select(tooSmall, { ...Composer.DEFAULT_OPTIONS, minTier: 0 }, 64_000)).toBeUndefined()
+    expect(
+      Composer.select(tooSmall, { ...Composer.DEFAULT_OPTIONS, allowUnmeasuredRanking: true, minTier: 0 }, 64_000),
+    ).toBeUndefined()
   })
 
   it("is omitted when no free model is reachable", () => {
