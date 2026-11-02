@@ -39,6 +39,14 @@ func NewDaemon(cfg *config.Config, store *state.Store) *Daemon {
 	}
 }
 
+// shortSHA returns the first 12 characters of a git SHA for display purposes.
+func shortSHA(sha string) string {
+	if len(sha) > 12 {
+		return sha[:12]
+	}
+	return sha
+}
+
 func (daemon *Daemon) Serve(ctx context.Context) error {
 	if runtime.GOOS != "linux" {
 		return fmt.Errorf("self-hosted CI execution currently supports Linux hosts with Docker")
@@ -394,7 +402,7 @@ func (daemon *Daemon) executeJob(ctx context.Context, run state.Run, repo config
 			Log:       outputLog,
 		}
 		if err := daemon.Docker.RunStep(jobCtx, request); err != nil {
-			return security.RedactText(err.Error(), allSecretValues)
+			return fmt.Errorf("%s", security.RedactText(err.Error(), allSecretValues))
 		}
 	}
 	return nil

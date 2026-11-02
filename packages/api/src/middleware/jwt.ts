@@ -10,8 +10,10 @@ import { UnauthorizedError } from "../errors"
 const TOKEN_ISSUER = "diveeoi"
 const ACCESS_AUDIENCE = "diveeoi-api"
 const REFRESH_AUDIENCE = "diveeoi-auth-refresh"
+const SERVER_SESSION_AUDIENCE = "diveeoi-server-session"
 const ACCESS_TOKEN_EXPIRY = "15m"
-const REFRESH_TOKEN_EXPIRY_SECONDS = 7 * 24 * 60 * 60
+const REFRESH_TOKEN_EXPIRY_SECONDS = 4 * 24 * 60 * 60
+export const SERVER_SESSION_IDLE_SECONDS = 4 * 24 * 60 * 60
 const MIN_SECRET_LENGTH = 32
 
 export interface AccessTokenPayload extends JWTPayload {
@@ -27,15 +29,33 @@ export interface RefreshTokenPayload extends JWTPayload {
   token_use: "refresh"
 }
 
+export interface ServerSessionPayload extends JWTPayload {
+  sub: string
+  jti: string
+  username: string
+  credential_version: string
+  token_use: "server_session"
+}
+
 function getSecretKey(secret: string): Uint8Array {
   return new TextEncoder().encode(secret)
+}
+
+function credentialVersion(key: Uint8Array, username: string, password: string) {
+  return crypto.createHmac("sha256", key).update(username).update("\\0").update(password).digest("base64url")
 }
 
 export interface Interface {
   readonly signAccessToken: (userId: string, email: string, role: string) => Effect.Effect<string>
   readonly signRefreshToken: (userId: string) => Effect.Effect<string>
+  readonly signServerSession: (username: string, password: string) => Effect.Effect<string>
   readonly verifyAccessToken: (token: string) => Effect.Effect<AccessTokenPayload, UnauthorizedError>
   readonly verifyRefreshToken: (token: string) => Effect.Effect<RefreshTokenPayload, UnauthorizedError>
+  readonly verifyServerSession: (
+    token: string,
+    username: string,
+    password: string,
+  ) => Effect.Effect<ServerSessionPayload, UnauthorizedError>
   readonly readSecret: () => string
 }
 
@@ -107,7 +127,7 @@ const verifyPayload = async <A extends JWTPayload>(
   token: string,
   key: Uint8Array,
   audience: string,
-  tokenUse: "access" | "refresh",
+  tokenUse: "access" | "refresh" | "server_session",
 ): Promise<A> => {
   const { payload } = await jwtVerify(token, key, {
     algorithms: ["HS256"],
@@ -123,6 +143,14 @@ const verifyPayload = async <A extends JWTPayload>(
     }
   } else if (typeof payload.jti !== "string" || payload.jti.length < 16) {
     throw new Error("invalid refresh-token id")
+  } else if (
+    tokenUse === "server_session" &&
+    (typeof payload.username !== "string" ||
+      payload.username.length === 0 ||
+      typeof payload.credential_version !== "string" ||
+      payload.credential_version.length === 0)
+  ) {
+    throw new Error("invalid server-session claims")
   }
   return payload as A
 }
@@ -167,6 +195,24 @@ export const layer = Layer.effect(
               .sign(key),
           catch: (err) => new UnauthorizedError({ message: `Failed to sign refresh token: ${String(err)}` }),
         }).pipe(Effect.orDie),
+      signServerSession: (username: string, password: string) =>
+        Effect.tryPromise({
+          try: () =>
+            new SignJWT({
+              token_use: "server_session",
+              username,
+              credential_version: credentialVersion(key, username, password),
+            })
+              .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+              .setIssuer(TOKEN_ISSUER)
+              .setAudience(SERVER_SESSION_AUDIENCE)
+              .setSubject(username)
+              .setJti(crypto.randomUUID())
+              .setIssuedAt()
+              .setExpirationTime(`${SERVER_SESSION_IDLE_SECONDS}s`)
+              .sign(key),
+          catch: (err) => new UnauthorizedError({ message: `Failed to sign server session: ${String(err)}` }),
+        }).pipe(Effect.orDie),
       verifyAccessToken: (token: string) =>
         Effect.tryPromise({
           try: () => verifyPayload<AccessTokenPayload>(token, key, ACCESS_AUDIENCE, "access"),
@@ -176,6 +222,30 @@ export const layer = Layer.effect(
         Effect.tryPromise({
           try: () => verifyPayload<RefreshTokenPayload>(token, key, REFRESH_AUDIENCE, "refresh"),
           catch: () => new UnauthorizedError({ message: "Invalid or expired refresh token" }),
+        }),
+      verifyServerSession: (token: string, username: string, password: string) =>
+        Effect.tryPromise({
+          try: async () => {
+            const payload = await verifyPayload<ServerSessionPayload>(
+              token,
+              key,
+              SERVER_SESSION_AUDIENCE,
+              "server_session",
+            )
+            const expected = credentialVersion(key, username, password)
+            const actual = Buffer.from(payload.credential_version, "base64url")
+            const expectedBytes = Buffer.from(expected, "base64url")
+            if (
+              payload.username !== username ||
+              payload.sub !== username ||
+              actual.length !== expectedBytes.length ||
+              !crypto.timingSafeEqual(actual, expectedBytes)
+            ) {
+              throw new Error("server credentials have changed")
+            }
+            return payload
+          },
+          catch: () => new UnauthorizedError({ message: "Invalid or expired server session" }),
         }),
     })
   }),

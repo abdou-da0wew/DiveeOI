@@ -1,5 +1,6 @@
 import { ServerAuth } from "@/server/auth"
-import { Effect, Encoding, Layer, Redacted } from "effect"
+import { appendServerSessionCookie, readServerSessionCookie } from "@diveeoi/api/auth/server-session"
+import { Effect, Encoding, Layer, Option, Redacted } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiError, HttpApiMiddleware } from "effect/unstable/httpapi"
 import { hasPtyConnectTicketURL } from "@/server/shared/pty-ticket"
@@ -76,9 +77,27 @@ function authorize<A, E, R>(
   return Effect.gen(function* () {
     if (config.mode === "disabled") return yield* effect
 
-    if (ServerAuth.basicEnabled(config)) {
+    const password = Option.getOrNull(config.password)
+
+    if (ServerAuth.basicEnabled(config) && password) {
       const credential = yield* credentialFromURL(new URL(request.url, "http://localhost"), request)
-      if (ServerAuth.authorized(credential, config)) return yield* effect
+      if (ServerAuth.authorized(credential, config)) {
+        const token = yield* jwtAuth.signServerSession(config.username, password)
+        yield* appendServerSessionCookie(token)
+        return yield* effect
+      }
+    }
+
+    const sessionToken = readServerSessionCookie(request.headers.cookie)
+    if (ServerAuth.basicEnabled(config) && password && sessionToken) {
+      const valid = yield* jwtAuth
+        .verifyServerSession(sessionToken, config.username, password)
+        .pipe(Effect.match({ onSuccess: () => true, onFailure: () => false }))
+      if (valid) {
+        const nextToken = yield* jwtAuth.signServerSession(config.username, password)
+        yield* appendServerSessionCookie(nextToken)
+        return yield* effect
+      }
     }
 
     if (ServerAuth.jwtEnabled(config) && (yield* validBearer(request, jwtAuth))) return yield* effect

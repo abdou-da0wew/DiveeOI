@@ -1,4 +1,4 @@
-import { createSignal, Show } from "solid-js"
+import { createSignal, onCleanup, onMount, Show } from "solid-js"
 import { useNavigate } from "@solidjs/router"
 import { TextField } from "@diveeoi/ui/text-field"
 import { useAuth } from "@/context/auth"
@@ -17,6 +17,29 @@ export default function LoginPage() {
   const [error, setError] = createSignal("")
   const [loading, setLoading] = createSignal(false)
 
+  let disposed = false
+  onCleanup(() => {
+    disposed = true
+  })
+
+  onMount(() => {
+    const connection = server.current
+    const url = connection?.type === "http" ? connection.http.url : getBaseUrl()
+
+    // The server session is HttpOnly. Validate it through a protected endpoint
+    // instead of trying to read the cookie from browser storage.
+    void authFetch(`${url}/global/health`, { cache: "no-store" })
+      .then((response) => {
+        if (disposed) return
+        const authenticated = response.ok
+        server.setSessionAuthenticated({ url, authenticated })
+        if (authenticated) navigate("/", { replace: true })
+      })
+      .catch(() => {
+        if (!disposed) server.setSessionAuthenticated({ url, authenticated: false })
+      })
+  })
+
   async function handleSubmit(event: SubmitEvent) {
     event.preventDefault()
     setError("")
@@ -34,6 +57,7 @@ export default function LoginPage() {
 
       if (basic?.ok) {
         server.setCredentials({ url, ...credential })
+        server.setSessionAuthenticated({ url, authenticated: true })
       } else {
         // Do not let an old or rejected Basic secret take precedence over a
         // successful JWT login in the session's origin-scoped fetch helper.

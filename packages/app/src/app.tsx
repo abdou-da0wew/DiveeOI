@@ -415,6 +415,7 @@ function AccountGate(props: ParentProps) {
   const [auth] = useAuth()
   const server = useServer()
   const hasServerCredentials = () => server.current?.type === "http" && !!server.current.http.password
+  const hasServerSession = () => server.hasSession
   return (
     <Show
       when={!auth.isLoading}
@@ -424,7 +425,7 @@ function AccountGate(props: ParentProps) {
         </div>
       }
     >
-      <Show when={auth.isAuthenticated || hasServerCredentials()} fallback={<Navigate href="/login" />}>
+      <Show when={auth.isAuthenticated || hasServerCredentials() || hasServerSession()} fallback={<Navigate href="/login" />}>
         {props.children}
       </Show>
     </Show>

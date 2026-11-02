@@ -1,10 +1,39 @@
 import { createOpencodeClient } from "@diveeoi/sdk/v2/client"
 import type { ServerConnection } from "@/context/server"
 import { decode64 } from "@/utils/base64"
-import { basicAuthorizationHeader, getAccessToken, isSameOriginRequest, setBasicCredentials } from "@/utils/auth-client"
+import {
+  basicAuthorizationForRequest,
+  basicAuthorizationHeader,
+  getAccessToken,
+  isSameOriginRequest,
+  setBasicCredentials,
+} from "@/utils/auth-client"
 
 export function authTokenFromCredentials(input: { username?: string; password: string }) {
   return basicAuthorizationHeader(input).slice("Basic ".length)
+}
+
+/**
+ * Build a server-scoped fetcher whose Basic credentials are read for every request.
+ * SDK instances can outlive login/logout, so auth must not be snapshotted at construction.
+ */
+export function createServerFetch(serverUrl: string, baseFetch: typeof fetch = globalThis.fetch) {
+  return async (input: RequestInfo | URL, init?: RequestInit) => {
+    const headers = new Headers(input instanceof Request ? input.headers : undefined)
+    new Headers(init?.headers).forEach((value, key) => headers.set(key, value))
+
+    const basic = basicAuthorizationForRequest(input, serverUrl)
+    if (basic) {
+      // The selected server's current Basic credentials take precedence over any
+      // credentials captured by a previously-created SDK client.
+      headers.set("Authorization", basic)
+    } else if (!headers.has("Authorization") && isSameOriginRequest(input)) {
+      const token = getAccessToken()
+      if (token) headers.set("Authorization", `Bearer ${token}`)
+    }
+
+    return baseFetch(input, { ...init, headers })
+  }
 }
 
 export function authFromToken(token: string | null) {
@@ -24,31 +53,14 @@ export function createSdkForServer({
 }: Omit<NonNullable<Parameters<typeof createOpencodeClient>[0]>, "baseUrl"> & {
   server: ServerConnection.HttpBase
 }) {
-  const auth = (() => {
-    if (!server.password) return
+  if (server.password) {
     setBasicCredentials(server.url, { username: server.username, password: server.password })
-    return { Authorization: basicAuthorizationHeader({ username: server.username, password: server.password }) }
-  })()
-  const baseFetch = config.fetch ?? globalThis.fetch
-  const sessionFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> = async (input, init) => {
-    const headers = new Headers(input instanceof Request ? input.headers : undefined)
-    new Headers(init?.headers).forEach((value, key) => headers.set(key, value))
-    // Explicit Basic credentials retain precedence for shared-password servers;
-    // account JWT is injected dynamically for JWT-only deployments.
-    if (!headers.has("Authorization") && isSameOriginRequest(input)) {
-      const token = getAccessToken()
-      if (token) headers.set("Authorization", `Bearer ${token}`)
-    }
-    return baseFetch(input, { ...init, headers })
   }
 
   return createOpencodeClient({
     ...config,
-    fetch: sessionFetch as typeof fetch,
-    headers: {
-      ...(config.headers instanceof Headers ? Object.fromEntries(config.headers.entries()) : config.headers),
-      ...auth,
-    },
+    fetch: createServerFetch(server.url, config.fetch ?? globalThis.fetch) as typeof fetch,
+    headers: config.headers instanceof Headers ? Object.fromEntries(config.headers.entries()) : config.headers,
     baseUrl: server.url,
   })
 }

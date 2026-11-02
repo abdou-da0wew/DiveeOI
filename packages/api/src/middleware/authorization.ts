@@ -1,7 +1,8 @@
 import { ServerAuth } from "../auth"
+import { appendServerSessionCookie, readServerSessionCookie } from "../auth/server-session"
 import { UnauthorizedError } from "../errors"
 import { hasPtyConnectTicketURL } from "../groups/pty"
-import { Effect, Encoding, Layer, Redacted } from "effect"
+import { Effect, Encoding, Layer, Option, Redacted } from "effect"
 import { HttpServerRequest } from "effect/unstable/http"
 import { HttpApiMiddleware } from "effect/unstable/httpapi"
 import { JwtAuth } from "./jwt"
@@ -42,6 +43,8 @@ export const authorizationLayer = Layer.effect(
   Authorization,
   Effect.gen(function* () {
     const config = yield* ServerAuth.Config
+    const jwtAuth = yield* JwtAuth.Service
+
     return Authorization.of((effect) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest
@@ -50,15 +53,32 @@ export const authorizationLayer = Layer.effect(
         if (hasPtyConnectTicketURL(url)) return yield* effect
         if (config.mode === "disabled") return yield* effect
 
-        if (ServerAuth.basicEnabled(config)) {
+        const password = Option.getOrNull(config.password)
+
+        if (ServerAuth.basicEnabled(config) && password) {
           const credential = yield* credentialFromRequest(request)
-          if (ServerAuth.authorized(credential, config)) return yield* effect
+          if (ServerAuth.authorized(credential, config)) {
+            const token = yield* jwtAuth.signServerSession(config.username, password)
+            yield* appendServerSessionCookie(token)
+            return yield* effect
+          }
+        }
+
+        const sessionToken = readServerSessionCookie(request.headers.cookie)
+        if (ServerAuth.basicEnabled(config) && password && sessionToken) {
+          const valid = yield* jwtAuth
+            .verifyServerSession(sessionToken, config.username, password)
+            .pipe(Effect.match({ onSuccess: () => true, onFailure: () => false }))
+          if (valid) {
+            const nextToken = yield* jwtAuth.signServerSession(config.username, password)
+            yield* appendServerSessionCookie(nextToken)
+            return yield* effect
+          }
         }
 
         if (ServerAuth.jwtEnabled(config)) {
           const bearerMatch = /^Bearer\s+([^\s]+)$/i.exec(request.headers.authorization ?? "")
           if (bearerMatch) {
-            const jwtAuth = yield* JwtAuth.Service
             const valid = yield* jwtAuth.verifyAccessToken(bearerMatch[1]).pipe(
               Effect.match({ onSuccess: () => true, onFailure: () => false }),
             )

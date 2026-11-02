@@ -72,6 +72,12 @@ export const setBasicCredentials = (serverUrl: string, credentials: { username?:
   }
 }
 
+/** Resolve current Basic credentials at request time, including relative SDK URLs. */
+export function basicAuthorizationForRequest(input: RequestInfo | URL, base?: string): string | undefined {
+  const origin = requestOrigin(input, base)
+  return origin ? basicByOrigin.get(origin) : undefined
+}
+
 export function getBaseUrl(): string {
   if (typeof window !== "undefined") {
     if (import.meta.env.DEV) {

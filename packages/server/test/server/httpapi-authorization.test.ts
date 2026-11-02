@@ -1,6 +1,7 @@
 import { NodeHttpServer } from "@effect/platform-node"
 import { describe, expect } from "bun:test"
-import { Effect, Layer, Option, Schema } from "effect"
+import { ConfigProvider, Effect, Layer, Option, Schema } from "effect"
+import { JwtAuth } from "@diveeoi/api/middleware/jwt"
 import { HttpClient, HttpClientRequest, HttpRouter } from "effect/unstable/http"
 import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiError, HttpApiGroup } from "effect/unstable/httpapi"
 import { ServerAuth } from "../../src/server/auth"
@@ -60,10 +61,13 @@ const noAuthLayer = ServerAuth.Config.layer({ password: Option.none(), username:
 const secretLayer = ServerAuth.Config.layer({ password: Option.some("secret"), username: "opencode", mode: "both" })
 const kitSecretLayer = ServerAuth.Config.layer({ password: Option.some("secret"), username: "kit", mode: "both" })
 
-const it = testEffect(apiLayer.pipe(Layer.provide(noAuthLayer)))
-const itSecret = testEffect(apiLayer.pipe(Layer.provide(secretLayer)))
-const itKitSecret = testEffect(apiLayer.pipe(Layer.provide(kitSecretLayer)))
-const itV2Secret = testEffect(v2ApiLayer.pipe(Layer.provide(secretLayer)))
+const jwtLayer = JwtAuth.layer.pipe(
+  Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({ DIVEEOI_JWT_SECRET: "test-only-server-session-signing-key" }))),
+)
+const it = testEffect(apiLayer.pipe(Layer.provide([noAuthLayer, jwtLayer])))
+const itSecret = testEffect(apiLayer.pipe(Layer.provide([secretLayer, jwtLayer])))
+const itKitSecret = testEffect(apiLayer.pipe(Layer.provide([kitSecretLayer, jwtLayer])))
+const itV2Secret = testEffect(Layer.provideMerge(v2ApiLayer, Layer.merge(secretLayer, jwtLayer)))
 
 const basic = (username: string, password: string) => ServerAuth.header({ username, password }) ?? ""
 
@@ -82,6 +86,28 @@ describe("HttpApi authorization middleware", () => {
 
       expect(response.status).toBe(200)
       expect(yield* response.json).toBe("ok")
+    }),
+  )
+
+  itSecret.live("creates and renews a four-day session cookie on the legacy instance API", () =>
+    Effect.gen(function* () {
+      const first = yield* HttpClientRequest.get("/probe").pipe(
+        HttpClientRequest.setHeader("authorization", basic("opencode", "secret")),
+        HttpClient.execute,
+      )
+      expect(first.status).toBe(200)
+
+      const setCookie = first.headers["set-cookie"]
+      expect(setCookie).toContain("Max-Age=345600")
+      expect(setCookie).toContain("HttpOnly")
+      const cookiePair = setCookie!.split(";")[0]!
+
+      const second = yield* HttpClientRequest.get("/probe").pipe(
+        HttpClientRequest.setHeader("cookie", cookiePair),
+        HttpClient.execute,
+      )
+      expect(second.status).toBe(200)
+      expect(second.headers["set-cookie"]).toContain("Max-Age=345600")
     }),
   )
 
@@ -158,6 +184,45 @@ describe("HttpApi authorization middleware", () => {
     Effect.gen(function* () {
       const response = yield* HttpClient.get("/probe?auth_token=not-base64")
 
+      expect(response.status).toBe(401)
+    }),
+  )
+
+  itV2Secret.live("issues and rolls a four-day HttpOnly server session after Basic authentication", () =>
+    Effect.gen(function* () {
+      const first = yield* HttpClientRequest.get("/api/probe").pipe(
+        HttpClientRequest.setHeader("authorization", basic("opencode", "secret")),
+        HttpClient.execute,
+      )
+
+      expect(first.status).toBe(200)
+      const firstCookie = first.headers["set-cookie"]
+      expect(firstCookie).toBeString()
+      expect(firstCookie).toContain("diveeoi_server_session=")
+      expect(firstCookie).toContain("Max-Age=345600")
+      expect(firstCookie).toContain("HttpOnly")
+      expect(firstCookie).toContain("SameSite=Lax")
+      const cookiePair = firstCookie!.split(";")[0]!
+
+      const second = yield* HttpClientRequest.get("/api/probe").pipe(
+        HttpClientRequest.setHeader("cookie", cookiePair),
+        HttpClient.execute,
+      )
+
+      expect(second.status).toBe(200)
+      expect(second.headers["set-cookie"]).toContain("diveeoi_server_session=")
+      expect(second.headers["set-cookie"]).toContain("Max-Age=345600")
+    }),
+  )
+
+  itV2Secret.live("rejects server-session cookies after the configured Basic password changes", () =>
+    Effect.gen(function* () {
+      const jwt = yield* JwtAuth.Service
+      const oldSession = yield* jwt.signServerSession("opencode", "old-password")
+      const response = yield* HttpClientRequest.get("/api/probe").pipe(
+        HttpClientRequest.setHeader("cookie", `diveeoi_server_session=${oldSession}`),
+        HttpClient.execute,
+      )
       expect(response.status).toBe(401)
     }),
   )

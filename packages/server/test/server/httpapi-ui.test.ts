@@ -13,6 +13,7 @@ import {
 } from "effect/unstable/http"
 import { FSUtil } from "@diveeoi/db/fs-util"
 import { RuntimeFlags } from "../../src/effect/runtime-flags"
+import { JwtAuth } from "@diveeoi/api/middleware/jwt"
 import { ServerAuth } from "../../src/server/auth"
 import { authorizationRouterMiddleware } from "../../src/server/routes/instance/httpapi/middleware/authorization"
 import { HttpApiApp } from "../../src/server/routes/instance/httpapi/server"
@@ -109,10 +110,12 @@ function uiApp(input?: {
         input?.client ?? httpClient(new Response("ui")),
         RuntimeFlags.layer({ disableEmbeddedWebUi: input?.disableEmbeddedWebUi ?? false }),
         HttpServer.layerServices,
+        JwtAuth.defaultLayer,
         ConfigProvider.layer(
           ConfigProvider.fromUnknown({
             OPENCODE_SERVER_PASSWORD: input?.password,
             OPENCODE_SERVER_USERNAME: input?.username,
+            DIVEEOI_JWT_SECRET: "test-jwt-secret-for-httpapi-ui-tests-only",
           }),
         ),
       ]),
@@ -420,16 +423,64 @@ describe("HttpApi UI fallback", () => {
     }),
   )
 
-  it.live("requires server password for the web UI", () =>
+  it.live("serves the in-app login routes without requiring Basic auth", () =>
     Effect.gen(function* () {
-      const response = yield* uiApp({
+      for (const path of ["/", "/login", "/register"]) {
+        const response = yield* uiApp({
+          password: "secret",
+          username: "opencode",
+          disableEmbeddedWebUi: true,
+          client: httpClient(
+            new Response("<html>DiveeOI login</html>", {
+              headers: { "content-type": "text/html" },
+            }),
+          ),
+        }).request(path)
+
+        expect(response.status).toBe(200)
+        expect(yield* responseText(response)).toContain("DiveeOI login")
+      }
+    }),
+  )
+
+  it.live("serves frontend assets without Basic auth but only for safe read requests", () =>
+    Effect.gen(function* () {
+      const server = uiApp({
         password: "secret",
         username: "opencode",
         disableEmbeddedWebUi: true,
-      }).request("/")
+        client: httpClient(new Response("asset")),
+      })
 
-      expect(response.status).toBe(401)
-      expect(response.headers.get("www-authenticate")).toBeNull()
+      for (const path of ["/assets/index.js", "/favicon.svg", "/site.webmanifest"]) {
+        const response = yield* server.request(path)
+        expect(response.status).toBe(200)
+      }
+
+      const post = yield* server.request("/login", { method: "POST" })
+      expect(post.status).toBe(401)
+
+      const traversal = yield* server.request("/assets/%2e%2e/%2e%2e/etc/passwd")
+      expect(traversal.status).toBe(401)
+    }),
+  )
+
+  it.live("keeps API endpoints protected while the UI login page is public", () =>
+    Effect.gen(function* () {
+      const login = yield* uiApp({
+        password: "secret",
+        username: "opencode",
+        disableEmbeddedWebUi: true,
+        client: httpClient(
+          new Response("<html>DiveeOI login</html>", {
+            headers: { "content-type": "text/html" },
+          }),
+        ),
+      }).request("/login")
+      const api = yield* app({ password: "secret", username: "opencode" }).request("/global/health")
+
+      expect(login.status).toBe(200)
+      expect(api.status).toBe(401)
     }),
   )
 

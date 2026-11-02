@@ -251,6 +251,13 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
     // Credentials entered in the browser's styled login form stay in memory;
     // unlike persisted server settings, passwords are never written to storage.
     const [transientAuth, setTransientAuth] = createStore<Record<string, { username: string; password: string }>>({})
+    const [serverSessions, setServerSessions] = createStore<Record<string, boolean>>({})
+
+    function setSessionAuthenticated(input: { url: string; authenticated: boolean }) {
+      const normalized = normalizeServerUrl(input.url)
+      if (!normalized) return
+      setServerSessions(normalized, input.authenticated)
+    }
 
     function setCredentials(input: { url: string; username: string; password: string }) {
       const normalized = normalizeServerUrl(input.url)
@@ -315,7 +322,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
     const current: Accessor<ServerConnection.Any | undefined> = createMemo(() => {
       const connection = allServers().find((s) => ServerConnection.key(s) === state.active) ?? allServers()[0]
       if (!connection || connection.type !== "http") return connection
-      const credentials = transientAuth[connection.http.url]
+      const credentials = transientAuth[normalizeServerUrl(connection.http.url) ?? connection.http.url]
       if (!credentials) return connection
       return {
         ...connection,
@@ -340,6 +347,13 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       get current() {
         return current()
       },
+      get hasSession() {
+        const connection = current()
+        if (!connection || connection.type !== "http") return false
+        const normalized = normalizeServerUrl(connection.http.url)
+        return normalized ? !!serverSessions[normalized] : false
+      },
+      setSessionAuthenticated,
       setActive,
       setCredentials,
       clearCredentials,

@@ -6,9 +6,10 @@ import { ConflictError, ForbiddenError, InvalidRequestError, UnauthorizedError }
 import { JwtAuth } from "../middleware/jwt"
 import { UserService } from "@diveeoi/db/auth-user/user"
 import { isBrowserRequest } from "../auth/refresh-transport"
+import { appendExpiredServerSessionCookie } from "../auth/server-session"
 
 const REFRESH_COOKIE = "diveeoi_refresh"
-const REFRESH_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
+const REFRESH_MAX_AGE_SECONDS = 4 * 24 * 60 * 60
 
 const normalizeEmail = (email: string) => email.trim().toLowerCase()
 const validEmail = (email: string) => email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
@@ -215,6 +216,7 @@ export const AuthHandler = HttpApiBuilder.group(Api, "server.auth", (handlers) =
           if (payload) yield* userService.revokeAllRefreshSessions(payload.sub)
         }
         yield* setRefreshCookie(null)
+        yield* appendExpiredServerSessionCookie()
         return { ok: true as const }
       }))
       .handle("auth.me", Effect.fn(function* (_ctx) {
