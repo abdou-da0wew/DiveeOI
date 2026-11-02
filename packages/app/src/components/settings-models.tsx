@@ -1,12 +1,16 @@
 import { useFilteredList } from "@diveeoi/ui/hooks"
+import { Button } from "@diveeoi/ui/button"
 import { ProviderIcon } from "@diveeoi/ui/provider-icon"
 import { Switch } from "@diveeoi/ui/switch"
 import { Icon } from "@diveeoi/ui/icon"
 import { IconButton } from "@diveeoi/ui/icon-button"
 import { TextField } from "@diveeoi/ui/text-field"
-import { type Component, For, Show } from "solid-js"
+import { type Component, For, Show, createSignal, onMount } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { useModels } from "@/context/models"
+import { useServerSDK } from "@/context/server-sdk"
+import { useServerSync } from "@/context/server-sync"
+import { showToast } from "@/utils/toast"
 import { popularProviders } from "@/hooks/use-providers"
 import { SettingsList } from "./settings-list"
 import { SettingsServerPicker, SettingsServerScope } from "./settings-server-picker"
@@ -43,6 +47,72 @@ export const SettingsModels: Component = () => {
 const SettingsModelsContent: Component = () => {
   const language = useLanguage()
   const models = useModels()
+  const serverSDK = useServerSDK()
+  const serverSync = useServerSync()
+  const [aaKey, setAAKey] = createSignal("")
+  const [aaKeyConfigured, setAAKeyConfigured] = createSignal(false)
+  const [savingAAKey, setSavingAAKey] = createSignal(false)
+  const [aaKeyEnv, setAAKeyEnv] = createSignal("ARTIFICIAL_ANALYSIS_API_KEY")
+
+  const composer = () => serverSync().data.config.performance?.composer ?? {}
+  const updateComposer = (patch: Record<string, unknown>) => {
+    const current = serverSync().data.config
+    void serverSync().updateConfig({
+      ...current,
+      performance: {
+        ...current.performance,
+        composer: { ...current.performance?.composer, ...patch },
+      },
+    })
+  }
+
+  onMount(() => {
+    setAAKeyEnv(composer().artificial_analysis_api_key_env ?? "ARTIFICIAL_ANALYSIS_API_KEY")
+    void serverSDK()
+      .client.config.composerKeyStatus({ directory: serverSync().data.path.directory })
+      .then((result) => setAAKeyConfigured(result.data?.configured ?? false))
+      .catch(() => setAAKeyConfigured(false))
+  })
+
+  const saveAAKey = async () => {
+    if (!aaKey().trim() || savingAAKey()) return
+    setSavingAAKey(true)
+    try {
+      await serverSDK().client.config.setComposerKey({
+        apiKey: aaKey(),
+        directory: serverSync().data.path.directory,
+      })
+      setAAKey("")
+      setAAKeyConfigured(true)
+      showToast({
+        variant: "success",
+        icon: "circle-check",
+        title: "Artificial Analysis key saved",
+        description: "The key is encrypted on this server and is never returned to the browser.",
+      })
+    } catch (error) {
+      showToast({
+        title: "Could not save Artificial Analysis key",
+        description: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      setSavingAAKey(false)
+    }
+  }
+
+  const removeAAKey = async () => {
+    try {
+      const result = await serverSDK().client.config.removeComposerKey({ directory: serverSync().data.path.directory })
+      setAAKeyConfigured(result.data?.configured ?? false)
+      setAAKey("")
+      showToast({ variant: "success", icon: "circle-check", title: "Saved Artificial Analysis key removed" })
+    } catch (error) {
+      showToast({
+        title: "Could not remove Artificial Analysis key",
+        description: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
 
   const list = useFilteredList<ModelItem>({
     items: (_filter) => models.list(),
@@ -96,6 +166,104 @@ const SettingsModelsContent: Component = () => {
       </div>
 
       <div class="flex flex-col gap-8 max-w-[720px]">
+        <section class="flex flex-col gap-3" aria-label="DiveeComposer settings">
+          <div class="flex flex-col gap-1">
+            <h3 class="text-14-medium text-text-strong">DiveeComposer</h3>
+            <p class="text-13-regular text-text-weak">
+              Automatically routes to free, reachable models using live provider metadata and measurements from{" "}
+              <a
+                href="https://artificialanalysis.ai/"
+                target="_blank"
+                rel="noreferrer"
+                class="text-text-strong underline underline-offset-2"
+              >
+                Artificial Analysis
+              </a>
+              .
+            </p>
+          </div>
+          <SettingsList>
+            <div class="flex items-center justify-between gap-4 py-3">
+              <div class="min-w-0">
+                <span class="text-14-medium text-text-strong block">Use all configured providers</span>
+                <span class="text-13-regular text-text-weak block">
+                  Include free models from every connected provider, not just OpenCode. Models must pass the quality,
+                  context-fit, and health checks.
+                </span>
+              </div>
+              <Switch
+                checked={composer().use_all_providers ?? true}
+                onChange={(checked) => updateComposer({ use_all_providers: checked })}
+                hideLabel
+              >
+                Use all configured providers
+              </Switch>
+            </div>
+          </SettingsList>
+          <div class="flex flex-col gap-2">
+            <div class="flex items-center justify-between gap-3">
+              <span class="text-14-medium text-text-strong">Artificial Analysis API key</span>
+              <Show when={aaKeyConfigured()}>
+                <span class="text-12-medium text-text-weak">API key configured</span>
+              </Show>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <TextField
+                type="password"
+                value={aaKey()}
+                onChange={setAAKey}
+                placeholder={aaKeyConfigured() ? "Enter a key to replace the current setting" : "Paste your API key"}
+                spellcheck={false}
+                autocorrect="off"
+                autocomplete="new-password"
+                autocapitalize="off"
+                class="flex-1 min-w-[240px]"
+              />
+              <Button size="large" onClick={() => void saveAAKey()} disabled={!aaKey().trim() || savingAAKey()}>
+                {savingAAKey() ? "Saving..." : aaKeyConfigured() ? "Replace key" : "Save key"}
+              </Button>
+              <Show when={aaKeyConfigured()}>
+                <Button size="large" variant="ghost" onClick={() => void removeAAKey()}>
+                  Remove
+                </Button>
+              </Show>
+            </div>
+            <p class="text-12-regular text-text-weak">
+              A key entered here is encrypted on the server. The browser only receives a configured flag, never the key
+              itself.
+            </p>
+            <div class="flex flex-col gap-2 pt-2">
+              <span class="text-13-medium text-text-strong">Fallback environment variable</span>
+              <div class="flex flex-wrap items-center gap-2">
+                <TextField
+                  type="text"
+                  value={aaKeyEnv()}
+                  onChange={setAAKeyEnv}
+                  placeholder="ARTIFICIAL_ANALYSIS_API_KEY"
+                  spellcheck={false}
+                  autocorrect="off"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  class="flex-1 min-w-[240px]"
+                />
+                <Button
+                  size="large"
+                  variant="ghost"
+                  onClick={() =>
+                    updateComposer({
+                      artificial_analysis_api_key_env: aaKeyEnv().trim() || "ARTIFICIAL_ANALYSIS_API_KEY",
+                    })
+                  }
+                >
+                  Apply environment variable
+                </Button>
+              </div>
+            </div>
+            <p class="text-12-regular text-text-weak">
+              Optional environment-variable fallback. The encrypted Settings key takes precedence over this variable.
+            </p>
+          </div>
+        </section>
         <Show
           when={!list.grouped.loading}
           fallback={

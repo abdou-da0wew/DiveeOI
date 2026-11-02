@@ -20,10 +20,16 @@ import type {
   CommandListErrors,
   CommandListResponses,
   Config as Config3,
+  ConfigComposerKeyStatusErrors,
+  ConfigComposerKeyStatusResponses,
   ConfigGetErrors,
   ConfigGetResponses,
   ConfigProvidersErrors,
   ConfigProvidersResponses,
+  ConfigRemoveComposerKeyErrors,
+  ConfigRemoveComposerKeyResponses,
+  ConfigSetComposerKeyErrors,
+  ConfigSetComposerKeyResponses,
   ConfigTargetedLearning1,
   ConfigUpdateErrors,
   ConfigUpdateResponses,
@@ -1789,6 +1795,115 @@ export class Config2 extends HeyApiClient {
       url: "/config/providers",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Remove Artificial Analysis key
+   *
+   * Removes the encrypted Artificial Analysis API key stored on the server.
+   */
+  public removeComposerKey<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<
+      ConfigRemoveComposerKeyResponses,
+      ConfigRemoveComposerKeyErrors,
+      ThrowOnError
+    >({
+      url: "/config/composer-key",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get Artificial Analysis key status
+   *
+   * Returns whether a key is configured without exposing the key or ciphertext.
+   */
+  public composerKeyStatus<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      ConfigComposerKeyStatusResponses,
+      ConfigComposerKeyStatusErrors,
+      ThrowOnError
+    >({
+      url: "/config/composer-key",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Set Artificial Analysis key
+   *
+   * Encrypts and stores the Artificial Analysis API key on the server.
+   */
+  public setComposerKey<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      apiKey?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "apiKey" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ConfigSetComposerKeyResponses,
+      ConfigSetComposerKeyErrors,
+      ThrowOnError
+    >({
+      url: "/config/composer-key",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 }

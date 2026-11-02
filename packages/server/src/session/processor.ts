@@ -935,7 +935,8 @@ export const layer = Layer.effect(
         // Composer turns must learn against the concrete model they routed to — the synthetic
         // `divee/composer` id must never be marked unusable.
         const routed = input.model ? Composer.targetOf(input.model) : undefined
-        const subject = routed ?? (input.model ? { providerID: input.model.providerID, modelID: input.model.id } : undefined)
+        const subject =
+          routed ?? (input.model ? { providerID: input.model.providerID, modelID: input.model.id } : undefined)
         if (subject) {
           // Learn from both the raw error and the parsed message error: providers report
           // refusals in different envelopes, and a gateway that answers "Unauthorized" for a
@@ -944,7 +945,7 @@ export const layer = Layer.effect(
             ProviderFreeTier.learn(e, String(subject.providerID), String(subject.modelID)) ??
             ProviderFreeTier.learn(error, String(subject.providerID), String(subject.modelID))
           if (verdict) {
-            yield* Effect.logWarning("model refused by the free tier, marking unusable", {
+            yield* Effect.logWarning("free-tier provider/model refused the request, updating router health", {
               sessionID: input.sessionID,
               model: `${subject.providerID}/${subject.modelID}`,
               verdict,

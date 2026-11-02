@@ -13,12 +13,10 @@
 //   - the selection must stay on the server: the client only ever sees "DiveeComposer".
 //
 // Routing policy, in order:
-//   1. Reachable models only (ProviderFreeTier.isRoutable) with tool calling enabled.
-//   2. Free models (zero input/output cost) — the built-in `opencode` gateway first, since
-//      that is the free tier this app ships with.
-//   3. Models that actually work: a model that completed a turn recently is preferred over
-//      one that never did, however good the catalog says it is.
-//   4. Best capabilities: multimodality, reasoning, then the larger context window.
+//   1. Configured providers only; provider/model quota failures are learned and cooled down.
+//   2. Free models only, with tool calling enabled and live availability metadata.
+//   3. A model must fit the active session's existing context usage.
+//   4. Measured Artificial Analysis quality/performance, live success history and capabilities.
 //
 // A model that errors, or answers with nothing, is not used again for a day. The ban
 // outlives the process: it is written to the database and read back at boot, so a restart
@@ -28,6 +26,7 @@ import { ProviderV2 } from "@diveeoi/db/provider"
 import { ModelV2 } from "@diveeoi/db/model"
 import { ProviderFreeTier } from "./free-tier"
 import { ComposerQuality } from "./composer-quality"
+import { ArtificialAnalysis } from "./artificial-analysis"
 import type { Info, Model } from "./provider"
 
 export const PROVIDER_ID = ProviderV2.ID.make("divee")
@@ -39,11 +38,26 @@ export const MODEL_NAME = "DiveeComposer"
 export interface Options {
   /** User similarity list: glob patterns of models that should be treated as known-good. */
   readonly preferred: ReadonlyArray<string>
-  /** Quality bar a candidate must clear (0..5). Below it, the best available is still used. */
+  /** Quality bar a candidate should clear (0..5). */
   readonly minTier: number
+  /** Consider every configured provider, or only OpenCode. */
+  readonly useAllProviders?: boolean
+  /** Prefer at least this much headroom above the session's current input-token usage. */
+  readonly contextHeadroomRatio?: number
+  /** Providers for which Divee has an available credential or explicit auth configuration. */
+  readonly availableProviders?: ReadonlySet<string>
+  /** Models whose provider catalog explicitly declares zero pricing. */
+  readonly knownFreeModels?: ReadonlySet<string>
+  /** Latest measured input-token usage for the active session, if known. */
+  readonly contextUsageTokens?: number
 }
 
-export const DEFAULT_OPTIONS: Options = { preferred: [], minTier: 2 }
+export const DEFAULT_OPTIONS: Options = {
+  preferred: [],
+  minTier: 3,
+  useAllProviders: true,
+  contextHeadroomRatio: 1.2,
+}
 
 /** A resolved route: the concrete model a composer turn is actually sent to. */
 export interface Target {
@@ -83,7 +97,9 @@ const successes = new Map<string, { count: number; lastAt: number }>()
  * database. The composer itself stays a plain module with no service dependencies.
  */
 type BanListener = (model: string, until: number) => void
+type SuccessListener = (model: string, record: { count: number; lastAt: number }) => void
 let banListener: BanListener | undefined
+let successListener: SuccessListener | undefined
 
 const key = (providerID: string, modelID: string) => `${providerID}/${modelID}`
 
@@ -118,7 +134,9 @@ export function recordFailure(providerID: string, modelID: string) {
 export function recordSuccess(providerID: string, modelID: string) {
   const id = key(providerID, modelID)
   const current = successes.get(id)
-  successes.set(id, { count: (current?.count ?? 0) + 1, lastAt: Date.now() })
+  const record = { count: (current?.count ?? 0) + 1, lastAt: Date.now() }
+  successes.set(id, record)
+  successListener?.(id, record)
 }
 
 /** Register the listener that persists a ban. Returns a function that removes it. */
@@ -126,6 +144,35 @@ export function onBan(listener: BanListener) {
   banListener = listener
   return () => {
     if (banListener === listener) banListener = undefined
+  }
+}
+
+/** Register a listener for successful routed turns. */
+export function onSuccess(listener: SuccessListener) {
+  successListener = listener
+  return () => {
+    if (successListener === listener) successListener = undefined
+  }
+}
+
+/** Persistable evidence that a provider/model completed a real turn. */
+export function workingModels(): Record<string, { count: number; lastAt: number }> {
+  return Object.fromEntries(successes)
+}
+
+/** Restore proven-working models from the previous process. */
+export function restoreWorkingModels(record: Record<string, { count: number; lastAt: number }>) {
+  const now = Date.now()
+  for (const [id, value] of Object.entries(record)) {
+    if (
+      value &&
+      Number.isFinite(value.count) &&
+      value.count > 0 &&
+      Number.isFinite(value.lastAt) &&
+      value.lastAt <= now + 60_000
+    ) {
+      successes.set(id, { count: value.count, lastAt: value.lastAt })
+    }
   }
 }
 
@@ -156,6 +203,7 @@ export function reset() {
   bans.clear()
   successes.clear()
   banListener = undefined
+  successListener = undefined
 }
 
 /** Is the model currently banned? */
@@ -183,14 +231,31 @@ export function workingScore(providerID: string, modelID: string) {
   if (age <= 60 * 60 * 1000) return 100
   if (age <= 6 * 60 * 60 * 1000) return 70
   if (age <= BAN_MS) return 40
-  return 10
+  if (age <= 7 * BAN_MS) return 10
+  return 0
 }
 
 /** Free (zero-price) model that can drive an agent loop. */
 function usable(model: Model) {
   if (model.status === "deprecated") return false
   if (!model.capabilities.toolcall) return false
+  if (model.limit.context <= 0) return false
   if (model.cost.input !== 0 || model.cost.output !== 0) return false
+  if (model.cost.cache.read !== 0 || model.cost.cache.write !== 0) return false
+  if (
+    model.cost.tiers?.some(
+      (tier) => tier.input !== 0 || tier.output !== 0 || tier.cache.read !== 0 || tier.cache.write !== 0,
+    )
+  )
+    return false
+  if (
+    model.cost.experimentalOver200K &&
+    (model.cost.experimentalOver200K.input !== 0 ||
+      model.cost.experimentalOver200K.output !== 0 ||
+      model.cost.experimentalOver200K.cache.read !== 0 ||
+      model.cost.experimentalOver200K.cache.write !== 0)
+  )
+    return false
   return true
 }
 
@@ -202,17 +267,11 @@ interface Candidate extends Selection {
   readonly working: number
   /** The context window, in tokens. */
   readonly context: number
+  readonly analyticsScore?: number
 }
 
-/**
- * The bundled free tier serves its models anonymously (no key). A model there is reachable
- * on the first turn, while a model on a provider that needs credentials only works if that
- * provider happens to be connected and authorised - and the catalog lists plenty of those as
- * free too. So the bundled tier gets a reachability bonus on top of its quality: it wins
- * against an equally good model elsewhere, and a clearly better model still wins.
- */
+/** OpenCode-only mode remains available as a compatibility choice in Settings. */
 const FREE_TIER_PROVIDER = "opencode"
-const FREE_TIER_AFFINITY = 1
 
 function candidates(providers: Record<ProviderV2.ID, Info>, options: Options): Candidate[] {
   const out: Candidate[] = []
@@ -220,27 +279,51 @@ function candidates(providers: Record<ProviderV2.ID, Info>, options: Options): C
     const providerID = id as ProviderV2.ID
     if (providerID === PROVIDER_ID) continue
     const bundled = String(providerID) === FREE_TIER_PROVIDER
+    if (!(options.useAllProviders ?? true) && !bundled) continue
+    if (options.availableProviders && !options.availableProviders.has(String(providerID))) continue
     for (const model of Object.values(provider.models)) {
       if (!usable(model)) continue
+      if (options.knownFreeModels && !options.knownFreeModels.has(key(String(providerID), String(model.id)))) continue
       if (!ProviderFreeTier.isRoutable(String(providerID), String(model.id))) continue
-      const quality = ComposerQuality.classify(model, options.preferred)
+      const baseQuality = ComposerQuality.classify(model, options.preferred)
+      const measured = ArtificialAnalysis.scoreFor(model)
       const working = workingScore(String(providerID), String(model.id))
-      const reach = bundled ? FREE_TIER_AFFINITY : 0
       const context = model.limit?.context ?? 0
+      const qualityScore = measured ? baseQuality.score * 0.35 + measured.score * 0.65 : baseQuality.score
+      // An Artificial Analysis measurement is the quality gate when available. Heuristic
+      // family/capability scoring helps break ties, but cannot promote a low benchmark score
+      // over the configured minimum tier.
+      const tier = measured ? measured.score / 20 : baseQuality.tier
+      const quality = {
+        ...baseQuality,
+        tier: Math.max(0, Math.min(5, tier)),
+        score: Math.round(qualityScore),
+        reasons: measured
+          ? [...baseQuality.reasons, `Artificial Analysis ${measured.score}/100 (${measured.slug})`]
+          : baseQuality.reasons,
+      }
       out.push({
         providerID,
         modelID: model.id,
         model,
-        quality: { ...quality, tier: Math.min(5, quality.tier + reach) },
-        // The reachability bonus is deliberately larger than the score spread between
-        // adjacent tiers: a model that works anonymously today beats one that may need a
-        // key, and a *clearly* better model still wins on tier.
-        score: quality.score + working / 10 + reach * 30,
+        quality,
+        score: qualityScore + working / 10,
         working,
         context,
+        analyticsScore: measured?.score,
         preferred: quality.reasons.some((reason) => reason.startsWith("preferred")),
       })
     }
+  }
+  const usage = Math.max(0, options.contextUsageTokens ?? 0)
+  if (usage > 0) {
+    // Never route an active conversation to a window smaller than the context already used.
+    // Prefer the configured headroom when possible; if the pool has no such candidate, keep
+    // only models that still have enough room for the current context itself.
+    const fitting = out.filter((candidate) => candidate.context >= usage)
+    const headroom = fitting.filter((candidate) => candidate.context >= usage * (options.contextHeadroomRatio ?? 1.2))
+    out.length = 0
+    out.push(...(headroom.length ? headroom : fitting))
   }
   return out.sort((a, b) => {
     // The user's similarity list outranks everything else, including reachability.
@@ -250,10 +333,10 @@ function candidates(providers: Record<ProviderV2.ID, Info>, options: Options): C
     // "it worked ten minutes ago" is worth more than "it is the biggest model".
     if (a.working !== b.working) return b.working - a.working
     if (a.quality.tier !== b.quality.tier) return b.quality.tier - a.quality.tier
+    if (a.score !== b.score) return b.score - a.score
     // Between two models of the same quality, the one that holds more of the conversation
     // wins: a bigger window means fewer compactions and fewer lost turns.
     if (a.context !== b.context) return b.context - a.context
-    if (a.score !== b.score) return b.score - a.score
     // Same family: the newer generation wins.
     const lineage = ComposerQuality.compareLineage(a.model, b.model)
     if (lineage !== 0) return lineage
@@ -264,19 +347,27 @@ function candidates(providers: Record<ProviderV2.ID, Info>, options: Options): C
 /**
  * The model the router would pick right now, or undefined when no free model is reachable.
  *
- * Candidates below the configured quality bar are only used when nothing better exists, so
- * the router always has somewhere to go even when the free pool is only small models.
+ * The quality bar and health checks are strict. If nothing suitable is available, Composer
+ * is omitted instead of falling back to a weak, paid, undersized, or previously failed model.
  */
-export function select(providers: Record<ProviderV2.ID, Info>, options: Options = DEFAULT_OPTIONS): Selection | undefined {
-  const list = candidates(providers, options)
+export function select(
+  providers: Record<ProviderV2.ID, Info>,
+  options: Options = DEFAULT_OPTIONS,
+  contextUsageTokens = options.contextUsageTokens ?? 0,
+): Selection | undefined {
+  const list = candidates(providers, { ...options, contextUsageTokens })
   if (list.length === 0) return undefined
-  // A banned model is not used. If every free model is banned the router still has to
-  // go somewhere - refusing to answer at all is worse than trying a model that failed
-  // yesterday - so the ban is only a preference when nothing else is left.
-  const usable = list.filter((candidate) => !isBanned(String(candidate.providerID), String(candidate.modelID)))
-  const pool = usable.length > 0 ? usable : list
-  const good = pool.find((candidate) => candidate.quality.tier >= options.minTier)
-  return good ?? pool[0]
+  const qualified = list.filter(
+    (candidate) =>
+      candidate.quality.tier >= options.minTier && !isBanned(String(candidate.providerID), String(candidate.modelID)),
+  )
+  if (qualified.length === 0) return undefined
+
+  // Prefer proven models when at least one context-compatible model has completed a real
+  // turn in the last week. On a fresh installation, the highest-scoring candidate gets the
+  // first attempt and establishes the health history.
+  const verified = qualified.filter((candidate) => candidate.working > 0)
+  return (verified.length > 0 ? verified : qualified)[0]
 }
 
 /**
@@ -286,8 +377,12 @@ export function select(providers: Record<ProviderV2.ID, Info>, options: Options 
  * cost, variants and reasoning flag all come from it, so the UI shows what this router can
  * actually do right now. When no free model is reachable the provider is omitted entirely.
  */
-export function build(providers: Record<ProviderV2.ID, Info>, options: Options = DEFAULT_OPTIONS): Info | undefined {
-  const selected = select(providers, options)
+export function build(
+  providers: Record<ProviderV2.ID, Info>,
+  options: Options = DEFAULT_OPTIONS,
+  contextUsageTokens = options.contextUsageTokens ?? 0,
+): Info | undefined {
+  const selected = select(providers, options, contextUsageTokens)
   if (!selected) return undefined
 
   const source = selected.model
@@ -339,8 +434,12 @@ export function provider(providers: Record<ProviderV2.ID, Info>, options: Option
 }
 
 /** Fresh synthetic model (tagged with its current target) or undefined. */
-export function model(providers: Record<ProviderV2.ID, Info>, options: Options = DEFAULT_OPTIONS): Model | undefined {
-  return build(providers, options)?.models[MODEL_ID]
+export function model(
+  providers: Record<ProviderV2.ID, Info>,
+  options: Options = DEFAULT_OPTIONS,
+  contextUsageTokens = options.contextUsageTokens ?? 0,
+): Model | undefined {
+  return build(providers, options, contextUsageTokens)?.models[MODEL_ID]
 }
 
 /** Description used in logs: `divee/composer -> provider/model`. */

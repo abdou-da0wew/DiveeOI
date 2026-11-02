@@ -2230,6 +2230,9 @@ export type Config = {
     composer?: {
       preferred?: Array<string>
       min_tier?: number
+      use_all_providers?: boolean
+      context_headroom_ratio?: number
+      artificial_analysis_api_key_env?: string
     }
   }
   compatibility?: {
@@ -6792,6 +6795,98 @@ export type ConfigProvidersResponses = {
 }
 
 export type ConfigProvidersResponse = ConfigProvidersResponses[keyof ConfigProvidersResponses]
+
+export type ConfigRemoveComposerKeyData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/composer-key"
+}
+
+export type ConfigRemoveComposerKeyErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ConfigRemoveComposerKeyError = ConfigRemoveComposerKeyErrors[keyof ConfigRemoveComposerKeyErrors]
+
+export type ConfigRemoveComposerKeyResponses = {
+  /**
+   * Artificial Analysis key removed
+   */
+  200: {
+    configured: boolean
+  }
+}
+
+export type ConfigRemoveComposerKeyResponse = ConfigRemoveComposerKeyResponses[keyof ConfigRemoveComposerKeyResponses]
+
+export type ConfigComposerKeyStatusData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/composer-key"
+}
+
+export type ConfigComposerKeyStatusErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ConfigComposerKeyStatusError = ConfigComposerKeyStatusErrors[keyof ConfigComposerKeyStatusErrors]
+
+export type ConfigComposerKeyStatusResponses = {
+  /**
+   * Artificial Analysis key status
+   */
+  200: {
+    configured: boolean
+  }
+}
+
+export type ConfigComposerKeyStatusResponse = ConfigComposerKeyStatusResponses[keyof ConfigComposerKeyStatusResponses]
+
+export type ConfigSetComposerKeyData = {
+  body?: {
+    apiKey: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/composer-key"
+}
+
+export type ConfigSetComposerKeyErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type ConfigSetComposerKeyError = ConfigSetComposerKeyErrors[keyof ConfigSetComposerKeyErrors]
+
+export type ConfigSetComposerKeyResponses = {
+  /**
+   * Artificial Analysis key saved
+   */
+  200: {
+    configured: boolean
+  }
+}
+
+export type ConfigSetComposerKeyResponse = ConfigSetComposerKeyResponses[keyof ConfigSetComposerKeyResponses]
 
 export type ExperimentalCapabilitiesGetData = {
   body?: never

@@ -1,4 +1,6 @@
 import { Config } from "@/config/config"
+import { ComposerSecrets } from "@/provider/composer-secrets"
+import { ArtificialAnalysis } from "@/provider/artificial-analysis"
 import { Provider } from "@/provider/provider"
 import * as InstanceState from "@/effect/instance-state"
 import { Effect } from "effect"
@@ -21,6 +23,28 @@ export const configHandlers = HttpApiBuilder.group(InstanceHttpApi, "config", (h
       return ctx.payload
     })
 
+    const composerKeyStatus = Effect.fn("ConfigHttpApi.composerKeyStatus")(function* () {
+      const current = yield* configSvc.get()
+      const envName =
+        current.performance?.composer?.artificial_analysis_api_key_env?.trim() || "ARTIFICIAL_ANALYSIS_API_KEY"
+      return { configured: yield* Effect.promise(() => ComposerSecrets.hasApiKey(envName)) }
+    })
+
+    const setComposerKey = Effect.fn("ConfigHttpApi.setComposerKey")(function* (ctx) {
+      yield* Effect.promise(() => ComposerSecrets.saveApiKey(ctx.payload.apiKey))
+      ArtificialAnalysis.reset()
+      return { configured: true }
+    })
+
+    const removeComposerKey = Effect.fn("ConfigHttpApi.removeComposerKey")(function* () {
+      yield* Effect.promise(() => ComposerSecrets.removeApiKey())
+      ArtificialAnalysis.reset()
+      const current = yield* configSvc.get()
+      const envName =
+        current.performance?.composer?.artificial_analysis_api_key_env?.trim() || "ARTIFICIAL_ANALYSIS_API_KEY"
+      return { configured: yield* Effect.promise(() => ComposerSecrets.hasApiKey(envName)) }
+    })
+
     const providers = Effect.fn("ConfigHttpApi.providers")(function* () {
       const providers = yield* providerSvc.list()
       return {
@@ -29,6 +53,12 @@ export const configHandlers = HttpApiBuilder.group(InstanceHttpApi, "config", (h
       }
     })
 
-    return handlers.handle("get", get).handle("update", update).handle("providers", providers)
+    return handlers
+      .handle("get", get)
+      .handle("update", update)
+      .handle("providers", providers)
+      .handle("composerKeyStatus", composerKeyStatus)
+      .handle("setComposerKey", setComposerKey)
+      .handle("removeComposerKey", removeComposerKey)
   }),
 )

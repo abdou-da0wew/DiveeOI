@@ -28,6 +28,8 @@ import { isRecord } from "@/util/record"
 import { optionalOmitUndefined } from "@diveeoi/db/schema"
 import { ProviderTransform } from "./transform"
 import { Composer } from "./composer"
+import { ArtificialAnalysis } from "./artificial-analysis"
+import { ComposerSecrets } from "./composer-secrets"
 import { ProviderV2 } from "@diveeoi/db/provider"
 import { ModelV2 } from "@diveeoi/db/model"
 import { ModelStatus } from "./model-status"
@@ -1145,7 +1147,11 @@ export type Error = ModelNotFoundError | InitError | NoProvidersError | NoModels
 export interface Interface {
   readonly list: () => Effect.Effect<Record<ProviderV2.ID, Info>>
   readonly getProvider: (providerID: ProviderV2.ID) => Effect.Effect<Info>
-  readonly getModel: (providerID: ProviderV2.ID, modelID: ModelV2.ID) => Effect.Effect<Model, ModelNotFoundError>
+  readonly getModel: (
+    providerID: ProviderV2.ID,
+    modelID: ModelV2.ID,
+    contextUsageTokens?: number,
+  ) => Effect.Effect<Model, ModelNotFoundError>
   readonly getLanguage: (model: Model) => Effect.Effect<LanguageModelV3, ModelNotFoundError>
   readonly closest: (
     providerID: ProviderV2.ID,
@@ -1162,6 +1168,8 @@ export interface Interface {
 interface State {
   models: Map<string, LanguageModelV3>
   providers: Record<ProviderV2.ID, Info>
+  availableProviders: Set<ProviderV2.ID>
+  knownFreeModels: Set<string>
   catalog: Record<ProviderV2.ID, Info>
   sdk: Map<string, BundledSDK>
   modelLoaders: Record<string, CustomModelLoader>
@@ -1171,6 +1179,26 @@ interface State {
 export class Service extends Context.Service<Service, Interface>()("@opencode/Provider") {}
 
 export const use = serviceUse(Service)
+
+function knownZeroPrice(c: ModelsDev.Model["cost"] | undefined) {
+  if (!c || c.input !== 0 || c.output !== 0) return false
+  if ((c.cache_read ?? 0) !== 0 || (c.cache_write ?? 0) !== 0) return false
+  if (
+    c.tiers?.some(
+      (tier) => tier.input !== 0 || tier.output !== 0 || (tier.cache_read ?? 0) !== 0 || (tier.cache_write ?? 0) !== 0,
+    )
+  )
+    return false
+  if (
+    c.context_over_200k &&
+    (c.context_over_200k.input !== 0 ||
+      c.context_over_200k.output !== 0 ||
+      (c.context_over_200k.cache_read ?? 0) !== 0 ||
+      (c.context_over_200k.cache_write ?? 0) !== 0)
+  )
+    return false
+  return true
+}
 
 function cost(c: ModelsDev.Model["cost"]): Model["cost"] {
   const result: Model["cost"] = {
@@ -1342,6 +1370,13 @@ export const layer = Layer.effect(
         const { catalog, database } = catalogFor(modelsDev)
 
         const providers: Record<ProviderV2.ID, Info> = {} as Record<ProviderV2.ID, Info>
+        const availableProviders = new Set<ProviderV2.ID>()
+        const knownFreeModels = new Set<string>()
+        for (const [providerID, catalogProvider] of Object.entries(modelsDev)) {
+          for (const [modelID, catalogModel] of Object.entries(catalogProvider.models)) {
+            if (knownZeroPrice(catalogModel.cost)) knownFreeModels.add(`${providerID}/${modelID}`)
+          }
+        }
         const languages = new Map<string, LanguageModelV3>()
         const modelLoaders: {
           [providerID: string]: CustomModelLoader
@@ -1440,6 +1475,13 @@ export const layer = Layer.effect(
               if (model.id && model.id !== modelID) return modelID
               return existingModel?.name ?? modelID
             })
+            const freeKey = `${providerID}/${modelID}`
+            if (model.cost) {
+              if (knownZeroPrice(model.cost)) knownFreeModels.add(freeKey)
+              else knownFreeModels.delete(freeKey)
+            } else if (existingModel && knownFreeModels.has(`${providerID}/${existingModel.id}`)) {
+              knownFreeModels.add(freeKey)
+            }
             const parsedModel: Model = {
               id: ModelV2.ID.make(modelID),
               api: {
@@ -1515,6 +1557,7 @@ export const layer = Layer.effect(
           if (disabled.has(providerID)) continue
           const apiKey = provider.env.map((item) => envs[item]).find(Boolean)
           if (!apiKey) continue
+          availableProviders.add(providerID)
           mergeProvider(providerID, {
             source: "env",
             key: provider.env.length === 1 ? apiKey : undefined,
@@ -1526,6 +1569,7 @@ export const layer = Layer.effect(
         for (const [id, provider] of Object.entries(auths)) {
           const providerID = ProviderV2.ID.make(id)
           if (disabled.has(providerID)) continue
+          availableProviders.add(providerID)
           if (provider.type === "api") {
             mergeProvider(providerID, {
               source: "api",
@@ -1542,6 +1586,7 @@ export const layer = Layer.effect(
 
           const stored = yield* auth.get(providerID).pipe(Effect.orDie)
           if (!stored) continue
+          availableProviders.add(providerID)
           if (!plugin.auth.loader) continue
 
           const options = yield* Effect.promise(() =>
@@ -1564,6 +1609,7 @@ export const layer = Layer.effect(
           }
           const result = yield* fn(data)
           if (result && (result.autoload || providers[providerID])) {
+            if (result.autoload) availableProviders.add(providerID)
             if (result.getModel) modelLoaders[providerID] = result.getModel
             if (result.vars) varsLoaders[providerID] = result.vars
             if (result.discoverModels) discoveryLoaders[providerID] = result.discoverModels
@@ -1581,7 +1627,26 @@ export const layer = Layer.effect(
           if (provider.name) partial.name = provider.name
           if (provider.options) partial.options = provider.options
           mergeProvider(providerID, partial)
+
+          const credentialLike = (entries: Record<string, unknown>) =>
+            Object.entries(entries).some(
+              ([name, value]) =>
+                /api.?key|access.?token|token|secret|credential|authorization/i.test(name) &&
+                typeof value === "string" &&
+                value.trim().length > 0,
+            )
+          const inlineCredentials =
+            credentialLike(provider.options ?? {}) ||
+            Object.values(provider.models ?? {}).some((model) => credentialLike(model.headers ?? {})) ||
+            (typeof provider.options?.baseURL === "string" && provider.options.baseURL.trim().length > 0)
+          if (inlineCredentials) availableProviders.add(providerID)
         }
+
+        // OpenCode's built-in free gateway is intentionally usable without a user API key.
+        // Treat it as available whenever its models are present; quota cooldowns still decide
+        // whether those models may be selected.
+        const openCode = ProviderV2.ID.make("opencode")
+        if (providers[openCode]) availableProviders.add(openCode)
 
         const gitlab = ProviderV2.ID.make("gitlab")
         if (discoveryLoaders[gitlab] && providers[gitlab] && isProviderAllowed(gitlab)) {
@@ -1601,6 +1666,9 @@ export const layer = Layer.effect(
           const providerID = ProviderV2.ID.make(id)
           if (!isProviderAllowed(providerID)) {
             delete providers[providerID]
+            for (const freeModel of knownFreeModels) {
+              if (freeModel.startsWith(`${providerID}/`)) knownFreeModels.delete(freeModel)
+            }
             continue
           }
 
@@ -1649,6 +1717,8 @@ export const layer = Layer.effect(
         return {
           models: languages,
           providers,
+          availableProviders,
+          knownFreeModels,
           catalog,
           sdk,
           modelLoaders,
@@ -1661,15 +1731,34 @@ export const layer = Layer.effect(
     const composerOptions = Effect.fnUntraced(function* () {
       const cfg = yield* config.get()
       const composer = cfg.performance?.composer
+      const envName = composer?.artificial_analysis_api_key_env?.trim() || "ARTIFICIAL_ANALYSIS_API_KEY"
+      const apiKey = yield* Effect.promise(() => ComposerSecrets.readApiKey(envName)).pipe(
+        Effect.catch(() => Effect.succeed(undefined)),
+      )
+      if (apiKey) {
+        yield* Effect.promise(() => ArtificialAnalysis.refresh(apiKey)).pipe(Effect.catch(() => Effect.void))
+      }
       return {
         preferred: composer?.preferred ?? [],
         minTier: composer?.min_tier ?? Composer.DEFAULT_OPTIONS.minTier,
+        useAllProviders: composer?.use_all_providers ?? Composer.DEFAULT_OPTIONS.useAllProviders,
+        contextHeadroomRatio: Math.max(
+          1,
+          composer?.context_headroom_ratio ?? Composer.DEFAULT_OPTIONS.contextHeadroomRatio ?? 1.2,
+        ),
       } satisfies Composer.Options
     })
 
-    const list = Effect.fn("Provider.list")(() =>
-      InstanceState.use(state, (s) => Composer.withProvider(s.providers, Composer.DEFAULT_OPTIONS)),
-    )
+    const list = Effect.fn("Provider.list")(function* () {
+      const options = yield* composerOptions()
+      return yield* InstanceState.use(state, (s) =>
+        Composer.withProvider(s.providers, {
+          ...options,
+          availableProviders: s.availableProviders,
+          knownFreeModels: s.knownFreeModels,
+        }),
+      )
+    })
 
     async function resolveSDK(model: Model, s: State, envs: Record<string, string | undefined>) {
       try {
@@ -1814,21 +1903,11 @@ export const layer = Layer.effect(
       return s.providers[providerID]
     })
 
-    /**
-     * A normal (non-router) model to fall back to. Kept separate from
-     * `defaultModel` so the two do not call each other.
-     */
-    const fallbackModel = Effect.fn("Provider.fallbackModel")(function* () {
-      const cfg = yield* config.get()
-      const s = yield* InstanceState.get(state)
-      const provider = Object.values(s.providers).find((p) => !cfg.provider || Object.keys(cfg.provider).includes(p.id))
-      if (!provider) return undefined
-      const [model] = ProviderFreeTier.rankForUse(Object.values(provider.models), String(provider.id))
-      if (!model) return undefined
-      return { providerID: provider.id, modelID: model.id }
-    })
-
-    const getModel = Effect.fn("Provider.getModel")(function* (providerID: ProviderV2.ID, modelID: ModelV2.ID) {
+    const getModel = Effect.fn("Provider.getModel")(function* (
+      providerID: ProviderV2.ID,
+      modelID: ModelV2.ID,
+      contextUsageTokens = 0,
+    ) {
       const s = yield* InstanceState.get(state)
 
       // DiveeComposer is synthetic: resolve it to the free model it currently routes to and
@@ -1836,18 +1915,19 @@ export const layer = Layer.effect(
       // a provider — `getLanguage` swaps in the concrete model before the request is built.
       if (Composer.isComposer(providerID, modelID)) {
         const options = yield* composerOptions()
-        const model = Composer.model(s.providers, options)
+        const model = Composer.model(
+          s.providers,
+          {
+            ...options,
+            availableProviders: s.availableProviders,
+            knownFreeModels: s.knownFreeModels,
+          },
+          contextUsageTokens,
+        )
         if (model) return model
-        // The router has nowhere to go (no reachable free model in this
-        // project). Fall back to a normal model instead of failing the turn -
-        // the user picked a router, not a broken model.
-        const fallback = yield* fallbackModel()
-        if (!fallback || (fallback.providerID === providerID && fallback.modelID === modelID)) {
-          return yield* new ModelNotFoundError({ providerID, modelID })
-        }
-        const info = s.providers[fallback.providerID]?.models[String(fallback.modelID)]
-        if (!info) return yield* new ModelNotFoundError({ providerID, modelID })
-        return info
+        // Composer is a free-only router. Never silently fall through to a paid model or
+        // to one whose context window cannot hold the session already in progress.
+        return yield* new ModelNotFoundError({ providerID, modelID })
       }
 
       const provider = s.providers[providerID]

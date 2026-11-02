@@ -704,7 +704,14 @@ export const layer = Layer.effect(
           return replacement
         }
       }
-      const exit = yield* provider.getModel(providerID, modelID).pipe(Effect.exit)
+      const latestAssistant = yield* sessions.findMessage(
+        sessionID,
+        (message) => message.info.role === "assistant" && (message.info.tokens?.input ?? 0) > 0,
+      ).pipe(Effect.orDie)
+      const latestAssistantInfo = Option.isSome(latestAssistant) ? latestAssistant.value.info : undefined
+      const contextUsageTokens =
+        latestAssistantInfo?.role === "assistant" ? (latestAssistantInfo.tokens.input ?? 0) : 0
+      const exit = yield* provider.getModel(providerID, modelID, contextUsageTokens).pipe(Effect.exit)
       if (Exit.isSuccess(exit)) return exit.value
       const err = Cause.squash(exit.cause)
       if (Provider.ModelNotFoundError.isInstance(err)) {

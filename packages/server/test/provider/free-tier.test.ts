@@ -8,12 +8,17 @@ import {
   needsKey,
   rankForUse,
   resetLearned,
+  restoreQuotaCooldowns,
+  quotaCooldowns,
 } from "@/provider/free-tier"
 
 // The shapes the gateway actually returns (measured, not invented).
 const freeTierBody = {
   type: "error",
-  error: { type: "FreeTierError", message: "Error from provider (Console): OpenCode's free tier can only be used from within OpenCode" },
+  error: {
+    type: "FreeTierError",
+    message: "Error from provider (Console): OpenCode's free tier can only be used from within OpenCode",
+  },
 }
 const modelGoneBody = { type: "error", error: { type: "ModelError", message: "Model grok-code is not supported" } }
 // exo-free answered with this (410) while models.dev still listed it `status: "active"`, which is
@@ -47,12 +52,43 @@ describe("provider free-tier", () => {
     resetLearned()
     const asSdkError = {
       name: "APIError",
-      data: { message: "Model exo-free has been deprecated.", statusCode: 410, responseBody: JSON.stringify(modelDeprecatedBody) },
+      data: {
+        message: "Model exo-free has been deprecated.",
+        statusCode: 410,
+        responseBody: JSON.stringify(modelDeprecatedBody),
+      },
     }
     expect(learn(asSdkError, "opencode", "exo-free")).toBe("unusable")
     expect(isRoutable("opencode", "exo-free")).toBe(false)
     resetLearned()
     expect(isRoutable("opencode", "exo-free")).toBe(true)
+  })
+
+  test("recognizes exhausted OpenCode free usage and cools down the whole provider", () => {
+    resetLearned()
+    expect(classify({ message: "Free usage limit reached. Free models work in OpenCode" })).toBe("quota")
+    expect(learn({ message: "Free usage limit reached. Free models work in OpenCode" }, "opencode", "model-a")).toBe(
+      "quota",
+    )
+    expect(isRoutable("opencode", "model-a")).toBe(false)
+    expect(isRoutable("opencode", "model-b")).toBe(false)
+    expect(isRoutable("another-provider", "model-a")).toBe(true)
+    resetLearned()
+  })
+
+  test("restores provider quota cooldowns across process restarts", () => {
+    resetLearned()
+    const until = Date.now() + 60_000
+    const expired = Date.now() - 1
+    const before = { gateway: until, oldGateway: expired }
+    const restore = JSON.stringify(before)
+    resetLearned()
+    const parsed = JSON.parse(restore) as Record<string, number>
+    restoreQuotaCooldowns(parsed)
+    expect(isRoutable("gateway", "model-a")).toBe(false)
+    expect(isRoutable("oldGateway", "model-a")).toBe(true)
+    expect(quotaCooldowns()).toEqual({ gateway: until })
+    resetLearned()
   })
 
   test("ignores unrelated failures", () => {
@@ -97,7 +133,7 @@ describe("provider free-tier", () => {
   test("classifies an authorization failure as key-required", () => {
     // A model the catalog lists as free but the credential cannot use: the gateway says
     // unauthorized, the SDK says the token is invalid, or the SDK reports a 401.
-    expect(classify({ message: "Unauthorized: {\"error\":{\"message\":\"invalid token\"}}" })).toBe("key-required")
+    expect(classify({ message: 'Unauthorized: {"error":{"message":"invalid token"}}' })).toBe("key-required")
     expect(classify({ message: "Anthropic API key is missing. Pass it using the 'apiKey' parameter" })).toBe(
       "key-required",
     )
@@ -160,10 +196,7 @@ describe("provider free-tier rankForUse", () => {
   })
 
   test("treats a missing status as live", () => {
-    const ranked = rankForUse(
-      [model("a-model", { status: "deprecated" }), model("b-model")],
-      "opencode",
-    )
+    const ranked = rankForUse([model("a-model", { status: "deprecated" }), model("b-model")], "opencode")
     expect(ranked[0]?.id).toBe("b-model")
   })
 })

@@ -19,8 +19,9 @@
 // gateway is the only oracle, and this module *learns* from live traffic instead of shipping a
 // list that rots (5 of 12 free models were already dead when this was measured).
 //
-// State is process-local, exactly like the circuit breakers in the retry design, and a fresh
-// process re-learns cheaply because the cost of being wrong is one failed turn.
+// Model-level key/retirement discoveries are process-local. Shared provider quota cooldowns
+// are persisted by ComposerBans because a server restart should not immediately retry an
+// exhausted gateway account.
 
 const keyRequired = new Set<string>()
 const unusable = new Set<string>()
@@ -31,6 +32,10 @@ const unusable = new Set<string>()
 const PROVIDER_FAILURE_THRESHOLD = 3
 const providerFailures = new Map<string, Set<string>>()
 const keyRequiredProviders = new Set<string>()
+const providerCooldowns = new Map<string, number>()
+const PROVIDER_QUOTA_COOLDOWN_MS = 60 * 60 * 1000
+type QuotaCooldownListener = (providerID: string, until: number) => void
+let quotaCooldownListener: QuotaCooldownListener | undefined
 
 const key = (providerID: string, modelID: string) => `${providerID}/${modelID}`
 
@@ -59,7 +64,41 @@ export function needsKey(providerID: string, modelID: string) {
 
 export function isRoutable(providerID: string, modelID: string) {
   if (keyRequiredProviders.has(providerID)) return false
+  const cooldownUntil = providerCooldowns.get(providerID)
+  if (cooldownUntil !== undefined) {
+    if (cooldownUntil > Date.now()) return false
+    providerCooldowns.delete(providerID)
+  }
   return !keyRequired.has(key(providerID, modelID))
+}
+
+/** Pause every free model behind a provider whose shared free quota is exhausted. */
+export function markQuotaExhausted(providerID: string, durationMs = PROVIDER_QUOTA_COOLDOWN_MS) {
+  const until = Date.now() + durationMs
+  providerCooldowns.set(providerID, until)
+  quotaCooldownListener?.(providerID, until)
+}
+
+export function onQuotaCooldown(listener: QuotaCooldownListener) {
+  quotaCooldownListener = listener
+  return () => {
+    if (quotaCooldownListener === listener) quotaCooldownListener = undefined
+  }
+}
+
+export function quotaCooldowns() {
+  const now = Date.now()
+  for (const [providerID, until] of providerCooldowns) {
+    if (until <= now) providerCooldowns.delete(providerID)
+  }
+  return Object.fromEntries(providerCooldowns)
+}
+
+export function restoreQuotaCooldowns(record: Record<string, number>) {
+  const now = Date.now()
+  for (const [providerID, until] of Object.entries(record)) {
+    if (Number.isFinite(until) && until > now) providerCooldowns.set(providerID, until)
+  }
 }
 
 /** Test/reset seam. */
@@ -68,6 +107,8 @@ export function resetLearned() {
   unusable.clear()
   providerFailures.clear()
   keyRequiredProviders.clear()
+  providerCooldowns.clear()
+  quotaCooldownListener = undefined
 }
 
 export function learned() {
@@ -75,11 +116,12 @@ export function learned() {
     keyRequired: [...keyRequired],
     unusable: [...unusable],
     keyRequiredProviders: [...keyRequiredProviders],
+    providerCooldowns: Object.fromEntries(providerCooldowns),
   }
 }
 
 /** The gateway's free-tier failure shapes, matched on the parsed error body. */
-export type FreeTierVerdict = "key-required" | "unusable" | undefined
+export type FreeTierVerdict = "key-required" | "unusable" | "quota" | undefined
 
 /**
  * Classify a provider failure. The gateway answers with
@@ -124,6 +166,12 @@ export function classify(error: unknown): FreeTierVerdict {
   }
   const text = parts.join(" ").toLowerCase()
   if (!text && !statusDenied) return undefined
+  if (
+    text.includes("free usage limit reached") ||
+    text.includes("free model usage limit") ||
+    text.includes("free tier quota exhausted")
+  )
+    return "quota"
   if (text.includes("freetiererror") || text.includes("free tier can only be used")) return "key-required"
   if (statusDenied) return "key-required"
   // A generic auth failure is the same conclusion in a different envelope: the catalog
@@ -136,7 +184,7 @@ export function classify(error: unknown): FreeTierVerdict {
     text.includes("authentication") ||
     text.includes("permission denied") ||
     text.includes("api key") ||
-    text.includes("statuscode\":401") ||
+    text.includes('statuscode":401') ||
     text.includes("status code 401")
   ) {
     return "key-required"
@@ -162,6 +210,7 @@ export function learn(error: unknown, providerID: string, modelID: string): Free
   const verdict = classify(error)
   if (verdict === "key-required") markKeyRequired(providerID, modelID)
   else if (verdict === "unusable") markUnusable(providerID, modelID)
+  else if (verdict === "quota") markQuotaExhausted(providerID)
   return verdict
 }
 
@@ -179,10 +228,9 @@ export function learn(error: unknown, providerID: string, modelID: string): Free
  *
  * Nothing here names a model: it is derived from the live catalog on every call.
  */
-export function rankForUse<T extends { id: string; cost?: { input?: number }; limit?: { context?: number }; status?: string }>(
-  models: ReadonlyArray<T>,
-  providerID: string,
-): T[] {
+export function rankForUse<
+  T extends { id: string; cost?: { input?: number }; limit?: { context?: number }; status?: string },
+>(models: ReadonlyArray<T>, providerID: string): T[] {
   return models
     .filter((model) => isRoutable(providerID, model.id))
     .slice()

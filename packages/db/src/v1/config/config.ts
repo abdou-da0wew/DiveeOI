@@ -128,7 +128,9 @@ export const Info = Schema.Struct({
   ).annotate({ description: "MCP (Model Context Protocol) server configurations" }),
   tool: Schema.optional(
     Schema.Struct({
-      format: Schema.optional(Schema.Literals(["json", "toon"] as const)).annotate({ description: "Tool schema format (json or toon)" }),
+      format: Schema.optional(Schema.Literals(["json", "toon"] as const)).annotate({
+        description: "Tool schema format (json or toon)",
+      }),
       burst: Schema.optional(
         Schema.Struct({
           max_bytes_per_second: Schema.optional(Schema.Number).annotate({
@@ -136,8 +138,12 @@ export const Info = Schema.Struct({
           }),
           max_burst_bytes: Schema.optional(Schema.Number).annotate({ description: "Max burst bytes before abort" }),
           window_ms: Schema.optional(Schema.Number).annotate({ description: "Sliding window duration in ms" }),
-          strategy: Schema.optional(Schema.Literals(["truncate", "buffer", "abort"] as const)).annotate({ description: "Rate limiting strategy" }),
-          action: Schema.optional(Schema.Literals(["warn", "truncate", "abort"] as const)).annotate({ description: "Action when rate exceeded" }),
+          strategy: Schema.optional(Schema.Literals(["truncate", "buffer", "abort"] as const)).annotate({
+            description: "Rate limiting strategy",
+          }),
+          action: Schema.optional(Schema.Literals(["warn", "truncate", "abort"] as const)).annotate({
+            description: "Action when rate exceeded",
+          }),
         }),
       ).annotate({ description: "Shell burst rate limiting configuration" }),
     }),
@@ -149,16 +155,20 @@ export const Info = Schema.Struct({
           "Privilege elevation mode (draft-10 P11). off (default): elevation disabled, privileged commands fail with permission-denied. ask: each elevated command prompts the user via the existing permission UI. allow: auto-approve elevation for the session (still logged).",
       }),
       ttl_s: Schema.optional(Schema.Number).annotate({
-        description: "In-process credential cache TTL in seconds (default 900 = 15 min). After TTL, the cached password is cleared and the next elevation re-reads the keyring/param.",
+        description:
+          "In-process credential cache TTL in seconds (default 900 = 15 min). After TTL, the cached password is cleared and the next elevation re-reads the keyring/param.",
       }),
       sudo_password_credential: Schema.optional(Schema.String).annotate({
-        description: "Credential store key for the sudo password (optional). When set, the elevation module reads the password from the DiveeOI credential service instead of the tool-call param or OS keyring.",
+        description:
+          "Credential store key for the sudo password (optional). When set, the elevation module reads the password from the DiveeOI credential service instead of the tool-call param or OS keyring.",
       }),
     }),
   ).annotate({ description: "Shell privilege elevation configuration (draft-10 P11)" }),
   llm: Schema.optional(
     Schema.Struct({
-      format: Schema.optional(Schema.Literals(["json", "toon"] as const)).annotate({ description: "Tool format for LLM calls (json or toon)" }),
+      format: Schema.optional(Schema.Literals(["json", "toon"] as const)).annotate({
+        description: "Tool format for LLM calls (json or toon)",
+      }),
       burst: Schema.optional(
         Schema.Struct({
           max_bytes_per_second: Schema.optional(Schema.Number).annotate({
@@ -166,8 +176,12 @@ export const Info = Schema.Struct({
           }),
           max_burst_bytes: Schema.optional(Schema.Number).annotate({ description: "Max burst bytes before abort" }),
           window_ms: Schema.optional(Schema.Number).annotate({ description: "Sliding window duration in ms" }),
-          strategy: Schema.optional(Schema.Literals(["truncate", "buffer", "abort"] as const)).annotate({ description: "Rate limiting strategy" }),
-          action: Schema.optional(Schema.Literals(["warn", "truncate", "abort"] as const)).annotate({ description: "Action when rate exceeded" }),
+          strategy: Schema.optional(Schema.Literals(["truncate", "buffer", "abort"] as const)).annotate({
+            description: "Rate limiting strategy",
+          }),
+          action: Schema.optional(Schema.Literals(["warn", "truncate", "abort"] as const)).annotate({
+            description: "Action when rate exceeded",
+          }),
         }),
       ).annotate({ description: "LLM shell burst rate limiting" }),
       tool_output: Schema.optional(
@@ -213,12 +227,16 @@ export const Info = Schema.Struct({
     Schema.Struct({
       ctx7: Schema.optional(
         Schema.Struct({
-          enabled: Schema.optional(Schema.Boolean).annotate({ description: "Enable ctx7 tools (default: true, requires ctx7 setup)" }),
+          enabled: Schema.optional(Schema.Boolean).annotate({
+            description: "Enable ctx7 tools (default: true, requires ctx7 setup)",
+          }),
         }),
       ).annotate({ description: "ctx7 configuration" }),
       context_mode: Schema.optional(
         Schema.Struct({
-          enabled: Schema.optional(Schema.Boolean).annotate({ description: "Enable context-mode MCP server (default: true)" }),
+          enabled: Schema.optional(Schema.Boolean).annotate({
+            description: "Enable context-mode MCP server (default: true)",
+          }),
         }),
       ).annotate({ description: "Context-mode configuration" }),
     }),
@@ -247,7 +265,8 @@ export const Info = Schema.Struct({
       }),
     }),
   ).annotate({
-    description: "Startup feature flags. Disabled features never load their machinery. Changes require a server restart.",
+    description:
+      "Startup feature flags. Disabled features never load their machinery. Changes require a server restart.",
   }),
   performance: Schema.optional(
     Schema.Struct({
@@ -259,11 +278,23 @@ export const Info = Schema.Struct({
         Schema.Struct({
           preferred: Schema.optional(Schema.mutable(Schema.Array(Schema.String))).annotate({
             description:
-              "Similarity list for the DiveeComposer router: glob patterns of model names that should be treated as known-good (e.g. \"deepseek-v4*\", \"glm-5*\"). Matching models are preferred over the built-in ranking.",
+              'Similarity list for the DiveeComposer router: glob patterns of model names that should be treated as known-good (e.g. "deepseek-v4*", "glm-5*"). Matching models are preferred over the built-in ranking.',
           }),
           min_tier: Schema.optional(Schema.Finite).annotate({
             description:
-              "Quality bar (0-5) a model must reach before DiveeComposer routes to it. Below the bar the router still works, it just uses the best model available. Default: 2.",
+              "Minimum quality tier (0-5) required for a free model to be selected. Models below this threshold are never selected. Default: 3.",
+          }),
+          use_all_providers: Schema.optional(Schema.Boolean).annotate({
+            description:
+              "Allow DiveeComposer to consider free models from every configured provider instead of OpenCode only. Default: true.",
+          }),
+          context_headroom_ratio: Schema.optional(Schema.Finite).annotate({
+            description:
+              "Preferred context-window headroom over the latest session input-token usage. Must be greater than or equal to 1. Default: 1.2.",
+          }),
+          artificial_analysis_api_key_env: Schema.optional(Schema.String).annotate({
+            description:
+              "Environment variable containing an Artificial Analysis API key. Defaults to ARTIFICIAL_ANALYSIS_API_KEY. The key entered in Settings is encrypted separately and is never stored in this config file.",
           }),
         }),
       ).annotate({ description: "DiveeComposer model routing" }),
