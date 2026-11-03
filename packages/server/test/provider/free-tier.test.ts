@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   classify,
+  isProviderAuthFailure,
   isRoutable,
   learn,
   markKeyRequired,
@@ -198,5 +199,60 @@ describe("provider free-tier rankForUse", () => {
   test("treats a missing status as live", () => {
     const ranked = rankForUse([model("a-model", { status: "deprecated" }), model("b-model")], "opencode")
     expect(ranked[0]?.id).toBe("b-model")
+  })
+})
+
+describe("provider-wide credential and quota failures", () => {
+  test("a missing Authentication header drops the whole non-OpenCode provider at once", () => {
+    resetLearned()
+    const error = { name: "APIError", data: { message: "Missing Authentication header", statusCode: 401 } }
+    expect(isProviderAuthFailure(error)).toBe(true)
+    expect(learn(error, "openrouter", "nvidia/nemotron-3.5-super-vl:free")).toBe("key-required")
+    // No other model of that provider is tried afterwards.
+    expect(isRoutable("openrouter", "anthropic/claude-haiku-4.5")).toBe(false)
+    expect(isRoutable("openrouter", "google/gemini-3-flash-preview")).toBe(false)
+    // The failure is provider-wide, not evidence that this individual model is unusable.
+    expect(needsKey("openrouter", "nvidia/nemotron-3.5-super-vl:free")).toBe(false)
+    resetLearned()
+    expect(isRoutable("openrouter", "anthropic/claude-haiku-4.5")).toBe(true)
+  })
+
+  test("finds auth failures in sibling and nested error branches", () => {
+    const error = {
+      data: { diagnostic: "upstream request rejected" },
+      cause: { message: "Missing Authentication header", status: "401" },
+    }
+    expect(classify(error)).toBe("key-required")
+    expect(isProviderAuthFailure(error)).toBe(true)
+  })
+
+  test("an OpenCode per-model refusal does not drop the whole gateway", () => {
+    resetLearned()
+    expect(learn(freeTierBody, "opencode", "muse-spark-free")).toBe("key-required")
+    expect(isRoutable("opencode", "other-free")).toBe(true)
+    resetLearned()
+  })
+
+  test("a quota failure cools the provider down without banning the model as unusable", () => {
+    resetLearned()
+    const error = { message: "Free usage limit reached. Free models work in OpenCode with limits." }
+    expect(learn(error, "opencode", "beam-free")).toBe("quota")
+    expect(needsKey("opencode", "beam-free")).toBe(false)
+    expect(isRoutable("opencode", "beam-free")).toBe(false)
+    expect(isRoutable("opencode", "another-free")).toBe(false)
+    expect(isRoutable("openrouter", "anything:free")).toBe(true)
+    expect(Object.keys(quotaCooldowns())).toContain("opencode")
+    resetLearned()
+    expect(isRoutable("opencode", "beam-free")).toBe(true)
+  })
+
+  test("a quota cooldown survives a restart and expires on its own", () => {
+    resetLearned()
+    restoreQuotaCooldowns({ opencode: Date.now() + 60_000 })
+    expect(isRoutable("opencode", "beam-free")).toBe(false)
+    resetLearned()
+    restoreQuotaCooldowns({ opencode: Date.now() - 1 })
+    expect(isRoutable("opencode", "beam-free")).toBe(true)
+    resetLearned()
   })
 })

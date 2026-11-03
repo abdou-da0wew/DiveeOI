@@ -7,6 +7,7 @@ import { MoveSession } from "@diveeoi/db/control-plane/move-session"
 import { AbsolutePath } from "@diveeoi/db/schema"
 import { SessionV2 } from "@diveeoi/db/session"
 import { Auth } from "../../src/auth"
+import { JwtAuth } from "@diveeoi/api/middleware/jwt"
 import { Config } from "../../src/config/config"
 import { Installation } from "../../src/installation"
 import { ServerAuth } from "../../src/server/auth"
@@ -37,6 +38,8 @@ const apiLayer = HttpRouter.serve(
 ).pipe(
   Layer.provideMerge(NodeHttpServer.layerTest),
   Layer.provide(Layer.mock(Auth.Service)({})),
+  // Auth is disabled in these route tests; only satisfy the middleware dependency.
+  Layer.provide(Layer.mock(JwtAuth.Service)({ readSecret: () => "test-only-jwt-secret-0000000000000000" })),
   Layer.provide(Layer.mock(Config.Service)({})),
   Layer.provide(Layer.mock(Installation.Service)({})),
   Layer.provide(

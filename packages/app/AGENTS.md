@@ -24,11 +24,17 @@
 
 ## Browser Automation
 
-Use `agent-browser` for web automation. Run `agent-browser --help` for all commands.
+Use `agent-browser` for web automation. Read the installed `core` skill before browser work and the `dogfood` skill for exploratory QA. Run `agent-browser --help` for all commands.
+
+Manual browser testing is required for user-visible UI changes after fixes; automated tests alone do not complete UI verification. Use a named session, interact with the actual UI, verify persistence and error states, capture screenshots, and record the result in `WORKLOG.md` or `docs/qa/`. For settings and credential flows, use a local test server with isolated XDG data/config directories, never the live instance or real provider credentials.
 
 Core workflow:
 
 1. `agent-browser open <url>` - Navigate to page
 2. `agent-browser snapshot -i` - Get interactive elements with refs (@e1, @e2)
-3. `agent-browser click @e1` / `fill @e2 "text"` - Interact using refs
+3. `agent-browser click @e1` / `fill @e2 \"text\"` - Interact using refs
 4. Re-snapshot after page changes
+
+## Current DiveeComposer incident handoff (2026-11-02)
+
+For any work involving provider authentication, model catalogues, model selection, Composer routing, or Models settings, read the repository-root `COMPOSER_INCIDENT_HANDOFF.md` before editing. It records the production regression, the current uncommitted recovery work, exact verification status, and the repair order. Preserve the strict free-only and context-fit guarantees. A display-only Composer catalogue entry must never be routed to an LLM request. Do not assume the uncommitted recovery work is built or deployed.

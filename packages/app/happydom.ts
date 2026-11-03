@@ -1,4 +1,24 @@
+import solidPlugin from "vite-plugin-solid"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
+
+// Bun's native automatic JSX runtime is incompatible with Solid's JSX transform.
+// Use the same Babel transform as Vite before Bun strips the remaining TypeScript.
+const solid = solidPlugin()
+Bun.plugin({
+  name: "diveeoi-solid-test-transform",
+  setup(builder) {
+    builder.onLoad({ filter: /\.[jt]sx$/ }, async ({ path }) => {
+      if (path.includes("/node_modules/")) return
+      const source = await Bun.file(path).text()
+      const transformed = await solid.transform?.(source, path, { ssr: false })
+      if (!transformed || typeof transformed === "string") return
+      return {
+        contents: transformed.code,
+        loader: path.endsWith(".tsx") ? "tsx" : "jsx",
+      }
+    })
+  },
+})
 
 GlobalRegistrator.register()
 

@@ -32,6 +32,8 @@ const unusable = new Set<string>()
 const PROVIDER_FAILURE_THRESHOLD = 3
 const providerFailures = new Map<string, Set<string>>()
 const keyRequiredProviders = new Set<string>()
+const providerAuthCooldowns = new Map<string, number>()
+const PROVIDER_AUTH_COOLDOWN_MS = 5 * 60 * 1000
 const providerCooldowns = new Map<string, number>()
 const PROVIDER_QUOTA_COOLDOWN_MS = 60 * 60 * 1000
 type QuotaCooldownListener = (providerID: string, until: number) => void
@@ -64,6 +66,11 @@ export function needsKey(providerID: string, modelID: string) {
 
 export function isRoutable(providerID: string, modelID: string) {
   if (keyRequiredProviders.has(providerID)) return false
+  const authCooldownUntil = providerAuthCooldowns.get(providerID)
+  if (authCooldownUntil !== undefined) {
+    if (authCooldownUntil > Date.now()) return false
+    providerAuthCooldowns.delete(providerID)
+  }
   const cooldownUntil = providerCooldowns.get(providerID)
   if (cooldownUntil !== undefined) {
     if (cooldownUntil > Date.now()) return false
@@ -107,6 +114,7 @@ export function resetLearned() {
   unusable.clear()
   providerFailures.clear()
   keyRequiredProviders.clear()
+  providerAuthCooldowns.clear()
   providerCooldowns.clear()
   quotaCooldownListener = undefined
 }
@@ -123,24 +131,23 @@ export function learned() {
 /** The gateway's free-tier failure shapes, matched on the parsed error body. */
 export type FreeTierVerdict = "key-required" | "unusable" | "quota" | undefined
 
-/**
- * Classify a provider failure. The gateway answers with
- * `{"type":"error","error":{"type":"FreeTierError"|"ModelError"|"ModelDeprecated","message":…}}`,
- * and both the AI SDK and the native runtime surface that as the error's message/data. The
- * discriminator `type` is the reliable field, so it is matched first; the message phrasings are
- * a fallback for runtimes that flatten the error to text before it reaches here.
- */
-export function classify(error: unknown): FreeTierVerdict {
-  if (error === null || typeof error !== "object") return undefined
+/** Flatten an error chain into lowercase searchable text plus whether it carried a 401/403. */
+function inspect(error: unknown): { text: string; statusDenied: boolean } {
   const parts: string[] = []
-  const seen = new Set<unknown>()
-  let current: unknown = error
+  const seen = new Set<object>()
+  const pending: unknown[] = [error]
   let statusDenied = false
-  for (let depth = 0; depth < 6 && current && typeof current === "object" && !seen.has(current); depth++) {
+
+  while (pending.length > 0 && seen.size < 64) {
+    const current = pending.shift()
+    if (typeof current === "string") {
+      parts.push(current)
+      continue
+    }
+    if (current === null || typeof current !== "object" || seen.has(current)) continue
     seen.add(current)
+
     const value = current as Record<string, unknown>
-    // Collect this level's own discriminators.
-    let descend: unknown
     for (const field of [
       "message",
       "name",
@@ -156,15 +163,31 @@ export function classify(error: unknown): FreeTierVerdict {
       "reason",
     ]) {
       const next = value[field]
-      if (typeof next === "string") parts.push(next)
-      else if (typeof next === "number" && (field === "statusCode" || field === "status")) {
-        // A numeric status is a discriminator too - 401/403 on its own mean "no access".
+      if (typeof next === "string") {
+        parts.push(next)
+        if ((field === "statusCode" || field === "status") && (next === "401" || next === "403")) {
+          statusDenied = true
+        }
+      } else if (typeof next === "number" && (field === "statusCode" || field === "status")) {
         if (next === 401 || next === 403) statusDenied = true
-      } else if (next && typeof next === "object" && descend === undefined) descend = next
+      } else if (next && typeof next === "object") {
+        pending.push(next)
+      }
     }
-    current = descend
   }
-  const text = parts.join(" ").toLowerCase()
+
+  return { text: parts.join(" ").toLowerCase(), statusDenied }
+}
+
+/**
+ * Classify a provider failure. The gateway answers with
+ * `{"type":"error","error":{"type":"FreeTierError"|"ModelError"|"ModelDeprecated","message":…}}`,
+ * and both the AI SDK and the native runtime surface that as the error's message/data. The
+ * discriminator `type` is the reliable field, so it is matched first; the message phrasings are
+ * a fallback for runtimes that flatten the error to text before it reaches here.
+ */
+export function classify(error: unknown): FreeTierVerdict {
+  const { text, statusDenied } = inspect(error)
   if (!text && !statusDenied) return undefined
   if (
     text.includes("free usage limit reached") ||
@@ -205,9 +228,45 @@ export function classify(error: unknown): FreeTierVerdict {
   return undefined
 }
 
+/** Phrasings that say the *credential* is missing or wrong for the whole provider, not one model. */
+const PROVIDER_AUTH_FAILURES = [
+  "missing authentication header",
+  "missing authorization header",
+  "authorization header is required",
+  "no auth credentials",
+  "no api key provided",
+  "missing api key",
+  "incorrect api key",
+  "invalid api key",
+  "invalid credentials",
+]
+
+/**
+ * The request carried no usable credential, so no model of this provider can work. This is a
+ * configuration/availability failure, not a model-quality or quota failure.
+ */
+export function isProviderAuthFailure(error: unknown) {
+  const { text } = inspect(error)
+  return PROVIDER_AUTH_FAILURES.some((phrase) => text.includes(phrase))
+}
+
+/** Stop routing to a whole provider whose credential is absent or rejected in this process. */
+export function markProviderUnauthenticated(providerID: string) {
+  // This is a temporary circuit breaker, not a permanent model ban. The user may fix the
+  // provider credential while the process is running; retry after a short quiet period.
+  providerAuthCooldowns.set(providerID, Date.now() + PROVIDER_AUTH_COOLDOWN_MS)
+}
+
 /** Record a failure so later selections stop choosing that model. */
 export function learn(error: unknown, providerID: string, modelID: string): FreeTierVerdict {
   const verdict = classify(error)
+  // OpenCode's gateway reports key requirements per model (FreeTierError). A missing auth
+  // header from another provider is provider-wide: cool that provider down without permanently
+  // marking this model (or every model after the failure threshold) as unusable.
+  if (verdict === "key-required" && providerID !== "opencode" && isProviderAuthFailure(error)) {
+    markProviderUnauthenticated(providerID)
+    return verdict
+  }
   if (verdict === "key-required") markKeyRequired(providerID, modelID)
   else if (verdict === "unusable") markUnusable(providerID, modelID)
   else if (verdict === "quota") markQuotaExhausted(providerID)

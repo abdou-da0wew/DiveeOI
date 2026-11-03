@@ -13,3 +13,7 @@ Use these patterns for server and HttpApi middleware tests in this directory.
 - Use `tmpdirScoped({ git: true })` plus `Project.use.fromDirectory(dir)` for project-backed requests.
 - If a test needs persisted state without matching runtime state, keep direct database setup inside a narrowly named helper that explains that state.
 - Add comments for non-obvious test topology, especially tests involving both the local test server and a fake upstream server.
+
+## Current DiveeComposer incident handoff (2026-11-02)
+
+For any work involving provider authentication, model catalogues, model selection, Composer routing, or Models settings, read the repository-root `COMPOSER_INCIDENT_HANDOFF.md` before editing. It records the production regression, the current uncommitted recovery work, exact verification status, and the repair order. Preserve the strict free-only and context-fit guarantees. A display-only Composer catalogue entry must never be routed to an LLM request. Do not assume the uncommitted recovery work is built or deployed.

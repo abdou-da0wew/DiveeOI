@@ -12,7 +12,13 @@ import { Auth } from "@/auth"
 import { Config } from "@/config/config"
 import { Env } from "../../src/env"
 import { Plugin } from "../../src/plugin/index"
-import { Provider } from "@/provider/provider"
+import {
+  hasProviderCredential,
+  hasResolvedSecret,
+  isComposerModelNotFoundError,
+  isLocalEndpoint,
+  Provider,
+} from "@/provider/provider"
 
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Filesystem } from "@/util/filesystem"
@@ -22,6 +28,62 @@ import { ProviderV2 } from "@diveeoi/db/provider"
 import { ModelV2 } from "@diveeoi/db/model"
 
 const originalEnv = new Map<string, string | undefined>()
+
+test("Composer model-not-found errors can be recognized for async event deduplication", () => {
+  const composerError = new Provider.ModelNotFoundError({
+    providerID: ProviderV2.ID.make("divee"),
+    modelID: ModelV2.ID.make("composer"),
+  })
+  const ordinaryError = new Provider.ModelNotFoundError({
+    providerID: ProviderV2.ID.make("opencode"),
+    modelID: ModelV2.ID.make("qa-free-model"),
+  })
+
+  expect(isComposerModelNotFoundError(composerError)).toBe(true)
+  expect(isComposerModelNotFoundError(ordinaryError)).toBe(false)
+  expect(isComposerModelNotFoundError(new Error("not a provider error"))).toBe(false)
+})
+
+test("provider credential detection rejects public base URLs and unresolved placeholders", () => {
+  expect(hasProviderCredential({ baseURL: "https://api.example.com/v1" }, {})).toBe(false)
+  expect(hasProviderCredential({ apiKey: "${MISSING_PROVIDER_TOKEN}" }, {})).toBe(false)
+  expect(hasProviderCredential({ headers: { Authorization: "Bearer ${MISSING_PROVIDER_TOKEN}" } }, {})).toBe(false)
+  expect(hasResolvedSecret("${MISSING_PROVIDER_TOKEN}", {})).toBe(false)
+  expect(hasResolvedSecret("   ", {})).toBe(false)
+})
+
+test("provider credential detection accepts resolved API keys and nested auth headers", () => {
+  const envs = { PROVIDER_TOKEN: "resolved-test-token" }
+  expect(hasResolvedSecret("${PROVIDER_TOKEN}", envs)).toBe(true)
+  expect(hasProviderCredential({ apiKey: "${PROVIDER_TOKEN}" }, envs)).toBe(true)
+  expect(hasProviderCredential({ options: { headers: { Authorization: "Bearer ${PROVIDER_TOKEN}" } } }, envs)).toBe(
+    true,
+  )
+  expect(hasProviderCredential({ headers: { "x-api-key": "explicit-test-token" } }, {})).toBe(true)
+})
+
+test("provider credential detection is cycle-safe and does not count arbitrary fields", () => {
+  const nested: Record<string, unknown> = { description: "not a credential" }
+  nested.self = nested
+  expect(() => hasProviderCredential(nested, {})).not.toThrow()
+  expect(hasProviderCredential(nested, {})).toBe(false)
+})
+
+test("keyless local endpoints are accepted without treating public endpoints as authenticated", () => {
+  for (const url of [
+    "http://localhost:11434/v1",
+    "http://127.0.0.1:8000/v1",
+    "http://10.0.0.12:8000/v1",
+    "http://172.20.0.5:8000/v1",
+    "http://192.168.1.20:8000/v1",
+    "http://inference.local/v1",
+  ]) {
+    expect(isLocalEndpoint(url)).toBe(true)
+  }
+  expect(isLocalEndpoint("https://api.example.com/v1")).toBe(false)
+  expect(isLocalEndpoint("${PROVIDER_HOST}")).toBe(false)
+  expect(isLocalEndpoint(undefined)).toBe(false)
+})
 
 const rememberEnv = (k: string) => {
   if (!originalEnv.has(k)) originalEnv.set(k, process.env[k])

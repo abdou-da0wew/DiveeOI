@@ -1,9 +1,9 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "7d355b82-76a9-4c2e-b1d2-fcdd80a17f9b",
+  "id": "cb7dd279-5655-476b-ac8c-641a188df82b",
   "prevIds": [
-    "d0f4186c-187b-433a-8721-cd8bdb6cccaa"
+    "7d355b82-76a9-4c2e-b1d2-fcdd80a17f9b"
   ],
   "ddl": [
     {
@@ -2806,6 +2806,16 @@
       "name": "control_account_pk",
       "entityType": "pks",
       "table": "control_account"
+    },
+    {
+      "columns": [
+        "scope",
+        "name"
+      ],
+      "nameExplicit": false,
+      "name": "preference_pk",
+      "entityType": "pks",
+      "table": "preference"
     },
     {
       "columns": [

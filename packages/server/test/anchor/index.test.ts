@@ -3,10 +3,24 @@ import { SessionV1 } from "@diveeoi/db/v1/session"
 import { ModelV2 } from "@diveeoi/db/model"
 import { ProviderV2 } from "@diveeoi/db/provider"
 import { Effect } from "effect"
+import { Flag } from "@diveeoi/db/flag/flag"
+import { beforeAll, afterAll } from "bun:test"
 import { AnchorContentIndex, indexableText } from "@/anchor/content-index"
 import { MessageID, PartID, SessionID } from "@/session/schema"
 import { disposeAllInstances } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
+
+const originalDatabase = Flag.OPENCODE_DB
+
+beforeAll(() => {
+  // The content FTS table belongs to the current migration schema. Avoid a stale
+  // per-user database whose migration journal may claim the repair ran already.
+  Flag.OPENCODE_DB = ":memory:"
+})
+
+afterAll(() => {
+  Flag.OPENCODE_DB = originalDatabase
+})
 
 afterEach(async () => {
   await disposeAllInstances()

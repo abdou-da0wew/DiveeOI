@@ -6,7 +6,8 @@
   "license": "MIT",
   "private": true,
   "scripts": {
-    "test": "bun test",
+    "test": "SKIP_LIVE_EMBED=1 bun test",
+    "test:live": "bun test test/embed-pipeline.test.ts",
     "typecheck": "tsgo --noEmit",
     "tl:manifest": "bun src/manifest/cli.ts",
     "tl:selftest:freeze": "bun scripts/freeze-selftest.ts"

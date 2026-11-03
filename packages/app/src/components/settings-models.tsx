@@ -82,6 +82,7 @@ const SettingsModelsContent: Component = () => {
         apiKey: aaKey(),
         directory: serverSync().data.path.directory,
       })
+      await serverSync().refreshProviders()
       setAAKey("")
       setAAKeyConfigured(true)
       showToast({
@@ -103,6 +104,7 @@ const SettingsModelsContent: Component = () => {
   const removeAAKey = async () => {
     try {
       const result = await serverSDK().client.config.removeComposerKey({ directory: serverSync().data.path.directory })
+      await serverSync().refreshProviders()
       setAAKeyConfigured(result.data?.configured ?? false)
       setAAKey("")
       showToast({ variant: "success", icon: "circle-check", title: "Saved Artificial Analysis key removed" })

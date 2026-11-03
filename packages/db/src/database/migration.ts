@@ -13,6 +13,8 @@ const lock = Semaphore.makeUnsafe(1)
 export type Migration = {
   id: string
   up: (tx: Transaction) => Effect.Effect<void, unknown>
+  /** Run after the generated schema on a fresh database, before marking history complete. */
+  bootstrap?: boolean
 }
 
 export function apply(db: Database) {
@@ -30,9 +32,12 @@ export function apply(db: Database) {
             sql`CREATE TABLE ${sql.identifier("migration")} (id TEXT PRIMARY KEY, time_completed INTEGER NOT NULL)`,
           )
           yield* Effect.forEach(migrations, (migration) =>
-            tx.run(
-              sql`INSERT INTO ${sql.identifier("migration")} (id, time_completed) VALUES (${migration.id}, ${Date.now()})`,
-            ),
+            Effect.gen(function* () {
+              if (migration.bootstrap) yield* migration.up(tx)
+              yield* tx.run(
+                sql`INSERT INTO ${sql.identifier("migration")} (id, time_completed) VALUES (${migration.id}, ${Date.now()})`,
+              )
+            }),
           )
         }),
       )

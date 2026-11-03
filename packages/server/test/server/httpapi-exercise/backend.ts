@@ -11,9 +11,14 @@ type CallOptions = {
   }
 }
 
+const TEST_AUTH = { username: "DIVEEI", password: "secret" } as const
+
 export function call(scenario: ActiveScenario, ctx: SeededContext<unknown>, options: CallOptions = {}) {
   return Effect.promise(async () =>
-    capture(await app(await runtime(), options).request(toRequest(scenario, ctx)), scenario.capture),
+    capture(
+      await app(await runtime(), { auth: TEST_AUTH, ...options }).request(toRequest(scenario, ctx)),
+      scenario.capture,
+    ),
   )
 }
 
@@ -22,7 +27,7 @@ export function callAuthProbe(scenario: ActiveScenario, credentials: "missing" |
     const controller = new AbortController()
     return Promise.race([
       Promise.resolve(
-        app(await runtime(), { auth: { password: "secret" } }).request(
+        app(await runtime(), { auth: TEST_AUTH }).request(
           toAuthProbeRequest(scenario, credentials, controller.signal),
         ),
       ).then((response) => capture(response, scenario.capture)),
@@ -81,7 +86,11 @@ function toRequest(scenario: ActiveScenario, ctx: SeededContext<unknown>) {
   const spec = scenario.request(ctx, ctx.state)
   return new Request(new URL(spec.path, "http://localhost"), {
     method: scenario.method,
-    headers: spec.body === undefined ? spec.headers : { "content-type": "application/json", ...spec.headers },
+    headers: {
+      authorization: basic(TEST_AUTH.username, TEST_AUTH.password),
+      ...(spec.body === undefined ? {} : { "content-type": "application/json" }),
+      ...spec.headers,
+    },
     body: spec.body === undefined ? undefined : JSON.stringify(spec.body),
   })
 }
@@ -94,7 +103,7 @@ function toAuthProbeRequest(scenario: ActiveScenario, credentials: "missing" | "
   const headers = {
     ...(spec.body === undefined ? {} : { "content-type": "application/json" }),
     ...spec.headers,
-    ...(credentials === "valid" ? { authorization: basic("opencode", "secret") } : {}),
+    ...(credentials === "valid" ? { authorization: basic(TEST_AUTH.username, TEST_AUTH.password) } : {}),
   }
   return new Request(new URL(spec.path, "http://localhost"), {
     method: scenario.method,

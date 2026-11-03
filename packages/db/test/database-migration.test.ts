@@ -20,6 +20,7 @@ import { AbsolutePath } from "@diveeoi/db/schema"
 import { SessionSchema } from "@diveeoi/db/session/schema"
 import { SessionTable } from "@diveeoi/db/session/sql"
 import sessionMetadataMigration from "@diveeoi/db/database/migration/20260511173437_session-metadata"
+import preferencePrimaryKeyMigration from "@diveeoi/db/database/migration/20261102220154_20261102000002_preference_primary_key"
 import type { SqlClient as SqlClientService } from "effect/unstable/sql/SqlClient"
 import { Database } from "@diveeoi/db/database/database"
 import { tmpdir } from "./fixture/tmpdir"
@@ -67,6 +68,9 @@ describe("DatabaseMigration", () => {
           yield* db.get(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'session_input'`),
         ).toEqual({ name: "session_input" })
         expect(
+          yield* db.get(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'session_content_fts'`),
+        ).toEqual({ name: "session_content_fts" })
+        expect(
           yield* db.get(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'session_context_epoch'`),
         ).toEqual({ name: "session_context_epoch" })
         expect(
@@ -96,6 +100,45 @@ describe("DatabaseMigration", () => {
           { name: "session_message_session_time_created_id_idx" },
           { name: "session_message_session_type_seq_idx" },
         ])
+      }),
+    )
+  })
+
+  test("repairs legacy preference tables and keeps the most recently updated duplicate", async () => {
+    await run(
+      Effect.gen(function* () {
+        const db = yield* makeDb
+        yield* db.run(sql`
+          CREATE TABLE preference (
+            scope TEXT NOT NULL,
+            name TEXT NOT NULL,
+            value TEXT NOT NULL,
+            time_created INTEGER NOT NULL,
+            time_updated INTEGER NOT NULL
+          )
+        `)
+        yield* db.run(sql`
+          INSERT INTO preference (scope, name, value, time_created, time_updated) VALUES
+            ('composer', 'banned-models', 'old', 100, 100),
+            ('composer', 'banned-models', 'new', 101, 101),
+            ('composer', 'working-models', 'working', 100, 100)
+        `)
+
+        yield* DatabaseMigration.applyOnly(db, [preferencePrimaryKeyMigration])
+
+        expect(
+          yield* db.get(sql`SELECT value FROM preference WHERE scope = 'composer' AND name = 'banned-models'`),
+        ).toEqual({ value: "new" })
+        expect(yield* db.get(sql`SELECT count(*) AS count FROM preference`)).toEqual({ count: 2 })
+
+        yield* db.run(sql`
+          INSERT INTO preference (scope, name, value, time_created, time_updated)
+          VALUES ('composer', 'banned-models', 'updated', 102, 102)
+          ON CONFLICT (scope, name) DO UPDATE SET value = excluded.value, time_updated = excluded.time_updated
+        `)
+        expect(
+          yield* db.get(sql`SELECT value FROM preference WHERE scope = 'composer' AND name = 'banned-models'`),
+        ).toEqual({ value: "updated" })
       }),
     )
   })

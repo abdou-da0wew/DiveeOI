@@ -14,3 +14,7 @@ Effect HttpApi definitions and handlers. Defines ~18 API groups with endpoints, 
 - **`middleware/schema-error.ts`** — maps Schema decode failures to HTTP 422 with structured error bodies.
 - **`pty-environment.ts`** — provides PTY environment context needed by some API groups.
 - The API package depends on `@diveeoi/db` for `Database`, `EventV2`, and domain types. It does NOT depend on `@diveeoi/server`.
+
+## Current DiveeComposer incident handoff (2026-11-02)
+
+For any work involving provider authentication, model catalogues, model selection, Composer routing, or Models settings, read the repository-root `COMPOSER_INCIDENT_HANDOFF.md` before editing. It records the production regression, the current uncommitted recovery work, exact verification status, and the repair order. Preserve the strict free-only and context-fit guarantees. A display-only Composer catalogue entry must never be routed to an LLM request. Do not assume the uncommitted recovery work is built or deployed.

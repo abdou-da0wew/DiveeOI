@@ -276,22 +276,33 @@ interface Candidate extends Selection {
 /** OpenCode-only mode remains available as a compatibility choice in Settings. */
 const FREE_TIER_PROVIDER = "opencode"
 
-function candidates(providers: Record<ProviderV2.ID, Info>, options: Options): Candidate[] {
+/**
+ * `route` is the strict pool a request may be sent to. `display` is the free catalog only,
+ * ignoring cooldowns, benchmark consent and context fit, and is used solely so the synthetic
+ * provider stays visible; it must never be turned into a route.
+ */
+type CandidateMode = "route" | "display"
+
+function candidates(
+  providers: Record<ProviderV2.ID, Info>,
+  options: Options,
+  mode: CandidateMode = "route",
+): Candidate[] {
   const out: Candidate[] = []
   for (const [id, provider] of Object.entries(providers)) {
     const providerID = id as ProviderV2.ID
     if (providerID === PROVIDER_ID) continue
     const bundled = String(providerID) === FREE_TIER_PROVIDER
     if (!(options.useAllProviders ?? true) && !bundled) continue
-    if (options.availableProviders && !options.availableProviders.has(String(providerID))) continue
+    if (mode === "route" && options.availableProviders && !options.availableProviders.has(String(providerID))) continue
     for (const model of Object.values(provider.models)) {
       if (!usable(model)) continue
       if (options.knownFreeModels && !options.knownFreeModels.has(key(String(providerID), String(model.id)))) continue
-      if (!ProviderFreeTier.isRoutable(String(providerID), String(model.id))) continue
+      if (mode === "route" && !ProviderFreeTier.isRoutable(String(providerID), String(model.id))) continue
       const measured = ArtificialAnalysis.scoreFor(model)
       // Missing measurements are never silently presented as benchmark-backed rankings.
       // The user must explicitly enable the lower-confidence local estimate in Models settings.
-      if (!measured && !(options.allowUnmeasuredRanking ?? false)) continue
+      if (mode === "route" && !measured && !(options.allowUnmeasuredRanking ?? false)) continue
 
       const baseQuality = ComposerQuality.classify(model, options.preferred)
       const working = workingScore(String(providerID), String(model.id))
@@ -323,7 +334,7 @@ function candidates(providers: Record<ProviderV2.ID, Info>, options: Options): C
     }
   }
   const usage = Math.max(0, options.contextUsageTokens ?? 0)
-  if (usage > 0) {
+  if (mode === "route" && usage > 0) {
     // Never route an active conversation to a window smaller than the context already used.
     // Prefer the configured headroom when possible; if the pool has no such candidate, keep
     // only models that still have enough room for the current context itself.
@@ -351,10 +362,11 @@ function candidates(providers: Record<ProviderV2.ID, Info>, options: Options): C
 }
 
 /**
- * The model the router would pick right now, or undefined when no free model is reachable.
+ * The model the router would pick right now, or undefined when no eligible route exists.
  *
- * The quality bar and health checks are strict. If nothing suitable is available, Composer
- * is omitted instead of falling back to a weak, paid, undersized, or previously failed model.
+ * The quality bar and health checks are strict. If nothing suitable is available there is no
+ * route (see `unavailableReason`) instead of a fallback to a weak, paid, undersized, or
+ * previously failed model. Catalogue visibility is separate: see `build`.
  */
 export function select(
   providers: Record<ProviderV2.ID, Info>,
@@ -375,11 +387,57 @@ export function select(
 }
 
 /**
+ * Representative catalog model for the provider/model list while routing is blocked (no
+ * benchmark consent, provider quota cooldown, bans, quality bar). Display metadata only: it
+ * is never attached to the route WeakMap, so it cannot reach a provider. Requests still go
+ * through select() and its strict eligibility checks.
+ */
+function displayCandidate(
+  providers: Record<ProviderV2.ID, Info>,
+  options: Options,
+  contextUsageTokens: number,
+): Selection | undefined {
+  const list = candidates(providers, options, "display")
+  if (list.length === 0) return undefined
+  const fitting = contextUsageTokens > 0 ? list.filter((candidate) => candidate.context >= contextUsageTokens) : list
+  return (fitting.length ? fitting : list)[0]
+}
+
+/**
+ * Why Composer has no route right now, or undefined when it has one. Used for a clear
+ * no-route error instead of a bare "model not found". Never includes credentials.
+ */
+export function unavailableReason(
+  providers: Record<ProviderV2.ID, Info>,
+  options: Options = DEFAULT_OPTIONS,
+  contextUsageTokens = options.contextUsageTokens ?? 0,
+): string | undefined {
+  if (select(providers, options, contextUsageTokens)) return undefined
+  const catalog = candidates(providers, options, "display")
+  if (catalog.length === 0)
+    return "no known-free, tool-capable model with a usable context window is present in the catalogue"
+  if (
+    options.availableProviders &&
+    !catalog.some((candidate) => options.availableProviders!.has(String(candidate.providerID)))
+  )
+    return "no authenticated provider currently exposes one of the known-free catalogue models"
+  const routable = candidates(providers, { ...options, contextUsageTokens }, "route")
+  if (routable.length === 0) {
+    if (catalog.every((candidate) => !ProviderFreeTier.isRoutable(String(candidate.providerID), String(candidate.modelID))))
+      return "every eligible free provider is cooling down after a quota or availability failure"
+    if (!(options.allowUnmeasuredRanking ?? false) && catalog.some((candidate) => candidate.analyticsScore === undefined))
+      return "no Artificial Analysis measurement matches the available free models; add an Artificial Analysis key or enable local ranking in Settings > Models"
+    return "no eligible free model has a context window large enough for the current session"
+  }
+  return "the available free models are below the configured quality bar or are temporarily banned after failures"
+}
+
+/**
  * Build the synthetic `Info` for DiveeComposer.
  *
- * The single model mirrors the currently selected candidate: capabilities, context window,
- * cost, variants and reasoning flag all come from it, so the UI shows what this router can
- * actually do right now. When no free model is reachable the provider is omitted entirely.
+ * The single model mirrors a viable route when one exists. If routing is temporarily blocked,
+ * it remains visible using a representative free catalog model, but receives no route tag.
+ * This keeps DiveeComposer discoverable without silently bypassing consent or health checks.
  */
 export function build(
   providers: Record<ProviderV2.ID, Info>,
@@ -387,9 +445,10 @@ export function build(
   contextUsageTokens = options.contextUsageTokens ?? 0,
 ): Info | undefined {
   const selected = select(providers, options, contextUsageTokens)
-  if (!selected) return undefined
+  const representative = selected ?? displayCandidate(providers, options, contextUsageTokens)
+  if (!representative) return undefined
 
-  const source = selected.model
+  const source = representative.model
   const model: Model = {
     ...source,
     id: MODEL_ID,
@@ -403,12 +462,14 @@ export function build(
     options: { ...source.options },
     variants: { ...source.variants },
   }
-  routes.set(model, {
-    providerID: selected.providerID,
-    modelID: selected.modelID,
-    model: source,
-    quality: selected.quality,
-  })
+  if (selected) {
+    routes.set(model, {
+      providerID: selected.providerID,
+      modelID: selected.modelID,
+      model: source,
+      quality: selected.quality,
+    })
+  }
 
   return {
     id: PROVIDER_ID,
@@ -420,7 +481,7 @@ export function build(
   }
 }
 
-/** Provider list with DiveeComposer appended when it has somewhere to route. */
+/** Provider list with DiveeComposer always visible when a configured free catalog exists. */
 export function withProvider(
   providers: Record<ProviderV2.ID, Info>,
   options: Options = DEFAULT_OPTIONS,
@@ -443,7 +504,10 @@ export function model(
   options: Options = DEFAULT_OPTIONS,
   contextUsageTokens = options.contextUsageTokens ?? 0,
 ): Model | undefined {
-  return build(providers, options, contextUsageTokens)?.models[MODEL_ID]
+  const result = build(providers, options, contextUsageTokens)?.models[MODEL_ID]
+  // build() may return a display-only model so the provider does not disappear from the UI.
+  // Requests must only receive a model that passed select() and has a concrete target tag.
+  return result && routes.has(result) ? result : undefined
 }
 
 /** Description used in logs: `divee/composer -> provider/model`. */

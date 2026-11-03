@@ -428,6 +428,20 @@ export const RetrievalSettings = Schema.Struct({
     default: 60,
     advanced: true,
   }),
+  queryEncoder: Literals_(["auto", "student", "bge-m3"] as const, {
+    label: "Query encoder",
+    help: "Model that embeds chat questions. auto uses the lightweight Divee student once it has been promoted, otherwise BGE-M3. Book vectors are never affected.",
+    group: "retrieval",
+    applies: "live",
+    default: "auto",
+  }),
+  unloadTeacherAfterIndexing: Boolean_({
+    label: "Free BGE-M3 after indexing",
+    help: "Unload the BGE-M3 indexing model when the queue is empty, unless chat itself is set to use it.",
+    group: "retrieval",
+    applies: "live",
+    default: true,
+  }),
   weightBm25: Number_({
     label: "BM25 weight",
     help: "RRF weight for the lexical list.",

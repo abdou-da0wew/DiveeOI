@@ -24,6 +24,10 @@ exports[`tool parameters JSON Schema (wire shape) bash 1`] = `
       "description": "The command to execute",
       "type": "string",
     },
+    "ctx_local": {
+      "description": "Remote sessions: when true, run this command on the LOCAL machine instead of the remote SSH host. Defaults to false (remote).",
+      "type": "boolean",
+    },
     "description": {
       "description": 
 "Clear, concise description of what this command does in 5-10 words. Examples:
@@ -65,6 +69,10 @@ exports[`tool parameters JSON Schema (wire shape) edit 1`] = `
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "ctx_local": {
+      "description": "Remote sessions: when true, operate on the LOCAL machine instead of the remote SSH host. Defaults to false (remote).",
+      "type": "boolean",
+    },
     "filePath": {
       "description": "The absolute path to the file to modify",
       "type": "string",
@@ -95,6 +103,10 @@ exports[`tool parameters JSON Schema (wire shape) glob 1`] = `
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "ctx_local": {
+      "description": "Remote sessions: when true, operate on the LOCAL machine instead of the remote SSH host. Defaults to false (remote).",
+      "type": "boolean",
+    },
     "path": {
       "description": "The directory to search in. If not specified, the current working directory will be used. IMPORTANT: Omit this field to use the default directory. DO NOT enter "undefined" or "null" - simply omit it for the default behavior. Must be a valid directory path if provided.",
       "type": "string",
@@ -115,6 +127,10 @@ exports[`tool parameters JSON Schema (wire shape) grep 1`] = `
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "ctx_local": {
+      "description": "Remote sessions: when true, operate on the LOCAL machine instead of the remote SSH host. Defaults to false (remote).",
+      "type": "boolean",
+    },
     "include": {
       "description": "File pattern to include in the search (e.g. "*.js", "*.{ts,tsx}")",
       "type": "string",
@@ -274,6 +290,10 @@ exports[`tool parameters JSON Schema (wire shape) read 1`] = `
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "ctx_local": {
+      "description": "Remote sessions: when true, read from the LOCAL machine instead of the remote SSH host. Defaults to false (remote).",
+      "type": "boolean",
+    },
     "filePath": {
       "description": "The absolute path to the file or directory to read",
       "type": "string",
@@ -329,6 +349,22 @@ exports[`tool parameters JSON Schema (wire shape) task 1`] = `
     "description": {
       "description": "A short (3-5 words) description of the task",
       "type": "string",
+    },
+    "model": {
+      "description": "Optional model override for this subagent, as {providerID, modelID}. Validated against the parent agent's allowedModels; falls back to the subagent's default on mismatch.",
+      "properties": {
+        "modelID": {
+          "type": "string",
+        },
+        "providerID": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "providerID",
+        "modelID",
+      ],
+      "type": "object",
     },
     "prompt": {
       "description": "The task for the agent to perform",
@@ -510,6 +546,10 @@ exports[`tool parameters JSON Schema (wire shape) write 1`] = `
     "content": {
       "description": "The content to write to the file",
       "type": "string",
+    },
+    "ctx_local": {
+      "description": "Remote sessions: when true, operate on the LOCAL machine instead of the remote SSH host. Defaults to false (remote).",
+      "type": "boolean",
     },
     "filePath": {
       "description": "The absolute path to the file to write (must be absolute, not relative)",

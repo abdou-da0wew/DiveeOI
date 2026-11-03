@@ -13,11 +13,16 @@ const it = testEffect(OpenCode.layer as unknown as Layer.Layer<OpenCode.Service,
 // never fire, stalling PluginBoot.wait(). These tests exercise config-defined
 // providers only, so disable the models.dev fetch like models.test.ts does.
 const ORIGINAL_DISABLE_FETCH = Flag.OPENCODE_DISABLE_MODELS_FETCH
+const ORIGINAL_DB = Flag.OPENCODE_DB
 beforeAll(() => {
   Flag.OPENCODE_DISABLE_MODELS_FETCH = true
+  // Public API tests use stable Session IDs. Keep their storage disposable so
+  // repeated runs never read records left in the developer's application DB.
+  Flag.OPENCODE_DB = ":memory:"
 })
 afterAll(() => {
   Flag.OPENCODE_DISABLE_MODELS_FETCH = ORIGINAL_DISABLE_FETCH
+  Flag.OPENCODE_DB = ORIGINAL_DB
 })
 
 describe("public native OpenCode API", () => {

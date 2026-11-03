@@ -9,6 +9,7 @@ import { Session } from "@/session/session"
 import { SessionCompaction } from "@/session/compaction"
 import { MessageV2 } from "@/session/message-v2"
 import { SessionPrompt } from "@/session/prompt"
+import { isComposerModelNotFoundError } from "@/provider/provider"
 import { SessionRevert } from "@/session/revert"
 import { SessionRunState } from "@/session/run-state"
 import { SessionStatus } from "@/session/status"
@@ -338,6 +339,9 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         Effect.catchCause((cause) =>
           Effect.gen(function* () {
             yield* Effect.logError("prompt_async failed", { sessionID: ctx.params.sessionID, cause })
+            // Composer already publishes its safe, user-facing no-route error before failing.
+            // Re-publishing Cause.pretty here creates a duplicate event containing a stack trace.
+            if (isComposerModelNotFoundError(Cause.squash(cause))) return
             yield* events.publish(Session.Event.Error, {
               sessionID: ctx.params.sessionID,
               error: new NamedError.Unknown({ message: Cause.pretty(cause) }).toObject(),

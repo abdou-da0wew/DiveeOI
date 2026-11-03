@@ -137,7 +137,8 @@ export default {
           \`name\` text NOT NULL,
           \`value\` text NOT NULL,
           \`time_created\` integer NOT NULL,
-          \`time_updated\` integer NOT NULL
+          \`time_updated\` integer NOT NULL,
+          CONSTRAINT \`preference_pk\` PRIMARY KEY(\`scope\`, \`name\`)
         );
       `)
       yield* tx.run(`

@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test"
 import { ModelV2 } from "@diveeoi/db/model"
 import { ProviderV2 } from "@diveeoi/db/provider"
 import { Composer } from "../../src/provider/composer"
+import { ProviderFreeTier } from "../../src/provider/free-tier"
 import type { Info, Model } from "../../src/provider/provider"
 
 const model = (input: {
@@ -65,9 +66,18 @@ const providers = () => ({
 })
 
 describe("DiveeComposer", () => {
-  it("requires explicit consent before using local estimates without Artificial Analysis", () => {
+  it("keeps DiveeComposer visible when benchmark consent is not enabled", () => {
     // The fixture pool intentionally has no Artificial Analysis measurements.
     expect(Composer.select(providers())).toBeUndefined()
+    const info = Composer.build(providers())
+    expect(info?.id).toBe(Composer.PROVIDER_ID)
+    expect(info?.models[Composer.MODEL_ID]?.name).toBe(Composer.MODEL_NAME)
+    expect(Composer.targetOf(info?.models[Composer.MODEL_ID])).toBeUndefined()
+    expect(Composer.model(providers())).toBeUndefined()
+    expect(Object.keys(Composer.withProvider(providers()))[0]).toBe(Composer.PROVIDER_ID)
+  })
+
+  it("requires explicit consent before routing with local estimates", () => {
     const selected = Composer.select(providers(), {
       ...Composer.DEFAULT_OPTIONS,
       allowUnmeasuredRanking: true,
@@ -319,5 +329,84 @@ describe("DiveeComposer", () => {
     }
     expect(Composer.build(none)).toBeUndefined()
     expect(Composer.withProvider(none)).toEqual(none)
+  })
+  it("never routes a display-only model, even through model()", () => {
+    const info = Composer.build(providers())
+    const displayed = info?.models[Composer.MODEL_ID]
+    expect(displayed).toBeDefined()
+    expect(Composer.targetOf(displayed)).toBeUndefined()
+    expect(Composer.selectionOf(displayed)).toBeUndefined()
+    expect(Composer.model(providers())).toBeUndefined()
+  })
+
+  it("stays visible but unroutable while a provider is cooling down after quota exhaustion", () => {
+    ProviderFreeTier.resetLearned()
+    const onlyOpenCode = {
+      [ProviderV2.ID.make("opencode")]: provider("opencode", [
+        model({ id: "DeepSeek V4.1 Flash Free", providerID: "opencode" }),
+      ]),
+    }
+    const options = { ...Composer.DEFAULT_OPTIONS, allowUnmeasuredRanking: true }
+    expect(Composer.select(onlyOpenCode, options)).toBeDefined()
+    ProviderFreeTier.markQuotaExhausted("opencode")
+    expect(Composer.select(onlyOpenCode, options)).toBeUndefined()
+    expect(Composer.model(onlyOpenCode, options)).toBeUndefined()
+    expect(Composer.build(onlyOpenCode, options)?.id).toBe(Composer.PROVIDER_ID)
+    expect(Composer.unavailableReason(onlyOpenCode, options)).toContain("cooling down")
+    ProviderFreeTier.resetLearned()
+    expect(Composer.select(onlyOpenCode, options)).toBeDefined()
+    expect(Composer.unavailableReason(onlyOpenCode, options)).toBeUndefined()
+  })
+
+  it("moves to another authenticated provider when one provider is cooling down", () => {
+    ProviderFreeTier.resetLearned()
+    ProviderFreeTier.markQuotaExhausted("opencode")
+    const selected = Composer.select(providers(), { ...Composer.DEFAULT_OPTIONS, allowUnmeasuredRanking: true })
+    expect(String(selected?.providerID)).toBe("other")
+    ProviderFreeTier.resetLearned()
+  })
+
+  it("explains the missing benchmark consent when that is the only blocker", () => {
+    const reason = Composer.unavailableReason(providers())
+    expect(reason).toContain("Artificial Analysis")
+    expect(Composer.unavailableReason(providers(), { ...Composer.DEFAULT_OPTIONS, allowUnmeasuredRanking: true })).toBe(
+      undefined,
+    )
+  })
+
+  it("stays visible but unroutable when no provider exposes an authenticated known-free model", () => {
+    const options = { ...Composer.DEFAULT_OPTIONS, allowUnmeasuredRanking: true, availableProviders: new Set<string>() }
+    const visible = Composer.build(providers(), options)
+    const displayModel = visible?.models[Composer.MODEL_ID]
+    expect(visible?.id).toBe(Composer.PROVIDER_ID)
+    expect(displayModel).toBeDefined()
+    expect(Composer.targetOf(displayModel)).toBeUndefined()
+    expect(Composer.model(providers(), options)).toBeUndefined()
+    expect(Composer.withProvider(providers(), options)[Composer.PROVIDER_ID]).toBeDefined()
+    expect(Composer.unavailableReason(providers(), options)).toContain("no authenticated provider")
+  })
+
+  it("does not display or route a model whose price is not known to be zero", () => {
+    const options = {
+      ...Composer.DEFAULT_OPTIONS,
+      allowUnmeasuredRanking: true,
+      knownFreeModels: new Set<string>(["other/MiMo-V2.6-Flash Free"]),
+    }
+    const selected = Composer.select(providers(), options)
+    expect(String(selected?.providerID)).toBe("other")
+    expect(String(selected?.modelID)).toBe("MiMo-V2.6-Flash Free")
+    const none = { ...options, knownFreeModels: new Set<string>() }
+    expect(Composer.build(providers(), none)).toBeUndefined()
+  })
+
+  it("shows a display-only entry for a banned pool without allowing a request", () => {
+    Composer.reset()
+    Composer.recordFailure("opencode", "DeepSeek V4.1 Flash Free")
+    Composer.recordFailure("opencode", "Nemotron 3.5 Lightning Free")
+    Composer.recordFailure("other", "MiMo-V2.6-Flash Free")
+    const options = { ...Composer.DEFAULT_OPTIONS, allowUnmeasuredRanking: true }
+    expect(Composer.model(providers(), options)).toBeUndefined()
+    expect(Composer.build(providers(), options)?.id).toBe(Composer.PROVIDER_ID)
+    Composer.reset()
   })
 })

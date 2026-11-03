@@ -12,3 +12,7 @@ Shared UI component library. Contains 197+ components, a v2 redesign system, the
 - **Styles** — Tailwind CSS 4.1 via Vite plugin. Base styles in `src/styles/`, animations, v2 overrides.
 - **i18n** in `src/i18n/` — UI translation strings (separate from app-level i18n).
 - **Entry points** in `package.json` exports: components via `@diveeoi/ui/*`, hooks via `@diveeoi/ui/hooks`, context via `@diveeoi/ui/context`, styles via `@diveeoi/ui/styles`, theme via `@diveeoi/ui/theme`, pierre via `@diveeoi/ui/pierre`.
+
+## Current DiveeComposer incident handoff (2026-11-02)
+
+For any work involving provider authentication, model catalogues, model selection, Composer routing, or Models settings, read the repository-root `COMPOSER_INCIDENT_HANDOFF.md` before editing. It records the production regression, the current uncommitted recovery work, exact verification status, and the repair order. Preserve the strict free-only and context-fit guarantees. A display-only Composer catalogue entry must never be routed to an LLM request. Do not assume the uncommitted recovery work is built or deployed.

@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
+  printf '%s\n' 'commit-msg: expected the commit message file path' >&2
+  exit 2
+fi
+
+MESSAGE_FILE=$1
+COAUTHOR_NAME='DiveeAgent'
+COAUTHOR_EMAIL='270451464+DiveeAgent@users.noreply.github.com'
+TRAILER="Co-authored-by: ${COAUTHOR_NAME} <${COAUTHOR_EMAIL}>"
+
+# Check parsed trailers, not arbitrary message text that may mention the email.
+if git interpret-trailers --parse "$MESSAGE_FILE" | grep -Fxiq "$TRAILER"; then
+  exit 0
+fi
+
+git interpret-trailers --in-place --trailer "$TRAILER" "$MESSAGE_FILE"

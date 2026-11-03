@@ -33,12 +33,14 @@ export const configHandlers = HttpApiBuilder.group(InstanceHttpApi, "config", (h
     const setComposerKey = Effect.fn("ConfigHttpApi.setComposerKey")(function* (ctx) {
       yield* Effect.promise(() => ComposerSecrets.saveApiKey(ctx.payload.apiKey))
       ArtificialAnalysis.reset()
+      yield* markInstanceForDisposal(yield* InstanceState.context)
       return { configured: true }
     })
 
     const removeComposerKey = Effect.fn("ConfigHttpApi.removeComposerKey")(function* () {
       yield* Effect.promise(() => ComposerSecrets.removeApiKey())
       ArtificialAnalysis.reset()
+      yield* markInstanceForDisposal(yield* InstanceState.context)
       const current = yield* configSvc.get()
       const envName =
         current.performance?.composer?.artificial_analysis_api_key_env?.trim() || "ARTIFICIAL_ANALYSIS_API_KEY"

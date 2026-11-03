@@ -47,3 +47,18 @@ Start with `PROJECT_GUIDE.md` — it has the full architecture, every package, s
 - **Auth**: Simple password-gated auth. No OAuth, no API keys on the server side.
 - **Database**: SQLite via Drizzle ORM with a custom `effect-drizzle-sqlite` bridge. 35+ migrations in `packages/db/src/database/migration/`.
 - **Per-package AGENTS.md files exist** — read the one for the package you're working on before making changes.
+
+## Current DiveeComposer incident handoff (2026-11-02)
+
+For any work involving provider authentication, model catalogues, model selection, Composer routing, or Models settings, read the repository-root `COMPOSER_INCIDENT_HANDOFF.md` before editing. It records the production regression, the current uncommitted recovery work, exact verification status, and the repair order. Preserve the strict free-only and context-fit guarantees. A display-only Composer catalogue entry must never be routed to an LLM request. Do not assume the uncommitted recovery work is built or deployed.
+
+
+## Verification Requirements
+
+- User-visible UI changes require manual browser QA after fixes, in addition to automated tests and typechecks. On the VDS, use `agent-browser` with its installed `core` and `dogfood` skills, a named session, real UI interactions, and screenshot evidence. Record results in `WORKLOG.md` or `docs/qa/`.
+- For settings/credential QA, use a disposable local server with isolated XDG data/config directories. Never run experimental key saves/removals against the live service or use production provider credentials.
+- Repository commit hooks are tracked in `.githooks/`. This checkout enables them with `git config core.hooksPath .githooks`; the `commit-msg` hook appends the DiveeAgent co-author trailer.
+
+## Active release handoff
+
+For the current uncommitted DiveeComposer/provider recovery and release-readiness work, read RELEASE_HANDOFF_2026-11-03.md before making changes or attempting deployment. It contains the current change inventory, verification results, known test gaps, backup paths/checksums, production process state, and approval boundary. COMPOSER_INCIDENT_HANDOFF.md remains the original incident-specific analysis. Do not restart diveeoi.service or run privileged deployment commands without explicit user approval.

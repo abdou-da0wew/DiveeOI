@@ -8,7 +8,6 @@ import { ServerAuth } from "../../src/server/auth"
 import { PtyID } from "@diveeoi/db/pty/schema"
 import { resetDatabase } from "../fixture/db"
 import { disposeAllInstances, tmpdir } from "../fixture/fixture"
-import { TestAmbient } from "../lib/ambient"
 
 function app(input: { password?: string; username?: string }) {
   const handler = HttpRouter.toWebHandler(
@@ -58,7 +57,7 @@ describe("HttpApi instance route authorization", () => {
     expect(missing.status).toBe(401)
 
     const authed = await server.request(EventPaths.event, {
-      headers: { ...headers, authorization: basic("opencode", "secret") },
+      headers: { ...headers, authorization: basic("DIVEEOI", "secret") },
     })
     await cancelBody(authed)
     expect(authed.status).toBe(200)
@@ -75,7 +74,7 @@ describe("HttpApi instance route authorization", () => {
     expect(missing.status).toBe(401)
 
     const authed = await server.request(route, {
-      headers: { ...headers, authorization: basic("opencode", "secret") },
+      headers: { ...headers, authorization: basic("DIVEEOI", "secret") },
     })
     await cancelBody(authed)
     expect(authed.status).toBe(404)

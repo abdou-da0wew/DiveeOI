@@ -9,10 +9,10 @@ import { TestAmbient } from "../lib/ambient"
 import { eq } from "drizzle-orm"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { FetchHttpClient } from "effect/unstable/http"
-import { expect } from "bun:test"
+import { expect, test } from "bun:test"
 import { Cause, Deferred, Duration, Effect, Exit, Fiber, Layer } from "effect"
 import path from "path"
-import { fileURLToPath, pathToFileURL } from "url"
+import { fileURLToPath } from "url"
 import { NamedError } from "@diveeoi/db/util/error"
 import { Agent as AgentSvc } from "../../src/agent/agent"
 import { BackgroundJob } from "@/background/job"
@@ -38,7 +38,7 @@ import { SessionCompaction } from "../../src/session/compaction"
 import { SessionSummary } from "../../src/session/summary"
 import { Instruction } from "../../src/session/instruction"
 import { SessionProcessor } from "../../src/session/processor"
-import { SessionPrompt } from "../../src/session/prompt"
+import { composerUnavailableMessage, SessionPrompt } from "../../src/session/prompt"
 import { SessionRevert } from "../../src/session/revert"
 import { SessionRunState } from "../../src/session/run-state"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
@@ -58,6 +58,18 @@ import { reply, TestLLMServer } from "../lib/llm-server"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderV2 } from "@diveeoi/db/provider"
 import { ModelV2 } from "@diveeoi/db/model"
+
+test("Composer unavailable messages do not duplicate the no-route prefix", () => {
+  expect(
+    composerUnavailableMessage(
+      "DiveeComposer has no eligible route: no Artificial Analysis measurement matches the available free models",
+    ),
+  ).toBe("DiveeComposer has no eligible route. no Artificial Analysis measurement matches the available free models")
+  expect(composerUnavailableMessage("no free model is available")).toBe(
+    "DiveeComposer has no eligible route. no free model is available",
+  )
+  expect(composerUnavailableMessage()).toBe("DiveeComposer has no eligible route.")
+})
 
 const summary = Layer.succeed(
   SessionSummary.Service,
@@ -304,11 +316,6 @@ const writeText = Effect.fn("test.writeText")(function* (file: string, text: str
   yield* fs.writeWithDirs(file, text)
 })
 
-const ensureDir = Effect.fn("test.ensureDir")(function* (dir: string) {
-  const fs = yield* FSUtil.Service
-  yield* fs.ensureDir(dir)
-})
-
 const writeConfig = Effect.fn("test.writeConfig")(function* (dir: string, config: Partial<ConfigV1.Info>) {
   yield* writeText(
     path.join(dir, "opencode.json"),
@@ -340,6 +347,7 @@ const waitForBusy = (sessionID: SessionID, duration: Duration.Input = "2 seconds
 const hasBash = Effect.sync(() => Bun.which("bash") !== null)
 
 const deferredAsPromise = <A>(deferred: Deferred.Deferred<A>): PromiseLike<A> => ({
+  // oxlint-disable-next-line no-thenable -- This adapter is deliberately PromiseLike for deterministic Effect completion.
   then: (onfulfilled, onrejected) => {
     Effect.runFork(
       Deferred.await(deferred).pipe(

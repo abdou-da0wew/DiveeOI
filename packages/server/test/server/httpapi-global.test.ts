@@ -4,6 +4,7 @@ import { Context, Effect, Layer, Option } from "effect"
 import { HttpBody, HttpClient, HttpClientRequest, HttpRouter } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { Auth } from "../../src/auth"
+import { JwtAuth } from "@diveeoi/api/middleware/jwt"
 import { Config } from "../../src/config/config"
 import { Installation } from "../../src/installation"
 import { MoveSession } from "@diveeoi/db/control-plane/move-session"
@@ -29,6 +30,8 @@ const apiLayer = HttpRouter.serve(
 ).pipe(
   Layer.provideMerge(NodeHttpServer.layerTest),
   Layer.provide(Layer.mock(Auth.Service)({})),
+  // Auth is disabled in these route tests; only satisfy the middleware dependency.
+  Layer.provide(Layer.mock(JwtAuth.Service)({ readSecret: () => "test-only-jwt-secret-0000000000000000" })),
   Layer.provide(Layer.mock(Config.Service)({})),
   Layer.provide(Layer.mock(MoveSession.Service)({})),
   Layer.provide(

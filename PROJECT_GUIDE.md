@@ -222,6 +222,16 @@ Extends `@tsconfig/bun/tsconfig.json`. Root is minimal; each package has its own
 | `project/` | Project management — bootstrap, bootstrap-service, instance-context, instance-layer, instance-runtime, instance-store, project, VCS |
 | `provider/` | AI provider management — auth, error, model-status, provider, transform |
 | `question/` | User question handling — index + schema |
+
+### DiveeComposer routing (cross-cutting)
+
+DiveeComposer is a synthetic provider/model implemented in `packages/server/src/provider/composer.ts` and integrated by `packages/server/src/provider/provider.ts`. It routes only to known-free, authenticated, healthy models with enough context for the active session. Its ranking uses Artificial Analysis measurements when available; local catalogue heuristics require explicit user consent because they can be less accurate.
+
+Settings controls must remain in parity between:
+- V1: `packages/app/src/components/settings-models.tsx`
+- V2: `packages/app/src/components/settings-v2/models.tsx`
+
+Important distinction: Composer catalogue visibility is not proof that a routable target exists. A display-only synthetic model must never be passed to the provider. The current regression, recovery diff, quota/auth failures, and exact verification state are documented in the repository-root `COMPOSER_INCIDENT_HANDOFF.md`. Read it before modifying provider selection or deploying Composer changes.
 | `server/` | **HTTP SERVER BOOTSTRAP** — the core server module |
 | `session/` | AI chat sessions — core business logic for running sessions, LLM integration, streaming, events, prompts, compaction, status, todo, tools, summary, retry, revert, reminders |
 | `share/` | Session sharing — `session.ts` + `share-next.ts` |
@@ -1305,6 +1315,20 @@ export const layer = Layer.effect(Service, Effect.gen(function* () {
 | `bun test` | Run tests (timeout 30s, only failures) |
 | `bun typecheck` | TypeScript check |
 | `bun setup:recording-env` | Setup recording test environment |
+
+### Git commit hook
+
+Tracked repository hooks live in `.githooks/`. Enable them in a checkout with:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+The `commit-msg` hook idempotently appends `Co-authored-by: DiveeAgent <270451464+DiveeAgent@users.noreply.github.com>` to every commit message. This VDS checkout has `core.hooksPath` configured locally.
+
+### Manual UI QA
+
+For every user-visible UI change, automated tests and typechecks are not the whole test plan. Run manual browser QA on the VDS with `agent-browser`, following its installed `core` and `dogfood` skills. Use a named browser session, exercise the actual interactions and persistence paths, capture screenshots, and record the results in `WORKLOG.md` or a focused report under `docs/qa/`. Use isolated XDG data/config directories for settings and credential flows; do not experiment against the production instance or real provider credentials.
 
 ---
 

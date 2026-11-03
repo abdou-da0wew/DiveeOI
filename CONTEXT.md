@@ -1,10 +1,25 @@
 # CONTEXT — DiveeOI implementation hand-off
 
-Last updated: 2026-10-30. Branch: `arena/40d798db-diveeoi` (active; based on `dev` at `989d1287cff175f522a69f0aa895899364b97dcc`). Draft PR #6 is open against `dev`.
+Last updated: 2026-11-03. VDS repository: `/home/celestial-dev/DiveeOI`. Current branch: `dev`; last pushed commit: `2f5b2c3`. The current working tree also contains uncommitted Composer recovery edits; see `COMPOSER_INCIDENT_HANDOFF.md` before touching or resetting them.
 
-This file is the current hand-off snapshot. See `WORKLOG.md` for the chronological record, `DECISIONS.md` for design decisions, and `docs/TARGETED_LEARNING_WORKLOG.md` / `docs/WHATS_DONE.md` for the feature history and inventory. Older test counts in those historical documents are not verification of this branch.
+This file is the current hand-off snapshot. See `COMPOSER_INCIDENT_HANDOFF.md` for the active DiveeComposer/provider incident, exact modified files, production-vs-working-tree state, and Claude's suggested repair order. See `WORKLOG.md` for the chronological record, `DECISIONS.md` for design decisions, and `docs/TARGETED_LEARNING_WORKLOG.md` / `docs/WHATS_DONE.md` for Targeted Learning history and inventory. Older test counts in historical documents are not verification of the current branch.
 
-## Verification status — read first
+## Active Composer incident — read before provider/model work
+
+- Last pushed/deployed commit recorded for this incident: `2f5b2c3`. Recovery work remains local and uncommitted; do not claim it is live.
+- Composer catalogue visibility is separate from routing. A display-only synthetic model may stay visible when consent, quota, authentication, context, or quality rules block routing, but only a selected model tagged with a concrete target may reach an LLM request.
+- Settings V1 and V2 now contain the Composer provider toggle, local-ranking consent, Artificial Analysis key status/save/remove, and fallback environment-variable control. Key changes dispose the current instance and refresh provider queries. Manual V1/V2 QA and the isolated Composer no-route browser test passed on the VDS; evidence is in `docs/qa/COMPOSER_BROWSER_QA.md` and `docs/qa/`. Full monorepo typechecks, production builds, and DB/app/server test suites have since passed on the user-approved VDS; see the final verification section below. Live external provider authentication and quota-cycle tests remain unverified because no authorized credentials were available.
+- Provider authentication checks no longer treat a public `baseURL` or unresolved `${ENV}` placeholder as credentials. Stored API auth, provider/plugin-specific auth, configured environment variables, explicit provider headers, and keyless local/private endpoints are handled separately. A provider-wide missing-auth response cools that provider down temporarily; OpenCode free-tier refusals remain model-specific.
+- OpenCode quota exhaustion uses the persisted provider cooldown path. Composer's concrete target identity is preserved through the prompt processor, and failures are learned against the routed provider/model rather than `divee/composer`.
+- Fixed the preferences composite-key mismatch at the Drizzle source/schema level and generated a migration that repairs legacy duplicate rows while retaining the newest value. This restores the `Prefs.set()` upsert path used by Composer bans and quota cooldown persistence.
+- Fixed the Vite development API proxy boundary so query-string routes such as `/file?directory=...` are proxied to the backend instead of falling through to `index.html`. Verified that the proxy now returns backend JSON.
+- Preserve the entire uncommitted tree; do not reset/clean it. The exact continuation inventory and current verification status are in `COMPOSER_INCIDENT_HANDOFF.md` and the newest `WORKLOG.md` entry.
+
+## Repository commit hook
+
+- `.githooks/commit-msg` is enabled in this checkout via `core.hooksPath=.githooks`; a real temporary-repository commit and amend both produced exactly one `Co-authored-by: DiveeAgent <270451464+DiveeAgent@users.noreply.github.com>` trailer. See `PROJECT_GUIDE.md` for setup in another clone.
+
+## Earlier Targeted Learning verification — historical
 
 Bun 1.3.14 was used via `npx` for the current skill work. A temporary filtered install enabled focused DB/server tests and SDK generation; the full workspace install remains incomplete because GitHub certificate validation failed while resolving `ghostty-web`. The DB skill tests pass (8 tests / 42 expectations), the server skill/command/system tests pass (20 / 57), and the SDK generation/typecheck passes. DB package typecheck still reports 69 errors in existing files, with no diagnostics in the changed skill files; server typecheck was SIGKILLed without diagnostics. Licensing clearance for adapted content from the unlicensed `zcode-skills` repository is still pending; PR #6 remains draft and must not be merged/released before clearance. Earlier Targeted Learning diagnostics, source parsing, and `git diff --check` results are recorded below. Full package builds, browser runs, and model-backed checks remain unverified. The optional reference-vector `runSelfTest()` fixture is empty until `tl:selftest:freeze` is run with the pinned model installed; this is separate from Setup's `golden-self-test` step, which runs the live semantic sanity check and does not require fixture vectors.
 
@@ -131,3 +146,23 @@ Then rerun the learning suite and run `scripts/tl-live-check.ts` on a host where
 
 ## Embedding concurrency (updated 2026-10-30)
 `indexing.workersPerBook` (default 2) = number of batches in flight at once on ONE shared in-process model session (split work, no model duplication). Bun Worker threads, one model copy each, are opt-in only (`DIVEEOI_TL_WORKER_THREADS=1`): on the VDS (Bun 1.4.2) two Workers loading onnxruntime-node while a PDF was parsed crashed Bun (`NAPI FATAL ERROR: napi_define_properties`). Concurrent runs on a real ORT session are untested; compare `workersPerBook` 1 vs 2 with the benchmark in `scripts/tl-live-check.ts`.
+
+## 2026-11-03 verification update
+
+- Isolated Composer no-route browser test is now complete. A clean-env backend used an explicit temporary `OPENCODE_DB`, a zero-cost catalogue model on a public invalid endpoint with no provider credentials, and the visible synthetic `divee/composer` model. Two UI prompt submissions failed safely before provider invocation; the browser displayed the expected Session error toast and no stack trace. HARs contain no provider traffic.
+- The test DB was confined to `/tmp/diveeoi-composer-noroute-final-20261103`; the live 6050 DB was inspected read-only and had no QA account or session.
+- Entire DB package test suite: 1,047 passed, 0 failed, 2,815 assertions, 133 files.
+- The formerly outstanding local verification is now complete on the user-approved 32 GiB VDS: monorepo typecheck 14/14 tasks; SDK/app build 2/2 tasks; server Linux x64 and baseline build/smoke tests; DB 1,047/1,047; server 2,770 passed, 14 skipped, 1 todo, 0 failed; app 429 unit + 2 virtualizer tests passed. Final focused provider/session tests 214 passed, 1 skipped, 0 failed. Production service remains untouched; recovery changes remain uncommitted.
+
+## 2026-11-03 VDS build/test completion
+
+- The user confirmed the VDS has 32 GiB RAM and authorized local builds/typechecks; Colab is not needed for this repository session.
+- `bun turbo typecheck --concurrency=4`: 14/14 tasks passed. The non-blocking Vercel cache write-permission warning does not affect local task success.
+- SDK/app build and server Linux x64/baseline production build passed. The server baseline executable path used by `diveeoi.service` is present and executable; its build smoke test passed.
+- Full DB: 1,047 passed, 0 failed, 2,815 assertions, 133 files. Full server: 2,770 passed, 14 skipped, 1 todo, 0 failed, 7,292 assertions, 212 files. App: 429 unit tests + 2 virtualizer tests passed. Final focused provider/session suite: 214 passed, 1 skipped, 0 failed.
+- `git diff --check` and migration generator `--check` pass. Modified-source oxlint has zero diagnostics; whole-repo lint remains warning-heavy in untouched legacy/assets/docs files.
+- Live OpenRouter/AgentRouter authentication and real upstream OpenCode quota-cycle testing remain outstanding due to absent authorized provider credentials. No external provider request was sent. No commit, push, service restart, or deployment was performed; PID 914318 on port 6050 still has the old binary loaded.
+
+## Current release handoff
+
+See RELEASE_HANDOFF_2026-11-03.md for the detailed DiveeComposer/provider recovery status, code and test inventory, current VDS production state, build/typecheck/test results, database migration rehearsal, backup/rollback assets, unresolved HTTP API exercise gaps, and deployment authorization requirement. The handoff's final verification refresh is dated 2026-11-04. Production has not been restarted; ask for explicit user approval before sudo deployment.

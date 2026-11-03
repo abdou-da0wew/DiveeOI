@@ -115,7 +115,7 @@ function remember(score: ModelScore) {
   scores.set(normalize(score.name), score)
 }
 
-async function loadCache() {
+export async function loadCache() {
   if (cacheLoaded) return
   cacheLoaded = true
   try {

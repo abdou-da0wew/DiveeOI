@@ -1,10 +1,14 @@
 import { LayerNode } from "@diveeoi/db/effect/layer-node"
-import { AdaptiveResourceService, defaultLayer as AdaptiveResourceDefaultLayer } from "@diveeoi/db/adaptive"
+import { defaultLayer as AdaptiveResourceDefaultLayer } from "@diveeoi/db/adaptive"
 import { CrossSpawnSpawner } from "@diveeoi/db/cross-spawn-spawner"
 import { Database } from "@diveeoi/db/database/database"
+import { Global } from "@diveeoi/db/global"
 import { FSUtil } from "@diveeoi/db/fs-util"
 import { Ripgrep } from "@diveeoi/db/ripgrep"
 import { MemoryLayer, Memory } from "@diveeoi/memory"
+import { disabledLayer as TargetedLearningDisabledLayer } from "@diveeoi/learning/service"
+import os from "os"
+import path from "path"
 import { Effect, Layer } from "effect"
 import { Anchor } from "@/anchor/anchor"
 import { EventV2Bridge } from "@/event-v2-bridge"
@@ -52,7 +56,27 @@ export const ambientLayer = Layer.mergeAll(
  * Only for graphs that do not mock `HttpClient`: `LSP` and `Skill` each construct a real client,
  * and a test asserting on a mocked request will end up hitting the network instead.
  */
-export const ambientWithClientsLayer = Layer.mergeAll(ambientLayer, Skill.defaultLayer, LSP.defaultLayer)
+// Builtin tool registration reaches Global and TargetedLearning through Skill and the task
+// tool. Keep those dependencies deterministic and non-interactive for hand-built test graphs.
+const globalLayer = Layer.effect(
+  Global.Service,
+  Effect.sync(() =>
+    Global.Service.of({
+      ...Global.make(),
+      get home() {
+        return process.env.OPENCODE_TEST_HOME ?? path.join(os.tmpdir(), "diveeoi-server-test-global")
+      },
+    }),
+  ),
+)
+
+export const ambientWithClientsLayer = Layer.mergeAll(
+  ambientLayer,
+  globalLayer,
+  TargetedLearningDisabledLayer,
+  Skill.defaultLayer,
+  LSP.defaultLayer,
+)
 
 /**
  * Node form, for graphs assembled with `LayerNode.group`/`buildLayer`.
@@ -75,6 +99,12 @@ export const ambientNodes = [
 ] as const
 
 /** Same, plus the services that open HTTP clients. */
-export const ambientWithClientsNodes = [...ambientNodes, Skill.node, LSP.node] as const
+export const ambientWithClientsNodes = [
+  ...ambientNodes,
+  LayerNode.make(globalLayer, []),
+  LayerNode.make(TargetedLearningDisabledLayer, []),
+  Skill.node,
+  LSP.node,
+] as const
 
 export * as TestAmbient from "./ambient"

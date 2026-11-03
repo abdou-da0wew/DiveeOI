@@ -13,6 +13,13 @@ import { decode64 } from "@/utils/base64"
 import { EventSessionError } from "@diveeoi/sdk/v2"
 import { Persist, persisted } from "@/utils/persist"
 import { playSoundById } from "@/utils/sound"
+import { showToast } from "@/utils/toast"
+import {
+  consumeFailedSession,
+  markFailedSession,
+  markSessionError,
+  sessionErrorDescription,
+} from "./notification-domain"
 
 type NotificationBase = {
   directory?: string
@@ -133,6 +140,8 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
     const [index, setIndex] = createStore<NotificationIndex>(buildNotificationIndex(store.list))
 
     const meta = { pruned: false, disposed: false }
+    const failedSessions = new Set<string>()
+    const recentSessionErrors = new Map<string, number>()
 
     const updateUnseen = (scope: "session" | "project", key: string, unseen: Notification[]) => {
       setIndex(scope, "unseen", key, unseen)
@@ -229,6 +238,8 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
 
     const handleSessionIdle = (directory: string, event: { properties: { sessionID?: string } }, time: number) => {
       const sessionID = event.properties.sessionID
+      // A failed prompt also transitions to idle. Do not announce it as a completed turn.
+      if (consumeFailedSession(failedSessions, directory, sessionID)) return
       void lookup(directory, sessionID).then((session) => {
         if (meta.disposed) return
         if (!session) return
@@ -259,6 +270,10 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
       time: number,
     ) => {
       const sessionID = event.properties.sessionID
+      if (sessionID) {
+        if (!markSessionError(recentSessionErrors, directory, sessionID, time)) return
+        markFailedSession(failedSessions, directory, sessionID)
+      }
       void lookup(directory, sessionID).then((session) => {
         if (meta.disposed) return
         if (session?.parentID) return
@@ -268,17 +283,28 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
         }
 
         const error = "error" in event.properties ? event.properties.error : undefined
+        const viewed = viewedInCurrentSession(directory, sessionID)
         append({
           directory,
           time,
-          viewed: viewedInCurrentSession(directory, sessionID),
+          viewed,
           type: "error",
           session: sessionID ?? "global",
           error,
         })
-        const description =
-          session?.title ??
-          (typeof error === "string" ? error : language.t("notification.session.error.fallbackDescription"))
+        const description = sessionErrorDescription(
+          error,
+          session?.title,
+          language.t("notification.session.error.fallbackDescription"),
+        )
+        if (viewed) {
+          showToast({
+            variant: "error",
+            title: language.t("notification.session.error.title"),
+            description,
+            duration: 8_000,
+          })
+        }
         const href = sessionID ? `/${base64Encode(directory)}/session/${sessionID}` : `/${base64Encode(directory)}`
         if (settings.notifications.errors()) {
           void platform.notify(language.t("notification.session.error.title"), description, href)

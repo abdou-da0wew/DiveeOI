@@ -1,6 +1,6 @@
 import type { DatabaseMigration } from "./migration"
 
-export const migrations = (
+export const migrations: DatabaseMigration.Migration[] = (
   await Promise.all([
     import("./migration/20260127222353_familiar_lady_ursula"),
     import("./migration/20260211171708_add_project_commands"),
@@ -50,5 +50,7 @@ export const migrations = (
     import("./migration/20261020000004_agent_task_auto_generate"),
     import("./migration/20261029000001_auth_refresh_sessions"),
     import("./migration/20261031123734_declare_auth_tables"),
+    import("./migration/20261102220154_20261102000002_preference_primary_key"),
+    import("./migration/20261103001500_bootstrap_anchor_content_fts"),
   ])
 ).map((module) => module.default) satisfies DatabaseMigration.Migration[]

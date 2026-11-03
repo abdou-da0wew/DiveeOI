@@ -1,10 +1,13 @@
-use serde::Serialize;
+mod metrics;
+
+use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap, HashSet},
     env,
     ffi::{CStr, CString, c_char, c_double, c_int, c_void},
     path::{Path, PathBuf},
     ptr,
+    time::Instant,
 };
 
 const SQLITE_OK: c_int = 0;
@@ -69,6 +72,7 @@ struct Hit {
     fused_score: f64,
 }
 
+#[derive(Clone)]
 struct Args {
     db: PathBuf,
     query: String,
@@ -79,6 +83,8 @@ struct Args {
     rrf_k: f64,
     bm25_weight: f64,
     dense_weight: f64,
+    /// JSONL benchmark file; when set the binary reports quality metrics instead of hits.
+    eval: Option<PathBuf>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -86,6 +92,7 @@ fn parse_args() -> Result<Args, String> {
     let (mut db, mut query, mut books) = (None, None, Vec::new());
     let (mut limit, mut dense_limit, mut vector_base64) = (8usize, 30usize, None);
     let (mut rrf_k, mut bm25_weight, mut dense_weight) = (60.0f64, 1.0f64, 1.0f64);
+    let mut eval: Option<PathBuf> = None;
 
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -107,6 +114,7 @@ fn parse_args() -> Result<Args, String> {
                     .map_err(|_| "invalid --dense-limit")?;
             }
             "--vector-base64" => vector_base64 = it.next(),
+            "--eval" => eval = it.next().map(PathBuf::from),
             "--rrf-k" => {
                 rrf_k = it
                     .next()
@@ -131,7 +139,8 @@ fn parse_args() -> Result<Args, String> {
             "--help" | "-h" => {
                 return Err(
                     "usage: divee-retrieval --db PATH --query TEXT --book ID [--book ID ...] \
-                     [--vector-base64 BASE64] [--limit N] [--dense-limit N]"
+                     [--vector-base64 BASE64] [--limit N] [--dense-limit N] | \
+                     --db PATH --eval BENCH.jsonl [--book ID ...]"
                         .into(),
                 );
             }
@@ -152,7 +161,11 @@ fn parse_args() -> Result<Args, String> {
 
     Ok(Args {
         db: db.ok_or("--db is required")?,
-        query: query.ok_or("--query is required")?,
+        query: match (query, &eval) {
+            (Some(query), _) => query,
+            (None, Some(_)) => String::new(),
+            (None, None) => return Err("--query is required".into()),
+        },
         books,
         limit: limit.clamp(1, 50),
         dense_limit: dense_limit.clamp(1, 100),
@@ -160,6 +173,7 @@ fn parse_args() -> Result<Args, String> {
         rrf_k,
         bm25_weight,
         dense_weight,
+        eval,
     })
 }
 
@@ -502,32 +516,151 @@ fn fuse(args: &Args, bm25: Vec<Hit>, dense: Vec<Hit>) -> Vec<Hit> {
     results
 }
 
+fn search_db(db: *mut Sqlite3, args: &Args) -> Result<Vec<Hit>, String> {
+    let expression = fts_expression(&args.query);
+    let lexical = run_bm25(db, args, &expression)?;
+    let dense = match &args.vector_base64 {
+        Some(encoded) => {
+            let vector = decode_vector(encoded)?;
+            run_dense(db, args, &vector)?
+        }
+        None => Vec::new(),
+    };
+    Ok(fuse(args, lexical, dense))
+}
+
 fn search(args: &Args) -> Result<Vec<Hit>, String> {
     let db = open_db(&args.db)?;
-    let result = (|| {
-        let expression = fts_expression(&args.query);
-        let lexical = run_bm25(db, args, &expression)?;
-        let dense = match &args.vector_base64 {
-            Some(encoded) => {
-                let vector = decode_vector(encoded)?;
-                run_dense(db, args, &vector)?
-            }
-            None => Vec::new(),
-        };
-        Ok(fuse(args, lexical, dense))
-    })();
+    let result = search_db(db, args);
     unsafe {
         sqlite3_close(db);
     }
     result
 }
 
+/// One judged query. `vector_base64` is that encoder's query vector (teacher or student), so the
+/// same benchmark file is run once per encoder and the reports are compared.
+#[derive(Deserialize)]
+struct EvalCase {
+    query: String,
+    #[serde(default)]
+    vector_base64: Option<String>,
+    relevant: Vec<String>,
+    /// Slice label, e.g. "ar", "en", "ar-en", "en-ar", "synonym", "typo".
+    #[serde(default)]
+    tag: Option<String>,
+}
+
+#[derive(Default, Serialize)]
+struct Slice {
+    queries: usize,
+    recall_at_5: f64,
+    recall_at_10: f64,
+    mrr_at_10: f64,
+    ndcg_at_10: f64,
+}
+
+#[derive(Serialize)]
+struct EvalReport {
+    mode: &'static str,
+    overall: Slice,
+    by_tag: BTreeMap<String, Slice>,
+    latency_ms_p50: f64,
+    latency_ms_p95: f64,
+    failed_queries: usize,
+}
+
+fn accumulate(slice: &mut Slice, ranked: &[String], relevant: &HashSet<String>) {
+    slice.queries += 1;
+    slice.recall_at_5 += metrics::recall_at(ranked, relevant, 5);
+    slice.recall_at_10 += metrics::recall_at(ranked, relevant, 10);
+    slice.mrr_at_10 += metrics::reciprocal_rank_at(ranked, relevant, 10);
+    slice.ndcg_at_10 += metrics::ndcg_at(ranked, relevant, 10);
+}
+
+fn finish(slice: &mut Slice) {
+    if slice.queries == 0 {
+        return;
+    }
+    let n = slice.queries as f64;
+    slice.recall_at_5 /= n;
+    slice.recall_at_10 /= n;
+    slice.mrr_at_10 /= n;
+    slice.ndcg_at_10 /= n;
+}
+
+fn run_eval(args: &Args, path: &Path) -> Result<EvalReport, String> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    let db = open_db(&args.db)?;
+    let mut overall = Slice::default();
+    let mut by_tag: BTreeMap<String, Slice> = BTreeMap::new();
+    let mut latencies = Vec::new();
+    let (mut failed, mut dense_cases) = (0usize, 0usize);
+    let mut outcome = Ok(());
+    for (number, line) in text
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| !l.trim().is_empty())
+    {
+        let case: EvalCase = match serde_json::from_str(line) {
+            Ok(case) => case,
+            Err(e) => {
+                outcome = Err(format!("{}:{}: {e}", path.display(), number + 1));
+                break;
+            }
+        };
+        let mut case_args = args.clone();
+        case_args.query = case.query;
+        case_args.limit = args.limit.max(10);
+        dense_cases += usize::from(case.vector_base64.is_some());
+        case_args.vector_base64 = case.vector_base64;
+        let started = Instant::now();
+        let hits = match search_db(db, &case_args) {
+            Ok(hits) => hits,
+            Err(_) => {
+                failed += 1;
+                Vec::new()
+            }
+        };
+        latencies.push(started.elapsed().as_secs_f64() * 1000.0);
+        let ranked: Vec<String> = hits.into_iter().map(|hit| hit.chunk_id).collect();
+        let relevant: HashSet<String> = case.relevant.into_iter().collect();
+        accumulate(&mut overall, &ranked, &relevant);
+        if let Some(tag) = case.tag {
+            accumulate(by_tag.entry(tag).or_default(), &ranked, &relevant);
+        }
+    }
+    unsafe {
+        sqlite3_close(db);
+    }
+    outcome?;
+    finish(&mut overall);
+    by_tag.values_mut().for_each(finish);
+    Ok(EvalReport {
+        mode: if dense_cases == 0 {
+            "bm25-only"
+        } else {
+            "hybrid"
+        },
+        overall,
+        by_tag,
+        latency_ms_p50: metrics::percentile(&latencies, 50.0),
+        latency_ms_p95: metrics::percentile(&latencies, 95.0),
+        failed_queries: failed,
+    })
+}
+
 fn main() {
-    match parse_args().and_then(|args| search(&args)) {
-        Ok(hits) => println!(
-            "{}",
-            serde_json::to_string(&hits).unwrap_or_else(|_| "[]".into())
-        ),
+    let outcome = parse_args().and_then(|args| match &args.eval {
+        Some(path) => run_eval(&args, path)
+            .and_then(|report| serde_json::to_string(&report).map_err(|e| e.to_string())),
+        None => {
+            search(&args).map(|hits| serde_json::to_string(&hits).unwrap_or_else(|_| "[]".into()))
+        }
+    });
+    match outcome {
+        Ok(json) => println!("{json}"),
         Err(error) => {
             eprintln!("{error}");
             std::process::exit(2);

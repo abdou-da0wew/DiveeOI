@@ -723,7 +723,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
             }
 
             return models
-          } catch (e) {
+          } catch {
             return {}
           }
         },
@@ -1118,6 +1118,10 @@ export class ModelNotFoundError extends Schema.TaggedErrorClass<ModelNotFoundErr
   }
 }
 
+export function isComposerModelNotFoundError(error: unknown): error is ModelNotFoundError {
+  return ModelNotFoundError.isInstance(error) && Composer.isComposer(error.providerID, error.modelID)
+}
+
 export class InitError extends Schema.TaggedErrorClass<InitError>()("ProviderInitError", {
   providerID: ProviderV2.ID,
   cause: Schema.optional(Schema.Defect),
@@ -1347,6 +1351,84 @@ function modelSuggestions(provider: Info | undefined, modelID: ModelV2.ID, enabl
     .map((item) => item.id)
 }
 
+const ENV_TEMPLATE = /\$\{[^}]+\}/
+const ENV_TEMPLATE_GLOBAL = /\$\{([^}]+)\}/g
+
+/** A stored credential that actually carries a secret; an empty record proves nothing. */
+function hasStoredCredential(info: Auth.Info) {
+  if (info.type === "api") return info.key.trim().length > 0
+  if (info.type === "oauth") return info.access.trim().length > 0 || info.refresh.trim().length > 0
+  return info.token.trim().length > 0
+}
+
+/** A non-empty literal secret or a template whose every referenced environment value exists. */
+export function hasResolvedSecret(value: unknown, envs: Record<string, string | undefined>) {
+  if (typeof value !== "string" || !value.trim()) return false
+  const placeholders = [...value.matchAll(/\$\{([^}]+)\}/g)]
+  if (placeholders.length === 0) return true
+  return placeholders.every((match) => typeof envs[match[1]] === "string" && !!envs[match[1]]?.trim())
+}
+
+/**
+ * Detect credentials that are actually carried by provider options/headers. A baseURL by itself
+ * is deliberately not enough. Nested headers are supported because custom providers often store
+ * Authorization under options.headers.
+ */
+export function hasProviderCredential(
+  entries: Record<string, unknown>,
+  envs: Record<string, string | undefined>,
+  seen = new WeakSet<object>(),
+): boolean {
+  if (seen.has(entries)) return false
+  seen.add(entries)
+  return Object.entries(entries).some(([name, value]) => {
+    if (/api.?key|^key$|access.?token|token|secret|credential|authorization/i.test(name)) {
+      if (hasResolvedSecret(value, envs)) return true
+    }
+    return value !== null && typeof value === "object" && !Array.isArray(value)
+      ? hasProviderCredential(value as Record<string, unknown>, envs, seen)
+      : false
+  })
+}
+
+/**
+ * Loopback / private-network endpoints (Ollama, LM Studio, llama.cpp) are normally keyless.
+ * Unlike a public base URL, their reachability does not depend on a cloud credential.
+ */
+export function isLocalEndpoint(url: unknown) {
+  if (typeof url !== "string") return false
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, "")
+    return (
+      host === "localhost" ||
+      host.endsWith(".localhost") ||
+      host.endsWith(".local") ||
+      host === "::1" ||
+      host.startsWith("127.") ||
+      host.startsWith("10.") ||
+      host.startsWith("192.168.") ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+    )
+  } catch {
+    return false
+  }
+}
+
+function interpolateEnvTemplates<T>(value: T, envs: Record<string, string | undefined>): T {
+  if (typeof value === "string") {
+    return value.replace(/\$\{([^}]+)\}/g, (placeholder, name: string) => envs[name] ?? placeholder) as T
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => interpolateEnvTemplates(item, envs)) as T
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, interpolateEnvTemplates(item, envs)]),
+    ) as T
+  }
+  return value
+}
+
 export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -1367,7 +1449,10 @@ export const layer = Layer.effect(
         const bridge = yield* EffectBridge.make()
         const cfg = yield* config.get()
         const modelsDev = yield* modelsDevSvc.get()
-        const { catalog, database } = catalogFor(modelsDev)
+        const { catalog, database: sharedDatabase } = catalogFor(modelsDev)
+        // Provider-specific plugin hooks and custom loaders may filter model maps. Keep those
+        // per-instance changes on this shallow database projection, never in the shared snapshot.
+        const database = { ...sharedDatabase }
 
         const providers: Record<ProviderV2.ID, Info> = {} as Record<ProviderV2.ID, Info>
         const availableProviders = new Set<ProviderV2.ID>()
@@ -1430,8 +1515,9 @@ export const layer = Layer.effect(
           const providerID = ProviderV2.ID.make(p.id)
           if (disabled.has(providerID)) continue
 
-          const provider = database[providerID]
-          if (!provider) continue
+          const source = database[providerID]
+          if (!source) continue
+          const provider = { ...source, models: { ...source.models } }
           const pluginAuth = yield* auth.get(providerID).pipe(Effect.orDie)
 
           provider.models = yield* Effect.promise(async () => {
@@ -1447,6 +1533,7 @@ export const layer = Layer.effect(
               ]),
             )
           })
+          database[providerID] = provider
         }
 
         // extend database from config
@@ -1569,14 +1656,16 @@ export const layer = Layer.effect(
         for (const [id, provider] of Object.entries(auths)) {
           const providerID = ProviderV2.ID.make(id)
           if (disabled.has(providerID)) continue
+          // Do not treat an arbitrary auth record as a usable provider credential. OAuth
+          // records need a provider-specific loader; only a non-empty API key is generic
+          // enough to be injected into an OpenAI-compatible provider safely.
+          if (provider.type !== "api" || !provider.key.trim()) continue
           availableProviders.add(providerID)
-          if (provider.type === "api") {
             mergeProvider(providerID, {
               source: "api",
               key: provider.key,
             })
           }
-        }
 
         // plugin auth loader - database now has entries for config providers
         for (const plugin of plugins) {
@@ -1585,7 +1674,7 @@ export const layer = Layer.effect(
           if (disabled.has(providerID)) continue
 
           const stored = yield* auth.get(providerID).pipe(Effect.orDie)
-          if (!stored) continue
+          if (!stored || !hasStoredCredential(stored)) continue
           availableProviders.add(providerID)
           if (!plugin.auth.loader) continue
 
@@ -1607,7 +1696,16 @@ export const layer = Layer.effect(
           if (!data) {
             continue
           }
-          const result = yield* fn(data)
+          // catalogFor() shares this converted catalogue across all instances. Custom loaders
+          // may filter their input (OpenCode removes paid models for an anonymous session), so
+          // never give them the shared models map to mutate.
+          const loaderInput = {
+            ...data,
+            env: [...data.env],
+            options: { ...data.options },
+            models: { ...data.models },
+          }
+          const result = yield* fn(loaderInput)
           if (result && (result.autoload || providers[providerID])) {
             if (result.autoload) availableProviders.add(providerID)
             if (result.getModel) modelLoaders[providerID] = result.getModel
@@ -1616,6 +1714,9 @@ export const layer = Layer.effect(
             const opts = result.options ?? {}
             const patch: Partial<Info> = providers[providerID] ? { options: opts } : { source: "custom", options: opts }
             mergeProvider(providerID, patch)
+            // Keep the loader's filtered catalogue instance-local. In particular, the anonymous
+            // OpenCode loader removes paid models, but must not mutate the shared catalog cache.
+            if (providers[providerID]) providers[providerID].models = loaderInput.models
           }
         }
 
@@ -1628,18 +1729,20 @@ export const layer = Layer.effect(
           if (provider.options) partial.options = provider.options
           mergeProvider(providerID, partial)
 
-          const credentialLike = (entries: Record<string, unknown>) =>
-            Object.entries(entries).some(
-              ([name, value]) =>
-                /api.?key|access.?token|token|secret|credential|authorization/i.test(name) &&
-                typeof value === "string" &&
-                value.trim().length > 0,
-            )
+          // A configured *public* endpoint is not authentication. Counting baseURL alone here caused
+          // Composer to send requests to providers that immediately answered 401 with no auth header.
+          // Keyless local/private endpoints are the deliberate exception.
+          // Model options are only passed to custom getModel callbacks; they are not
+          // merged into the SDK's authentication options. Only count headers, which are
+          // explicitly attached to the outgoing request.
           const inlineCredentials =
-            credentialLike(provider.options ?? {}) ||
-            Object.values(provider.models ?? {}).some((model) => credentialLike(model.headers ?? {})) ||
-            (typeof provider.options?.baseURL === "string" && provider.options.baseURL.trim().length > 0)
-          if (inlineCredentials) availableProviders.add(providerID)
+            hasProviderCredential(provider.options ?? {}, envs) ||
+            Object.values(provider.models ?? {}).some((model) => hasProviderCredential(model.headers ?? {}, envs))
+          const configuredBaseURL =
+            typeof provider.options?.baseURL === "string"
+              ? interpolateEnvTemplates(provider.options.baseURL, envs)
+              : provider.options?.baseURL
+          if (inlineCredentials || isLocalEndpoint(configuredBaseURL)) availableProviders.add(providerID)
         }
 
         // OpenCode's built-in free gateway is intentionally usable without a user API key.
@@ -1658,7 +1761,7 @@ export const layer = Layer.effect(
                   providers[gitlab].models[modelID] = model
                 }
               }
-            } catch (e) {}
+            } catch {}
           })
         }
 
@@ -1737,6 +1840,10 @@ export const layer = Layer.effect(
       )
       if (apiKey) {
         yield* Effect.promise(() => ArtificialAnalysis.refresh(apiKey)).pipe(Effect.catch(() => Effect.void))
+      } else {
+        // Reuse the last successful AA snapshot offline; no API key is needed to read the
+        // locally cached measurements.
+        yield* Effect.promise(() => ArtificialAnalysis.loadCache()).pipe(Effect.catch(() => Effect.void))
       }
       return {
         preferred: composer?.preferred ?? [],
@@ -1747,6 +1854,17 @@ export const layer = Layer.effect(
           composer?.context_headroom_ratio ?? Composer.DEFAULT_OPTIONS.contextHeadroomRatio ?? 1.2,
         ),
         allowUnmeasuredRanking: composer?.allow_unmeasured_ranking ?? false,
+      } satisfies Composer.Options
+    })
+
+    // Every Composer decision (catalogue, default model, request routing) must see the same
+    // credential and pricing facts, or the UI and the router disagree about what is usable.
+    const routingOptions = Effect.fnUntraced(function* (s: State) {
+      const options = yield* composerOptions()
+      return {
+        ...options,
+        availableProviders: s.availableProviders,
+        knownFreeModels: s.knownFreeModels,
       } satisfies Composer.Options
     })
 
@@ -1764,7 +1882,7 @@ export const layer = Layer.effect(
     async function resolveSDK(model: Model, s: State, envs: Record<string, string | undefined>) {
       try {
         const provider = s.providers[model.providerID]
-        const options = { ...provider.options }
+        const options = interpolateEnvTemplates({ ...provider.options }, envs) as Record<string, any>
 
         if (
           model.providerID === "google-vertex" &&
@@ -1808,12 +1926,34 @@ export const layer = Layer.effect(
         })
 
         if (baseURL !== undefined) options["baseURL"] = baseURL
-        if (options["apiKey"] === undefined && provider.key) options["apiKey"] = provider.key
+        // A stored provider API credential takes precedence over config placeholders or
+        // stale inline values. This prevents an unresolved ${ENV} value from suppressing a
+        // valid credential and producing "Missing Authentication header".
+        // An explicit, fully resolved config value still wins; only a missing/empty/unresolved
+        // one is replaced by the stored credential.
+        const configuredKey = options["apiKey"]
+        const configuredKeyUsable =
+          typeof configuredKey === "string" && configuredKey.trim().length > 0 && !ENV_TEMPLATE.test(configuredKey)
+        if (provider.key?.trim() && !configuredKeyUsable) options["apiKey"] = provider.key
         if (model.headers)
           options["headers"] = {
             ...options["headers"],
-            ...model.headers,
+            ...interpolateEnvTemplates(model.headers, envs),
           }
+        // Fail here with the variable *name* rather than sending a literal "${NAME}" credential
+        // upstream and getting an opaque "Missing Authentication header" back. Values are never logged.
+        const unresolved = [
+          options["apiKey"],
+          ...Object.entries((options["headers"] ?? {}) as Record<string, unknown>)
+            .filter(([name]) => /authorization|api.?key|token/i.test(name))
+            .map(([, value]) => value),
+        ].flatMap((value) =>
+          typeof value === "string" ? [...value.matchAll(ENV_TEMPLATE_GLOBAL)].map((m) => m[1]) : [],
+        )
+        if (unresolved.length > 0)
+          throw new Error(
+            `Provider "${model.providerID}" credential references unset environment variable(s): ${[...new Set(unresolved)].join(", ")}`,
+          )
 
         const key = Hash.fast(
           JSON.stringify({
@@ -1898,7 +2038,7 @@ export const layer = Layer.effect(
     const getProvider = Effect.fn("Provider.getProvider")(function* (providerID: ProviderV2.ID) {
       const s = yield* InstanceState.get(state)
       if (providerID === Composer.PROVIDER_ID) {
-        const options = yield* composerOptions()
+        const options = yield* routingOptions(s)
         return Composer.provider(s.providers, options) as Info
       }
       return s.providers[providerID]
@@ -1915,20 +2055,18 @@ export const layer = Layer.effect(
       // hand back a model whose capabilities/limits mirror that target. The name never reaches
       // a provider — `getLanguage` swaps in the concrete model before the request is built.
       if (Composer.isComposer(providerID, modelID)) {
-        const options = yield* composerOptions()
-        const model = Composer.model(
-          s.providers,
-          {
-            ...options,
-            availableProviders: s.availableProviders,
-            knownFreeModels: s.knownFreeModels,
-          },
-          contextUsageTokens,
-        )
+        const options = yield* routingOptions(s)
+        const model = Composer.model(s.providers, options, contextUsageTokens)
         if (model) return model
         // Composer is a free-only router. Never silently fall through to a paid model or
-        // to one whose context window cannot hold the session already in progress.
-        return yield* new ModelNotFoundError({ providerID, modelID })
+        // to one whose context window cannot hold the session already in progress. A visible
+        // but unroutable Composer must fail with the concrete reason, not a bare "not found".
+        const reason = Composer.unavailableReason(s.providers, options, contextUsageTokens)
+        return yield* new ModelNotFoundError({
+          providerID,
+          modelID,
+          cause: new Error(`DiveeComposer has no eligible route: ${reason ?? "no free model is available"}`),
+        })
       }
 
       const provider = s.providers[providerID]
@@ -2133,7 +2271,7 @@ export const layer = Layer.effect(
       )
       for (const entry of recent) {
         if (Composer.isComposer(entry.providerID, entry.modelID)) {
-          const options = yield* composerOptions()
+          const options = yield* routingOptions(s)
           if (Composer.model(s.providers, options)) return { providerID: entry.providerID, modelID: entry.modelID }
           continue
         }
@@ -2147,7 +2285,7 @@ export const layer = Layer.effect(
       // whatever free model is actually reachable, so a fresh install works without picking
       // anything. It is not allowed to override a model the user chose (config, recent) or a
       // model from a provider they configured — and every free model stays selectable as normal.
-      const composer = Composer.model(s.providers, yield* composerOptions())
+      const composer = Composer.model(s.providers, yield* routingOptions(s))
       if (composer) {
         const bundled = Object.values(s.providers).find((p) => String(p.id) === "opencode")
         if (bundled && (!cfg.provider || Object.keys(cfg.provider).includes(bundled.id))) {
@@ -2194,8 +2332,8 @@ export const layer = Layer.effect(
       // is the most reliable free model we have, and it re-resolves to the best
       // reachable model on every call.
       if (role === "memory" || role === "compaction") {
-        const options = yield* composerOptions()
         const instance = yield* InstanceState.get(state)
+        const options = yield* routingOptions(instance)
         const composer = Composer.model(instance.providers, options)
         if (composer) return composer
       }

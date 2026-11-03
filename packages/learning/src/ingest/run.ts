@@ -17,6 +17,7 @@ import { parse, type ParseResult } from "../parsers"
 import { chunk as chunkBook } from "../chunk"
 import { embedBatch } from "../embed/pipeline"
 import { checkModelFiles, ensureEmbedder, loadTokenizerForChunking } from "../embed/ensure"
+import { releaseTeacherAfterIndexing } from "../embed/query-encoder"
 import { createEmbedWorkerPool, type EmbedWorkerPool } from "./embed-pool"
 import { availableParallelism } from "node:os"
 import { getRuntime } from "../runtime"
@@ -786,6 +787,12 @@ const runIngest = async (input: RunInput): Promise<void> => {
     if (control.diagnostic === diagnostic) control.diagnostic = undefined
     if (controls.get(jobId) === control) controls.delete(jobId)
     if (active.has(bookId)) active.delete(bookId)
+    // Index-and-forget: once the queue drains, drop the BGE-M3 session if chat does not need it.
+    const pending = await db
+      .all<{ n: number }>("SELECT COUNT(*) AS n FROM ingest_jobs WHERE status IN ('queued', 'running')")
+      .then((rows) => Number(rows[0]?.n ?? 0))
+      .catch(() => 1)
+    await releaseTeacherAfterIndexing(input.settings, pending).catch(() => undefined)
   }
 }
 

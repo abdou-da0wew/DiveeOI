@@ -121,7 +121,7 @@ function applyTokenWindow(msgs: SessionV1.WithParts[], maxTokens: number): Sessi
   let compactionSummaryIdx = -1
   for (let i = msgs.length - 1; i >= 0; i--) {
     const msg = msgs[i]
-    if (msg.info.role === "assistant" && msg.info.summary && msg.parts.some(p => p.type === "compaction")) {
+    if (msg.info.role === "assistant" && msg.info.summary && msg.parts.some((p) => p.type === "compaction")) {
       compactionSummaryIdx = i
       break
     }
@@ -138,6 +138,15 @@ function applyTokenWindow(msgs: SessionV1.WithParts[], maxTokens: number): Sessi
   if (cutIdx >= msgs.length) return msgs.length > 0 ? [msgs[msgs.length - 1]] : []
   if (compactionSummaryIdx >= 0 && compactionSummaryIdx < cutIdx) cutIdx = compactionSummaryIdx
   return cutIdx > 0 ? msgs.slice(cutIdx) : msgs
+}
+
+export function composerUnavailableMessage(detail?: string) {
+  const prefix = "DiveeComposer has no eligible route"
+  const message = detail?.trim()
+  if (!message) return `${prefix}.`
+  if (message.startsWith(`${prefix}:`)) return `${prefix}. ${message.slice(prefix.length + 1).trim()}`
+  if (message.startsWith(`${prefix}.`)) return message
+  return `${prefix}. ${message}`
 }
 
 export interface Interface {
@@ -183,6 +192,7 @@ export const layer = Layer.effect(
     const database = yield* Database.Service
     const todoService = yield* SessionTodo.Service
     const { db } = database
+    // oxlint-disable-next-line require-yield -- Effect.fn requires a generator callback here to preserve TaskPromptOps inference.
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
       return {
         cancel: (sessionID: SessionID) => cancel(sessionID),
@@ -251,14 +261,14 @@ export const layer = Layer.effect(
 
       // Get model - try small model first, fallback to user's model
       const mdl = yield* Effect.gen(function* () {
-        const small = yield* provider.getSmallModel(session.model?.providerID ?? ProviderV2.ID.make("openai")).pipe(
-          Effect.catch(() => Effect.succeed(undefined)),
-        )
+        const small = yield* provider
+          .getSmallModel(session.model?.providerID ?? ProviderV2.ID.make("openai"))
+          .pipe(Effect.catch(() => Effect.succeed(undefined)))
         if (small) return small
         if (session.model) {
-          return yield* provider.getModel(session.model.providerID, session.model.id).pipe(
-            Effect.catch(() => Effect.succeed(undefined)),
-          )
+          return yield* provider
+            .getModel(session.model.providerID, session.model.id)
+            .pipe(Effect.catch(() => Effect.succeed(undefined)))
         }
         return undefined
       }).pipe(Effect.catch(() => Effect.succeed(undefined)))
@@ -282,9 +292,12 @@ export const layer = Layer.effect(
           tools: {},
           model: mdl,
           sessionID: input.sessionID,
-          retries: 1,
+          retries: 3,
           messages: [
-            { role: "user", content: `Generate a title for this conversation:\n\nUser message: ${input.messageContent}` },
+            {
+              role: "user",
+              content: `Generate a title for this conversation:\n\nUser message: ${input.messageContent}`,
+            },
           ],
         })
         .pipe(
@@ -293,9 +306,7 @@ export const layer = Layer.effect(
           Stream.mkString,
           Effect.catchCause((cause) =>
             Effect.succeed("").pipe(
-              Effect.tap(() =>
-                Effect.logError("failed to generate title", { error: Cause.squash(cause) })
-              ),
+              Effect.tap(() => Effect.logError("failed to generate title", { error: Cause.squash(cause) })),
             ),
           ),
         )
@@ -704,23 +715,26 @@ export const layer = Layer.effect(
           return replacement
         }
       }
-      const latestAssistant = yield* sessions.findMessage(
-        sessionID,
-        (message) => message.info.role === "assistant" && (message.info.tokens?.input ?? 0) > 0,
-      ).pipe(Effect.orDie)
+      const latestAssistant = yield* sessions
+        .findMessage(sessionID, (message) => message.info.role === "assistant" && (message.info.tokens?.input ?? 0) > 0)
+        .pipe(Effect.orDie)
       const latestAssistantInfo = Option.isSome(latestAssistant) ? latestAssistant.value.info : undefined
-      const contextUsageTokens =
-        latestAssistantInfo?.role === "assistant" ? (latestAssistantInfo.tokens.input ?? 0) : 0
+      const contextUsageTokens = latestAssistantInfo?.role === "assistant" ? (latestAssistantInfo.tokens.input ?? 0) : 0
       const exit = yield* provider.getModel(providerID, modelID, contextUsageTokens).pipe(Effect.exit)
       if (Exit.isSuccess(exit)) return exit.value
       const err = Cause.squash(exit.cause)
       if (Provider.ModelNotFoundError.isInstance(err)) {
         const hint = err.suggestions?.length ? ` Did you mean: ${err.suggestions.join(", ")}?` : ""
+        // Composer reports why it has no route (quota, credentials, consent); show its safe,
+        // user-facing reason. Do not surface arbitrary causes from unrelated model errors.
+        const isComposer = Composer.isComposer(err.providerID, err.modelID)
+        const detail = isComposer && err.cause instanceof Error ? err.cause.message : undefined
+        const message = isComposer
+          ? composerUnavailableMessage(detail)
+          : `Model not found: ${err.providerID}/${err.modelID}.${hint}`
         yield* events.publish(Session.Event.Error, {
           sessionID,
-          error: new NamedError.Unknown({
-            message: `Model not found: ${err.providerID}/${err.modelID}.${hint}`,
-          }).toObject(),
+          error: new NamedError.Unknown({ message }).toObject(),
         })
       }
       return yield* Effect.die(err)
@@ -1216,16 +1230,15 @@ export const layer = Layer.effect(
       return { info, parts }
     }, Effect.scoped)
 
-    const prompt = Effect.fn(
-      "SessionPrompt.prompt",
-    )(function* (input: PromptInput) {
+    const prompt = Effect.fn("SessionPrompt.prompt")(function* (input: PromptInput) {
       const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
       yield* revert.cleanup(session)
       const message = yield* createUserMessage(input)
       yield* sessions.touch(input.sessionID)
 
       // Generate title for first user message (fire and forget in background)
-      const isRealUserMessage = message.info.role === "user" && !message.parts.every((p) => "synthetic" in p && p.synthetic)
+      const isRealUserMessage =
+        message.info.role === "user" && !message.parts.every((p) => "synthetic" in p && p.synthetic)
       if (isRealUserMessage) {
         // Extract text content from message parts for title generation
         const textContent = message.parts
@@ -1258,7 +1271,7 @@ export const layer = Layer.effect(
           if (tlMeta) {
             yield* sessions.setMetadata({
               sessionID: input.sessionID,
-              metadata: { ...(session.metadata ?? {}), targetedLearning: tlMeta } as never,
+              metadata: { ...session.metadata, targetedLearning: tlMeta } as never,
             })
             yield* Effect.sync(() =>
               logDiagnostic(
@@ -1297,9 +1310,7 @@ export const layer = Layer.effect(
       throw new Error("Impossible")
     })
 
-    const runLoop = Effect.fn("SessionPrompt.run")(
-      function* (sessionID: SessionID) {
-
+    const runLoop = Effect.fn("SessionPrompt.run")(function* (sessionID: SessionID) {
         const ctx = yield* InstanceState.context
         let structured: unknown
         let step = 0
@@ -1315,11 +1326,8 @@ export const layer = Layer.effect(
         // that ignores the gate cannot loop forever.
         let todoNudgeCount: number | undefined
         // P3: per-run watchdog state. Touches on every LLM event + persisted
-        // part so the supervisor fiber can detect no-progress stalls. The
-        // supervisor fiber itself is not forked here (would need a scope + the
-        // adaptive stall threshold); the state is in place so the touch calls
-        // are wired and a supervisor can be added later without changing
-        // call sites.
+      // part so the scoped supervisor can detect no-progress stalls. It logs
+      // stalls but does not interrupt/restart a run without the run fiber ID.
         const watchdog = new WatchdogState()
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
         const memory = yield* SessionMemoryIntegration.Service
@@ -1333,7 +1341,7 @@ export const layer = Layer.effect(
         // FiberId, which we don't have at this point. The stall is logged
         // so the operator can see it; the watchdog state + touch calls
         // are the foundation for the full interrupt-and-restart path.
-        const supervisorFiber = yield* Effect.forkScoped(
+      yield* Effect.forkScoped(
           Effect.gen(function* () {
             const thresholds = yield* Watchdog.adaptiveThresholds()
             yield* Effect.forever(
@@ -1421,9 +1429,7 @@ export const layer = Layer.effect(
             // session so an agent that ignores the gate cannot loop forever —
             // the 4th attempt surfaces a session.error and breaks.
             const todosAtExit = yield* todoService.get(sessionID).pipe(Effect.catch(() => Effect.succeed([])))
-            const pendingAtExit = todosAtExit.filter(
-              (t) => t.status === "pending" || t.status === "in_progress",
-            )
+          const pendingAtExit = todosAtExit.filter((t) => t.status === "pending" || t.status === "in_progress")
             if (pendingAtExit.length > 0) {
               const cfg = yield* config.get().pipe(Effect.catch(() => Effect.succeed(undefined)))
               const gate = (cfg as any)?.todo?.completion_gate ?? "nudge"
@@ -1448,7 +1454,9 @@ export const layer = Layer.effect(
             }
             // Extract session memory on exit (fire and forget)
             yield* Effect.forkDetach(
-              memory.extractSessionMemory(sessionID, msgs as any).pipe(
+            memory
+              .extractSessionMemory(sessionID, msgs as any)
+              .pipe(
                 Effect.catch((err) => Effect.logError("Session memory extraction failed", { sessionID, error: err })),
               ),
             )
@@ -1482,7 +1490,9 @@ export const layer = Layer.effect(
             if (result === "stop") {
               // Extract session memory on compaction stop (fire and forget)
               yield* Effect.forkDetach(
-                memory.extractSessionMemory(sessionID, msgs as any).pipe(
+              memory
+                .extractSessionMemory(sessionID, msgs as any)
+                .pipe(
                   Effect.catch((err) => Effect.logError("Session memory extraction failed", { sessionID, error: err })),
                 ),
               )
@@ -1723,9 +1733,7 @@ Tool: {name}
                 const lastNudgeKey = `__todoNudge_${pending.length}_${pending.map((t) => t.content).join("|")}__`
                 if (lastTodoNudgeKey !== lastNudgeKey) {
                   lastTodoNudgeKey = lastNudgeKey
-                  const lines = pending.map(
-                    (t) => `  ${t.status === "in_progress" ? "[~]" : "[ ]"} ${t.content}`,
-                  )
+                const lines = pending.map((t) => `  ${t.status === "in_progress" ? "[~]" : "[ ]"} ${t.content}`)
                   system.push(
                     `<system-reminder>Reminder: ${pending.length} todo${pending.length === 1 ? "" : "s"} still pending:\n${lines.join("\n")}\nComplete, cancel with a stated reason, or explicitly defer before finishing.</system-reminder>`,
                   )
@@ -1745,10 +1753,7 @@ Tool: {name}
               sessionID,
               parentSessionID: session.parentID,
               system,
-              messages: [
-                ...modelMsgs,
-                ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS }] : []),
-              ],
+            messages: [...modelMsgs, ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS }] : [])],
               tools,
               model,
               toolChoice: format.type === "json_schema" ? "required" : undefined,
@@ -1782,8 +1787,7 @@ Tool: {name}
                 }
               : undefined
             const modelEffect = handle.process(modelInput, onStreamProgress)
-            const result = yield* (
-              modelOperation
+          const result = yield* modelOperation
                 ? modelEffect.pipe(
                     Effect.onExit((exit) =>
                       Effect.sync(() => {
@@ -1805,7 +1809,6 @@ Tool: {name}
                     ),
                   )
                 : modelEffect
-            )
 
             // P3: the LLM stream returned — that's a progress signal. touchEvent
             // resets the no-progress stall timer so the watchdog doesn't trip
@@ -1915,7 +1918,9 @@ Tool: {name}
               !["tool-calls", "unknown"].includes(handle.message.finish) &&
               !handle.message.error
             ) {
-              const answerParts = yield* MessageV2.parts(handle.message.id).pipe(Effect.catch(() => Effect.succeed([] as any[])))
+            const answerParts = yield* MessageV2.parts(handle.message.id).pipe(
+              Effect.catch(() => Effect.succeed([] as any[])),
+            )
               const answer = (answerParts as { type: string; text?: string; synthetic?: boolean }[])
                 .filter((p) => p.type === "text" && !p.synthetic)
                 .map((p) => p.text ?? "")
@@ -1999,15 +2004,14 @@ Tool: {name}
 
         yield* compaction.prune({ sessionID }).pipe(Effect.ignore, Effect.forkIn(scope))
         return yield* lastAssistant(sessionID)
-      },
-    )
+    })
 
     const ensureInstanceRef = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
       InstanceRef.pipe(
         Effect.flatMap((ref) =>
-          ref ? effect : InstanceState.context.pipe(
-            Effect.flatMap((ctx) => effect.pipe(Effect.provideService(InstanceRef, ctx))),
-          )
+          ref
+            ? effect
+            : InstanceState.context.pipe(Effect.flatMap((ctx) => effect.pipe(Effect.provideService(InstanceRef, ctx)))),
         ),
       )
 

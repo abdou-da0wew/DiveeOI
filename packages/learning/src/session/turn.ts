@@ -10,8 +10,8 @@
 
 import { Effect } from "effect"
 import { getRuntime } from "../runtime"
-import { ensureEmbedder } from "../embed/ensure"
 import { embed } from "../embed/pipeline"
+import { prepareQueryEncoder } from "../embed/query-encoder"
 import { retrieve, type Candidate } from "../retrieve/hybrid"
 import { withDefaults } from "../settings/defaults"
 import { buildGroundingPrompt } from "../grounding/prompt-rules"
@@ -175,14 +175,10 @@ const prepareTargetedTurnImpl = async (input: {
     )
   }
 
-  const ready = input.ensureFn
-    ? await input.ensureFn()
-    : await Effect.runPromise(
-        ensureEmbedder(input.settings).pipe(
-          Effect.map(() => true),
-          Effect.orElseSucceed(() => false),
-        ),
-      )
+  // Index-and-forget: chat uses the promoted lightweight query encoder when there is one and only
+  // falls back to loading the BGE-M3 teacher otherwise.
+  const encoder = input.ensureFn ? undefined : await prepareQueryEncoder(input.settings)
+  const ready = input.ensureFn ? await input.ensureFn() : encoder!.ready
   if (!ready) {
     return refuse(
       "not-ready",
@@ -205,7 +201,9 @@ const prepareTargetedTurnImpl = async (input: {
 
   const queryVec = input.embedFn
     ? await input.embedFn(input.query)
-    : await Effect.runPromise(embed(input.query).pipe(Effect.orElseSucceed(() => null)))
+    : encoder
+      ? await encoder.embed(input.query)
+      : await Effect.runPromise(embed(input.query).pipe(Effect.orElseSucceed(() => null)))
   const result = await Effect.runPromise(
     retrieve(
       runtime.booksStore.db,
@@ -226,8 +224,9 @@ const prepareTargetedTurnImpl = async (input: {
         recentUserTurns: input.recentUserTurns,
         gate: {
           enabled: gate.enabled !== false,
-          minDenseScore: Number(gate.minDenseScore ?? 0.5),
-          minFusedScore: Number(gate.minFusedScore ?? 0.1),
+          // A student ships thresholds calibrated on its own score distribution.
+          minDenseScore: Number(encoder?.gate?.minDenseScore ?? gate.minDenseScore ?? 0.5),
+          minFusedScore: Number(encoder?.gate?.minFusedScore ?? gate.minFusedScore ?? 0.1),
           allowSmallTalk: gate.allowSmallTalk !== false,
           language: lang,
           libraryAvailable: true,
@@ -305,7 +304,7 @@ const inspectRetrievalImpl = async (input: {
   const gate = (settings.gate ?? {}) as Tree
   const ret = (settings.retrieval ?? {}) as Tree
   const lang: "ar" | "en" = isArabic(input.query) ? "ar" : "en"
-  const thresholds = { minDenseScore: Number(gate.minDenseScore ?? 0.5), minFusedScore: Number(gate.minFusedScore ?? 0.1) }
+  let thresholds = { minDenseScore: Number(gate.minDenseScore ?? 0.5), minFusedScore: Number(gate.minFusedScore ?? 0.1) }
   const empty = (decision: string, note: string): InspectResult => ({
     decision,
     lang,
@@ -321,13 +320,20 @@ const inspectRetrievalImpl = async (input: {
   let bookIds = input.bookIds ?? []
   if (bookIds.length === 0) bookIds = (await db.all<{ id: string }>("SELECT id FROM books WHERE status = 'ready'")).map((r) => r.id)
   if (bookIds.length === 0) return empty("not-ready", "no indexed books")
-  const ready = input.ensureFn
-    ? await input.ensureFn()
-    : await Effect.runPromise(ensureEmbedder(input.settings).pipe(Effect.map(() => true), Effect.orElseSucceed(() => false)))
+  const encoder = input.ensureFn ? undefined : await prepareQueryEncoder(input.settings)
+  const ready = input.ensureFn ? await input.ensureFn() : encoder!.ready
   if (!ready) return empty("not-ready", "the embedding model is not ready (run Start Setup)")
+  if (encoder?.gate) {
+    thresholds = {
+      minDenseScore: Number(encoder.gate.minDenseScore ?? thresholds.minDenseScore),
+      minFusedScore: Number(encoder.gate.minFusedScore ?? thresholds.minFusedScore),
+    }
+  }
   const queryVec = input.embedFn
     ? await input.embedFn(input.query)
-    : await Effect.runPromise(embed(input.query).pipe(Effect.orElseSucceed(() => null)))
+    : encoder
+      ? await encoder.embed(input.query)
+      : await Effect.runPromise(embed(input.query).pipe(Effect.orElseSucceed(() => null)))
   const result = await Effect.runPromise(
     retrieve(
       db,

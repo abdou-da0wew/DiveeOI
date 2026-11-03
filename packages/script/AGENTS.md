@@ -10,3 +10,7 @@ Build and utility scripts used by other packages (primarily `@diveeoi/server` as
 - **No Effect dependency** — plain TypeScript with `bun` runtime. Only dependency is `semver`.
 - **`Script.release`** — boolean flag from `OPENCODE_RELEASE` env var (used by CI to gate publish steps).
 - This is NOT an npm-published package — it's a monorepo-internal tool used via workspace reference.
+
+## Current DiveeComposer incident handoff (2026-11-02)
+
+For any work involving provider authentication, model catalogues, model selection, Composer routing, or Models settings, read the repository-root `COMPOSER_INCIDENT_HANDOFF.md` before editing. It records the production regression, the current uncommitted recovery work, exact verification status, and the repair order. Preserve the strict free-only and context-fit guarantees. A display-only Composer catalogue entry must never be routed to an LLM request. Do not assume the uncommitted recovery work is built or deployed.
