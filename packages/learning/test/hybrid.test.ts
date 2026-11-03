@@ -167,6 +167,23 @@ describe("hybrid retrieval", () => {
     expect(result.candidates.some((c) => c.chunkId === "bio-c1")).toBe(true)
   })
 
+  test("compacted blob vectors are read, even after the TEXT column is emptied", async () => {
+    // Mirrors `divee-retrieval --compact --drop-text`: dense search must keep working from
+    // chunk_vecs_blob, which is why both readers prefer the blob column.
+    db.exec("CREATE TABLE chunk_vecs_blob (chunk_id TEXT PRIMARY KEY, vec BLOB NOT NULL)")
+    const toBlob = (values: number[]) => new Uint8Array(new Float32Array(values).buffer)
+    db.run("INSERT INTO chunk_vecs_blob(chunk_id, vec) VALUES(?, ?)", "bio-c1", toBlob([0.9, 0.1, 0.0, 0.0]))
+    db.run("INSERT INTO chunk_vecs_blob(chunk_id, vec) VALUES(?, ?)", "bio-c2", toBlob([0.8, 0.2, 0.0, 0.0]))
+    db.run("INSERT INTO chunk_vecs_blob(chunk_id, vec) VALUES(?, ?)", "hist-c1", toBlob([0.0, 0.0, 0.9, 0.1]))
+    db.run("UPDATE chunk_vecs SET vec = ''")
+
+    const queryVec = new Float32Array([0.85, 0.15, 0.0, 0.0])
+    const result = await Effect.runPromise(retrieve(wrapDb(db), { ...baseOptions, query: "unrelated words" }, queryVec))
+    expect(result.denseTopK).toBe(2) // session is scoped to the biology book
+    expect(result.bestDenseScore ?? 0).toBeGreaterThan(0.9)
+    expect(result.candidates.map((candidate) => candidate.chunkId)).toContain("bio-c1")
+  })
+
   test("parent expansion includes the section text", async () => {
     const result = await Effect.runPromise(
       retrieve(wrapDb(db), baseOptions, null),

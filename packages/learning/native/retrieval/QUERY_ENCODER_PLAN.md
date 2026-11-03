@@ -30,11 +30,18 @@ BM25-only retrieval avoids query embeddings but loses semantic recall for synony
 
 ## Current implementation status
 
-The Rust prototype now supports:
-- Read-only SQLite FTS5 BM25.
-- Decoding the existing base64 Float32 vectors.
-- Exact cosine similarity over vectors scoped to selected book IDs.
-- Streaming top-K retention rather than keeping the entire corpus in memory.
-- RRF fusion and JSON output.
+Superseded by `../../RETRIEVAL_V2_PLAN.md`, which is the live plan; this file is kept as the
+original rationale.
 
-It is not yet integrated into TypeScript session retrieval, and it does not provide the query embedding itself. The current production chat path still calls `ensureEmbedder()` and BGE-M3 for every non-empty targeted-learning turn. Production behavior has not been changed by this prototype.
+Implemented since this note was written:
+- Read-only SQLite FTS5 BM25, exact cosine, streaming top-K, RRF, JSON output, `--eval` metrics.
+- `--serve` NDJSON mode and BLOB vector reads, plus `--compact` (see `README.md`).
+- TypeScript client (`src/retrieve/native-engine.ts`) wired into `src/retrieve/hybrid.ts` with a
+  settings switch (`retrieval.engine`) and a full fallback to the TypeScript implementation.
+- Query-encoder policy: `src/embed/query-encoder.ts` (`auto`/`student`/`bge-m3`), promotion-gated,
+  teacher freed after indexing.
+- Distillation toolkit: `packages/learning/training/`.
+
+Still open: training the student (needs GPU + BGE-M3 weights), the benchmark against the teacher,
+and flipping the default. The engine does not provide the query embedding itself — the encoder
+stays in TypeScript, which keeps the engine free of ONNX.
