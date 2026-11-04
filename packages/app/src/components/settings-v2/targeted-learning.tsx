@@ -18,7 +18,7 @@ import { TargetedLearningMemory } from "../targeted-learning-memory"
 import { TargetedLearningSettingsForm } from "../targeted-learning-settings-form"
 import { Component, For, Show, createResource, createSignal, Suspense } from "solid-js"
 import { ButtonV2 } from "@diveeoi/ui/v2/button-v2"
-import { useLanguage } from "@/context/language"
+import { formatSetupStepLabel, TargetedLearningStatusBadge } from "../targeted-learning-status"
 import { useServerSDK } from "@/context/server-sdk"
 import { SettingsListV2 } from "./parts/list"
 import { SettingsRowV2 } from "./parts/row"
@@ -46,6 +46,33 @@ interface Health {
   manifestLoaded: boolean
 }
 
+const healthStatus = (available: boolean, setupStatus: string) => {
+  if (available) return "complete" as const
+  if (setupStatus === "not-started" || setupStatus === "in-progress") return "pending" as const
+  return "failed" as const
+}
+
+const healthLabel = (available: boolean, setupStatus: string, ready: string, unavailable: string) => {
+  if (available) return ready
+  if (setupStatus === "not-started" || setupStatus === "in-progress") return "Pending"
+  return unavailable
+}
+
+const setupBadgeStatus = (status?: SetupStatus["status"]) => {
+  if (status === "ready") return "complete" as const
+  if (status === "in-progress") return "running" as const
+  if (status === "needs-repair" || status === "unreachable") return "failed" as const
+  return "pending" as const
+}
+
+const setupBadgeLabel = (status?: SetupStatus["status"]) => {
+  if (!status) return "Checking"
+  if (status === "ready") return "Ready"
+  if (status === "in-progress") return "Running"
+  if (status === "needs-repair") return "Needs repair"
+  if (status === "unreachable") return "Offline"
+  return "Not set up"
+}
 
 // Direct fetch helper — the typed SDK hasn't been regenerated yet for the
 // /targeted-learning/* routes. We use the same auth headers the SDK uses.
@@ -71,29 +98,29 @@ const useTlApi = () => {
       }
     },
     start: async (force = false): Promise<SetupStatus> => {
-  try {
-      const resp = await authFetch(`${base()}/targeted-learning/setup/start`, {
-        method: "POST",
-        headers: headers(),
-        body: JSON.stringify({ force }),
-      })
-      if (!resp.ok) throw new Error(`setup start: ${resp.status}`)
-      return resp.json()
-  } catch {
-    return { status: "unreachable", steps: [] }
-  }
+      try {
+        const resp = await authFetch(`${base()}/targeted-learning/setup/start`, {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({ force }),
+        })
+        if (!resp.ok) throw new Error(`setup start: ${resp.status}`)
+        return resp.json()
+      } catch {
+        return { status: "unreachable", steps: [] }
+      }
     },
     repair: async (): Promise<SetupStatus> => {
-  try {
-      const resp = await authFetch(`${base()}/targeted-learning/setup/repair`, {
-        method: "POST",
-        headers: headers(),
-      })
-      if (!resp.ok) throw new Error(`setup repair: ${resp.status}`)
-      return resp.json()
-  } catch {
-    return { status: "unreachable", steps: [] }
-  }
+      try {
+        const resp = await authFetch(`${base()}/targeted-learning/setup/repair`, {
+          method: "POST",
+          headers: headers(),
+        })
+        if (!resp.ok) throw new Error(`setup repair: ${resp.status}`)
+        return resp.json()
+      } catch {
+        return { status: "unreachable", steps: [] }
+      }
     },
     getHealth: async (): Promise<Health> => {
       try {
@@ -113,7 +140,6 @@ const useTlApi = () => {
 }
 
 export const SettingsTargetedLearningV2: Component = () => {
-  const language = useLanguage()
   const api = useTlApi()
   const [status, { refetch }] = createResource<SetupStatus>(api.getStatus)
   const [health] = createResource<Health>(api.getHealth)
@@ -143,102 +169,135 @@ export const SettingsTargetedLearningV2: Component = () => {
   const needsRepair = () => status()?.status === "needs-repair"
 
   return (
-    <Suspense fallback={<div class="settings-v2-panel-skeleton">Loading…</div>}>
-      <SettingsListV2>
-        {/* ---------- Backend unreachable notice ---------- */}
-        <Show when={status()?.status === "unreachable"}>
-          <SettingsRowV2
-            title="Backend unreachable"
-            description="The DiveeOI server could not be reached, so the Targeted Learning state is unknown. Check that the server is running and reload."
-          >
-            <span class="settings-v2-tag settings-v2-tag-warning">Offline</span>
-          </SettingsRowV2>
-        </Show>
+    <>
+      <div class="settings-v2-tab-header">
+        <h2 class="settings-v2-tab-title">Targeted Learning</h2>
+        <p class="text-12-regular text-text-weak leading-5">
+          Self-hosted, book-grounded learning sessions. Add your books and build a tutor that can retrieve relevant
+          passages with citations.
+        </p>
+      </div>
+      <div class="settings-v2-tab-body settings-v2-learning">
+        <section class="settings-v2-section">
+          <h3 class="settings-v2-section-title">Learning workspace</h3>
+          <Suspense fallback={<div class="settings-v2-panel-skeleton">Loading…</div>}>
+            <SettingsListV2>
+              {/* ---------- Backend unreachable notice ---------- */}
+              <Show when={status()?.status === "unreachable"}>
+                <SettingsRowV2
+                  title="Backend unreachable"
+                  description="The DiveeOI server could not be reached, so the Targeted Learning state is unknown. Check that the server is running and reload."
+                >
+                  <TargetedLearningStatusBadge status="failed" label="Offline" />
+                </SettingsRowV2>
+              </Show>
 
-        {/* ---------- Setup ---------- */}
-        <SettingsRowV2
-          title="Targeted Learning"
-          description="Self-hosted, book-grounded learning sessions. Downloads the bge-m3 embedding model (~568 MB) on first run."
-        >
-          <Show
-            when={isReady()}
-            fallback={
-              <ButtonV2 onClick={start} disabled={starting()}>
-                {starting() ? "Starting…" : "Start Setup"}
-              </ButtonV2>
-            }
-          >
-            <span class="settings-v2-tag settings-v2-tag-success">Ready</span>
-          </Show>
-        </SettingsRowV2>
+              {/* ---------- Setup ---------- */}
+              <SettingsRowV2
+                title="Setup"
+                description="Self-hosted, book-grounded learning sessions. Downloads the bge-m3 embedding model (~568 MB) on first run."
+              >
+                <Show
+                  when={isReady()}
+                  fallback={
+                    <div class="flex flex-wrap items-center justify-end gap-2">
+                      <TargetedLearningStatusBadge
+                        status={setupBadgeStatus(status()?.status)}
+                        label={setupBadgeLabel(status()?.status)}
+                      />
+                      <ButtonV2 onClick={start} disabled={starting()}>
+                        {starting() ? "Starting…" : "Start Setup"}
+                      </ButtonV2>
+                    </div>
+                  }
+                >
+                  <TargetedLearningStatusBadge status="complete" label="Ready" />
+                </Show>
+              </SettingsRowV2>
 
-        <Show when={needsRepair()}>
-          <SettingsRowV2
-            title="Repair"
-            description="Setup state is marked needs-repair. Click to clear all step statuses and re-run from probe."
-          >
-            <ButtonV2 variant="ghost" onClick={repair} disabled={starting()}>
-              Repair
-            </ButtonV2>
-          </SettingsRowV2>
-        </Show>
+              <Show when={needsRepair()}>
+                <SettingsRowV2
+                  title="Repair"
+                  description="Setup state is marked needs-repair. Click to clear all step statuses and re-run from probe."
+                >
+                  <ButtonV2 variant="ghost" onClick={repair} disabled={starting()}>
+                    Repair
+                  </ButtonV2>
+                </SettingsRowV2>
+              </Show>
 
-        {/* Setup steps table */}
-        <Show when={status()?.steps.length}>
-          <div class="settings-v2-subsection">
-            <div class="settings-v2-subsection-title">Setup steps</div>
-            <div class="settings-v2-steps-table">
-              <For each={status()!.steps}>
-                {(step) => (
-                  <div class="settings-v2-step-row">
-                    <span class="settings-v2-step-name">{step.name}</span>
-                    <span class={`settings-v2-step-status settings-v2-step-status-${step.status}`}>
-                      {step.status}
-                    </span>
-                    <Show when={step.attempts > 1}>
-                      <span class="settings-v2-step-attempts">×{step.attempts}</span>
-                    </Show>
+              {/* Setup steps */}
+              <Show when={status()?.steps.length}>
+                <div class="settings-v2-subsection">
+                  <div class="settings-v2-subsection-title">Setup steps</div>
+                  <div class="tl-status-list">
+                    <For each={status()!.steps}>
+                      {(step) => (
+                        <>
+                          <div class="tl-status-row">
+                            <span class="tl-status-row-label">{formatSetupStepLabel(step.name)}</span>
+                            <div class="tl-status-row-meta">
+                              <TargetedLearningStatusBadge status={step.status} />
+                              <Show when={step.attempts > 1}>
+                                <span class="text-11-regular text-text-weak">×{step.attempts}</span>
+                              </Show>
+                            </div>
+                          </div>
+                          <Show when={step.status === "failed" && step.lastError}>
+                            <div class="tl-status-row-detail">{step.lastError}</div>
+                          </Show>
+                        </>
+                      )}
+                    </For>
+                  </div>
+                </div>
+              </Show>
+
+              {/* Health snapshot */}
+              <Show when={health()}>
+                {(h) => (
+                  <div class="settings-v2-subsection">
+                    <div class="settings-v2-subsection-title">Health</div>
+                    <div class="tl-status-health">
+                      <div class="tl-status-health-item">
+                        <span class="tl-status-health-label">books.db</span>
+                        <TargetedLearningStatusBadge
+                          status={healthStatus(h().booksDbAvailable, h().setupStatus)}
+                          label={healthLabel(
+                            h().booksDbAvailable,
+                            h().setupStatus,
+                            "Available",
+                            h().booksDbReason ?? "Unavailable",
+                          )}
+                        />
+                      </div>
+                      <div class="tl-status-health-item">
+                        <span class="tl-status-health-label">manifest</span>
+                        <TargetedLearningStatusBadge
+                          status={healthStatus(h().manifestLoaded, h().setupStatus)}
+                          label={healthLabel(h().manifestLoaded, h().setupStatus, "Loaded", "Missing")}
+                        />
+                      </div>
+                      <div class="tl-status-health-item">
+                        <span class="tl-status-health-label">model</span>
+                        <TargetedLearningStatusBadge
+                          status={healthStatus(h().modelReady, h().setupStatus)}
+                          label={healthLabel(h().modelReady, h().setupStatus, "Ready", "Not ready")}
+                        />
+                      </div>
+                    </div>
                   </div>
                 )}
-              </For>
-            </div>
-          </div>
-        </Show>
+              </Show>
 
-        {/* Health snapshot */}
-        <Show when={health()}>
-          {(h) => (
-            <div class="settings-v2-subsection">
-              <div class="settings-v2-subsection-title">Health</div>
-              <div class="settings-v2-health-grid">
-                <div>
-                  <span>books.db</span>
-                  <span class={h().booksDbAvailable ? "ok" : "warn"}>
-                    {h().booksDbAvailable ? "available" : h().booksDbReason ?? "unavailable"}
-                  </span>
-                </div>
-                <div>
-                  <span>manifest</span>
-                  <span class={h().manifestLoaded ? "ok" : "warn"}>
-                    {h().manifestLoaded ? "loaded" : "missing"}
-                  </span>
-                </div>
-                <div>
-                  <span>model</span>
-                  <span class={h().modelReady ? "ok" : "warn"}>
-                    {h().modelReady ? "ready" : "not ready"}
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-        </Show>
+              <TargetedLearningLibrary ready={isReady()} />
 
-        <TargetedLearningLibrary ready={isReady()} />
-
-        <TargetedLearningMemory ready={isReady()} />
-        <TargetedLearningSettingsForm ready={isReady()} />
-      </SettingsListV2>
-    </Suspense>
+              <TargetedLearningMemory ready={isReady()} />
+              <TargetedLearningSettingsForm ready={isReady()} v2 />
+            </SettingsListV2>
+          </Suspense>
+        </section>
+      </div>
+    </>
   )
 }

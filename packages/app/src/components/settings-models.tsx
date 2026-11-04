@@ -171,7 +171,7 @@ const SettingsModelsContent: Component = () => {
         <section class="flex flex-col gap-3" aria-label="DiveeComposer settings">
           <div class="flex flex-col gap-1">
             <h3 class="text-14-medium text-text-strong">DiveeComposer</h3>
-            <p class="text-13-regular text-text-weak">
+            <p class="text-12-regular text-text-weak leading-5">
               Automatically routes to free, reachable models using provider metadata and, when available, measurements
               from{" "}
               <a
@@ -186,10 +186,10 @@ const SettingsModelsContent: Component = () => {
             </p>
           </div>
           <SettingsList>
-            <div class="flex items-center justify-between gap-4 py-3">
-              <div class="min-w-0">
+            <div class="flex flex-wrap items-start justify-between gap-4 py-4 border-b border-border-weak-base last:border-none sm:flex-nowrap sm:items-center">
+              <div class="min-w-0 flex-1">
                 <span class="text-14-medium text-text-strong block">Use all configured providers</span>
-                <span class="text-13-regular text-text-weak block">
+                <span class="text-12-regular text-text-weak leading-5 block">
                   Include free models from every connected provider, not just OpenCode. Models must pass the quality,
                   context-fit, and health checks.
                 </span>
@@ -202,14 +202,12 @@ const SettingsModelsContent: Component = () => {
                 Use all configured providers
               </Switch>
             </div>
-          </SettingsList>
-          <SettingsList>
-            <div class="flex items-center justify-between gap-4 py-3">
-              <div class="min-w-0">
+            <div class="flex flex-wrap items-start justify-between gap-4 py-4 border-b border-border-weak-base last:border-none sm:flex-nowrap sm:items-center">
+              <div class="min-w-0 flex-1">
                 <span class="text-14-medium text-text-strong block">
                   Allow local ranking without Artificial Analysis
                 </span>
-                <span class="text-13-regular text-text-weak block">
+                <span class="text-12-regular text-text-weak leading-5 block">
                   By enabling this, you acknowledge that Composer will estimate model quality from catalog metadata,
                   model-family and variant hints, capabilities, context limits, release dates, and successful turns when
                   no benchmark measurement is available. These estimates can be less accurate and answers may be weaker
@@ -224,74 +222,74 @@ const SettingsModelsContent: Component = () => {
                 Allow local ranking without Artificial Analysis
               </Switch>
             </div>
-          </SettingsList>
-          <p class="text-12-regular text-text-weak">
-            The Artificial Analysis key is optional. Without matching measurements, Composer will only use local
-            catalog-based estimates when the acknowledgement above is enabled.
-          </p>
-          <div class="flex flex-col gap-2">
-            <div class="flex items-center justify-between gap-3">
-              <span class="text-14-medium text-text-strong">Artificial Analysis API key</span>
-              <Show when={aaKeyConfigured()}>
-                <span class="text-12-medium text-text-weak">API key configured</span>
-              </Show>
-            </div>
-            <div class="flex flex-wrap items-center gap-2">
-              <TextField
-                type="password"
-                value={aaKey()}
-                onChange={setAAKey}
-                placeholder={aaKeyConfigured() ? "Enter a key to replace the current setting" : "Paste your API key"}
-                spellcheck={false}
-                autocorrect="off"
-                autocomplete="new-password"
-                autocapitalize="off"
-                class="flex-1 min-w-[240px]"
-              />
-              <Button size="large" onClick={() => void saveAAKey()} disabled={!aaKey().trim() || savingAAKey()}>
-                {savingAAKey() ? "Saving..." : aaKeyConfigured() ? "Replace key" : "Save key"}
-              </Button>
-              <Show when={aaKeyConfigured()}>
-                <Button size="large" variant="ghost" onClick={() => void removeAAKey()}>
-                  Remove
-                </Button>
-              </Show>
-            </div>
-            <p class="text-12-regular text-text-weak">
-              A key entered here is encrypted on the server. The browser only receives a configured flag, never the key
-              itself.
+            <p class="text-12-regular text-text-weak leading-5">
+              The Artificial Analysis key is optional. Without matching measurements, Composer will only use local
+              catalog-based estimates when the acknowledgement above is enabled.
             </p>
-            <div class="flex flex-col gap-2 pt-2">
-              <span class="text-13-medium text-text-strong">Fallback environment variable</span>
+            <div class="flex flex-col gap-3 py-4 border-b border-border-weak-base">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <span class="text-14-medium text-text-strong">Artificial Analysis API key</span>
+                <Show when={aaKeyConfigured()}>
+                  <span class="text-12-medium text-text-weak">API key configured</span>
+                </Show>
+              </div>
               <div class="flex flex-wrap items-center gap-2">
                 <TextField
-                  type="text"
-                  value={aaKeyEnv()}
-                  onChange={setAAKeyEnv}
-                  placeholder="ARTIFICIAL_ANALYSIS_API_KEY"
+                  type="password"
+                  value={aaKey()}
+                  onChange={setAAKey}
+                  placeholder={aaKeyConfigured() ? "Enter a key to replace the current setting" : "Paste your API key"}
                   spellcheck={false}
                   autocorrect="off"
-                  autocomplete="off"
+                  autocomplete="new-password"
                   autocapitalize="off"
                   class="flex-1 min-w-[240px]"
                 />
-                <Button
-                  size="large"
-                  variant="ghost"
-                  onClick={() =>
-                    updateComposer({
-                      artificial_analysis_api_key_env: aaKeyEnv().trim() || "ARTIFICIAL_ANALYSIS_API_KEY",
-                    })
-                  }
-                >
-                  Apply environment variable
+                <Button size="large" onClick={() => void saveAAKey()} disabled={!aaKey().trim() || savingAAKey()}>
+                  {savingAAKey() ? "Saving..." : aaKeyConfigured() ? "Replace key" : "Save key"}
                 </Button>
+                <Show when={aaKeyConfigured()}>
+                  <Button size="large" variant="ghost" onClick={() => void removeAAKey()}>
+                    Remove
+                  </Button>
+                </Show>
               </div>
+              <p class="text-12-regular text-text-weak leading-5">
+                A key entered here is encrypted on the server. The browser only receives a configured flag, never the
+                key itself.
+              </p>
+              <div class="flex flex-col gap-2 pt-2">
+                <span class="text-14-medium text-text-strong">Fallback environment variable</span>
+                <div class="flex flex-wrap items-center gap-2">
+                  <TextField
+                    type="text"
+                    value={aaKeyEnv()}
+                    onChange={setAAKeyEnv}
+                    placeholder="ARTIFICIAL_ANALYSIS_API_KEY"
+                    spellcheck={false}
+                    autocorrect="off"
+                    autocomplete="off"
+                    autocapitalize="off"
+                    class="flex-1 min-w-[240px]"
+                  />
+                  <Button
+                    size="large"
+                    variant="ghost"
+                    onClick={() =>
+                      updateComposer({
+                        artificial_analysis_api_key_env: aaKeyEnv().trim() || "ARTIFICIAL_ANALYSIS_API_KEY",
+                      })
+                    }
+                  >
+                    Apply environment variable
+                  </Button>
+                </div>
+              </div>
+              <p class="text-12-regular text-text-weak leading-5">
+                Optional environment-variable fallback. The encrypted Settings key takes precedence over this variable.
+              </p>
             </div>
-            <p class="text-12-regular text-text-weak">
-              Optional environment-variable fallback. The encrypted Settings key takes precedence over this variable.
-            </p>
-          </div>
+          </SettingsList>
         </section>
         <Show
           when={!list.grouped.loading}
@@ -316,7 +314,7 @@ const SettingsModelsContent: Component = () => {
                         const key = { providerID: item.provider.id, modelID: item.id }
                         return (
                           <div class="flex flex-wrap items-center justify-between gap-4 py-3 border-b border-border-weak-base last:border-none">
-                            <div class="min-w-0">
+                            <div class="min-w-0 flex-1">
                               <span class="text-14-regular text-text-strong truncate block">{item.name}</span>
                             </div>
                             <div class="flex-shrink-0">

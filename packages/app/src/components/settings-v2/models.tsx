@@ -190,7 +190,7 @@ export const SettingsModelsV2: Component = () => {
                   : "Optional. Add a key to use independent model-quality and performance measurements."
               }
             >
-              <div class="flex flex-col gap-2 min-w-[250px]">
+              <div class="flex w-full min-w-0 flex-col gap-2 sm:w-[280px]">
                 <TextInputV2
                   type="password"
                   appearance="base"
@@ -219,7 +219,7 @@ export const SettingsModelsV2: Component = () => {
               title="Fallback environment variable"
               description="Used only when no encrypted Settings key is stored. The encrypted key takes precedence."
             >
-              <div class="flex flex-col gap-2 min-w-[250px]">
+              <div class="flex w-full min-w-0 flex-col gap-2 sm:w-[280px]">
                 <TextInputV2
                   type="text"
                   appearance="base"

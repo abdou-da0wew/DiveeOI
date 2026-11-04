@@ -261,3 +261,12 @@ Built `packages/learning` skeleton, settings schema, download/state-machine, sto
 - Stopped the stale effect-mode exercise process after it remained active for about 16 minutes while logging the missing effect/process/ChildProcessSpawner service error. No passing effect-mode result is claimed.
 - Corrected the Composer browser QA document: full typecheck and production build were subsequently run successfully on the VDS; the earlier Colab-only statement was stale.
 - git diff --check and the DB migration check completed successfully. No commit, push, cleanup, database restore, or production migration was performed.
+
+## 2026-11-04 — Settings UI polish (V1/V2)
+
+- Replaced the generic Targeted Learning book navigation glyph with a dedicated graduation-cap icon in both settings dialogs.
+- Scoped the V2 Models compact typography styles to provider model rows so they no longer crush DiveeComposer descriptions. Improved the Composer row copy line-height, font size, control spacing, and field sizing. Grouped the V1 Composer controls into a single settings card and aligned its typography and padding with the other settings sections.
+- Wrapped V2 Targeted Learning in the standard tab header/body/section layout used by Features and LLM. Brought shared Targeted Learning headings, help text, status rows, and form labels up to the common settings typography scale in V1/V2.
+- Verified the V1 and V2 Models/Targeted Learning tabs in an isolated Vite + backend browser session; checked V2 at 543×580 with no horizontal overflow and confirmed 12px/17.4px Composer description typography. Added screenshots and a detailed QA record at `docs/qa/SETTINGS_UI_2026-11-04.md`.
+- Verification: app/UI typecheck 2/2 packages; app tests 429 pass; UI tests 68 pass; app Vite build pass; lint error-only scan pass; `git diff --check` pass.
+- Used only a temporary backend with fresh XDG directories and disposable Basic auth. No production data, credentials, API keys, or service restart were used. No commit or push.

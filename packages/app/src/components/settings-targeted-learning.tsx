@@ -12,7 +12,7 @@
 
 import { Component, For, Show, createResource, createSignal, Suspense } from "solid-js"
 import { Button } from "@diveeoi/ui/button"
-import { useLanguage } from "@/context/language"
+import { formatSetupStepLabel, TargetedLearningStatusBadge } from "./targeted-learning-status"
 import { useServerSDK } from "@/context/server-sdk"
 import { SettingsList } from "./settings-list"
 import { TargetedLearningLibrary } from "./targeted-learning-library"
@@ -41,6 +41,33 @@ interface Health {
   manifestLoaded: boolean
 }
 
+const healthStatus = (available: boolean, setupStatus: string) => {
+  if (available) return "complete" as const
+  if (setupStatus === "not-started" || setupStatus === "in-progress") return "pending" as const
+  return "failed" as const
+}
+
+const healthLabel = (available: boolean, setupStatus: string, ready: string, unavailable: string) => {
+  if (available) return ready
+  if (setupStatus === "not-started" || setupStatus === "in-progress") return "Pending"
+  return unavailable
+}
+
+const setupBadgeStatus = (status?: SetupStatus["status"]) => {
+  if (status === "ready") return "complete" as const
+  if (status === "in-progress") return "running" as const
+  if (status === "needs-repair" || status === "unreachable") return "failed" as const
+  return "pending" as const
+}
+
+const setupBadgeLabel = (status?: SetupStatus["status"]) => {
+  if (!status) return "Checking"
+  if (status === "ready") return "Ready"
+  if (status === "in-progress") return "Running"
+  if (status === "needs-repair") return "Needs repair"
+  if (status === "unreachable") return "Offline"
+  return "Not set up"
+}
 
 const useTlApi = () => {
   const serverSDK = useServerSDK()
@@ -59,29 +86,29 @@ const useTlApi = () => {
       }
     },
     start: async (force = false): Promise<SetupStatus> => {
-  try {
-      const resp = await authFetch(`${base()}/targeted-learning/setup/start`, {
-        method: "POST",
-        headers: headers(),
-        body: JSON.stringify({ force }),
-      })
-      if (!resp.ok) throw new Error(`setup start: ${resp.status}`)
-      return resp.json()
-  } catch {
-    return { status: "unreachable", steps: [] }
-  }
+      try {
+        const resp = await authFetch(`${base()}/targeted-learning/setup/start`, {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({ force }),
+        })
+        if (!resp.ok) throw new Error(`setup start: ${resp.status}`)
+        return resp.json()
+      } catch {
+        return { status: "unreachable", steps: [] }
+      }
     },
     repair: async (): Promise<SetupStatus> => {
-  try {
-      const resp = await authFetch(`${base()}/targeted-learning/setup/repair`, {
-        method: "POST",
-        headers: headers(),
-      })
-      if (!resp.ok) throw new Error(`setup repair: ${resp.status}`)
-      return resp.json()
-  } catch {
-    return { status: "unreachable", steps: [] }
-  }
+      try {
+        const resp = await authFetch(`${base()}/targeted-learning/setup/repair`, {
+          method: "POST",
+          headers: headers(),
+        })
+        if (!resp.ok) throw new Error(`setup repair: ${resp.status}`)
+        return resp.json()
+      } catch {
+        return { status: "unreachable", steps: [] }
+      }
     },
     getHealth: async (): Promise<Health> => {
       try {
@@ -101,7 +128,6 @@ const useTlApi = () => {
 }
 
 export const SettingsTargetedLearning: Component = () => {
-  const language = useLanguage()
   const api = useTlApi()
   const [status, { refetch }] = createResource<SetupStatus>(api.getStatus)
   const [health] = createResource<Health>(api.getHealth)
@@ -146,40 +172,46 @@ export const SettingsTargetedLearning: Component = () => {
           <SettingsList>
             {/* Backend unreachable notice */}
             <Show when={status()?.status === "unreachable"}>
-              <div class="flex items-center justify-between gap-4 py-3 border-b border-[var(--surface-stronger-non-alpha)]">
+              <div class="flex items-center justify-between gap-4 py-4 border-b border-border-weak-base">
                 <div class="flex flex-col gap-1">
-                  <span class="text-13-medium text-text-strong">Backend unreachable</span>
-                  <span class="text-11-regular text-text-weak">
+                  <span class="text-14-medium text-text-strong">Backend unreachable</span>
+                  <span class="text-12-regular text-text-weak">
                     The DiveeOI server could not be reached, so the Targeted Learning state is unknown.
                   </span>
                 </div>
-                <span class="text-11-medium text-[var(--warning-fg)]">Offline</span>
+                <TargetedLearningStatusBadge status="failed" label="Offline" />
               </div>
             </Show>
 
             {/* Setup */}
-            <div class="flex items-center justify-between gap-4 py-3 border-b border-[var(--surface-stronger-non-alpha)]">
+            <div class="flex items-center justify-between gap-4 py-4 border-b border-border-weak-base">
               <div class="flex flex-col gap-1">
-                <span class="text-13-medium text-text-strong">Setup</span>
-                <span class="text-11-regular text-text-weak">Run once to download the model and verify it works.</span>
+                <span class="text-14-medium text-text-strong">Setup</span>
+                <span class="text-12-regular text-text-weak">Run once to download the model and verify it works.</span>
               </div>
               <Show
                 when={isReady()}
                 fallback={
-                  <Button size="small" onClick={start} disabled={starting()}>
-                    {starting() ? "Starting…" : "Start Setup"}
-                  </Button>
+                  <div class="flex items-center gap-2">
+                    <TargetedLearningStatusBadge
+                      status={setupBadgeStatus(status()?.status)}
+                      label={setupBadgeLabel(status()?.status)}
+                    />
+                    <Button size="small" onClick={start} disabled={starting()}>
+                      {starting() ? "Starting…" : "Start Setup"}
+                    </Button>
+                  </div>
                 }
               >
-                <span class="text-11-medium text-[var(--success-fg)]">Ready</span>
+                <TargetedLearningStatusBadge status="complete" label="Ready" />
               </Show>
             </div>
 
             <Show when={needsRepair()}>
-              <div class="flex items-center justify-between gap-4 py-3 border-b border-[var(--surface-stronger-non-alpha)]">
+              <div class="flex items-center justify-between gap-4 py-4 border-b border-border-weak-base">
                 <div class="flex flex-col gap-1">
-                  <span class="text-13-medium text-text-strong">Repair</span>
-                  <span class="text-11-regular text-text-weak">Setup state is marked needs-repair.</span>
+                  <span class="text-14-medium text-text-strong">Repair</span>
+                  <span class="text-12-regular text-text-weak">Setup state is marked needs-repair.</span>
                 </div>
                 <Button size="small" variant="ghost" onClick={repair} disabled={starting()}>
                   Repair
@@ -189,18 +221,25 @@ export const SettingsTargetedLearning: Component = () => {
 
             {/* Setup steps */}
             <Show when={status()?.steps.length}>
-              <div class="py-3 border-b border-[var(--surface-stronger-non-alpha)]">
-                <div class="text-11-medium text-text-weak mb-2">Setup steps</div>
-                <div class="flex flex-col gap-1">
+              <div class="py-4 border-b border-border-weak-base">
+                <div class="text-14-medium text-text-strong mb-3">Setup steps</div>
+                <div class="tl-status-list">
                   <For each={status()!.steps}>
                     {(step) => (
-                      <div class="flex items-center gap-2 text-11-regular">
-                        <span class="text-text-strong">{step.name}</span>
-                        <span class={`text-text-weak step-status-${step.status}`}>{step.status}</span>
-                        <Show when={step.attempts > 1}>
-                          <span class="text-text-weak">×{step.attempts}</span>
+                      <>
+                        <div class="tl-status-row">
+                          <span class="tl-status-row-label">{formatSetupStepLabel(step.name)}</span>
+                          <div class="tl-status-row-meta">
+                            <TargetedLearningStatusBadge status={step.status} />
+                            <Show when={step.attempts > 1}>
+                              <span class="text-11-regular text-text-weak">×{step.attempts}</span>
+                            </Show>
+                          </div>
+                        </div>
+                        <Show when={step.status === "failed" && step.lastError}>
+                          <div class="tl-status-row-detail">{step.lastError}</div>
                         </Show>
-                      </div>
+                      </>
                     )}
                   </For>
                 </div>
@@ -210,26 +249,34 @@ export const SettingsTargetedLearning: Component = () => {
             {/* Health */}
             <Show when={health()}>
               {(h) => (
-                <div class="py-3 border-b border-[var(--surface-stronger-non-alpha)]">
-                  <div class="text-11-medium text-text-weak mb-2">Health</div>
-                  <div class="grid grid-cols-3 gap-2 text-11-regular">
-                    <div>
-                      <div class="text-text-weak">books.db</div>
-                      <div class={h().booksDbAvailable ? "text-[var(--success-fg)]" : "text-[var(--warning-fg)]"}>
-                        {h().booksDbAvailable ? "available" : "unavailable"}
-                      </div>
+                <div class="py-4 border-b border-border-weak-base">
+                  <div class="text-14-medium text-text-strong mb-3">Health</div>
+                  <div class="tl-status-health">
+                    <div class="tl-status-health-item">
+                      <span class="tl-status-health-label">books.db</span>
+                      <TargetedLearningStatusBadge
+                        status={healthStatus(h().booksDbAvailable, h().setupStatus)}
+                        label={healthLabel(
+                          h().booksDbAvailable,
+                          h().setupStatus,
+                          "Available",
+                          h().booksDbReason ?? "Unavailable",
+                        )}
+                      />
                     </div>
-                    <div>
-                      <div class="text-text-weak">manifest</div>
-                      <div class={h().manifestLoaded ? "text-[var(--success-fg)]" : "text-[var(--warning-fg)]"}>
-                        {h().manifestLoaded ? "loaded" : "missing"}
-                      </div>
+                    <div class="tl-status-health-item">
+                      <span class="tl-status-health-label">manifest</span>
+                      <TargetedLearningStatusBadge
+                        status={healthStatus(h().manifestLoaded, h().setupStatus)}
+                        label={healthLabel(h().manifestLoaded, h().setupStatus, "Loaded", "Missing")}
+                      />
                     </div>
-                    <div>
-                      <div class="text-text-weak">model</div>
-                      <div class={h().modelReady ? "text-[var(--success-fg)]" : "text-[var(--warning-fg)]"}>
-                        {h().modelReady ? "ready" : "not ready"}
-                      </div>
+                    <div class="tl-status-health-item">
+                      <span class="tl-status-health-label">model</span>
+                      <TargetedLearningStatusBadge
+                        status={healthStatus(h().modelReady, h().setupStatus)}
+                        label={healthLabel(h().modelReady, h().setupStatus, "Ready", "Not ready")}
+                      />
                     </div>
                   </div>
                 </div>
@@ -243,7 +290,6 @@ export const SettingsTargetedLearning: Component = () => {
           </SettingsList>
         </Suspense>
       </div>
-      <div class="text-11-regular text-text-weak pt-4">{language.t("app.name.desktop")}</div>
     </div>
   )
 }

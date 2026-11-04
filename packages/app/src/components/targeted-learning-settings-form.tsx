@@ -5,8 +5,12 @@
 // and v2 settings layouts. Edits are saved per field (PATCH, merged per section on the server).
 
 import { Component, For, Show, createResource, createSignal } from "solid-js"
+import { Button } from "@diveeoi/ui/button"
+import { Icon, type IconProps } from "@diveeoi/ui/icon"
+import { ButtonV2 } from "@diveeoi/ui/v2/button-v2"
 import { useServerSDK } from "@/context/server-sdk"
 import { authFetch } from "@/utils/auth-client"
+import "./targeted-learning.css"
 
 type Json = Record<string, any>
 
@@ -32,7 +36,21 @@ const APPLIES: Record<string, string> = {
   restart: "restart DiveeOI to apply",
 }
 
-export const TargetedLearningSettingsForm: Component<{ ready: boolean }> = (props) => {
+const GROUP_ICONS: Record<string, IconProps["name"]> = {
+  download: "download",
+  embedding: "brain",
+  chunking: "checklist",
+  indexing: "folder",
+  ocr: "photo",
+  retrieval: "magnifying-glass",
+  gate: "shield",
+  grounding: "check",
+  memory: "brain",
+  language: "bullet-list",
+  summaries: "book",
+}
+
+export const TargetedLearningSettingsForm: Component<{ ready: boolean; v2?: boolean }> = (props) => {
   const serverSDK = useServerSDK()
   const base = () => `${serverSDK().url}/targeted-learning`
   const headers = { "content-type": "application/json" }
@@ -55,6 +73,7 @@ export const TargetedLearningSettingsForm: Component<{ ready: boolean }> = (prop
     return true
   })
   const [status, setStatus] = createSignal("")
+  const [applyingPreset, setApplyingPreset] = createSignal<"low" | "balanced" | "high" | null>(null)
 
   const save = async (group: string | null, key: string, value: unknown, prop: Json) => {
     if (prop["x-danger"] && !window.confirm(`"${prop["x-label"] ?? key}" is a risky setting. Change it anyway?`)) return
@@ -71,17 +90,22 @@ export const TargetedLearningSettingsForm: Component<{ ready: boolean }> = (prop
   }
 
   const applyPreset = async (name: "low" | "balanced" | "high") => {
+    if (applyingPreset()) return
+    setApplyingPreset(name)
     try {
       const presets = await (await authFetch(`${base()}/settings/presets`, { headers })).json()
       const preset = presets[name] ?? {}
       const merged: Json = {}
-      for (const [group, section] of Object.entries<Json>(preset)) merged[group] = { ...(values()[group] ?? {}), ...section }
+      for (const [group, section] of Object.entries<Json>(preset))
+        merged[group] = { ...(values()[group] ?? {}), ...section }
       const r = await authFetch(`${base()}/settings`, { method: "PATCH", headers, body: JSON.stringify(merged) })
       if (!r.ok) throw new Error(`rejected (${r.status})`)
       setValues((await r.json()).values ?? values())
       setStatus(`Applied the ${name} preset.`)
     } catch (err) {
       setStatus(`Preset not applied: ${err instanceof Error ? err.message : "error"}`)
+    } finally {
+      setApplyingPreset(null)
     }
   }
 
@@ -93,13 +117,13 @@ export const TargetedLearningSettingsForm: Component<{ ready: boolean }> = (prop
     return (
       <div class="flex items-start justify-between gap-4 py-2">
         <div class="flex flex-col gap-0.5 min-w-0">
-          <span class="text-12-medium text-text-strong">
+          <span class="text-14-medium text-text-strong">
             {label()}
             <Show when={p.prop["x-danger"]}>
               <span class="ml-1 text-[var(--warning-fg)]">⚠</span>
             </Show>
           </span>
-          <span class="text-11-regular text-text-weak">
+          <span class="text-12-regular text-text-weak">
             {p.prop["x-help"] ?? p.prop.description}
             {p.prop["x-unit"] ? ` (${p.prop["x-unit"]})` : ""} · {APPLIES[p.prop["x-applies"] ?? "live"] ?? ""}
           </span>
@@ -115,7 +139,7 @@ export const TargetedLearningSettingsForm: Component<{ ready: boolean }> = (prop
           </Show>
           <Show when={Array.isArray(p.prop.enum)}>
             <select
-              class="text-12-regular bg-transparent border border-[var(--surface-stronger-non-alpha)] rounded px-2 py-1"
+              class="text-12-regular bg-transparent border border-border-weak-base rounded px-2 py-1"
               disabled={disabled()}
               value={String(current() ?? "")}
               onChange={(e) => void save(p.group, p.name, e.currentTarget.value, p.prop)}
@@ -126,7 +150,7 @@ export const TargetedLearningSettingsForm: Component<{ ready: boolean }> = (prop
           <Show when={p.prop.type === "number" && !Array.isArray(p.prop.enum)}>
             <input
               type="number"
-              class="w-24 text-12-regular bg-transparent border border-[var(--surface-stronger-non-alpha)] rounded px-2 py-1"
+              class="w-24 text-12-regular bg-transparent border border-border-weak-base rounded px-2 py-1"
               disabled={disabled()}
               min={p.prop["x-min"]}
               max={p.prop["x-max"]}
@@ -148,7 +172,7 @@ export const TargetedLearningSettingsForm: Component<{ ready: boolean }> = (prop
           <Show when={p.prop.type === "string" && !Array.isArray(p.prop.enum)}>
             <input
               type="text"
-              class="w-48 text-12-regular bg-transparent border border-[var(--surface-stronger-non-alpha)] rounded px-2 py-1"
+              class="w-48 text-12-regular bg-transparent border border-border-weak-base rounded px-2 py-1"
               disabled={disabled()}
               value={String(current() ?? "")}
               onChange={(e) => void save(p.group, p.name, e.currentTarget.value, p.prop)}
@@ -156,7 +180,7 @@ export const TargetedLearningSettingsForm: Component<{ ready: boolean }> = (prop
           </Show>
           <Show when={p.prop.type === "object"}>
             <textarea
-              class="w-64 h-16 text-11-regular font-mono bg-transparent border border-[var(--surface-stronger-non-alpha)] rounded px-2 py-1"
+              class="w-64 h-16 text-12-regular font-mono bg-transparent border border-border-weak-base rounded px-2 py-1"
               disabled={disabled()}
               value={draft() ?? JSON.stringify(current() ?? {}, null, 1)}
               onInput={(e) => setDraft(e.currentTarget.value)}
@@ -182,14 +206,28 @@ export const TargetedLearningSettingsForm: Component<{ ready: boolean }> = (prop
     const basic = () => entries().filter(([, f]) => !f["x-advanced"])
     const advanced = () => entries().filter(([, f]) => f["x-advanced"])
     return (
-      <details class="border-b border-[var(--surface-stronger-non-alpha)] py-2">
-        <summary class="cursor-pointer text-13-medium text-text-strong py-1">{GROUP_TITLES[p.group] ?? p.group}</summary>
-        <div class="flex flex-col pl-2">
+      <details class="tl-settings-disclosure-details">
+        <summary class="tl-settings-disclosure">
+          <span class="tl-settings-disclosure-icon">
+            <Icon name={GROUP_ICONS[p.group] ?? "bullet-list"} size="small" />
+          </span>
+          <span>{GROUP_TITLES[p.group] ?? p.group}</span>
+          <Icon name="chevron-right" size="small" class="tl-settings-disclosure-chevron" />
+        </summary>
+        <div class="tl-settings-disclosure-content">
           <For each={basic()}>{([name, prop]) => <Field group={p.group} name={name} prop={prop} />}</For>
           <Show when={advanced().length > 0}>
-            <details class="mt-1">
-              <summary class="cursor-pointer text-11-regular text-text-weak py-1">Advanced</summary>
-              <For each={advanced()}>{([name, prop]) => <Field group={p.group} name={name} prop={prop} />}</For>
+            <details class="tl-settings-advanced">
+              <summary class="tl-settings-disclosure">
+                <span class="tl-settings-disclosure-icon">
+                  <Icon name="sliders" size="small" />
+                </span>
+                <span>Advanced</span>
+                <Icon name="chevron-right" size="small" class="tl-settings-disclosure-chevron" />
+              </summary>
+              <div class="tl-settings-advanced-content">
+                <For each={advanced()}>{([name, prop]) => <Field group={p.group} name={name} prop={prop} />}</For>
+              </div>
             </details>
           </Show>
         </div>
@@ -203,37 +241,56 @@ export const TargetedLearningSettingsForm: Component<{ ready: boolean }> = (prop
     Object.entries<Json>(schema()?.properties ?? {}).filter(([, def]) => def.type !== "object" && def["x-label"])
 
   return (
-    <div class="flex flex-col gap-1 py-3 border-b border-[var(--surface-stronger-non-alpha)]">
-      <div class="flex items-center justify-between gap-4">
-        <span class="text-13-medium text-text-strong">Settings</span>
-        <div class="flex items-center gap-2">
-          <span class="text-11-regular text-text-weak">Preset</span>
+    <div class="flex flex-col gap-3 py-4 border-b border-border-weak-base">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <span class="text-14-medium text-text-strong">Settings</span>
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-12-regular text-text-weak">Preset</span>
           <For each={["low", "balanced", "high"] as const}>
-            {(name) => (
-              <button
-                class="text-11-regular px-2 py-1 rounded border border-[var(--surface-stronger-non-alpha)]"
-                classList={{ "opacity-50 pointer-events-none": !props.ready }}
-                disabled={!props.ready}
-                onClick={() => void applyPreset(name)}
-              >
-                {name}
-              </button>
-            )}
+            {(name) =>
+              props.v2 ? (
+                <ButtonV2
+                  size="small"
+                  variant="neutral"
+                  class="tl-settings-preset-button"
+                  disabled={!props.ready || !!applyingPreset()}
+                  onClick={() => void applyPreset(name)}
+                >
+                  {applyingPreset() === name ? "Applying…" : name[0].toUpperCase() + name.slice(1)}
+                </ButtonV2>
+              ) : (
+                <Button
+                  size="small"
+                  variant="secondary"
+                  class="tl-settings-preset-button"
+                  disabled={!props.ready || !!applyingPreset()}
+                  onClick={() => void applyPreset(name)}
+                >
+                  {applyingPreset() === name ? "Applying…" : name[0].toUpperCase() + name.slice(1)}
+                </Button>
+              )
+            }
           </For>
         </div>
       </div>
       <Show when={!props.ready}>
-        <div class="text-11-regular text-text-weak">Run Setup first to enable these settings.</div>
+        <div class="text-12-regular text-text-weak">Run Setup first to enable these settings.</div>
       </Show>
       <Show when={status()}>
-        <div class="text-11-regular text-text-weak">{status()}</div>
+        <div class="text-12-regular text-text-weak">{status()}</div>
       </Show>
-      <Show when={loaded() && schema()} fallback={<div class="text-11-regular text-text-weak">Loading settings…</div>}>
+      <Show when={loaded() && schema()} fallback={<div class="text-12-regular text-text-weak">Loading settings…</div>}>
         <div class="flex flex-col">
           <Show when={topLevel().length > 0}>
-            <details class="border-b border-[var(--surface-stronger-non-alpha)] py-2">
-              <summary class="cursor-pointer text-13-medium text-text-strong py-1">General</summary>
-              <div class="flex flex-col pl-2">
+            <details class="tl-settings-disclosure-details">
+              <summary class="tl-settings-disclosure">
+                <span class="tl-settings-disclosure-icon">
+                  <Icon name="settings-gear" size="small" />
+                </span>
+                <span>General</span>
+                <Icon name="chevron-right" size="small" class="tl-settings-disclosure-chevron" />
+              </summary>
+              <div class="tl-settings-disclosure-content">
                 <For each={topLevel()}>{([name, prop]) => <Field group={null} name={name} prop={prop} />}</For>
               </div>
             </details>

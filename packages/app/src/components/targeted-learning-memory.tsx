@@ -35,14 +35,14 @@ export const TargetedLearningMemory: Component<{ ready: boolean }> = (props) => 
   const empty = () => (memory()?.student.length ?? 0) === 0 && (memory()?.notes.length ?? 0) === 0
 
   return (
-    <div class="flex flex-col gap-2 py-3 border-b border-[var(--surface-stronger-non-alpha)]">
-      <span class="text-13-medium text-text-strong">Student memory</span>
-      <span class="text-11-regular text-text-weak">
-        What the tutor remembers about how you learn, and findings it saved about your books. Loaded automatically in every
-        targeted session.
+    <div class="flex flex-col gap-2 py-4 border-b border-border-weak-base">
+      <span class="text-14-medium text-text-strong">Student memory</span>
+      <span class="text-12-regular text-text-weak">
+        What the tutor remembers about how you learn, and findings it saved about your books. Loaded automatically in
+        every targeted session.
       </span>
       <Show when={props.ready && empty()}>
-        <span class="text-11-regular text-text-weak">Nothing saved yet. It fills up as you study.</span>
+        <span class="text-12-regular text-text-weak">Nothing saved yet. It fills up as you study.</span>
       </Show>
       <For each={memory()?.student ?? []}>
         {(m) => (
@@ -51,8 +51,15 @@ export const TargetedLearningMemory: Component<{ ready: boolean }> = (props) => 
               <span class="text-text-weak">[{m.kind}] </span>
               {m.text}
             </span>
-            <span class="flex items-center gap-3 shrink-0 text-11-regular text-text-weak">
-              <button onClick={() => void act(`/memory/student/${m.id}/pin`, { method: "POST", body: JSON.stringify({ pinned: !m.pinned }) })}>
+            <span class="flex items-center gap-3 shrink-0 text-12-regular text-text-weak">
+              <button
+                onClick={() =>
+                  void act(`/memory/student/${m.id}/pin`, {
+                    method: "POST",
+                    body: JSON.stringify({ pinned: !m.pinned }),
+                  })
+                }
+              >
                 {m.pinned ? "Unpin" : "Pin"}
               </button>
               <button onClick={() => void act(`/memory/student/${m.id}`, { method: "DELETE" })}>Delete</button>
@@ -70,7 +77,10 @@ export const TargetedLearningMemory: Component<{ ready: boolean }> = (props) => 
               </span>
               {n.text}
             </span>
-            <button class="shrink-0 text-11-regular text-text-weak" onClick={() => void act(`/memory/notes/${n.id}`, { method: "DELETE" })}>
+            <button
+              class="shrink-0 text-12-regular text-text-weak"
+              onClick={() => void act(`/memory/notes/${n.id}`, { method: "DELETE" })}
+            >
               Delete
             </button>
           </div>

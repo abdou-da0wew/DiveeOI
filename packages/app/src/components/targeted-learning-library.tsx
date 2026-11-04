@@ -88,7 +88,9 @@ export const TargetedLearningLibrary: Component<{ ready: boolean }> = (props) =>
       })
       if (!resp.ok) throw new Error(`upload failed (${resp.status})`)
       const result = await resp.json()
-      setMessage(result.duplicate ? "That book is already in the library." : "Indexing started. This can take a few minutes.")
+      setMessage(
+        result.duplicate ? "That book is already in the library." : "Indexing started. This can take a few minutes.",
+      )
       await refetch()
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Upload failed.")
@@ -104,18 +106,18 @@ export const TargetedLearningLibrary: Component<{ ready: boolean }> = (props) =>
   }
 
   return (
-    <div class="flex flex-col gap-3 py-3 border-b border-[var(--surface-stronger-non-alpha)]">
+    <div class="flex flex-col gap-3 py-4 border-b border-border-weak-base">
       <div class="flex items-center justify-between gap-4">
         <div class="flex flex-col gap-1">
-          <span class="text-13-medium text-text-strong">Library</span>
-          <span class="text-11-regular text-text-weak">
+          <span class="text-14-medium text-text-strong">Library</span>
+          <span class="text-12-regular text-text-weak">
             {props.ready
               ? "Add PDF, DOCX or TXT books. Mention one in chat with @book:name to start a targeted session."
               : "Run Setup first to enable book uploads."}
           </span>
         </div>
         <label
-          class="text-12-medium px-3 py-1.5 rounded-md border border-[var(--surface-stronger-non-alpha)]"
+          class="text-12-medium px-3 py-1.5 rounded-md border border-border-weak-base"
           classList={{ "opacity-50 pointer-events-none": !props.ready || busy(), "cursor-pointer": props.ready }}
         >
           {busy() ? "Uploading…" : "Add book"}
@@ -132,7 +134,7 @@ export const TargetedLearningLibrary: Component<{ ready: boolean }> = (props) =>
         </label>
       </div>
       <Show when={message()}>
-        <div class="text-11-regular text-text-weak">{message()}</div>
+        <div class="text-12-regular text-text-weak">{message()}</div>
       </Show>
       <Show when={props.ready && (books() ?? []).length > 0}>
         <div class="flex flex-col gap-2">
@@ -141,19 +143,19 @@ export const TargetedLearningLibrary: Component<{ ready: boolean }> = (props) =>
               <div class="flex items-center justify-between gap-4 text-12-regular">
                 <div class="flex flex-col min-w-0">
                   <span class="text-text-strong truncate">{book.title}</span>
-                  <span class="text-11-regular text-text-weak truncate">
+                  <span class="text-12-regular text-text-weak truncate">
                     @book:{book.slug}
                     {book.lang ? ` · ${book.lang}` : ""}
                     {book.pages ? ` · ${book.pages} pages` : ""}
                     {book.status === "ready" ? ` · ${book.chunkCount} passages` : ""}
                   </span>
                   <Show when={book.status === "failed" && book.error}>
-                    <span class="text-11-regular text-[var(--warning-fg)]">{book.error}</span>
+                    <span class="text-12-regular text-[var(--warning-fg)]">{book.error}</span>
                   </Show>
                 </div>
                 <div class="flex items-center gap-3 shrink-0">
                   <span
-                    class="text-11-regular"
+                    class="text-12-regular"
                     classList={{
                       "text-[var(--success-fg)]": book.status === "ready",
                       "text-[var(--warning-fg)]": book.status === "failed",
@@ -166,7 +168,7 @@ export const TargetedLearningLibrary: Component<{ ready: boolean }> = (props) =>
                   </span>
                   <Show when={book.jobId && (book.jobStatus === "running" || book.jobStatus === "queued")}>
                     <button
-                      class="text-11-regular text-text-weak hover:text-text-strong disabled:opacity-50"
+                      class="text-12-regular text-text-weak hover:text-text-strong disabled:opacity-50"
                       disabled={busyJob() === book.jobId}
                       onClick={() => void controlJob(book, "pause")}
                     >
@@ -175,7 +177,7 @@ export const TargetedLearningLibrary: Component<{ ready: boolean }> = (props) =>
                   </Show>
                   <Show when={book.jobId && book.jobStatus === "paused"}>
                     <button
-                      class="text-11-regular text-text-weak hover:text-text-strong disabled:opacity-50"
+                      class="text-12-regular text-text-weak hover:text-text-strong disabled:opacity-50"
                       disabled={busyJob() === book.jobId}
                       onClick={() => void controlJob(book, "resume")}
                     >
@@ -184,7 +186,7 @@ export const TargetedLearningLibrary: Component<{ ready: boolean }> = (props) =>
                   </Show>
                   <Show when={book.jobId && (book.jobStatus === "failed" || book.jobStatus === "cancelled")}>
                     <button
-                      class="text-11-regular text-text-weak hover:text-text-strong disabled:opacity-50"
+                      class="text-12-regular text-text-weak hover:text-text-strong disabled:opacity-50"
                       disabled={busyJob() === book.jobId}
                       onClick={() => void controlJob(book, "retry")}
                     >
@@ -193,14 +195,17 @@ export const TargetedLearningLibrary: Component<{ ready: boolean }> = (props) =>
                   </Show>
                   <Show when={book.jobId && ["queued", "running", "paused"].includes(book.jobStatus ?? "")}>
                     <button
-                      class="text-11-regular text-text-weak hover:text-[var(--warning-fg)] disabled:opacity-50"
+                      class="text-12-regular text-text-weak hover:text-[var(--warning-fg)] disabled:opacity-50"
                       disabled={busyJob() === book.jobId}
                       onClick={() => void controlJob(book, "cancel")}
                     >
                       Cancel
                     </button>
                   </Show>
-                  <button class="text-11-regular text-text-weak hover:text-text-strong" onClick={() => void remove(book)}>
+                  <button
+                    class="text-12-regular text-text-weak hover:text-text-strong"
+                    onClick={() => void remove(book)}
+                  >
                     Delete
                   </button>
                 </div>
