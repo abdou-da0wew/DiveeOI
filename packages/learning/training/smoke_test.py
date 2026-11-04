@@ -80,16 +80,34 @@ def check_training_and_export() -> None:
         target = Path(directory) / "model.onnx"
         export_onnx(model, str(target))
         assert target.exists() and target.stat().st_size > 1024, "onnx export failed"
+        check_onnx_io_names(target)
         try:
             from onnxruntime.quantization import QuantType, quantize_dynamic
 
             quantized = Path(directory) / "model_int8.onnx"
             quantize_dynamic(str(target), str(quantized), weight_type=QuantType.QInt8)
+            check_onnx_io_names(quantized)
             print(f"quantized: {quantized.stat().st_size // 1024} KiB")
         except ImportError:
             print("onnxruntime is not installed: skipping int8 quantization")
         print(f"onnx export: ok ({target.stat().st_size // 1024} KiB fp32)")
     print("training + export: ok")
+
+
+def check_onnx_io_names(path: Path) -> None:
+    """The runtime contract (query-encoder.ts + transformers.js): inputs input_ids/attention_mask,
+    output last_hidden_state with dynamic batch/sequence axes."""
+    try:
+        import onnx
+    except ImportError:
+        print("onnx is not installed: skipping I/O name check")
+        return
+    graph = onnx.load(str(path)).graph
+    inputs = [value.name for value in graph.input]
+    outputs = [value.name for value in graph.output]
+    assert inputs == ["input_ids", "attention_mask"], f"wrong ONNX inputs: {inputs}"
+    assert outputs == ["last_hidden_state"], f"wrong ONNX outputs: {outputs}"
+    print(f"onnx io names: ok ({inputs} -> {outputs})")
 
 
 def main() -> int:

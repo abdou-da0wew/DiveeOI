@@ -24,6 +24,7 @@ import numpy as np
 import metrics as M
 from divee_student import MAX_LEN, QueryStudent, StudentConfig, build_vocab_map
 from teacher import encode_base64
+from train import split_rows
 
 # Deliberately unrelated to any textbook: used to calibrate "does the gate refuse?" thresholds.
 OFF_TOPIC_PROBES = [
@@ -33,6 +34,8 @@ OFF_TOPIC_PROBES = [
     "من فاز بكأس العالم 2018",
     "ما هي أفضل وصفة للكشري",
     "كم سعر تذكرة القطار من القاهرة إلى أسوان",
+    "qui a gagné la coupe du monde 2018",
+    "quelle est la meilleure recette de gâteau au chocolat",
 ]
 
 
@@ -48,6 +51,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--eval-candidates", type=int, default=20000)
     parser.add_argument("--device", default=None)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument(
+        "--eval-split",
+        choices=["val", "all"],
+        default="val",
+        help="val = only the held-out rows from training (default, honest gates); all = every row",
+    )
+    parser.add_argument(
+        "--val-fraction",
+        type=float,
+        default=0.1,
+        help="must match train.py --val-fraction so the same rows are held out",
+    )
+    parser.add_argument(
+        "--split-seed",
+        type=int,
+        default=13,
+        help="must match train.py --seed so the same rows are held out",
+    )
     return parser.parse_args(argv)
 
 
@@ -101,13 +122,38 @@ def main(argv: list[str] | None = None) -> int:
     passage_matrix = passages["vectors"].astype(np.float32)
     index_of = {cid: position for position, cid in enumerate(passage_ids)}
 
-    texts = [row["query"] for row in rows]
+    # ---------------------------------------------------------------- split
+    # The promotion gates must be measured on rows the student never trained on
+    # (RETRIEVAL_V2_PLAN.md §7). train.py holds out rows via split_rows(seed, val_fraction);
+    # reproducing that call with the same seed and fraction replays the exact split.
+    if args.eval_split == "val":
+        import random
+
+        _, val_rows = split_rows(rows, passage_ids, args.val_fraction, random.Random(args.split_seed))
+        if not val_rows:
+            print("warning: held-out split is empty; evaluating on all rows", file=sys.stderr)
+            selected_rows = rows
+            split_note = "all (held-out split empty)"
+        else:
+            selected_rows = [rows[i] for i in val_rows]
+            split_note = f"val ({len(val_rows)} of {len(rows)} rows)"
+    else:
+        selected_rows = rows
+        split_note = "all (requested)"
+    print(f"evaluating on {split_note}", flush=True)
+
+    texts = [row["query"] for row in selected_rows]
     student_vectors = encode_queries(model, tokenizer, texts, device)
-    teacher_vectors = queries["vectors"].astype(np.float32)
+    all_teacher_vectors = queries["vectors"].astype(np.float32)
+    if args.eval_split == "val" and len(selected_rows) != len(rows):
+        # Align the teacher targets with the held-out rows (dataset.jsonl order == queries.npz order).
+        teacher_vectors = all_teacher_vectors[np.array(val_rows, dtype=np.int64)]
+    else:
+        teacher_vectors = all_teacher_vectors
 
     # ---- candidate set: judged chunks plus a random sample of the library
     judged: set[str] = set()
-    for row in rows:
+    for row in selected_rows:
         judged.update(row["positives"])
         judged.update(row.get("negatives", []))
     rng = np.random.default_rng(args.seed)
@@ -121,16 +167,16 @@ def main(argv: list[str] | None = None) -> int:
         scores = vectors @ matrix.T
         return [M.rank_from_scores(row, candidate_ids, k=10) for row in scores]
 
-    relevant = [set(row["positives"]) for row in rows]
+    relevant = [set(row["positives"]) for row in selected_rows]
     student_ranked, teacher_ranked = rankings(student_vectors), rankings(teacher_vectors)
 
     by_tag: dict[str, dict] = {}
-    for tag in sorted({row["tag"] for row in rows}):
-        selection = [index for index, row in enumerate(rows) if row["tag"] == tag]
+    for tag in sorted({row["tag"] for row in selected_rows}):
+        selection = [index for index, row in enumerate(selected_rows) if row["tag"] == tag]
         by_tag[tag] = M.ranking_metrics([student_ranked[i] for i in selection], [relevant[i] for i in selection])
     by_lang_pair: dict[str, dict] = {}
-    for pair in sorted({row.get("lang_pair", "") for row in rows} - {""}):
-        selection = [index for index, row in enumerate(rows) if row.get("lang_pair") == pair]
+    for pair in sorted({row.get("lang_pair", "") for row in selected_rows} - {""}):
+        selection = [index for index, row in enumerate(selected_rows) if row.get("lang_pair") == pair]
         by_lang_pair[pair] = M.ranking_metrics([student_ranked[i] for i in selection], [relevant[i] for i in selection])
 
     student_overall = M.ranking_metrics(student_ranked, relevant)
@@ -143,7 +189,8 @@ def main(argv: list[str] | None = None) -> int:
 
     report = {
         "teacher_repo": args.teacher,
-        "queries": len(rows),
+        "queries": len(selected_rows),
+        "eval_split": split_note,
         "student": {"overall": student_overall, "by_tag": by_tag, "by_lang_pair": by_lang_pair},
         "teacher": {"overall": teacher_overall},
         "ratio": M.ratios(student_overall, teacher_overall),
@@ -168,7 +215,7 @@ def main(argv: list[str] | None = None) -> int:
         for name, vectors in (("teacher", teacher_vectors), ("student", student_vectors)):
             path = bench_dir / f"bench-{name}.jsonl"
             with open(path, "w", encoding="utf-8") as handle:
-                for row, vector in zip(rows, vectors):
+                for row, vector in zip(selected_rows, vectors):
                     handle.write(
                         json.dumps(
                             {

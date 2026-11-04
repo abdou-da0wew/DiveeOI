@@ -58,7 +58,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--val-fraction", type=float, default=0.1)
     parser.add_argument("--eval-candidates", type=int, default=20000)
     parser.add_argument("--device", default=None)
-    parser.add_argument("--bf16", action="store_true", help="mixed precision on CUDA")
+    parser.add_argument("--precision", choices=["fp32", "fp16", "bf16"], default="fp32", help="autocast dtype on CUDA (T4: fp16; A100/L4: bf16)")
+    parser.add_argument("--bf16", action="store_true", help="deprecated alias for --precision bf16")
+    parser.add_argument("--num-threads", type=int, default=0, help="torch CPU threads (0 = default)")
     parser.add_argument("--seed", type=int, default=13)
     parser.add_argument("--limit-queries", type=int, default=0)
     return parser.parse_args(argv)
@@ -207,11 +209,16 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     import torch
 
+    if args.num_threads > 0:
+        torch.set_num_threads(args.num_threads)
     torch.manual_seed(args.seed)
     random.seed(args.seed)
     rng_np = np.random.default_rng(args.seed)
     rng_py = random.Random(args.seed)
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
+    if args.precision != "fp32" and device.type != "cuda":
+        print(f"note: --precision {args.precision} needs CUDA; running in fp32 on {device.type}", flush=True)
+    precision = "bf16" if args.bf16 else args.precision
 
     data = load_dataset(Path(args.data))
     tokenizer = data["AutoTokenizer"].from_pretrained(args.teacher)
@@ -257,7 +264,10 @@ def main(argv: list[str] | None = None) -> int:
 
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
     passage_index = {cid: position for position, cid in enumerate(passage_ids)}
-    amp_enabled = bool(args.bf16 and device.type == "cuda")
+    amp_dtype = {"fp16": torch.float16, "bf16": torch.bfloat16}.get(precision)
+    amp_enabled = bool(amp_dtype is not None and device.type == "cuda")
+    scaler = torch.amp.GradScaler("cuda", enabled=bool(amp_enabled and precision == "fp16"))
+    print(f"device: {device} precision: {precision if amp_enabled else 'fp32'}", flush=True)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
@@ -290,7 +300,7 @@ def main(argv: list[str] | None = None) -> int:
             positive_ids = torch.tensor([passage_index[rows[index]["positives"][0]] for index in batch_indexes], dtype=torch.int64, device=device)
             candidate_codes = torch.tensor(candidate_rows, dtype=torch.int64, device=device)
 
-            with torch.autocast(device_type=device.type, enabled=amp_enabled):
+            with torch.autocast(device_type=device.type, enabled=amp_enabled, dtype=amp_dtype or torch.float32):
                 student_q = model.embed(input_ids, attention)
                 loss, parts = distill_loss(
                     student_q,
@@ -305,9 +315,16 @@ def main(argv: list[str] | None = None) -> int:
                     w_kl=args.w_kl,
                 )
             optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(trainable, 1.0)
-            optimizer.step()
+            if scaler.is_enabled():
+                scaler.scale(loss).backward()
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(trainable, 1.0)
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(trainable, 1.0)
+                optimizer.step()
             scheduler.step()
             step += 1
             running["loss"] += float(loss)

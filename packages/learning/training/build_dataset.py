@@ -34,6 +34,8 @@ import numpy as np
 from teacher import PASSAGE_MAX_LENGTH, QUERY_MAX_LENGTH, decode_base64, encode_base64
 
 ARABIC_RE = re.compile(r"[\u0600-\u06FF]")
+FRENCH_ACCENTS_RE = re.compile(r"[àâçéèêëîïôùûüÿœæÀÂÇÉÈÊËÎÏÔÙÛÜŸŒÆ]")
+FRENCH_MARKS = (" qu'", " d'", " l'", " c'est", " n'est", " avec ", " pour ", " dans ", " une ", " des ", " les ", " est ", " sont ")
 NUMBERING_RE = re.compile(r"^\s*(?:[0-9]+(?:\.[0-9]+)*[.)]?|[-–•*])\s*")
 
 
@@ -42,6 +44,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--db", required=True, help="finished books.db (opened read-only)")
     parser.add_argument("--out", required=True, help="output directory")
     parser.add_argument("--queries", help="optional JSONL of real queries")
+    parser.add_argument(
+        "--queries-mode",
+        choices=["replace", "augment"],
+        default="replace",
+        help="replace = only the given queries; augment = real queries + synthesized ones (recommended)",
+    )
     parser.add_argument("--teacher", default="BAAI/bge-m3")
     parser.add_argument("--device", default=None, help="cuda / cpu (default: auto)")
     parser.add_argument("--max-passages", type=int, default=0, help="0 = all (sampled for vocab/negatives)")
@@ -129,8 +137,13 @@ def last_heading(heading: str) -> str:
 def language_of(text: str, fallback: str = "") -> str:
     if ARABIC_RE.search(text):
         return "ar"
-    if fallback in {"ar", "en"} and not re.search(r"[A-Za-z]", text) and fallback == "ar":
+    lowered = f" {text.lower()} "
+    if FRENCH_ACCENTS_RE.search(text) or any(mark in lowered for mark in FRENCH_MARKS):
+        return "fr"
+    if fallback == "ar" and not re.search(r"[A-Za-z]", text):
         return "ar"
+    if fallback in {"en", "fr"} and not ARABIC_RE.search(text):
+        return fallback
     return "en"
 
 
@@ -158,6 +171,9 @@ def synthesize(passage: dict, per_passage: int, rng: random.Random) -> list[dict
         if language == "ar":
             candidates.append((f"ما هو {phrase}؟", "question"))
             candidates.append((f"اشرح {phrase}", "explain"))
+        elif language == "fr":
+            candidates.append((f"Qu'est-ce que {phrase} ?", "question"))
+            candidates.append((f"Explique {phrase}", "explain"))
         else:
             candidates.append((f"What is {phrase}?", "question"))
             candidates.append((f"Explain {phrase}", "explain"))
@@ -268,12 +284,13 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     # ---------------------------------------------------------------- queries
+    known = set(passage_ids)
+    rows = []
     if args.queries:
         rows = load_real_queries(args.queries)
-        known = set(passage_ids)
         rows = [row for row in rows if any(cid in known for cid in row["positives"])]
-    else:
-        rows = []
+        dropped_real = 0
+    if args.queries is None or args.queries_mode == "augment":
         for passage in passages:
             for item in synthesize(passage, args.queries_per_passage, rng_py):
                 rows.append({**item, "positives": [passage["id"]]})
@@ -284,7 +301,7 @@ def main(argv: list[str] | None = None) -> int:
     book_lang = {passage["id"]: passage["book_lang"] for passage in passages}
     for row in rows:
         target = book_lang.get(row["positives"][0], "")
-        if target in {"ar", "en"} and row["lang"] in {"ar", "en"}:
+        if target in {"ar", "en", "fr"} and row["lang"] in {"ar", "en", "fr"}:
             row["lang_pair"] = f"{row['lang']}->{target}"
 
     # ---------------------------------------------------------------- teacher

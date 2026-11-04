@@ -72,9 +72,12 @@ class QueryStudent(nn.Module):
         x = self.encoder(x, src_key_padding_mask=(attention_mask == 0))
         return self.proj(self.norm_out(x))
 
-    @torch.no_grad()
     def embed(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
-        """CLS pooling + L2 normalisation: the exact post-processing transformers.js applies."""
+        """CLS pooling + L2 normalisation: the exact post-processing transformers.js applies.
+
+        No `@torch.no_grad()` here: the training loop backpropagates through this method.
+        Inference callers wrap it in `torch.no_grad()` themselves (train.py/eval.py do).
+        """
         return F.normalize(self.forward(input_ids, attention_mask)[:, 0], dim=-1)
 
 
@@ -113,7 +116,7 @@ def distill_loss(
         reduction="batchmean",
     )
     loss = w_cos * cosine + w_nce * nce + w_kl * kl
-    return loss, {"cos": float(cosine), "nce": float(nce), "kl": float(kl)}
+    return loss, {"cos": float(cosine.detach()), "nce": float(nce.detach()), "kl": float(kl.detach())}
 
 
 def build_vocab_map(kept_ids: list[int], original_vocab: int) -> torch.Tensor:

@@ -6,3 +6,6 @@ transformers>=4.44
 numpy>=1.26
 onnx>=1.16
 onnxruntime>=1.18
+# Fast-tokenizer fallbacks / XLM-R conversion paths on Colab:
+sentencepiece>=0.2
+protobuf>=4.25
