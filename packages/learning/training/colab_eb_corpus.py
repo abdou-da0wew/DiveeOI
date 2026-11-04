@@ -297,29 +297,64 @@ def extract_book(pdf_path: Path, book: dict, args: argparse.Namespace) -> dict:
     return {**book, "status": "ok", "pages": len(filtered), "chars": total_chars, "chunks": chunks}
 
 
+def head_content_length(url: str) -> int | None:
+    import socket
+
+    try:
+        request = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "diveeoi-training/1.0"})
+        with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310 - fixed https host
+            length = response.headers.get("Content-Length")
+            return int(length) if length else None
+    except Exception:  # noqa: BLE001 - size is only an optimisation
+        return None
+
+
+def fetch_to(url: str, target: Path) -> None:
+    """Stream with a real socket timeout (urlretrieve hangs forever on a dead connection)."""
+    request = urllib.request.Request(url, headers={"User-Agent": "diveeoi-training/1.0"})
+    partial = target.with_suffix(target.suffix + ".part")
+    with urllib.request.urlopen(request, timeout=90) as response, open(partial, "wb") as out:  # noqa: S310
+        while True:
+            chunk = response.read(1 << 20)
+            if not chunk:
+                break
+            out.write(chunk)
+        out.flush()
+    partial.replace(target)  # atomic: only complete downloads become the target
+
+
 def download_stage(args: argparse.Namespace) -> None:
     out = Path(args.pdf_dir)
     out.mkdir(parents=True, exist_ok=True)
     for item in PDF_PATHS:
         book = parse_book(item)
         target = out / item.split("/")[-1]
-        if target.exists() and target.stat().st_size > 100_000 and target.read_bytes()[:5] == b"%PDF-":
+        expected = head_content_length(f"{BASE}/{item}")
+        complete = target.exists() and target.read_bytes()[:5] == b"%PDF-"
+        if complete and expected and target.stat().st_size != expected:
+            complete = False
+        if complete and target.stat().st_size > 100_000:
             print(f"skip (cached): {target.name}", flush=True)
             continue
         url = f"{BASE}/{item}"
-        for attempt in (1, 2, 3):
+        for attempt in (1, 2, 3, 4):
             try:
                 started = time.time()
-                urllib.request.urlretrieve(url, target)  # noqa: S310 - fixed https host
-                magic = target.read_bytes()[:5]
+                fetch_to(url, target)
                 size = target.stat().st_size
+                magic = target.read_bytes()[:5]
                 if magic != b"%PDF-" or size < 100_000:
                     raise RuntimeError(f"bad payload magic={magic!r} size={size}")
+                if expected and size != expected:
+                    raise RuntimeError(f"truncated: {size} != expected {expected}")
+                target.with_suffix(target.suffix + ".part").unlink(missing_ok=True)
                 print(f"downloaded {target.name}: {size / 1e6:.1f} MB in {time.time() - started:.0f}s", flush=True)
                 break
             except Exception as error:  # noqa: BLE001
+                target.with_suffix(target.suffix + ".part").unlink(missing_ok=True)
+                target.unlink(missing_ok=True)
                 print(f"attempt {attempt} failed for {book['slug']}: {error}", flush=True)
-                if attempt == 3:
+                if attempt == 4:
                     raise
                 time.sleep(3 * attempt)
 
