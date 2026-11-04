@@ -241,8 +241,13 @@ def page_paragraphs(raw: str, min_chars: int, max_chars: int) -> list[str]:
 MAX_PAGE_TEXT_CHARS = 300_000  # pathological pages (huge vector graphics) must not blow up RAM
 
 
-def _extract_worker(pdf_path_str: str, book: dict, args_dict: dict, queue) -> None:  # type: ignore[no-untyped-def]
-    """Runs in a child process: a memory-bomb PDF gets RLIMIT-capped and killed, not the runtime."""
+def _extract_worker(pdf_path_str: str, book: dict, args_dict: dict, result_path: str) -> None:  # type: ignore[no-untyped-def]
+    """Runs in a child process: a memory-bomb PDF gets RLIMIT-capped and killed, not the runtime.
+
+    The result goes to a temp FILE, not a multiprocessing.Queue — a terminated worker can
+    deadlock the parent on the queue's feeder lock, files cannot.
+    """
+    import json as _json
     import resource
 
     limit = int(args_dict.get("worker_mem_gb", 4)) * 1024**3
@@ -252,30 +257,35 @@ def _extract_worker(pdf_path_str: str, book: dict, args_dict: dict, queue) -> No
         pass
     namespace = argparse.Namespace(**args_dict)
     try:
-        queue.put(("ok", extract_book(Path(pdf_path_str), book, namespace)))
+        payload = {"state": "ok", "result": extract_book(Path(pdf_path_str), book, namespace)}
     except BaseException as error:  # noqa: BLE001 - reported to the parent either way
-        queue.put(("error", f"{type(error).__name__}: {error}"))
+        payload = {"state": "error", "error": f"{type(error).__name__}: {error}"}
+    with open(result_path, "w", encoding="utf-8") as handle:
+        _json.dump(payload, handle, ensure_ascii=False)
 
 
 def extract_book_isolated(pdf_path: Path, book: dict, args: argparse.Namespace) -> dict:
     """Extract one book in a bounded child process; failures degrade to an error book (OCR later)."""
     import multiprocessing as mp
+    import tempfile
 
-    queue: mp.Queue = mp.Queue()
-    worker = mp.Process(target=_extract_worker, args=(str(pdf_path), book, vars(args), queue))
-    worker.start()
-    worker.join(args.book_timeout)
-    if worker.is_alive():
-        worker.terminate()
-        worker.join(10)
-        return {**book, "status": "error", "error": f"extraction timeout after {args.book_timeout}s", "chunks": []}
+    result_path = tempfile.mktemp(prefix=f"eb_extract_{book['slug']}-", suffix=".json")
     try:
-        state, payload = queue.get_nowait()
-    except Exception:  # noqa: BLE001 - worker died without a message (OOM kill, segfault)
-        return {**book, "status": "error", "error": "extract worker died (memory limit or crash)", "chunks": []}
-    if state == "error":
-        return {**book, "status": "error", "error": str(payload)[:300], "chunks": []}
-    return payload
+        worker = mp.Process(target=_extract_worker, args=(str(pdf_path), book, vars(args), result_path))
+        worker.start()
+        worker.join(args.book_timeout)
+        if worker.is_alive():
+            worker.terminate()
+            worker.join(10)
+            return {**book, "status": "error", "error": f"extraction timeout after {args.book_timeout}s", "chunks": []}
+        if not Path(result_path).exists():
+            return {**book, "status": "error", "error": "extract worker died (memory limit or crash)", "chunks": []}
+        payload = json.loads(Path(result_path).read_text(encoding="utf-8"))
+        if payload.get("state") != "ok":
+            return {**book, "status": "error", "error": str(payload.get("error", "unknown"))[:300], "chunks": []}
+        return payload["result"]
+    finally:
+        Path(result_path).unlink(missing_ok=True)
 
 
 def extract_book(pdf_path: Path, book: dict, args: argparse.Namespace) -> dict:
@@ -442,9 +452,11 @@ def extract_stage(args: argparse.Namespace) -> list[dict]:
     for item in PDF_PATHS:
         book = parse_book(item)
         cached = done_meta.get(book["slug"])
-        if cached and cached.get("status") == "ok" and cached.get("chunk_count", 0) > 0:
+        healthy = cached and cached.get("status") == "ok" and cached.get("chunk_count", 0) > 0
+        if healthy or (cached and cached.get("defer") == "ocr"):
+            # defer=ocr books are re-tried only by the OCR stage, never by text extraction again
             results.append(cached)
-            print(f"skip (extracted): {book['slug']}", flush=True)
+            print(f"skip ({'extracted' if healthy else 'deferred to ocr'}): {book['slug']}", flush=True)
             continue
         pdf_path = Path(args.pdf_dir) / item.split("/")[-1]
         if not pdf_path.exists():
