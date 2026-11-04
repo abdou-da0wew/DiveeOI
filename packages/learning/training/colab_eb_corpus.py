@@ -107,6 +107,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--queries-per-book", type=int, default=8)
     parser.add_argument("--cross-lingual-per-pair", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--book-timeout", type=int, default=300, help="per-book extraction timeout in seconds (worker process is killed past it)")
+    parser.add_argument("--worker-mem-gb", type=int, default=4, help="RLIMIT_AS for the extraction worker process")
     parser.add_argument("--device", default=None)
     parser.add_argument("--seed", type=int, default=13)
     return parser.parse_args()
@@ -176,12 +178,16 @@ def clean_text(text: str) -> str:
     return text.strip()
 
 
-def repeated_lines(pages: list[list[str]], min_pages: int = 6, threshold: float = 0.3) -> set[str]:
-    """Header/footer lines: short identical lines on >= threshold of pages."""
+def repeated_lines(edge_lines: list[list[str]], min_pages: int = 6, threshold: float = 0.3) -> set[str]:
+    """Header/footer lines: short identical lines on >= threshold of sampled pages.
+
+    `edge_lines` holds only the first/last couple of lines per page, so this pass stays cheap.
+    """
     counts: dict[str, int] = {}
-    sample = pages[:: max(1, len(pages) // 80)]
+    step = max(1, len(edge_lines) // 120)
+    sample = edge_lines[::step]
     for lines in sample:
-        for line in {ln.strip().lower() for ln in (lines[:2] + lines[-2:]) if ln.strip()}:
+        for line in {ln.strip().lower() for ln in lines if ln.strip()}:
             if len(line) <= 70:
                 counts[line] = counts.get(line, 0) + 1
     n = max(1, len(sample))
@@ -232,46 +238,95 @@ def page_paragraphs(raw: str, min_chars: int, max_chars: int) -> list[str]:
     return [p for p in merged if len(p) >= min_chars // 2]
 
 
+MAX_PAGE_TEXT_CHARS = 300_000  # pathological pages (huge vector graphics) must not blow up RAM
+
+
+def _extract_worker(pdf_path_str: str, book: dict, args_dict: dict, queue) -> None:  # type: ignore[no-untyped-def]
+    """Runs in a child process: a memory-bomb PDF gets RLIMIT-capped and killed, not the runtime."""
+    import resource
+
+    limit = int(args_dict.get("worker_mem_gb", 4)) * 1024**3
+    try:
+        resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+    except Exception:  # noqa: BLE001 - rlimit is a safety net, not a requirement
+        pass
+    namespace = argparse.Namespace(**args_dict)
+    try:
+        queue.put(("ok", extract_book(Path(pdf_path_str), book, namespace)))
+    except BaseException as error:  # noqa: BLE001 - reported to the parent either way
+        queue.put(("error", f"{type(error).__name__}: {error}"))
+
+
+def extract_book_isolated(pdf_path: Path, book: dict, args: argparse.Namespace) -> dict:
+    """Extract one book in a bounded child process; failures degrade to an error book (OCR later)."""
+    import multiprocessing as mp
+
+    queue: mp.Queue = mp.Queue()
+    worker = mp.Process(target=_extract_worker, args=(str(pdf_path), book, vars(args), queue))
+    worker.start()
+    worker.join(args.book_timeout)
+    if worker.is_alive():
+        worker.terminate()
+        worker.join(10)
+        return {**book, "status": "error", "error": f"extraction timeout after {args.book_timeout}s", "chunks": []}
+    try:
+        state, payload = queue.get_nowait()
+    except Exception:  # noqa: BLE001 - worker died without a message (OOM kill, segfault)
+        return {**book, "status": "error", "error": "extract worker died (memory limit or crash)", "chunks": []}
+    if state == "error":
+        return {**book, "status": "error", "error": str(payload)[:300], "chunks": []}
+    return payload
+
+
 def extract_book(pdf_path: Path, book: dict, args: argparse.Namespace) -> dict:
     try:  # PyMuPDF >= 1.24 prefers the `pymupdf` name; older wheels ship `fitz`
         import pymupdf as fitz
     except ImportError:  # pragma: no cover
         import fitz
 
-    doc = fitz.open(pdf_path)
-    page_texts: list[list[str]] = []
-    for page in doc:
-        page_texts.append([ln.strip() for ln in clean_text(page.get_text("text")).splitlines()])
-    doc.close()
-    if not page_texts:
-        return {**book, "status": "error", "error": "no pages", "pages": 0, "chunks": []}
+    def page_lines(page) -> tuple[list[str], int]:
+        try:
+            raw = clean_text(page.get_text("text"))
+        except Exception:  # noqa: BLE001 - a broken page must not kill the book
+            return [], 0
+        if len(raw) > MAX_PAGE_TEXT_CHARS:
+            raw = raw[:MAX_PAGE_TEXT_CHARS]
+        chars = len(raw.replace(" ", "").replace("\n", ""))
+        return [ln.strip() for ln in raw.splitlines()], chars
 
-    drop = repeated_lines(page_texts)
-    filtered: list[list[str]] = []
-    for lines in page_texts:
+    # pass 1: edge lines only (headers/footers) — keeps memory bounded on graphics-heavy books
+    doc = fitz.open(pdf_path)
+    edge_lines: list[list[str]] = []
+    for page in doc:
+        lines, _ = page_lines(page)
+        edge_lines.append(lines[:2] + lines[-2:])
+    doc.close()
+    drop = repeated_lines(edge_lines)
+
+    # pass 2: per-page chunking, one page in memory at a time
+    doc = fitz.open(pdf_path)
+    pages: list[dict] = []
+    total_chars = 0
+    for number, page in enumerate(doc, start=1):
+        lines, chars = page_lines(page)
+        total_chars += chars
         kept, seen_local = [], set()
         for line in lines:
             key = line.strip().lower()
-            if key in drop or key in seen_local:
+            if not line or key in drop or key in seen_local:
                 continue
             seen_local.add(key)
             kept.append(line)
-        filtered.append(kept)
-
-    # per-page: heading guess (first short line) + paragraph chunks
-    pages: list[dict] = []
-    total_chars = 0
-    for number, lines in enumerate(filtered, start=1):
-        text = "\n".join(lines)
-        total_chars += len(text.replace(" ", ""))
         heading = ""
-        if lines and 3 <= len(lines[0]) <= 90 and not re.search(r"[.!?]$", lines[0]) and len(lines[0].split()) <= 12:
-            heading = lines[0]
-        paras = page_paragraphs(text, args.min_chars, args.max_chars)
+        if kept and 3 <= len(kept[0]) <= 90 and not re.search(r"[.!?]", kept[0]) and len(kept[0].split()) <= 12:
+            heading = kept[0]
+        paras = page_paragraphs("\n".join(kept), args.min_chars, args.max_chars)
         if paras:
             pages.append({"number": number, "heading": heading, "paras": paras})
+        del lines, kept
+    doc.close()
     if total_chars < 1500:
-        return {**book, "status": "error", "error": f"text layer too small ({total_chars} chars)", "pages": len(filtered), "chunks": []}
+        return {**book, "status": "error", "error": f"text layer too small ({total_chars} chars)", "pages": len(edge_lines), "chunks": []}
 
     chunks: list[dict] = []
     for page in pages:
@@ -282,19 +337,18 @@ def extract_book(pdf_path: Path, book: dict, args: argparse.Namespace) -> dict:
             else:
                 packed.append(para)
         for position, text in enumerate(packed):
-            heading = page["heading"] or book["title"]
             chunks.append(
                 {
                     "chunk_id": f"{book['slug']}-p{page['number']}-c{position}",
                     "page": page["number"],
-                    "heading": heading,
+                    "heading": page["heading"] or book["title"],
                     "text": text,
                 }
             )
     if len(chunks) > args.max_chunks_per_book:
         step = len(chunks) / args.max_chunks_per_book
         chunks = [chunks[int(i * step)] for i in range(args.max_chunks_per_book)]
-    return {**book, "status": "ok", "pages": len(filtered), "chars": total_chars, "chunks": chunks}
+    return {**book, "status": "ok", "pages": len(edge_lines), "chars": total_chars, "chunks": chunks}
 
 
 def head_content_length(url: str) -> int | None:
@@ -360,47 +414,63 @@ def download_stage(args: argparse.Namespace) -> None:
 
 
 def extract_stage(args: argparse.Namespace) -> list[dict]:
+    """Extract every PDF, persisting per book: a crash loses at most the current book."""
+    corpus = Path(args.corpus)
+    corpus.mkdir(parents=True, exist_ok=True)
+    extract_path = corpus / "eb-extract.json"
+    done_meta: dict[str, dict] = {}
+    if extract_path.exists():
+        for meta in json.loads(extract_path.read_text(encoding="utf-8")):
+            done_meta[meta["slug"]] = meta
+    passages: dict[str, dict] = {}
+    passages_path = corpus / "eb-passages.jsonl"
+    if passages_path.exists():
+        for line in passages_path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                row = json.loads(line)
+                passages[row["chunk_id"]] = row
+
+    def persist() -> None:
+        extract_path.write_text(
+            json.dumps(list(done_meta.values()), indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        passages_path.write_text(
+            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in passages.values()), encoding="utf-8"
+        )
+
     results: list[dict] = []
     for item in PDF_PATHS:
         book = parse_book(item)
+        cached = done_meta.get(book["slug"])
+        if cached and cached.get("status") == "ok" and cached.get("chunk_count", 0) > 0:
+            results.append(cached)
+            print(f"skip (extracted): {book['slug']}", flush=True)
+            continue
         pdf_path = Path(args.pdf_dir) / item.split("/")[-1]
         if not pdf_path.exists():
             print(f"MISSING pdf for {book['slug']}", flush=True)
-            results.append({**book, "status": "error", "error": "pdf not downloaded", "chunks": []})
-            continue
-        result = extract_book(pdf_path, book, args)
-        results.append(result)
+            result = {**book, "status": "error", "error": "pdf not downloaded", "chunks": []}
+        else:
+            result = extract_book_isolated(pdf_path, book, args)
+        done_meta[book["slug"]] = {k: v for k, v in result.items() if k != "chunks"} | {"chunk_count": len(result.get("chunks", []))}
+        for chunk in result.get("chunks", []):
+            passages[chunk["chunk_id"]] = {
+                "chunk_id": chunk["chunk_id"],
+                "book_slug": result["slug"],
+                "book_title": result["title"],
+                "lang": result["lang"],
+                "subject": result["subject"],
+                "page": chunk["page"],
+                "heading": chunk["heading"],
+                "text": chunk["text"],
+            }
+        persist()  # after every book: a crash never loses finished work
+        results.append({**done_meta[book["slug"]], "chunks": result.get("chunks", [])})
         print(
             f"{book['slug']}: status={result['status']} pages={result.get('pages', 0)} chunks={len(result.get('chunks', []))}",
             flush=True,
         )
-    Path(args.corpus).mkdir(parents=True, exist_ok=True)
-    payload = [
-        {k: v for k, v in result.items() if k != "chunks"} | {"chunk_count": len(result.get("chunks", []))}
-        for result in results
-    ]
-    (Path(args.corpus) / "eb-extract.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    passages_path = Path(args.corpus) / "eb-passages.jsonl"
-    with open(passages_path, "w", encoding="utf-8") as handle:
-        for result in results:
-            for chunk in result.get("chunks", []):
-                handle.write(
-                    json.dumps(
-                        {
-                            "chunk_id": chunk["chunk_id"],
-                            "book_slug": result["slug"],
-                            "book_title": result["title"],
-                            "lang": result["lang"],
-                            "subject": result["subject"],
-                            "page": chunk["page"],
-                            "heading": chunk["heading"],
-                            "text": chunk["text"],
-                        },
-                        ensure_ascii=False,
-                    )
-                    + "\n"
-                )
-    total = sum(len(r.get("chunks", [])) for r in results)
+    total = sum(meta.get("chunk_count", 0) for meta in done_meta.values())
     print(f"extracted passages: {total} -> {passages_path}", flush=True)
     return results
 
@@ -581,7 +651,7 @@ def ocr_stage(args: argparse.Namespace, results: list[dict]) -> list[dict]:
     """
     import subprocess as sp
 
-    failed = [r for r in results if r.get("status") != "ok" or not r.get("chunks")]
+    failed = [r for r in results if r.get("status") != "ok" or r.get("chunk_count", 0) == 0]
     if not failed:
         print("ocr: no books need OCR", flush=True)
         return results
@@ -603,7 +673,7 @@ def ocr_stage(args: argparse.Namespace, results: list[dict]) -> list[dict]:
 
     updated = list(results)
     for position, result in enumerate(updated):
-        if result.get("status") == "ok" and result.get("chunks"):
+        if result.get("status") == "ok" and result.get("chunk_count", 0) > 0:
             continue
         pdf_path = Path(args.pdf_dir) / (result.get("path", "").split("/")[-1] or "")
         if not pdf_path.exists():
@@ -712,16 +782,13 @@ def main() -> int:
         download_stage(args)
     if args.stage in ("extract", "all"):
         results = extract_stage(args)
-    if args.stage == "ocr":
-        results = ocr_stage(args, load_extract_results(args))
-        if results:
-            db_stage(args, results)
-        print(f"done in {time.time() - started:.0f}s", flush=True)
-        return 0
     if args.stage == "db":
         results = load_extract_results(args)
-    if args.stage in ("db", "all"):
-        db_stage(args, results)
+    if args.stage == "ocr" or (args.stage == "all" and any(r.get("status") != "ok" for r in results)):
+        source = results or load_extract_results(args)
+        results = ocr_stage(args, source)
+    if args.stage in ("db", "ocr", "all"):
+        db_stage(args, results or load_extract_results(args))
     print(f"done in {time.time() - started:.0f}s", flush=True)
     return 0
 
