@@ -52,6 +52,11 @@ const parseCommentMentions = (comment: string) => {
 const isFileAttachment = (part: Prompt[number]): part is FileAttachmentPart => part.type === "file"
 const isAgentAttachment = (part: Prompt[number]): part is AgentPart => part.type === "agent"
 
+// Targeted Learning: an `@book:` pill is a *mention*, not a file. The server only scans text
+// parts for @book: tokens (session/prompt.ts attachBookMentions), and a `file://…/@book:slug`
+// URL would point at a file that does not exist. They travel as synthetic text parts instead.
+const BOOK_MENTION_RE = /^@book:(?:"[^"]+"|'[^']+'|id:[a-zA-Z0-9_-]+|[a-zA-Z0-9_-]+)$/
+
 const toOptimisticPart = (part: PromptRequestPart, sessionID: string, messageID: string): Part => {
   if (part.type === "text") {
     return {
@@ -97,25 +102,42 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
     },
   ]
 
-  const files = input.prompt.filter(isFileAttachment).map((attachment) => {
-    const path = absolute(input.sessionDirectory, attachment.path)
-    return {
-      id: Identifier.ascending("part"),
-      type: "file",
-      mime: "text/plain",
-      url: `file://${encodeFilePath(path)}${fileQuery(attachment.selection)}`,
-      filename: getFilename(attachment.path),
-      source: {
+  // `@book:` pills become text mentions; everything else is a real file attachment.
+  const bookMentionParts = input.prompt
+    .filter(isFileAttachment)
+    .filter((attachment) => BOOK_MENTION_RE.test(attachment.path))
+    .map(
+      (attachment) =>
+        ({
+          id: Identifier.ascending("part"),
+          type: "text",
+          text: attachment.path,
+          synthetic: true,
+        }) satisfies PromptRequestPart,
+    )
+
+  const files = input.prompt
+    .filter(isFileAttachment)
+    .filter((attachment) => !BOOK_MENTION_RE.test(attachment.path))
+    .map((attachment) => {
+      const path = absolute(input.sessionDirectory, attachment.path)
+      return {
+        id: Identifier.ascending("part"),
         type: "file",
-        text: {
-          value: attachment.content,
-          start: attachment.start,
-          end: attachment.end,
+        mime: "text/plain",
+        url: `file://${encodeFilePath(path)}${fileQuery(attachment.selection)}`,
+        filename: getFilename(attachment.path),
+        source: {
+          type: "file",
+          text: {
+            value: attachment.content,
+            start: attachment.start,
+            end: attachment.end,
+          },
+          path,
         },
-        path,
-      },
-    } satisfies PromptRequestPart
-  })
+      } satisfies PromptRequestPart
+    })
 
   const agents = input.prompt.filter(isAgentAttachment).map((attachment) => {
     return {
@@ -192,7 +214,7 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
     } satisfies PromptRequestPart
   })
 
-  requestParts.push(...files, ...context, ...agents, ...images)
+  requestParts.push(...files, ...context, ...agents, ...bookMentionParts, ...images)
 
   return {
     requestParts,

@@ -33,8 +33,10 @@ export type ResolvedEncoder = "student" | "bge-m3" | "none"
 
 export const STUDENT_DIR_NAME = "divee-query-student"
 export const STUDENT_MANIFEST_FILE = "divee-student.json"
-export const STUDENT_ONNX_FILE = "model_int8.onnx"
 export const VECTOR_DIMS = 1024
+
+/** ONNX file name per manifest dtype (export.py writes model.onnx fp32 + model_int8.onnx). */
+export const studentOnnxFile = (dtype: string | undefined): string => (dtype === "fp32" ? "model.onnx" : "model_int8.onnx")
 
 export interface StudentManifest {
   format: 1
@@ -42,8 +44,10 @@ export interface StudentManifest {
   dims: number
   teacherRepo: string
   teacherRevision: string
-  dtype: "int8"
-  maxLength: number
+  /** Quantisation of the ONNX graph on disk; defaults to int8 for older manifests. */
+  dtype?: "int8" | "fp32"
+  /** Token window the student was trained with; longer queries are truncated to it. */
+  maxLength?: number
   /** True only after the evaluation gates passed; required for `auto`. */
   promoted: boolean
   /** Gate thresholds re-calibrated on student scores (cosine(student query, teacher passage) is lower than teacher-vs-teacher). */
@@ -83,9 +87,11 @@ export const studentStatus = (modelDir: string, teacher: { repo: string; revisio
   if (manifest.dims !== VECTOR_DIMS) return fail(`student emits ${String(manifest.dims)} dimensions, expected ${VECTOR_DIMS}`)
   if (manifest.teacherRepo !== teacher.repo || manifest.teacherRevision !== teacher.revision)
     return fail("student was distilled from a different teacher revision; its vectors are not compatible with the index")
-  if (!existsSync(path.join(dir, "onnx", STUDENT_ONNX_FILE))) return fail("student ONNX file is missing")
+  const dtype = manifest.dtype === "fp32" ? "fp32" : "int8"
+  if (!existsSync(path.join(dir, "onnx", studentOnnxFile(dtype))))
+    return fail(`student ONNX file is missing (expected onnx/${studentOnnxFile(dtype)} for dtype ${dtype})`)
   if (!existsSync(path.join(dir, "tokenizer.json"))) return fail("student tokenizer is missing")
-  return { available: true, manifest, dir }
+  return { available: true, manifest: { ...manifest, dtype }, dir }
 }
 
 /** Decide which encoder serves chat. No model is loaded here. */
@@ -139,11 +145,13 @@ type StudentPipeline = ((text: string, opts: { pooling: "cls"; normalize: true }
 let studentPipe: StudentPipeline | null = null
 let studentLoading: Promise<StudentPipeline> | null = null
 let studentDir: string | null = null
+let studentDtype: "int8" | "fp32" = "int8"
 
-const loadStudent = async (modelDir: string): Promise<StudentPipeline> => {
-  if (studentPipe && studentDir === modelDir) return studentPipe
-  if (studentLoading && studentDir === modelDir) return studentLoading
+const loadStudent = async (modelDir: string, dtype: "int8" | "fp32" = "int8", maxLength = 128): Promise<StudentPipeline> => {
+  if (studentPipe && studentDir === modelDir && studentDtype === dtype) return studentPipe
+  if (studentLoading && studentDir === modelDir && studentDtype === dtype) return studentLoading
   studentDir = modelDir
+  studentDtype = dtype
   studentLoading = (async () => {
     const transformers = await import("@huggingface/transformers")
     transformers.env.allowRemoteModels = false
@@ -152,9 +160,18 @@ const loadStudent = async (modelDir: string): Promise<StudentPipeline> => {
     // The student is tiny: two threads are plenty for a ~20-token query and keep chat latency predictable.
     const intraOpNumThreads = Math.max(1, Math.min(2, availableParallelism()))
     const pipe = (await transformers.pipeline("feature-extraction", STUDENT_DIR_NAME, {
-      dtype: "int8" as never,
+      dtype: dtype as never,
       session_options: { intraOpNumThreads, interOpNumThreads: 1, enableCpuMemArena: false, enableMemPattern: false } as never,
     })) as unknown as StudentPipeline
+    // The pipeline tokenizes with truncation at the tokenizer's model_max_length, which for the
+    // BGE-M3/XLM-R tokenizer is far above the 128-token window the student was trained with.
+    // Clamp it so long questions stay inside the trained contract.
+    try {
+      const tokenizer = (pipe as { tokenizer?: { model_max_length?: number } }).tokenizer
+      if (tokenizer) tokenizer.model_max_length = Math.max(8, Math.min(512, maxLength))
+    } catch {
+      // cosmetic-only guard: out-of-window queries degrade quality, they never crash
+    }
     studentPipe = pipe
     return pipe
   })().finally(() => {
@@ -168,11 +185,17 @@ export const unloadStudent = async () => {
   studentPipe = null
   studentLoading = null
   studentDir = null
+  studentDtype = "int8"
   await pipe?.dispose?.().catch(() => undefined)
 }
 
-export const embedWithStudent = async (modelDir: string, text: string): Promise<Float32Array> => {
-  const pipe = await loadStudent(modelDir)
+export const embedWithStudent = async (
+  modelDir: string,
+  text: string,
+  dtype: "int8" | "fp32" = "int8",
+  maxLength = 128,
+): Promise<Float32Array> => {
+  const pipe = await loadStudent(modelDir, dtype, maxLength)
   const out = await pipe(text, { pooling: "cls", normalize: true })
   if (out.data.length !== VECTOR_DIMS)
     throw new Error(`student produced ${out.data.length} dimensions, expected ${VECTOR_DIMS}`)
@@ -220,8 +243,11 @@ export const prepareQueryEncoder = async (userSettings?: Tree): Promise<Prepared
 
   if (resolution.encoder === "bge-m3") return useTeacher(resolution.reason)
 
+  const student = studentStatus(runtime.modelDir, runtime.manifest)
+  const studentDtype = student.manifest?.dtype === "fp32" ? "fp32" : "int8"
+  const studentMaxLength = Number(student.manifest?.maxLength ?? 128) || 128
   try {
-    await loadStudent(runtime.modelDir)
+    await loadStudent(runtime.modelDir, studentDtype, studentMaxLength)
   } catch (error) {
     return useTeacher(`student failed to load (${String(error).slice(0, 120)})`)
   }
@@ -232,7 +258,7 @@ export const prepareQueryEncoder = async (userSettings?: Tree): Promise<Prepared
     gate: resolution.gate,
     embed: async (query) => {
       try {
-        return await embedWithStudent(runtime.modelDir, query)
+        return await embedWithStudent(runtime.modelDir, query, studentDtype, studentMaxLength)
       } catch {
         return null
       }

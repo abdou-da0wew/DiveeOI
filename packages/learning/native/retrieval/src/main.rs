@@ -17,6 +17,7 @@ const SQLITE_DONE: c_int = 101;
 const OPEN_READONLY: c_int = 1;
 const OPEN_READWRITE: c_int = 2;
 const OPEN_NOMUTEX: c_int = 0x8000;
+const OPEN_CREATE: c_int = 0x4;
 const SQLITE_BLOB: c_int = 4;
 const SQLITE_TRANSIENT: *const c_void = -1_isize as *const c_void;
 
@@ -398,7 +399,7 @@ fn column_blob(stmt: *mut Sqlite3Stmt, column: c_int) -> Option<Vec<u8>> {
 }
 
 fn decode_blob(bytes: &[u8], expected_floats: usize) -> Option<Vec<f32>> {
-    if bytes.is_empty() || bytes.len() % 4 != 0 {
+    if bytes.is_empty() || !bytes.len().is_multiple_of(4) {
         return None;
     }
     if expected_floats > 0 && bytes.len() != expected_floats * 4 {
@@ -464,7 +465,9 @@ fn open_db_with(path: &Path, read_only: bool) -> Result<*mut Sqlite3, String> {
     let flags = if read_only {
         OPEN_READONLY | OPEN_NOMUTEX
     } else {
-        OPEN_READWRITE | OPEN_NOMUTEX
+        // CREATE: fresh databases (test fixtures, first-time compaction targets) must be creatable;
+        // existing files are unaffected.
+        OPEN_READWRITE | OPEN_NOMUTEX | OPEN_CREATE
     };
     let mut db: *mut Sqlite3 = ptr::null_mut();
     let rc = unsafe { sqlite3_open_v2(path.as_ptr(), &mut db, flags, ptr::null()) };
@@ -597,7 +600,7 @@ fn run_dense(db: *mut Sqlite3, args: &Args, query_vector: &[f32]) -> Result<Vec<
             SQLITE_ROW => {
                 let vector = match column_blob(stmt, 6) {
                     Some(bytes) => decode_blob(&bytes, query_vector.len()),
-                    None => match decode_base64(&column_string(stmt, 5)) {
+                    None => match decode_base64(&unsafe { column_string(stmt, 5) }) {
                         Ok(bytes) => decode_blob(&bytes, query_vector.len()),
                         Err(_) => None,
                     },
@@ -737,7 +740,7 @@ fn compact(args: &Args, drop_text: bool, vacuum: bool) -> Result<String, String>
             match unsafe { sqlite3_step(read) } {
                 SQLITE_ROW => {
                     let chunk_id = unsafe { column_string(read, 0) };
-                    let bytes = match decode_base64(&column_string(read, 1)) {
+                    let bytes = match decode_base64(&unsafe { column_string(read, 1) }) {
                         Ok(bytes) if !bytes.is_empty() && bytes.len() % 4 == 0 => bytes,
                         _ => {
                             skipped += 1;
@@ -794,7 +797,11 @@ fn compact(args: &Args, drop_text: bool, vacuum: bool) -> Result<String, String>
             )?;
         }
         let dropped = if drop_text {
-            count(db, "SELECT COUNT(*) FROM chunk_vecs WHERE vec = ''", "count dropped")?
+            count(
+                db,
+                "SELECT COUNT(*) FROM chunk_vecs WHERE vec = ''",
+                "count dropped",
+            )?
         } else {
             0
         };
@@ -873,7 +880,9 @@ fn default_weight() -> f64 {
 fn handle_line(db: *mut Sqlite3, line: &str) -> String {
     let request: ServeRequest = match serde_json::from_str(line) {
         Ok(request) => request,
-        Err(error) => return serde_json::json!({ "error": format!("invalid request: {error}") }).to_string(),
+        Err(error) => {
+            return serde_json::json!({ "error": format!("invalid request: {error}") }).to_string();
+        }
     };
     let mut args = Args::defaults(PathBuf::new());
     args.query = request.query;
@@ -1081,7 +1090,11 @@ mod tests {
     fn encode_base64(bytes: &[u8]) -> String {
         let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
         for chunk in bytes.chunks(3) {
-            let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+            let b = [
+                chunk[0],
+                *chunk.get(1).unwrap_or(&0),
+                *chunk.get(2).unwrap_or(&0),
+            ];
             let packed = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
             out.push(ALPHABET[(packed >> 18) as usize & 63] as char);
             out.push(ALPHABET[(packed >> 12) as usize & 63] as char);
@@ -1100,7 +1113,12 @@ mod tests {
     }
 
     fn encode_vector(values: &[f32]) -> String {
-        encode_base64(&values.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>())
+        encode_base64(
+            &values
+                .iter()
+                .flat_map(|v| v.to_le_bytes())
+                .collect::<Vec<u8>>(),
+        )
     }
 
     struct Fixture {
@@ -1113,7 +1131,10 @@ mod tests {
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_nanos())
                 .unwrap_or(0);
-            let path = env::temp_dir().join(format!("divee-retrieval-{name}-{}-{nanos}.db", std::process::id()));
+            let path = env::temp_dir().join(format!(
+                "divee-retrieval-{name}-{}-{nanos}.db",
+                std::process::id()
+            ));
             let _ = std::fs::remove_file(&path);
             let db = open_db_with(&path, false).expect("create fixture");
 
@@ -1199,7 +1220,8 @@ mod tests {
     #[test]
     fn bm25_and_dense_both_reach_fusion() {
         let fixture = Fixture::new("fusion");
-        let (hits, best_dense, best_fused) = fixture.search("heart chambers", Some(&[1.0, 0.0, 0.0]));
+        let (hits, best_dense, best_fused) =
+            fixture.search("heart chambers", Some(&[1.0, 0.0, 0.0]));
         assert_eq!(hits.first().map(|hit| hit.chunk_id.as_str()), Some("a"));
         assert!(best_dense > 0.99, "{best_dense}");
         assert!(best_fused > 0.0);

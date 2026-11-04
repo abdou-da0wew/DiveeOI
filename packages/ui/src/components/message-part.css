@@ -215,6 +215,14 @@
     margin-top: 0;
   }
 
+  [data-slot="text-part-citations"] {
+    margin-top: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+
   [data-slot="text-part-copy-wrapper"] {
     min-height: 24px;
     margin-top: 4px;

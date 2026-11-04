@@ -218,6 +218,14 @@ beforeAll(async () => {
     }),
   }))
 
+  // The app toast wrapper (toast.tsx) imports @diveeoi/ui/icon, whose module scope uses
+  // client-only solid-js/web APIs; stub it so the submit module can load in tests.
+  mock.module("@/utils/toast", () => ({
+    showToast: () => 0,
+    ToastRegion: () => null,
+    setV2Toast: () => undefined,
+  }))
+
   const mod = await import("./submit")
   createPromptSubmit = mod.createPromptSubmit
 })

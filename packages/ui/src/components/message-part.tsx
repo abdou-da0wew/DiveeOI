@@ -44,6 +44,7 @@ import { ToolErrorCard } from "./tool-error-card"
 import { Checkbox } from "./checkbox"
 import { DiffChanges } from "./diff-changes"
 import { Markdown } from "./markdown"
+import { CitationChip } from "./citation-chip"
 import { ImagePreview } from "./image-preview"
 import { getDirectory as _getDirectory, getFilename } from "@diveeoi/db/util/path"
 import { checksum } from "@diveeoi/db/util/encode"
@@ -1550,6 +1551,22 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
     () => props.message.role === "assistant" && typeof (props.message as AssistantMessage).time.completed !== "number",
   )
   const text = () => readPartText(data.store.part_text_accum_delta, part())
+  // Targeted Learning citations: the grounding prompt instructs the model to cite as [chunk_id]
+  // (ids look like `bio-s1-c12`). Rendered as a compact sources row under the finished message;
+  // `[text](url)` markdown links never match because of the strict chunk-id shape.
+  const citations = createMemo(() => {
+    if (props.message.role !== "assistant") return []
+    const value = text()
+    if (!value) return []
+    const found: string[] = []
+    const re = /\[([a-zA-Z0-9][a-zA-Z0-9_-]*-s\d+(?:-p\d+)?-c\d+)\](?!\()/g
+    let match: RegExpExecArray | null
+    while ((match = re.exec(value)) !== null) {
+      const id = match[1]!
+      if (!found.includes(id)) found.push(id)
+    }
+    return found
+  })
   const isLastTextPart = createMemo(() => {
     const last = (data.store.part?.[props.message.id] ?? [])
       .filter((item): item is TextPart => item?.type === "text" && !!item.text?.trim())
@@ -1581,6 +1598,11 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
             <PacedMarkdown text={text()} cacheKey={part().id} streaming={streaming()} />
           </Show>
         </div>
+        <Show when={!streaming() && citations().length > 0}>
+          <div data-slot="text-part-citations">
+            <For each={citations()}>{(id) => <CitationChip citation={{ chunkId: id }} />}</For>
+          </div>
+        </Show>
         <Show when={showCopy()}>
           <div data-slot="text-part-copy-wrapper" data-interrupted={interrupted() ? "" : undefined}>
             <Tooltip

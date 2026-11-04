@@ -68,7 +68,7 @@ export const DialogSettings: Component = () => {
                     </Tabs.Trigger>
                     <Tabs.Trigger value="learning">
                       <Icon name="graduation-cap" />
-                      Targeted Learning
+                      {language.t("targetedLearning.tab.title")}
                     </Tabs.Trigger>
                   </div>
                 </div>

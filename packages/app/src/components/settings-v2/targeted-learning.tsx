@@ -16,35 +16,14 @@
 import { TargetedLearningLibrary } from "../targeted-learning-library"
 import { TargetedLearningMemory } from "../targeted-learning-memory"
 import { TargetedLearningSettingsForm } from "../targeted-learning-settings-form"
-import { Component, For, Show, createResource, createSignal, Suspense } from "solid-js"
+import { Component, For, Show, createEffect, createResource, createSignal, onCleanup, Suspense } from "solid-js"
 import { ButtonV2 } from "@diveeoi/ui/v2/button-v2"
 import { formatSetupStepLabel, TargetedLearningStatusBadge } from "../targeted-learning-status"
-import { useServerSDK } from "@/context/server-sdk"
+import { setupIsRunning, useTlApi, type Health, type SetupStatus } from "../targeted-learning-api"
+import { useLanguage } from "@/context/language"
 import { SettingsListV2 } from "./parts/list"
 import { SettingsRowV2 } from "./parts/row"
 import "./settings-v2.css"
-import { authFetch } from "@/utils/auth-client"
-
-interface SetupStep {
-  name: string
-  status: "pending" | "running" | "complete" | "failed" | "skipped"
-  attempts: number
-  lastError?: string
-}
-
-interface SetupStatus {
-  status: "not-started" | "in-progress" | "ready" | "needs-repair" | "unreachable"
-  steps: SetupStep[]
-  recommendedProfile?: "low" | "balanced" | "high"
-}
-
-interface Health {
-  setupStatus: string
-  booksDbAvailable: boolean
-  booksDbReason?: string
-  modelReady: boolean
-  manifestLoaded: boolean
-}
 
 const healthStatus = (available: boolean, setupStatus: string) => {
   if (available) return "complete" as const
@@ -52,9 +31,9 @@ const healthStatus = (available: boolean, setupStatus: string) => {
   return "failed" as const
 }
 
-const healthLabel = (available: boolean, setupStatus: string, ready: string, unavailable: string) => {
+const healthLabel = (available: boolean, setupStatus: string, ready: string, unavailable: string, pending = "Pending") => {
   if (available) return ready
-  if (setupStatus === "not-started" || setupStatus === "in-progress") return "Pending"
+  if (setupStatus === "not-started" || setupStatus === "in-progress") return pending
   return unavailable
 }
 
@@ -74,81 +53,37 @@ const setupBadgeLabel = (status?: SetupStatus["status"]) => {
   return "Not set up"
 }
 
-// Direct fetch helper — the typed SDK hasn't been regenerated yet for the
-// /targeted-learning/* routes. We use the same auth headers the SDK uses.
-const useTlApi = () => {
-  const serverSDK = useServerSDK()
-  const base = () => serverSDK().url
-  const headers = () => {
-    const h: Record<string, string> = { "content-type": "application/json" }
-    // The SDK injects Authorization via fetch interceptor; for raw fetch
-    // we re-derive from the same context.
-    return h
-  }
-  return {
-    getStatus: async (): Promise<SetupStatus> => {
-      try {
-        const resp = await authFetch(`${base()}/targeted-learning/setup`, { headers: headers() })
-        if (!resp.ok) throw new Error(`setup status: ${resp.status}`)
-        return await resp.json()
-      } catch {
-        // Backend unreachable (e.g. wrong host/port): degrade to a visible
-        // state instead of crashing the whole app via resource rethrow.
-        return { status: "unreachable", steps: [] }
-      }
-    },
-    start: async (force = false): Promise<SetupStatus> => {
-      try {
-        const resp = await authFetch(`${base()}/targeted-learning/setup/start`, {
-          method: "POST",
-          headers: headers(),
-          body: JSON.stringify({ force }),
-        })
-        if (!resp.ok) throw new Error(`setup start: ${resp.status}`)
-        return resp.json()
-      } catch {
-        return { status: "unreachable", steps: [] }
-      }
-    },
-    repair: async (): Promise<SetupStatus> => {
-      try {
-        const resp = await authFetch(`${base()}/targeted-learning/setup/repair`, {
-          method: "POST",
-          headers: headers(),
-        })
-        if (!resp.ok) throw new Error(`setup repair: ${resp.status}`)
-        return resp.json()
-      } catch {
-        return { status: "unreachable", steps: [] }
-      }
-    },
-    getHealth: async (): Promise<Health> => {
-      try {
-        const resp = await authFetch(`${base()}/targeted-learning/health`, { headers: headers() })
-        if (!resp.ok) throw new Error(`health: ${resp.status}`)
-        return await resp.json()
-      } catch {
-        return {
-          setupStatus: "unreachable",
-          booksDbAvailable: false,
-          modelReady: false,
-          manifestLoaded: false,
-        }
-      }
-    },
-  }
-}
-
 export const SettingsTargetedLearningV2: Component = () => {
+  const language = useLanguage()
+  const t = (key: string) => language.t(key as never)
   const api = useTlApi()
   const [status, { refetch }] = createResource<SetupStatus>(api.getStatus)
   const [health] = createResource<Health>(api.getHealth)
   const [starting, setStarting] = createSignal(false)
 
+  // Setup runs on the server in the background — poll while it is in progress so the
+  // badge and the step list advance live instead of freezing at "Running".
+  createEffect(() => {
+    if (setupIsRunning(status())) {
+      const timer = setInterval(() => void refetch(), 2500)
+      onCleanup(() => clearInterval(timer))
+    }
+  })
+
   const start = async () => {
     setStarting(true)
     try {
       await api.start(false)
+      await refetch()
+    } finally {
+      setStarting(false)
+    }
+  }
+
+  const cancel = async () => {
+    setStarting(true)
+    try {
+      await api.cancel()
       await refetch()
     } finally {
       setStarting(false)
@@ -167,35 +102,33 @@ export const SettingsTargetedLearningV2: Component = () => {
 
   const isReady = () => status()?.status === "ready"
   const needsRepair = () => status()?.status === "needs-repair"
+  const isRunning = () => setupIsRunning(status())
 
   return (
     <>
       <div class="settings-v2-tab-header">
-        <h2 class="settings-v2-tab-title">Targeted Learning</h2>
-        <p class="text-12-regular text-text-weak leading-5">
-          Self-hosted, book-grounded learning sessions. Add your books and build a tutor that can retrieve relevant
-          passages with citations.
-        </p>
+        <h2 class="settings-v2-tab-title">{t("targetedLearning.tab.title")}</h2>
+        <p class="text-12-regular text-text-weak leading-5">{t("targetedLearning.tab.description")}</p>
       </div>
       <div class="settings-v2-tab-body settings-v2-learning">
         <section class="settings-v2-section">
-          <h3 class="settings-v2-section-title">Learning workspace</h3>
+          <h3 class="settings-v2-section-title">{t("targetedLearning.workspace")}</h3>
           <Suspense fallback={<div class="settings-v2-panel-skeleton">Loading…</div>}>
             <SettingsListV2>
               {/* ---------- Backend unreachable notice ---------- */}
               <Show when={status()?.status === "unreachable"}>
                 <SettingsRowV2
-                  title="Backend unreachable"
-                  description="The DiveeOI server could not be reached, so the Targeted Learning state is unknown. Check that the server is running and reload."
+                  title={t("targetedLearning.unreachable.title")}
+                  description={t("targetedLearning.unreachable.description")}
                 >
-                  <TargetedLearningStatusBadge status="failed" label="Offline" />
+                  <TargetedLearningStatusBadge status="failed" label={t("targetedLearning.status.offline")} />
                 </SettingsRowV2>
               </Show>
 
               {/* ---------- Setup ---------- */}
               <SettingsRowV2
-                title="Setup"
-                description="Self-hosted, book-grounded learning sessions. Downloads the bge-m3 embedding model (~568 MB) on first run."
+                title={t("targetedLearning.setup.title")}
+                description={t("targetedLearning.setup.description")}
               >
                 <Show
                   when={isReady()}
@@ -205,13 +138,22 @@ export const SettingsTargetedLearningV2: Component = () => {
                         status={setupBadgeStatus(status()?.status)}
                         label={setupBadgeLabel(status()?.status)}
                       />
-                      <ButtonV2 onClick={start} disabled={starting()}>
-                        {starting() ? "Starting…" : "Start Setup"}
-                      </ButtonV2>
+                      <Show
+                        when={isRunning()}
+                        fallback={
+                          <ButtonV2 onClick={start} disabled={starting()}>
+                            {starting() ? t("targetedLearning.setup.starting") : t("targetedLearning.setup.start")}
+                          </ButtonV2>
+                        }
+                      >
+                        <ButtonV2 variant="ghost" onClick={cancel} disabled={starting()}>
+                          {t("targetedLearning.setup.cancel")}
+                        </ButtonV2>
+                      </Show>
                     </div>
                   }
                 >
-                  <TargetedLearningStatusBadge status="complete" label="Ready" />
+                  <TargetedLearningStatusBadge status="complete" label={t("targetedLearning.status.ready")} />
                 </Show>
               </SettingsRowV2>
 
@@ -229,13 +171,13 @@ export const SettingsTargetedLearningV2: Component = () => {
               {/* Setup steps */}
               <Show when={status()?.steps.length}>
                 <div class="settings-v2-subsection">
-                  <div class="settings-v2-subsection-title">Setup steps</div>
+                  <div class="settings-v2-subsection-title">{t("targetedLearning.setupSteps")}</div>
                   <div class="tl-status-list">
                     <For each={status()!.steps}>
                       {(step) => (
                         <>
                           <div class="tl-status-row">
-                            <span class="tl-status-row-label">{formatSetupStepLabel(step.name)}</span>
+                            <span class="tl-status-row-label">{formatSetupStepLabel(step.name, t)}</span>
                             <div class="tl-status-row-meta">
                               <TargetedLearningStatusBadge status={step.status} />
                               <Show when={step.attempts > 1}>
@@ -257,32 +199,33 @@ export const SettingsTargetedLearningV2: Component = () => {
               <Show when={health()}>
                 {(h) => (
                   <div class="settings-v2-subsection">
-                    <div class="settings-v2-subsection-title">Health</div>
+                    <div class="settings-v2-subsection-title">{t("targetedLearning.health")}</div>
                     <div class="tl-status-health">
                       <div class="tl-status-health-item">
-                        <span class="tl-status-health-label">books.db</span>
+                        <span class="tl-status-health-label">{t("targetedLearning.health.booksDb")}</span>
                         <TargetedLearningStatusBadge
                           status={healthStatus(h().booksDbAvailable, h().setupStatus)}
                           label={healthLabel(
                             h().booksDbAvailable,
                             h().setupStatus,
-                            "Available",
-                            h().booksDbReason ?? "Unavailable",
+                            t("targetedLearning.health.available"),
+                            h().booksDbReason ?? t("targetedLearning.health.unavailable"),
+                          t("targetedLearning.health.pending"),
                           )}
                         />
                       </div>
                       <div class="tl-status-health-item">
-                        <span class="tl-status-health-label">manifest</span>
+                        <span class="tl-status-health-label">{t("targetedLearning.health.manifest")}</span>
                         <TargetedLearningStatusBadge
                           status={healthStatus(h().manifestLoaded, h().setupStatus)}
-                          label={healthLabel(h().manifestLoaded, h().setupStatus, "Loaded", "Missing")}
+                          label={healthLabel(h().manifestLoaded, h().setupStatus, t("targetedLearning.health.loaded"), t("targetedLearning.health.missing"))}
                         />
                       </div>
                       <div class="tl-status-health-item">
-                        <span class="tl-status-health-label">model</span>
+                        <span class="tl-status-health-label">{t("targetedLearning.health.model")}</span>
                         <TargetedLearningStatusBadge
                           status={healthStatus(h().modelReady, h().setupStatus)}
-                          label={healthLabel(h().modelReady, h().setupStatus, "Ready", "Not ready")}
+                          label={healthLabel(h().modelReady, h().setupStatus, t("targetedLearning.status.ready"), t("targetedLearning.health.notReady"))}
                         />
                       </div>
                     </div>

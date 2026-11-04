@@ -358,4 +358,35 @@ describe("buildRequestParts", () => {
       expect(filePart.url).toContain("/..")
     }
   })
+
+  test("converts @book: pills into text mentions instead of file parts", () => {
+    const prompt: Prompt = [
+      { type: "file", path: "@book:bio-s1", content: "@book:bio-s1", start: 0, end: 12 },
+      { type: "file", path: "@book:\"Arabic Grammar\"", content: "@book:\"Arabic Grammar\"", start: 12, end: 35 },
+      { type: "file", path: "src/real.ts", content: "@src/real.ts", start: 35, end: 47 },
+    ]
+
+    const result = buildRequestParts({
+      prompt,
+      context: [],
+      images: [],
+      text: "explain the lesson",
+      messageID: "msg_book_1",
+      sessionID: "ses_book_1",
+      sessionDirectory: "/repo",
+    })
+
+    // Mentions travel as text parts (the server only scans text parts for @book:).
+    const mentionTexts = result.requestParts.filter(
+      (part) => part.type === "text" && part.synthetic && part.text.startsWith("@book:"),
+    )
+    expect(mentionTexts.map((part) => (part.type === "text" ? part.text : ""))).toEqual([
+      "@book:bio-s1",
+      "@book:\"Arabic Grammar\"",
+    ])
+    // No bogus file URL for a book mention.
+    expect(result.requestParts.some((part) => part.type === "file" && part.url.includes("@book:"))).toBe(false)
+    // Real files are untouched.
+    expect(result.requestParts.some((part) => part.type === "file" && part.url.includes("src/real.ts"))).toBe(true)
+  })
 })
