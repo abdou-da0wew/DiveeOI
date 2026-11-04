@@ -98,7 +98,7 @@ EMBED_SIGNATURE = json.dumps(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--stage", choices=["download", "extract", "db", "all"], default="all")
+    parser.add_argument("--stage", choices=["download", "extract", "db", "ocr", "all"], default="all")
     parser.add_argument("--pdf-dir", default="/content/eb-pdf")
     parser.add_argument("--corpus", default="/content/corpus")
     parser.add_argument("--max-chunks-per-book", type=int, default=90)
@@ -534,9 +534,32 @@ def db_stage(args: argparse.Namespace, results: list[dict]) -> None:
                         }
                     )
                     pairs += 1
-    with open(corpus / "real-queries.jsonl", "a", encoding="utf-8") as handle:
-        for q in queries:
-            handle.write(json.dumps(q, ensure_ascii=False) + "\n")
+    # Idempotent rewrite: keep every non-EB row of the existing real-queries.jsonl (the Wikipedia
+    # stand-in queries) and replace the EB block with the freshly generated one. Deterministic for
+    # the same book set, so re-runs (e.g. after recovering a book with --stage ocr) never duplicate.
+    existing_path = corpus / "real-queries.jsonl"
+    kept: list[dict] = []
+    seen: set[tuple[str, tuple[str, ...]]] = set()
+    if existing_path.exists():
+        for line in existing_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            if any(str(cid).startswith("eb-") for cid in row.get("relevant", [])):
+                continue
+            key = (row["query"], tuple(sorted(row.get("relevant", []))))
+            if key not in seen:
+                seen.add(key)
+                kept.append(row)
+    for q in queries:
+        key = (q["query"], tuple(sorted(q["relevant"])))
+        if key not in seen:
+            seen.add(key)
+            kept.append(q)
+    with open(existing_path, "w", encoding="utf-8") as handle:
+        for row in kept:
+            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+
     summary = {
         "books": len(by_book),
         "passages": len(all_rows),
@@ -547,6 +570,109 @@ def db_stage(args: argparse.Namespace, results: list[dict]) -> None:
     }
     (corpus / "eb-summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
     print(json.dumps(summary, indent=2, ensure_ascii=False), flush=True)
+
+
+def ocr_stage(args: argparse.Namespace, results: list[dict]) -> list[dict]:
+    """OCR fallback for books whose PDF has no usable text layer (scanned pages).
+
+    Installs tesseract (+ the book's language pack), renders pages at ~170 dpi and feeds the
+    recognised text through the exact same cleaning/chunking pipeline as a text-layer PDF.
+    Updates eb-extract.json and eb-passages.jsonl in place so `--stage db` picks the book up.
+    """
+    import subprocess as sp
+
+    failed = [r for r in results if r.get("status") != "ok" or not r.get("chunks")]
+    if not failed:
+        print("ocr: no books need OCR", flush=True)
+        return results
+    tesseract_langs = {"ar": "ara", "en": "eng", "fr": "fra"}
+    langs = sorted(tesseract_langs[r["lang"]] for r in failed)
+    print(f"ocr: {len(failed)} book(s) need OCR, langs={langs}", flush=True)
+    sp.run(["apt-get", "install", "-y", "-q", "tesseract-ocr", *[f"tesseract-ocr-{l}" for l in langs]], check=False, capture_output=True)
+    sp.run(["python3", "-m", "pip", "install", "-q", "pytesseract", "pillow"], check=False, capture_output=True)
+    try:
+        import pytesseract
+    except ImportError:
+        print("ocr: pytesseract unavailable; skipping", flush=True)
+        return results
+    try:
+        import pymupdf as fitz
+    except ImportError:  # pragma: no cover
+        import fitz
+    from PIL import Image
+
+    updated = list(results)
+    for position, result in enumerate(updated):
+        if result.get("status") == "ok" and result.get("chunks"):
+            continue
+        pdf_path = Path(args.pdf_dir) / (result.get("path", "").split("/")[-1] or "")
+        if not pdf_path.exists():
+            continue
+        tess = tesseract_langs[result["lang"]]
+        doc = fitz.open(pdf_path)
+        pages: list[dict] = []
+        total_chars = 0
+        for number, page in enumerate(doc, start=1):
+            pix = page.get_pixmap(dpi=170)
+            image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+            text = clean_text(pytesseract.image_to_string(image, lang=tess, config="--psm 3"))
+            total_chars += len(text.replace(" ", ""))
+            lines = [ln.strip() for ln in text.splitlines()]
+            heading = ""
+            if lines and 3 <= len(lines[0]) <= 90 and not re.search(r"[.!?]$", lines[0]) and len(lines[0].split()) <= 12:
+                heading = lines[0]
+            paras = page_paragraphs(text, args.min_chars, args.max_chars)
+            if paras:
+                pages.append({"number": number, "heading": heading, "paras": paras})
+        doc.close()
+        chunks: list[dict] = []
+        for page in pages:
+            packed: list[str] = []
+            for para in page["paras"]:
+                if packed and len(packed[-1]) + len(para) + 1 <= args.max_chars:
+                    packed[-1] = f"{packed[-1]} {para}"
+                else:
+                    packed.append(para)
+            for idx, text in enumerate(packed):
+                chunks.append(
+                    {
+                        "chunk_id": f"{result['slug']}-p{page['number']}-c{idx}",
+                        "page": page["number"],
+                        "heading": page["heading"] or result["title"],
+                        "text": text,
+                    }
+                )
+        if len(chunks) > args.max_chunks_per_book:
+            step = len(chunks) / args.max_chunks_per_book
+            chunks = [chunks[int(i * step)] for i in range(args.max_chunks_per_book)]
+        if total_chars < 1500:
+            print(f"ocr: {result['slug']} still unreadable ({total_chars} chars); leaving as error", flush=True)
+            continue
+        updated[position] = {**result, "status": "ok", "pages": len(pages), "chars": total_chars, "chunks": chunks, "ocr": True}
+        print(f"ocr: {result['slug']} recovered {len(chunks)} chunks from {len(pages)} pages", flush=True)
+
+    # rewrite the extract metadata + passages file with the recovered books
+    (Path(args.corpus) / "eb-extract.json").write_text(
+        json.dumps([{k: v for k, v in r.items() if k != "chunks"} | {"chunk_count": len(r.get("chunks", []))} for r in updated], indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    passages: dict[str, dict] = {}
+    for result in updated:
+        for chunk in result.get("chunks", []):
+            passages[chunk["chunk_id"]] = {
+                "chunk_id": chunk["chunk_id"],
+                "book_slug": result["slug"],
+                "book_title": result["title"],
+                "lang": result["lang"],
+                "subject": result["subject"],
+                "page": chunk["page"],
+                "heading": chunk["heading"],
+                "text": chunk["text"],
+            }
+    with open(Path(args.corpus) / "eb-passages.jsonl", "w", encoding="utf-8") as handle:
+        for row in passages.values():
+            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+    return updated
 
 
 def load_extract_results(args: argparse.Namespace) -> list[dict]:
@@ -586,6 +712,12 @@ def main() -> int:
         download_stage(args)
     if args.stage in ("extract", "all"):
         results = extract_stage(args)
+    if args.stage == "ocr":
+        results = ocr_stage(args, load_extract_results(args))
+        if results:
+            db_stage(args, results)
+        print(f"done in {time.time() - started:.0f}s", flush=True)
+        return 0
     if args.stage == "db":
         results = load_extract_results(args)
     if args.stage in ("db", "all"):
