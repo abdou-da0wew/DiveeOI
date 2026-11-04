@@ -58,9 +58,31 @@ python promote.py --report eval-report.json --model models/student-runtime/
 cp -r models/student-runtime ~/.local/share/diveeoi/models/divee-query-student
 ```
 
-`real-queries.jsonl` lines are `{"query": "...", "relevant": ["chunk_id", ...], "tag": "optional"}`.
-Real questions are by far the best training input; the built-in synthesizer only produces headings
-and spans, which underestimates how differently students phrase things.
+## Corpus: Egyptian Baccalaureate textbooks + Wikipedia stand-in
+
+`colab_corpus.py` builds a stand-in `books.db` from streamed Wikipedia articles (ar/en) so the
+toolkit has an honest corpus before the app has indexed real books. `colab_eb_corpus.py` ingests
+the official Egyptian Baccalaureate PDFs (Ar/En/Fr subjects + assessments) into the same db:
+
+```sh
+# on a Colab T4 runtime (stages: download -> extract -> ocr -> db)
+python colab_eb_corpus.py --stage all
+#   download : the 40 PDFs from the EB blob storage (socket timeout, size-validated, atomic)
+#   extract  : PyMuPDF text layer -> per-page chunks, one isolated worker per book
+#              (RLIMIT_AS + wall clock; a memory-bomb PDF degrades to an error book)
+#   ocr      : tesseract (ara/eng/fra) at 150 dpi for books without a text layer,
+#              also one isolated worker per book
+#   db       : embed every chunk with the fp32 BGE-M3 teacher, append books/chunks/chunk_vecs
+#              to /content/corpus/books.db, and append real queries (incl. cross-lingual pairs
+#              aligned by relative position across the Ar/En/Fr editions) to real-queries.jsonl
+```
+
+Both corpus scripts write the app's exact books.db schema, so the output doubles as a ready-to-use
+library for the app (and for the Rust engine's `--compact` + engine-level eval).
+
+`build_dataset.py` is language-aware for ar/en/fr (synthesized question templates per language,
+`lang_pair` reporting across the three), and `eval.py` calibrates the refusal gate with ar/en/fr
+off-topic probes.
 
 ## Judged slices
 
