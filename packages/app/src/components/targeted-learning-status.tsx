@@ -13,7 +13,11 @@ export const formatSetupStepLabel = (name: string) =>
     "golden-self-test": "Golden self-test",
     benchmark: "Benchmark",
     "recommend-profile": "Recommend profile",
-  })[name] ?? name.replace(/[-_]+/g, " ").replace(/\\b\\w/g, (letter) => letter.toUpperCase())
+  })[name] ??
+  name
+    .split(/[-_]+/)
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(" ")
 
 const STATUS = {
   complete: {
@@ -50,9 +54,7 @@ export const TargetedLearningStatusBadge: Component<{
   const state = () => STATUS[props.status]
 
   return (
-    <span
-      class={`tl-status-badge tl-status-badge--${state().tone}`}
-    >
+    <span class={`tl-status-badge tl-status-badge--${state().tone}`}>
       <Icon name={state().icon} size="small" />
       <span>{props.label ?? state().label}</span>
     </span>

@@ -119,7 +119,8 @@ interface SectionText {
 }
 
 const buildSectionsFromOutline = (parseResult: ParseResult): SectionText[] => {
-  if (parseResult.outline.length === 0) {
+  if (parseResul
+zzt.outline.length === 0) {
     return [
       {
         entry: { title: undefined, page: 1, level: 1 } as unknown as OutlineEntry,
