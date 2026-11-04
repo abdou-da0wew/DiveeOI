@@ -108,6 +108,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cross-lingual-per-pair", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--book-timeout", type=int, default=300, help="per-book extraction timeout in seconds (worker process is killed past it)")
+    parser.add_argument("--ocr-timeout", type=int, default=1500, help="per-book OCR timeout in seconds (worker process is killed past it)")
     parser.add_argument("--worker-mem-gb", type=int, default=4, help="RLIMIT_AS for the extraction worker process")
     parser.add_argument("--device", default=None)
     parser.add_argument("--seed", type=int, default=13)
@@ -654,14 +655,90 @@ def db_stage(args: argparse.Namespace, results: list[dict]) -> None:
     print(json.dumps(summary, indent=2, ensure_ascii=False), flush=True)
 
 
+def _ocr_worker(pdf_path_str: str, book: dict, args_dict: dict, result_path: str) -> None:  # type: ignore[no-untyped-def]
+    """OCR one book in a child process: PyMuPDF rendering + tesseract can leak per page, so the
+    worker is RLIMIT-capped and killed on timeout exactly like the text extractor."""
+    import json as _json
+    import resource
+
+    limit = int(args_dict.get("worker_mem_gb", 4)) * 1024**3
+    try:
+        resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+    except Exception:  # noqa: BLE001
+        pass
+    namespace = argparse.Namespace(**args_dict)
+    try:
+        payload = {"state": "ok", "result": ocr_book(Path(pdf_path_str), book, namespace)}
+    except BaseException as error:  # noqa: BLE001
+        payload = {"state": "error", "error": f"{type(error).__name__}: {error}"}
+    with open(result_path, "w", encoding="utf-8") as handle:
+        _json.dump(payload, handle, ensure_ascii=False)
+
+
+def ocr_book(pdf_path: Path, book: dict, args: argparse.Namespace) -> dict:
+    import pytesseract
+
+    try:  # PyMuPDF >= 1.24 prefers the `pymupdf` name; older wheels ship `fitz`
+        import pymupdf as fitz
+    except ImportError:  # pragma: no cover
+        import fitz
+    from PIL import Image
+
+    tess = {"ar": "ara", "en": "eng", "fr": "fra"}[book["lang"]]
+    doc = fitz.open(pdf_path)
+    pages: list[dict] = []
+    total_chars = 0
+    for number, page in enumerate(doc, start=1):
+        try:
+            pix = page.get_pixmap(dpi=150)
+            image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+            text = clean_text(pytesseract.image_to_string(image, lang=tess, config="--psm 3"))
+            pix = None
+            image = None
+        except Exception:  # noqa: BLE001 - a broken page must not kill the book
+            text = ""
+        total_chars += len(text.replace(" ", "").replace("\n", ""))
+        lines = [ln.strip() for ln in text.splitlines()]
+        heading = ""
+        if lines and 3 <= len(lines[0]) <= 90 and not re.search(r"[.!?]", lines[0]) and len(lines[0].split()) <= 12:
+            heading = lines[0]
+        paras = page_paragraphs(text, args.min_chars, args.max_chars)
+        if paras:
+            pages.append({"number": number, "heading": heading, "paras": paras})
+    doc.close()
+    chunks: list[dict] = []
+    for page in pages:
+        packed: list[str] = []
+        for para in page["paras"]:
+            if packed and len(packed[-1]) + len(para) + 1 <= args.max_chars:
+                packed[-1] = f"{packed[-1]} {para}"
+            else:
+                packed.append(para)
+        for idx, text in enumerate(packed):
+            chunks.append(
+                {
+                    "chunk_id": f"{book['slug']}-p{page['number']}-c{idx}",
+                    "page": page["number"],
+                    "heading": page["heading"] or book["title"],
+                    "text": text,
+                }
+            )
+    if len(chunks) > args.max_chunks_per_book:
+        step = len(chunks) / args.max_chunks_per_book
+        chunks = [chunks[int(i * step)] for i in range(args.max_chunks_per_book)]
+    return {"pages": len(pages), "chars": total_chars, "chunks": chunks}
+
+
 def ocr_stage(args: argparse.Namespace, results: list[dict]) -> list[dict]:
     """OCR fallback for books whose PDF has no usable text layer (scanned pages).
 
-    Installs tesseract (+ the book's language pack), renders pages at ~170 dpi and feeds the
-    recognised text through the exact same cleaning/chunking pipeline as a text-layer PDF.
+    Installs tesseract (+ the book's language pack), then OCRs each book in an isolated worker
+    (render at 150 dpi + tesseract, same cleaning/chunking pipeline as text-layer PDFs).
     Updates eb-extract.json and eb-passages.jsonl in place so `--stage db` picks the book up.
     """
+    import multiprocessing as mp
     import subprocess as sp
+    import tempfile
 
     failed = [r for r in results if r.get("status") != "ok" or r.get("chunk_count", 0) == 0]
     if not failed:
@@ -673,87 +750,76 @@ def ocr_stage(args: argparse.Namespace, results: list[dict]) -> list[dict]:
     sp.run(["apt-get", "install", "-y", "-q", "tesseract-ocr", *[f"tesseract-ocr-{l}" for l in langs]], check=False, capture_output=True)
     sp.run(["python3", "-m", "pip", "install", "-q", "pytesseract", "pillow"], check=False, capture_output=True)
     try:
-        import pytesseract
+        import pytesseract  # noqa: F401 - availability probe only, workers import their own
     except ImportError:
         print("ocr: pytesseract unavailable; skipping", flush=True)
         return results
-    try:
-        import pymupdf as fitz
-    except ImportError:  # pragma: no cover
-        import fitz
-    from PIL import Image
 
     updated = list(results)
+
+    def persist_ocr() -> None:
+        (Path(args.corpus) / "eb-extract.json").write_text(
+            json.dumps([{k: v for k, v in r.items() if k != "chunks"} | {"chunk_count": len(r.get("chunks", []))} for r in updated], indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        passages: dict[str, dict] = {}
+        passages_path = Path(args.corpus) / "eb-passages.jsonl"
+        if passages_path.exists():
+            for line in passages_path.read_text(encoding="utf-8").splitlines():
+                if line.strip():
+                    row = json.loads(line)
+                    passages[row["chunk_id"]] = row
+        for result in updated:
+            for chunk in result.get("chunks", []):
+                passages[chunk["chunk_id"]] = {
+                    "chunk_id": chunk["chunk_id"],
+                    "book_slug": result["slug"],
+                    "book_title": result["title"],
+                    "lang": result["lang"],
+                    "subject": result["subject"],
+                    "page": chunk["page"],
+                    "heading": chunk["heading"],
+                    "text": chunk["text"],
+                }
+        with open(passages_path, "w", encoding="utf-8") as handle:
+            for row in passages.values():
+                handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+
     for position, result in enumerate(updated):
         if result.get("status") == "ok" and result.get("chunk_count", 0) > 0:
             continue
         pdf_path = Path(args.pdf_dir) / (result.get("path", "").split("/")[-1] or "")
         if not pdf_path.exists():
             continue
-        tess = tesseract_langs[result["lang"]]
-        doc = fitz.open(pdf_path)
-        pages: list[dict] = []
-        total_chars = 0
-        for number, page in enumerate(doc, start=1):
-            pix = page.get_pixmap(dpi=170)
-            image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-            text = clean_text(pytesseract.image_to_string(image, lang=tess, config="--psm 3"))
-            total_chars += len(text.replace(" ", ""))
-            lines = [ln.strip() for ln in text.splitlines()]
-            heading = ""
-            if lines and 3 <= len(lines[0]) <= 90 and not re.search(r"[.!?]$", lines[0]) and len(lines[0].split()) <= 12:
-                heading = lines[0]
-            paras = page_paragraphs(text, args.min_chars, args.max_chars)
-            if paras:
-                pages.append({"number": number, "heading": heading, "paras": paras})
-        doc.close()
-        chunks: list[dict] = []
-        for page in pages:
-            packed: list[str] = []
-            for para in page["paras"]:
-                if packed and len(packed[-1]) + len(para) + 1 <= args.max_chars:
-                    packed[-1] = f"{packed[-1]} {para}"
-                else:
-                    packed.append(para)
-            for idx, text in enumerate(packed):
-                chunks.append(
-                    {
-                        "chunk_id": f"{result['slug']}-p{page['number']}-c{idx}",
-                        "page": page["number"],
-                        "heading": page["heading"] or result["title"],
-                        "text": text,
-                    }
-                )
-        if len(chunks) > args.max_chunks_per_book:
-            step = len(chunks) / args.max_chunks_per_book
-            chunks = [chunks[int(i * step)] for i in range(args.max_chunks_per_book)]
-        if total_chars < 1500:
-            print(f"ocr: {result['slug']} still unreadable ({total_chars} chars); leaving as error", flush=True)
-            continue
-        updated[position] = {**result, "status": "ok", "pages": len(pages), "chars": total_chars, "chunks": chunks, "ocr": True}
-        print(f"ocr: {result['slug']} recovered {len(chunks)} chunks from {len(pages)} pages", flush=True)
+        result_path = tempfile.mktemp(prefix=f"eb_ocr_{result['slug']}-", suffix=".json")
+        try:
+            worker = mp.Process(target=_ocr_worker, args=(str(pdf_path), result, vars(args), result_path))
+            worker.start()
+            worker.join(args.ocr_timeout)
+            if worker.is_alive():
+                worker.terminate()
+                worker.join(10)
+                print(f"ocr: {result['slug']} timed out after {args.ocr_timeout}s", flush=True)
+                continue
+            if not Path(result_path).exists():
+                print(f"ocr: {result['slug']} worker died (memory limit or crash)", flush=True)
+                continue
+            payload = json.loads(Path(result_path).read_text(encoding="utf-8"))
+            if payload.get("state") != "ok":
+                print(f"ocr: {result['slug']} failed: {str(payload.get('error'))[:160]}", flush=True)
+                continue
+            outcome = payload["result"]
+            if outcome["chars"] < 1500:
+                print(f"ocr: {result['slug']} still unreadable ({outcome['chars']} chars); leaving as error", flush=True)
+                continue
+            recovered = {**result, "status": "ok", "pages": outcome["pages"], "chars": outcome["chars"], "chunks": outcome["chunks"], "ocr": True}
+            updated[position] = recovered
+            persist_ocr()  # after every recovered book: a crash never loses finished work
+            print(f"ocr: {result['slug']} recovered {len(outcome['chunks'])} chunks from {outcome['pages']} pages", flush=True)
+        finally:
+            Path(result_path).unlink(missing_ok=True)
 
-    # rewrite the extract metadata + passages file with the recovered books
-    (Path(args.corpus) / "eb-extract.json").write_text(
-        json.dumps([{k: v for k, v in r.items() if k != "chunks"} | {"chunk_count": len(r.get("chunks", []))} for r in updated], indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    passages: dict[str, dict] = {}
-    for result in updated:
-        for chunk in result.get("chunks", []):
-            passages[chunk["chunk_id"]] = {
-                "chunk_id": chunk["chunk_id"],
-                "book_slug": result["slug"],
-                "book_title": result["title"],
-                "lang": result["lang"],
-                "subject": result["subject"],
-                "page": chunk["page"],
-                "heading": chunk["heading"],
-                "text": chunk["text"],
-            }
-    with open(Path(args.corpus) / "eb-passages.jsonl", "w", encoding="utf-8") as handle:
-        for row in passages.values():
-            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+    persist_ocr()
     return updated
 
 
