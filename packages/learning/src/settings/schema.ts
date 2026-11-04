@@ -428,6 +428,13 @@ export const RetrievalSettings = Schema.Struct({
     default: 60,
     advanced: true,
   }),
+  engine: Literals_(["auto", "native", "typescript"] as const, {
+    label: "Retrieval engine",
+    help: "auto runs the native Rust engine when its binary is installed and otherwise the TypeScript implementation. Both return the same fused hits.",
+    group: "retrieval",
+    applies: "live",
+    default: "auto",
+  }),
   queryEncoder: Literals_(["auto", "student", "bge-m3"] as const, {
     label: "Query encoder",
     help: "Model that embeds chat questions. auto uses the lightweight Divee student once it has been promoted, otherwise BGE-M3. Book vectors are never affected.",
