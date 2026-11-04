@@ -38,6 +38,19 @@ afterAll(() => {
   rmSync(tempDir, { recursive: true, force: true })
 })
 
+// Pipeline.init() is local-only by design, so the fixture must materialise the model files
+// into tempDir first. A throwaway remote-enabled pipeline downloads them with transformers.js'
+// own resolution logic (cacheDir == tempDir so init's localModelPath lookup finds them).
+beforeAll(async () => {
+  if (SKIP) return
+  const transformers = await import("@huggingface/transformers")
+  transformers.env.allowRemoteModels = true
+  transformers.env.allowLocalModels = false
+  transformers.env.cacheDir = tempDir
+  const pre = await transformers.pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2", { dtype: "fp32" })
+  await pre.dispose?.()
+}, 120_000)
+
 describe.skipIf(SKIP)("embed pipeline (live)", () => {
   test("init + embed + batch + unload", async () => {
     // Allow remote models for this test only (the real Setup downloads to localModelPath first).
