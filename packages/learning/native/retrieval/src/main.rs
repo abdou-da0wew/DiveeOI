@@ -5,6 +5,7 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     env,
     ffi::{CStr, CString, c_char, c_double, c_int, c_void},
+    io::{self, BufRead, Write},
     path::{Path, PathBuf},
     ptr,
     time::Instant,
@@ -14,7 +15,9 @@ const SQLITE_OK: c_int = 0;
 const SQLITE_ROW: c_int = 100;
 const SQLITE_DONE: c_int = 101;
 const OPEN_READONLY: c_int = 1;
+const OPEN_READWRITE: c_int = 2;
 const OPEN_NOMUTEX: c_int = 0x8000;
+const SQLITE_BLOB: c_int = 4;
 const SQLITE_TRANSIENT: *const c_void = -1_isize as *const c_void;
 
 #[repr(C)]
@@ -53,11 +56,29 @@ unsafe extern "C" {
     ) -> c_int;
     fn sqlite3_bind_int(stmt: *mut Sqlite3Stmt, index: c_int, value: c_int) -> c_int;
     fn sqlite3_step(stmt: *mut Sqlite3Stmt) -> c_int;
+    fn sqlite3_reset(stmt: *mut Sqlite3Stmt) -> c_int;
     fn sqlite3_finalize(stmt: *mut Sqlite3Stmt) -> c_int;
     fn sqlite3_column_text(stmt: *mut Sqlite3Stmt, column: c_int) -> *const u8;
     fn sqlite3_column_int(stmt: *mut Sqlite3Stmt, column: c_int) -> c_int;
     fn sqlite3_column_double(stmt: *mut Sqlite3Stmt, column: c_int) -> c_double;
     fn sqlite3_busy_timeout(db: *mut Sqlite3, ms: c_int) -> c_int;
+    fn sqlite3_column_blob(stmt: *mut Sqlite3Stmt, column: c_int) -> *const c_void;
+    fn sqlite3_column_bytes(stmt: *mut Sqlite3Stmt, column: c_int) -> c_int;
+    fn sqlite3_column_type(stmt: *mut Sqlite3Stmt, column: c_int) -> c_int;
+    fn sqlite3_bind_blob(
+        stmt: *mut Sqlite3Stmt,
+        index: c_int,
+        value: *const c_void,
+        n: c_int,
+        destructor: *const c_void,
+    ) -> c_int;
+    fn sqlite3_exec(
+        db: *mut Sqlite3,
+        sql: *const c_char,
+        callback: *const c_void,
+        arg: *mut c_void,
+        errmsg: *mut *mut c_char,
+    ) -> c_int;
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -77,104 +98,142 @@ struct Args {
     db: PathBuf,
     query: String,
     books: Vec<String>,
+    /// Final number of fused hits returned.
     limit: usize,
+    /// Lexical candidates kept before fusion.
+    bm25_limit: usize,
+    /// Dense candidates kept before fusion.
     dense_limit: usize,
     vector_base64: Option<String>,
     rrf_k: f64,
     bm25_weight: f64,
     dense_weight: f64,
-    /// JSONL benchmark file; when set the binary reports quality metrics instead of hits.
-    eval: Option<PathBuf>,
 }
 
-fn parse_args() -> Result<Args, String> {
+impl Args {
+    fn defaults(db: PathBuf) -> Self {
+        Self {
+            db,
+            query: String::new(),
+            books: Vec::new(),
+            limit: 8,
+            bm25_limit: 30,
+            dense_limit: 30,
+            vector_base64: None,
+            rrf_k: 60.0,
+            bm25_weight: 1.0,
+            dense_weight: 1.0,
+        }
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        if !self.rrf_k.is_finite() || self.rrf_k <= 0.0 {
+            return Err("rrf_k must be a positive finite number".into());
+        }
+        if !self.bm25_weight.is_finite()
+            || self.bm25_weight < 0.0
+            || !self.dense_weight.is_finite()
+            || self.dense_weight < 0.0
+        {
+            return Err("fusion weights must be finite and non-negative".into());
+        }
+        Ok(())
+    }
+}
+
+enum Command {
+    Search,
+    Eval(PathBuf),
+    Serve,
+    Compact { drop_text: bool, vacuum: bool },
+}
+
+fn parse_args() -> Result<(Args, Command), String> {
     let mut it = env::args().skip(1);
-    let (mut db, mut query, mut books) = (None, None, Vec::new());
-    let (mut limit, mut dense_limit, mut vector_base64) = (8usize, 30usize, None);
-    let (mut rrf_k, mut bm25_weight, mut dense_weight) = (60.0f64, 1.0f64, 1.0f64);
+    let mut db: Option<PathBuf> = None;
+    let mut query: Option<String> = None;
     let mut eval: Option<PathBuf> = None;
+    let mut books: Vec<String> = Vec::new();
+    let mut vector_base64: Option<String> = None;
+    let (mut limit, mut bm25_limit, mut dense_limit) = (8usize, 30usize, 30usize);
+    let (mut rrf_k, mut bm25_weight, mut dense_weight) = (60.0f64, 1.0f64, 1.0f64);
+    let (mut serve, mut compact) = (false, false);
+    let (mut drop_text, mut vacuum) = (false, false);
 
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--db" => db = it.next().map(PathBuf::from),
             "--query" => query = it.next(),
             "--book" => books.push(it.next().ok_or("--book requires an ID")?),
-            "--limit" => {
-                limit = it
-                    .next()
-                    .ok_or("--limit requires a number")?
-                    .parse()
-                    .map_err(|_| "invalid --limit")?;
-            }
-            "--dense-limit" => {
-                dense_limit = it
-                    .next()
-                    .ok_or("--dense-limit requires a number")?
-                    .parse()
-                    .map_err(|_| "invalid --dense-limit")?;
-            }
+            "--limit" => limit = parse_usize(it.next(), "--limit")?,
+            "--bm25-limit" => bm25_limit = parse_usize(it.next(), "--bm25-limit")?,
+            "--dense-limit" => dense_limit = parse_usize(it.next(), "--dense-limit")?,
             "--vector-base64" => vector_base64 = it.next(),
             "--eval" => eval = it.next().map(PathBuf::from),
-            "--rrf-k" => {
-                rrf_k = it
-                    .next()
-                    .ok_or("--rrf-k requires a number")?
-                    .parse()
-                    .map_err(|_| "invalid --rrf-k")?;
-            }
-            "--bm25-weight" => {
-                bm25_weight = it
-                    .next()
-                    .ok_or("--bm25-weight requires a number")?
-                    .parse()
-                    .map_err(|_| "invalid --bm25-weight")?;
-            }
-            "--dense-weight" => {
-                dense_weight = it
-                    .next()
-                    .ok_or("--dense-weight requires a number")?
-                    .parse()
-                    .map_err(|_| "invalid --dense-weight")?;
-            }
+            "--serve" => serve = true,
+            "--compact" => compact = true,
+            "--drop-text" => drop_text = true,
+            "--vacuum" => vacuum = true,
+            "--rrf-k" => rrf_k = parse_f64(it.next(), "--rrf-k")?,
+            "--bm25-weight" => bm25_weight = parse_f64(it.next(), "--bm25-weight")?,
+            "--dense-weight" => dense_weight = parse_f64(it.next(), "--dense-weight")?,
             "--help" | "-h" => {
-                return Err(
-                    "usage: divee-retrieval --db PATH --query TEXT --book ID [--book ID ...] \
-                     [--vector-base64 BASE64] [--limit N] [--dense-limit N] | \
-                     --db PATH --eval BENCH.jsonl [--book ID ...]"
-                        .into(),
-                );
+                return Err(concat!(
+                    "usage: divee-retrieval --db PATH --query TEXT --book ID [--book ID ...] ",
+                    "[--vector-base64 BASE64] [--limit N] [--bm25-limit N] [--dense-limit N]\n",
+                    "       divee-retrieval --db PATH --serve\n",
+                    "       divee-retrieval --db PATH --compact [--drop-text] [--vacuum]\n",
+                    "       divee-retrieval --db PATH --eval BENCH.jsonl [--book ID ...]"
+                )
+                .into());
             }
-            _ => return Err(format!("unknown argument: {arg}")),
+            other => return Err(format!("unknown argument: {other}")),
         }
     }
 
-    if !rrf_k.is_finite() || rrf_k <= 0.0 {
-        return Err("--rrf-k must be a positive finite number".into());
-    }
-    if !bm25_weight.is_finite()
-        || bm25_weight < 0.0
-        || !dense_weight.is_finite()
-        || dense_weight < 0.0
-    {
-        return Err("fusion weights must be finite and non-negative".into());
-    }
+    let db = db.ok_or("--db is required")?;
+    let mut args = Args::defaults(db);
+    args.books = books;
+    args.vector_base64 = vector_base64;
+    args.limit = limit.clamp(1, 50);
+    args.bm25_limit = bm25_limit.clamp(1, 200);
+    args.dense_limit = dense_limit.clamp(1, 200);
+    args.rrf_k = rrf_k;
+    args.bm25_weight = bm25_weight;
+    args.dense_weight = dense_weight;
+    args.query = query.unwrap_or_default();
+    args.validate()?;
 
-    Ok(Args {
-        db: db.ok_or("--db is required")?,
-        query: match (query, &eval) {
-            (Some(query), _) => query,
-            (None, Some(_)) => String::new(),
-            (None, None) => return Err("--query is required".into()),
-        },
-        books,
-        limit: limit.clamp(1, 50),
-        dense_limit: dense_limit.clamp(1, 100),
-        vector_base64,
-        rrf_k,
-        bm25_weight,
-        dense_weight,
-        eval,
-    })
+    let command = if compact {
+        Command::Compact { drop_text, vacuum }
+    } else if serve {
+        Command::Serve
+    } else if let Some(path) = eval {
+        Command::Eval(path)
+    } else {
+        if args.query.trim().is_empty() {
+            return Err("--query is required".into());
+        }
+        Command::Search
+    };
+    if drop_text && !compact {
+        return Err("--drop-text only applies to --compact".into());
+    }
+    Ok((args, command))
+}
+
+fn parse_usize(value: Option<String>, flag: &str) -> Result<usize, String> {
+    value
+        .ok_or_else(|| format!("{flag} requires a number"))?
+        .parse()
+        .map_err(|_| format!("invalid {flag}"))
+}
+
+fn parse_f64(value: Option<String>, flag: &str) -> Result<f64, String> {
+    value
+        .ok_or_else(|| format!("{flag} requires a number"))?
+        .parse()
+        .map_err(|_| format!("invalid {flag}"))
 }
 
 fn normalize(input: &str) -> String {
@@ -295,6 +354,98 @@ fn bind_text(stmt: *mut Sqlite3Stmt, index: c_int, value: &str) -> Result<(), St
     Ok(())
 }
 
+/// Runs a statement that returns no rows (DDL, bulk DELETE, VACUUM).
+fn exec(db: *mut Sqlite3, sql: &str) -> Result<(), String> {
+    let sql = CString::new(sql).map_err(|_| "invalid SQL")?;
+    let rc = unsafe {
+        sqlite3_exec(
+            db,
+            sql.as_ptr(),
+            ptr::null(),
+            ptr::null_mut(),
+            ptr::null_mut(),
+        )
+    };
+    if rc != SQLITE_OK {
+        return Err(sqlite_error(db, "execute"));
+    }
+    Ok(())
+}
+
+fn prepare(db: *mut Sqlite3, sql: &str, operation: &str) -> Result<*mut Sqlite3Stmt, String> {
+    let sql = CString::new(sql).map_err(|_| "invalid SQL")?;
+    let mut stmt: *mut Sqlite3Stmt = ptr::null_mut();
+    let rc = unsafe { sqlite3_prepare_v2(db, sql.as_ptr(), -1, &mut stmt, ptr::null_mut()) };
+    if rc != SQLITE_OK {
+        return Err(sqlite_error(db, operation));
+    }
+    Ok(stmt)
+}
+
+fn column_blob(stmt: *mut Sqlite3Stmt, column: c_int) -> Option<Vec<u8>> {
+    if unsafe { sqlite3_column_type(stmt, column) } != SQLITE_BLOB {
+        return None;
+    }
+    let length = unsafe { sqlite3_column_bytes(stmt, column) };
+    if length <= 0 {
+        return None;
+    }
+    let data = unsafe { sqlite3_column_blob(stmt, column) } as *const u8;
+    if data.is_null() {
+        return None;
+    }
+    Some(unsafe { std::slice::from_raw_parts(data, length as usize) }.to_vec())
+}
+
+fn decode_blob(bytes: &[u8], expected_floats: usize) -> Option<Vec<f32>> {
+    if bytes.is_empty() || bytes.len() % 4 != 0 {
+        return None;
+    }
+    if expected_floats > 0 && bytes.len() != expected_floats * 4 {
+        return None;
+    }
+    Some(
+        bytes
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|chunk| f32::from_le_bytes(*chunk))
+            .collect(),
+    )
+}
+
+fn bind_blob(stmt: *mut Sqlite3Stmt, index: c_int, value: &[u8]) -> Result<(), String> {
+    let rc = unsafe {
+        sqlite3_bind_blob(
+            stmt,
+            index,
+            value.as_ptr() as *const c_void,
+            value.len() as c_int,
+            SQLITE_TRANSIENT,
+        )
+    };
+    if rc != SQLITE_OK {
+        return Err(format!("SQLite bind failed ({rc})"));
+    }
+    Ok(())
+}
+
+/// True when `chunk_vecs_blob` exists, i.e. `--compact` has run at least once.
+fn has_blob_table(db: *mut Sqlite3) -> bool {
+    let Ok(stmt) = prepare(
+        db,
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='chunk_vecs_blob'",
+        "look for chunk_vecs_blob",
+    ) else {
+        return false;
+    };
+    let found = unsafe { sqlite3_step(stmt) } == SQLITE_ROW;
+    unsafe {
+        sqlite3_finalize(stmt);
+    }
+    found
+}
+
 fn sqlite_error(db: *mut Sqlite3, operation: &str) -> String {
     if db.is_null() {
         return format!("{operation}: SQLite database unavailable");
@@ -304,17 +455,19 @@ fn sqlite_error(db: *mut Sqlite3, operation: &str) -> String {
 }
 
 fn open_db(path: &Path) -> Result<*mut Sqlite3, String> {
+    open_db_with(path, true)
+}
+
+fn open_db_with(path: &Path, read_only: bool) -> Result<*mut Sqlite3, String> {
     let path =
         CString::new(path.to_string_lossy().as_bytes()).map_err(|_| "invalid database path")?;
-    let mut db: *mut Sqlite3 = ptr::null_mut();
-    let rc = unsafe {
-        sqlite3_open_v2(
-            path.as_ptr(),
-            &mut db,
-            OPEN_READONLY | OPEN_NOMUTEX,
-            ptr::null(),
-        )
+    let flags = if read_only {
+        OPEN_READONLY | OPEN_NOMUTEX
+    } else {
+        OPEN_READWRITE | OPEN_NOMUTEX
     };
+    let mut db: *mut Sqlite3 = ptr::null_mut();
+    let rc = unsafe { sqlite3_open_v2(path.as_ptr(), &mut db, flags, ptr::null()) };
     if rc != SQLITE_OK {
         let message = sqlite_error(db, "open database");
         if !db.is_null() {
@@ -354,8 +507,13 @@ fn run_bm25(db: *mut Sqlite3, args: &Args, expression: &str) -> Result<Vec<Hit>,
         for (i, book_id) in args.books.iter().enumerate() {
             bind_text(stmt, (i + 2) as c_int, book_id)?;
         }
-        let rc =
-            unsafe { sqlite3_bind_int(stmt, (args.books.len() + 2) as c_int, args.limit as c_int) };
+        let rc = unsafe {
+            sqlite3_bind_int(
+                stmt,
+                (args.books.len() + 2) as c_int,
+                args.bm25_limit as c_int,
+            )
+        };
         if rc != SQLITE_OK {
             return Err(format!("SQLite bind limit failed ({rc})"));
         }
@@ -405,18 +563,24 @@ fn run_dense(db: *mut Sqlite3, args: &Args, query_vector: &[f32]) -> Result<Vec<
         return Ok(Vec::new());
     }
 
+    // `chunk_vecs_blob` is optional (written by --compact). When it exists it is preferred: it
+    // avoids base64 decode and halves the bytes read per vector.
     let placeholders = vec!["?"; args.books.len()].join(",");
-    let sql = format!(
-        "SELECT c.id,c.book_id,c.section_id,c.page,c.text,v.vec \
-         FROM chunk_vecs v JOIN chunks c ON c.id=v.chunk_id \
-         WHERE c.book_id IN ({placeholders})"
-    );
-    let sql = CString::new(sql).map_err(|_| "invalid SQL")?;
-    let mut stmt: *mut Sqlite3Stmt = ptr::null_mut();
-    let rc = unsafe { sqlite3_prepare_v2(db, sql.as_ptr(), -1, &mut stmt, ptr::null_mut()) };
-    if rc != SQLITE_OK {
-        return Err(sqlite_error(db, "prepare dense query"));
-    }
+    let sql = if has_blob_table(db) {
+        format!(
+            "SELECT c.id,c.book_id,c.section_id,c.page,c.text,v.vec,b.vec \
+             FROM chunk_vecs v JOIN chunks c ON c.id=v.chunk_id \
+             LEFT JOIN chunk_vecs_blob b ON b.chunk_id=c.id \
+             WHERE c.book_id IN ({placeholders})"
+        )
+    } else {
+        format!(
+            "SELECT c.id,c.book_id,c.section_id,c.page,c.text,v.vec,NULL \
+             FROM chunk_vecs v JOIN chunks c ON c.id=v.chunk_id \
+             WHERE c.book_id IN ({placeholders})"
+        )
+    };
+    let stmt = prepare(db, &sql, "prepare dense query")?;
     for (i, book_id) in args.books.iter().enumerate() {
         if let Err(error) = bind_text(stmt, (i + 1) as c_int, book_id) {
             unsafe {
@@ -431,20 +595,16 @@ fn run_dense(db: *mut Sqlite3, args: &Args, query_vector: &[f32]) -> Result<Vec<
     loop {
         match unsafe { sqlite3_step(stmt) } {
             SQLITE_ROW => {
-                let encoded = unsafe { column_string(stmt, 5) };
-                let bytes = match decode_base64(&encoded) {
-                    Ok(bytes) => bytes,
-                    Err(_) => continue,
+                let vector = match column_blob(stmt, 6) {
+                    Some(bytes) => decode_blob(&bytes, query_vector.len()),
+                    None => match decode_base64(&column_string(stmt, 5)) {
+                        Ok(bytes) => decode_blob(&bytes, query_vector.len()),
+                        Err(_) => None,
+                    },
                 };
-                if bytes.len() != query_vector.len() * 4 {
+                let Some(vector) = vector else {
                     continue;
-                }
-                let vector: Vec<f32> = bytes
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .map(|chunk| f32::from_le_bytes(*chunk))
-                    .collect();
+                };
                 let Some(score) = cosine(query_vector, &vector) else {
                     continue;
                 };
@@ -492,7 +652,7 @@ fn run_dense(db: *mut Sqlite3, args: &Args, query_vector: &[f32]) -> Result<Vec<
     Ok(best.into_iter().map(|(_, hit)| hit).collect())
 }
 
-fn fuse(args: &Args, bm25: Vec<Hit>, dense: Vec<Hit>) -> Vec<Hit> {
+fn fuse(args: &Args, bm25: Vec<Hit>, dense: Vec<Hit>) -> (Vec<Hit>, f64) {
     let mut merged: HashMap<String, Hit> = HashMap::new();
 
     for (rank, hit) in bm25.into_iter().enumerate() {
@@ -512,11 +672,12 @@ fn fuse(args: &Args, bm25: Vec<Hit>, dense: Vec<Hit>) -> Vec<Hit> {
 
     let mut results: Vec<Hit> = merged.into_values().collect();
     results.sort_by(|a, b| b.fused_score.total_cmp(&a.fused_score));
+    let best_fused = results.first().map(|hit| hit.fused_score).unwrap_or(0.0);
     results.truncate(args.limit);
-    results
+    (results, best_fused)
 }
 
-fn search_db(db: *mut Sqlite3, args: &Args) -> Result<Vec<Hit>, String> {
+fn search_db(db: *mut Sqlite3, args: &Args) -> Result<(Vec<Hit>, f64, f64), String> {
     let expression = fts_expression(&args.query);
     let lexical = run_bm25(db, args, &expression)?;
     let dense = match &args.vector_base64 {
@@ -526,16 +687,242 @@ fn search_db(db: *mut Sqlite3, args: &Args) -> Result<Vec<Hit>, String> {
         }
         None => Vec::new(),
     };
-    Ok(fuse(args, lexical, dense))
+    let best_dense = dense
+        .iter()
+        .filter_map(|hit| hit.dense_score)
+        .fold(0.0f64, f64::max);
+    let (hits, best_fused) = fuse(args, lexical, dense);
+    Ok((hits, best_dense, best_fused))
 }
 
 fn search(args: &Args) -> Result<Vec<Hit>, String> {
     let db = open_db(&args.db)?;
-    let result = search_db(db, args);
+    let result = search_db(db, args).map(|(hits, _, _)| hits);
     unsafe {
         sqlite3_close(db);
     }
     result
+}
+
+/// TEXT -> `chunk_vecs_blob`. Additive by default: the legacy column is only emptied with
+/// `--drop-text`, so older builds keep working until every instance runs this binary.
+fn compact(args: &Args, drop_text: bool, vacuum: bool) -> Result<String, String> {
+    let db = open_db_with(&args.db, false)?;
+    let outcome = (|| {
+        exec(
+            db,
+            "CREATE TABLE IF NOT EXISTS chunk_vecs_blob (chunk_id TEXT PRIMARY KEY, vec BLOB NOT NULL)",
+        )?;
+        // Orphans come from books re-ingested or removed after the last compaction.
+        exec(
+            db,
+            "DELETE FROM chunk_vecs_blob WHERE chunk_id NOT IN (SELECT chunk_id FROM chunk_vecs)",
+        )?;
+
+        let read = prepare(
+            db,
+            "SELECT v.chunk_id, v.vec FROM chunk_vecs v \
+             LEFT JOIN chunk_vecs_blob b ON b.chunk_id = v.chunk_id \
+             WHERE b.chunk_id IS NULL AND v.vec <> ''",
+            "prepare compaction scan",
+        )?;
+        let write = prepare(
+            db,
+            "INSERT OR REPLACE INTO chunk_vecs_blob (chunk_id, vec) VALUES (?, ?)",
+            "prepare compaction write",
+        )?;
+
+        let (mut compacted, mut skipped) = (0u64, 0u64);
+        loop {
+            match unsafe { sqlite3_step(read) } {
+                SQLITE_ROW => {
+                    let chunk_id = unsafe { column_string(read, 0) };
+                    let bytes = match decode_base64(&column_string(read, 1)) {
+                        Ok(bytes) if !bytes.is_empty() && bytes.len() % 4 == 0 => bytes,
+                        _ => {
+                            skipped += 1;
+                            continue;
+                        }
+                    };
+                    let bound = bind_text(write, 1, &chunk_id)
+                        .and_then(|()| bind_blob(write, 2, &bytes))
+                        .and_then(|()| {
+                            let rc = unsafe { sqlite3_step(write) };
+                            let reset = unsafe { sqlite3_reset(write) };
+                            if rc == SQLITE_DONE && reset == SQLITE_OK {
+                                Ok(())
+                            } else {
+                                Err(sqlite_error(db, "write blob vector"))
+                            }
+                        });
+                    match bound {
+                        Ok(()) => compacted += 1,
+                        Err(error) => {
+                            unsafe {
+                                sqlite3_finalize(read);
+                                sqlite3_finalize(write);
+                            }
+                            return Err(error);
+                        }
+                    }
+                }
+                SQLITE_DONE => break,
+                _ => {
+                    let message = sqlite_error(db, "scan chunk_vecs");
+                    unsafe {
+                        sqlite3_finalize(read);
+                        sqlite3_finalize(write);
+                    }
+                    return Err(message);
+                }
+            }
+        }
+        unsafe {
+            sqlite3_finalize(read);
+            sqlite3_finalize(write);
+        }
+
+        let remaining = count(
+            db,
+            "SELECT COUNT(*) FROM chunk_vecs WHERE vec <> ''",
+            "count remaining TEXT vectors",
+        )?;
+        if drop_text {
+            exec(
+                db,
+                "UPDATE chunk_vecs SET vec = '' WHERE chunk_id IN (SELECT chunk_id FROM chunk_vecs_blob)",
+            )?;
+        }
+        let dropped = if drop_text {
+            count(db, "SELECT COUNT(*) FROM chunk_vecs WHERE vec = ''", "count dropped")?
+        } else {
+            0
+        };
+        if vacuum {
+            exec(db, "VACUUM")?;
+        }
+        Ok(serde_json::json!({
+            "compacted": compacted,
+            "skipped": skipped,
+            "text_vectors_remaining": if drop_text { 0 } else { remaining },
+            "dropped_text": drop_text,
+            "dropped_rows": dropped,
+            "blob_vectors": count(db, "SELECT COUNT(*) FROM chunk_vecs_blob", "count blobs")?,
+            "vacuumed": vacuum,
+        })
+        .to_string())
+    })();
+    unsafe {
+        sqlite3_close(db);
+    }
+    outcome
+}
+
+fn count(db: *mut Sqlite3, sql: &str, operation: &str) -> Result<u64, String> {
+    let stmt = prepare(db, sql, operation)?;
+    let value = if unsafe { sqlite3_step(stmt) } == SQLITE_ROW {
+        unsafe { sqlite3_column_int(stmt, 0) }.max(0) as u64
+    } else {
+        0
+    };
+    unsafe {
+        sqlite3_finalize(stmt);
+    }
+    Ok(value)
+}
+
+#[derive(Deserialize)]
+struct ServeRequest {
+    #[serde(default)]
+    id: Option<u64>,
+    #[serde(default)]
+    query: String,
+    #[serde(default)]
+    books: Vec<String>,
+    #[serde(default)]
+    vector_base64: Option<String>,
+    #[serde(default = "default_limit")]
+    limit: usize,
+    #[serde(default = "default_candidates")]
+    bm25_limit: usize,
+    #[serde(default = "default_candidates")]
+    dense_limit: usize,
+    #[serde(default = "default_rrf_k")]
+    rrf_k: f64,
+    #[serde(default = "default_weight")]
+    bm25_weight: f64,
+    #[serde(default = "default_weight")]
+    dense_weight: f64,
+}
+
+fn default_limit() -> usize {
+    8
+}
+fn default_candidates() -> usize {
+    30
+}
+fn default_rrf_k() -> f64 {
+    60.0
+}
+fn default_weight() -> f64 {
+    1.0
+}
+
+/// One NDJSON request -> one NDJSON response. Never panics on bad input: the caller is a long
+/// lived chat process and a malformed line must not take the engine down.
+fn handle_line(db: *mut Sqlite3, line: &str) -> String {
+    let request: ServeRequest = match serde_json::from_str(line) {
+        Ok(request) => request,
+        Err(error) => return serde_json::json!({ "error": format!("invalid request: {error}") }).to_string(),
+    };
+    let mut args = Args::defaults(PathBuf::new());
+    args.query = request.query;
+    args.books = request.books;
+    args.vector_base64 = request.vector_base64;
+    args.limit = request.limit.clamp(1, 50);
+    args.bm25_limit = request.bm25_limit.clamp(1, 200);
+    args.dense_limit = request.dense_limit.clamp(1, 200);
+    args.rrf_k = request.rrf_k;
+    args.bm25_weight = request.bm25_weight;
+    args.dense_weight = request.dense_weight;
+
+    let started = Instant::now();
+    if let Err(error) = args.validate() {
+        return serde_json::json!({ "id": request.id, "error": error }).to_string();
+    }
+    match search_db(db, &args) {
+        Ok((hits, best_dense, best_fused)) => serde_json::json!({
+            "id": request.id,
+            "hits": hits,
+            "best_dense_score": best_dense,
+            "best_fused_score": best_fused,
+            "elapsed_ms": started.elapsed().as_secs_f64() * 1000.0,
+        })
+        .to_string(),
+        Err(error) => serde_json::json!({ "id": request.id, "error": error }).to_string(),
+    }
+}
+
+/// Reads NDJSON requests from stdin until EOF, keeping one read-only database handle open.
+fn serve(args: &Args) -> Result<(), String> {
+    let db = open_db(&args.db)?;
+    let stdin = io::stdin();
+    let stdout = io::stdout();
+    for line in stdin.lock().lines() {
+        let Ok(line) = line else { break };
+        if line.trim().is_empty() {
+            continue;
+        }
+        let response = handle_line(db, line.trim());
+        let mut out = stdout.lock();
+        if writeln!(out, "{response}").is_err() || out.flush().is_err() {
+            break;
+        }
+    }
+    unsafe {
+        sqlite3_close(db);
+    }
+    Ok(())
 }
 
 /// One judged query. `vector_base64` is that encoder's query vector (teacher or student), so the
@@ -617,7 +1004,7 @@ fn run_eval(args: &Args, path: &Path) -> Result<EvalReport, String> {
         case_args.vector_base64 = case.vector_base64;
         let started = Instant::now();
         let hits = match search_db(db, &case_args) {
-            Ok(hits) => hits,
+            Ok((hits, _, _)) => hits,
             Err(_) => {
                 failed += 1;
                 Vec::new()
@@ -652,15 +1039,27 @@ fn run_eval(args: &Args, path: &Path) -> Result<EvalReport, String> {
 }
 
 fn main() {
-    let outcome = parse_args().and_then(|args| match &args.eval {
-        Some(path) => run_eval(&args, path)
-            .and_then(|report| serde_json::to_string(&report).map_err(|e| e.to_string())),
-        None => {
-            search(&args).map(|hits| serde_json::to_string(&hits).unwrap_or_else(|_| "[]".into()))
-        }
-    });
+    let outcome: Result<String, String> = (|| {
+        let (args, command) = parse_args()?;
+        Ok(match command {
+            Command::Compact { drop_text, vacuum } => compact(&args, drop_text, vacuum)?,
+            Command::Serve => {
+                serve(&args)?;
+                String::new()
+            }
+            Command::Eval(path) => serde_json::to_string(&run_eval(&args, &path)?)
+                .map_err(|error| error.to_string())?,
+            Command::Search => {
+                serde_json::to_string(&search(&args)?).map_err(|error| error.to_string())?
+            }
+        })
+    })();
     match outcome {
-        Ok(json) => println!("{json}"),
+        Ok(json) => {
+            if !json.is_empty() {
+                println!("{json}");
+            }
+        }
         Err(error) => {
             eprintln!("{error}");
             std::process::exit(2);
@@ -671,6 +1070,198 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        env,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    fn encode_base64(bytes: &[u8]) -> String {
+        let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+        for chunk in bytes.chunks(3) {
+            let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+            let packed = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
+            out.push(ALPHABET[(packed >> 18) as usize & 63] as char);
+            out.push(ALPHABET[(packed >> 12) as usize & 63] as char);
+            out.push(if chunk.len() > 1 {
+                ALPHABET[(packed >> 6) as usize & 63] as char
+            } else {
+                '='
+            });
+            out.push(if chunk.len() > 2 {
+                ALPHABET[packed as usize & 63] as char
+            } else {
+                '='
+            });
+        }
+        out
+    }
+
+    fn encode_vector(values: &[f32]) -> String {
+        encode_base64(&values.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>())
+    }
+
+    struct Fixture {
+        path: PathBuf,
+    }
+
+    impl Fixture {
+        fn new(name: &str) -> Self {
+            let nanos = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            let path = env::temp_dir().join(format!("divee-retrieval-{name}-{}-{nanos}.db", std::process::id()));
+            let _ = std::fs::remove_file(&path);
+            let db = open_db_with(&path, false).expect("create fixture");
+
+            for sql in [
+                "CREATE TABLE chunks (id TEXT PRIMARY KEY, book_id TEXT NOT NULL, section_id TEXT NOT NULL, \
+                 ord INTEGER, page INTEGER, text TEXT, text_norm TEXT, token_count INTEGER)",
+                "CREATE VIRTUAL TABLE chunks_fts USING fts5(text_norm, content='chunks', \
+                 content_rowid='rowid', tokenize='unicode61 remove_diacritics 2')",
+                "CREATE TRIGGER chunks_ai AFTER INSERT ON chunks BEGIN \
+                 INSERT INTO chunks_fts(rowid, text_norm) VALUES (new.rowid, new.text_norm); END",
+                "CREATE TABLE chunk_vecs (chunk_id TEXT PRIMARY KEY, vec TEXT NOT NULL)",
+            ] {
+                exec(db, sql).expect("schema");
+            }
+
+            let chunks = prepare(
+                db,
+                "INSERT INTO chunks (id, book_id, section_id, ord, page, text, text_norm, token_count) \
+                 VALUES (?, 'book', 'sec', 0, 1, ?, ?, 5)",
+                "insert chunk",
+            )
+            .expect("prepare chunk insert");
+            let vectors = prepare(
+                db,
+                "INSERT INTO chunk_vecs (chunk_id, vec) VALUES (?, ?)",
+                "insert vector",
+            )
+            .expect("prepare vector insert");
+
+            for (id, text, vector) in [
+                ("a", "the heart has four chambers", [1.0f32, 0.0, 0.0]),
+                ("b", "the lungs exchange oxygen", [0.0, 1.0, 0.0]),
+                ("c", "kidneys filter the blood", [0.0, 0.0, 1.0]),
+            ] {
+                bind_text(chunks, 1, id).unwrap();
+                bind_text(chunks, 2, text).unwrap();
+                bind_text(chunks, 3, text).unwrap();
+                assert_eq!(unsafe { sqlite3_step(chunks) }, SQLITE_DONE);
+                assert_eq!(unsafe { sqlite3_reset(chunks) }, SQLITE_OK);
+
+                bind_text(vectors, 1, id).unwrap();
+                bind_text(vectors, 2, &encode_vector(&vector)).unwrap();
+                assert_eq!(unsafe { sqlite3_step(vectors) }, SQLITE_DONE);
+                assert_eq!(unsafe { sqlite3_reset(vectors) }, SQLITE_OK);
+            }
+
+            unsafe {
+                sqlite3_finalize(chunks);
+                sqlite3_finalize(vectors);
+                sqlite3_close(db);
+            }
+            Self { path }
+        }
+
+        fn args(&self, query: &str) -> Args {
+            let mut args = Args::defaults(self.path.clone());
+            args.query = query.to_string();
+            args.books = vec!["book".into()];
+            args.limit = 3;
+            args
+        }
+
+        fn search(&self, query: &str, vector: Option<&[f32]>) -> (Vec<Hit>, f64, f64) {
+            let mut args = self.args(query);
+            args.vector_base64 = vector.map(encode_vector);
+            let db = open_db(&self.path).expect("open fixture");
+            let result = search_db(db, &args);
+            unsafe {
+                sqlite3_close(db);
+            }
+            result.expect("search")
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+            let _ = std::fs::remove_file(self.path.with_extension("db-wal"));
+            let _ = std::fs::remove_file(self.path.with_extension("db-shm"));
+        }
+    }
+
+    #[test]
+    fn bm25_and_dense_both_reach_fusion() {
+        let fixture = Fixture::new("fusion");
+        let (hits, best_dense, best_fused) = fixture.search("heart chambers", Some(&[1.0, 0.0, 0.0]));
+        assert_eq!(hits.first().map(|hit| hit.chunk_id.as_str()), Some("a"));
+        assert!(best_dense > 0.99, "{best_dense}");
+        assert!(best_fused > 0.0);
+        let top = hits.first().unwrap();
+        assert!(top.bm25_score.is_some());
+        assert!(top.dense_score.is_some());
+    }
+
+    #[test]
+    fn dense_only_query_finds_a_paraphrase() {
+        let fixture = Fixture::new("dense-only");
+        // No lexical overlap at all: only the vector can find the lung chunk.
+        let (hits, _, _) = fixture.search("zzz", Some(&[0.0, 1.0, 0.0]));
+        assert_eq!(hits.first().map(|hit| hit.chunk_id.as_str()), Some("b"));
+        assert!(hits.first().is_some_and(|hit| hit.bm25_score.is_none()));
+    }
+
+    #[test]
+    fn compaction_is_additive_and_idempotent() {
+        let fixture = Fixture::new("compact");
+        let args = fixture.args("");
+
+        let first = compact(&args, false, false).expect("compact");
+        assert!(first.contains("\"compacted\":3"), "{first}");
+        assert!(first.contains("\"text_vectors_remaining\":3"), "{first}");
+
+        let second = compact(&args, false, false).expect("compact twice");
+        assert!(second.contains("\"compacted\":0"), "{second}");
+
+        // With TEXT emptied, the dense path must still work from the blob table.
+        let db = open_db_with(&fixture.path, false).expect("open");
+        exec(db, "UPDATE chunk_vecs SET vec = ''").expect("empty text vectors");
+        unsafe {
+            sqlite3_close(db);
+        }
+        let (hits, best_dense, _) = fixture.search("zzz", Some(&[0.0, 0.0, 1.0]));
+        assert_eq!(hits.first().map(|hit| hit.chunk_id.as_str()), Some("c"));
+        assert!(best_dense > 0.99, "{best_dense}");
+    }
+
+    #[test]
+    fn serve_mode_answers_ndjson_requests() {
+        let fixture = Fixture::new("serve");
+        let db = open_db(&fixture.path).expect("open");
+        let request = format!(
+            "{{\"id\":7,\"query\":\"heart chambers\",\"books\":[\"book\"],\"vector_base64\":\"{}\",\"limit\":1}}",
+            encode_vector(&[1.0, 0.0, 0.0])
+        );
+        let response: serde_json::Value =
+            serde_json::from_str(&handle_line(db, &request)).expect("json response");
+        let malformed: serde_json::Value =
+            serde_json::from_str(&handle_line(db, "not json")).expect("json error");
+        unsafe {
+            sqlite3_close(db);
+        }
+
+        assert_eq!(response["id"], 7);
+        assert_eq!(response["hits"].as_array().map(|hits| hits.len()), Some(1));
+        assert_eq!(response["hits"][0]["chunk_id"], "a");
+        assert!(response["best_dense_score"].as_f64().unwrap_or(0.0) > 0.99);
+        assert!(malformed.get("error").is_some());
+    }
 
     #[test]
     fn arabic_normalization_handles_diacritics_and_letters() {
@@ -688,9 +1279,18 @@ mod tests {
     }
 
     #[test]
-    fn base64_decodes_float_vectors() {
+    fn base64_round_trips_float_vectors() {
         let decoded = decode_vector("AACAPwAAAEA=").unwrap();
         assert_eq!(decoded, vec![1.0, 2.0]);
+        assert_eq!(encode_vector(&[1.0, 2.0]), "AACAPwAAAEA=");
+    }
+
+    #[test]
+    fn blobs_decode_only_at_the_expected_width() {
+        let bytes: Vec<u8> = [1.0f32, 2.0].iter().flat_map(|v| v.to_le_bytes()).collect();
+        assert_eq!(decode_blob(&bytes, 2), Some(vec![1.0, 2.0]));
+        assert_eq!(decode_blob(&bytes, 3), None);
+        assert_eq!(decode_blob(&bytes[..3], 0), None);
     }
 
     #[test]

@@ -14,6 +14,7 @@ import { rrf } from "./rrf"
 import { evaluate as evaluateGate, type GateInput } from "./gate"
 import { rewrite as rewriteQuery } from "./rewrite"
 import { diagnosticsEnabled, logDiagnostic, withDiagnosticEffect } from "../diagnostics"
+import { queryNativeEngine, type NativeEngineSetting } from "./native-engine"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -71,6 +72,10 @@ export interface RetrievalOptions {
   rewriteTurns: number
   recentUserTurns: string[]
   gate: Omit<GateInput, "query" | "bestDenseScore" | "bestFusedScore">
+  /** Which retrieval implementation runs the hot path (`retrieval.engine`). Default `auto`. */
+  engine?: NativeEngineSetting
+  /** books.db path for the native engine; defaults to the live runtime's `<dataDir>/books.db`. */
+  nativeDbPath?: string
   /** Return pre-gate candidates too (retrieval inspector). */
   debug?: boolean
 }
@@ -78,6 +83,13 @@ export interface RetrievalOptions {
 // ---------------------------------------------------------------------------
 // b64 <-> Float32Array (re-used from self-test)
 // ---------------------------------------------------------------------------
+
+/** BLOB column -> Float32Array. Copied so the view is always 4-byte aligned. */
+const blobToVector = (bytes: Uint8Array): Float32Array => {
+  const copy = new Uint8Array(bytes.byteLength)
+  copy.set(bytes)
+  return new Float32Array(copy.buffer)
+}
 
 const b64ToVector = (b64: string): Float32Array => {
   const binary = atob(b64)
@@ -191,31 +203,42 @@ const runDense = (
     if (bookIds.length === 0 || !queryVector) return []
 
     // Load all vectors for the session's books and compute cosine.
-    // Phase 6 optimization: use sqlite-vec or an in-memory LRU cache.
+    // `chunk_vecs_blob` is written by `divee-retrieval --compact`; rows there are preferred because
+    // they skip base64 decoding (and survive `--drop-text`, which empties the legacy TEXT column).
+    // The blob table may not exist yet, so the query falls back to the TEXT-only form on error.
     const placeholders = bookIds.map(() => "?").join(",")
-    const sql = `
-      SELECT v.chunk_id, v.vec, c.book_id, c.section_id, c.page, c.text
+    type DenseRow = {
+      chunk_id: string
+      vec: string | null
+      blob: Uint8Array | null
+      book_id: string
+      section_id: string
+      page: number | null
+      text: string
+    }
+    const plainSql = `
+      SELECT v.chunk_id, v.vec, NULL AS blob, c.book_id, c.section_id, c.page, c.text
       FROM chunk_vecs v
       JOIN chunks c ON c.id = v.chunk_id
       WHERE c.book_id IN (${placeholders})
     `
-    const rawRows = yield* Effect.tryPromise({
-      try: () =>
-        db.all<{
-          chunk_id: string
-          vec: string
-          book_id: string
-          section_id: string
-          page: number | null
-          text: string
-        }>(sql, ...bookIds),
-      catch: () => [] as Record<string, unknown>[],
-    }).pipe(Effect.orElseSucceed(() => [] as Record<string, unknown>[]))
-    const rows = (rawRows ?? []) as { chunk_id: string; vec: string; book_id: string; section_id: string; page: number | null; text: string }[]
+    const blobSql = `
+      SELECT v.chunk_id, v.vec, b.vec AS blob, c.book_id, c.section_id, c.page, c.text
+      FROM chunk_vecs v
+      JOIN chunks c ON c.id = v.chunk_id
+      LEFT JOIN chunk_vecs_blob b ON b.chunk_id = c.id
+      WHERE c.book_id IN (${placeholders})
+    `
+    const readRows = (sql: string) =>
+      Effect.tryPromise({
+        try: () => db.all<DenseRow>(sql, ...bookIds),
+        catch: () => null,
+      }).pipe(Effect.orElseSucceed(() => null))
+    const rows = (yield* readRows(blobSql)) ?? (yield* readRows(plainSql)) ?? []
 
     const scored = rows.map((r) => {
-      const vec = b64ToVector(r.vec)
-      const score = cosine(queryVector, vec)
+      const vec = r.blob && r.blob.byteLength > 0 ? blobToVector(r.blob) : b64ToVector(r.vec ?? "")
+      const score = vec.length === queryVector.length ? cosine(queryVector, vec) : 0
       return {
         chunkId: r.chunk_id,
         bookId: r.book_id,
@@ -315,53 +338,101 @@ export const retrieve = (
       ),
     )
 
-    // BM25 and dense in parallel
-    const [bm25Hits, denseHits] = yield* Effect.all([
-      runBm25(db, options.bookIds, normalizedQuery, options.bm25TopK),
-      runDense(db, options.bookIds, queryVector, options.denseTopK),
-    ])
+    // The Rust engine owns the hot path (BM25 + cosine + RRF) when it is available; the
+    // TypeScript pipeline below stays as the always-correct fallback (RETRIEVAL_V2_PLAN.md §3.6).
+    const native = yield* Effect.promise(() =>
+      queryNativeEngine(
+        {
+          query: normalizedQuery,
+          books: options.bookIds,
+          vector: queryVector,
+          limit: options.finalTopK,
+          bm25Limit: options.bm25TopK,
+          denseLimit: options.denseTopK,
+          rrfK: options.rrfK,
+          bm25Weight: options.weightBm25,
+          denseWeight: options.weightDense,
+        },
+        { engine: options.engine ?? "auto", dbPath: options.nativeDbPath },
+      ).catch(() => null),
+    )
 
-    // RRF fusion
-    const bm25Ranked = bm25Hits.map((h) => h.chunkId)
-    const denseRanked = denseHits.map((h) => h.chunkId)
-    const fusedScores = rrf(bm25Ranked, denseRanked, options.rrfK, options.weightBm25, options.weightDense)
-
-    // Build candidate map from both lists
     const candidateMap = new Map<string, Candidate>()
-    for (const h of bm25Hits) {
-      candidateMap.set(h.chunkId, {
-        chunkId: h.chunkId,
-        bookId: h.bookId,
-        sectionId: h.sectionId,
-        page: h.page,
-        text: h.text,
-        bm25Score: h.bm25Score,
-        fusedScore: fusedScores.get(h.chunkId) ?? 0,
-      })
-    }
-    for (const h of denseHits) {
-      const existing = candidateMap.get(h.chunkId)
-      if (existing) {
-        // Schema.Struct fields are readonly — replace the entry instead of mutating.
-        candidateMap.set(h.chunkId, { ...existing, denseScore: h.denseScore })
-      } else {
+    let bm25Count = 0
+    let denseCount = 0
+    let bestDenseScore = 0
+    let bestFusedScore = 0
+
+    if (native) {
+      for (const hit of native.hits) {
+        if (hit.bm25_score !== null) bm25Count += 1
+        if (hit.dense_score !== null) denseCount += 1
+        candidateMap.set(hit.chunk_id, {
+          chunkId: hit.chunk_id,
+          bookId: hit.book_id,
+          sectionId: hit.section_id,
+          page: hit.page ?? undefined,
+          text: hit.text,
+          bm25Score: hit.bm25_score ?? undefined,
+          denseScore: hit.dense_score ?? undefined,
+          fusedScore: hit.fused_score,
+        })
+      }
+      bestDenseScore = native.bestDenseScore
+      bestFusedScore = native.bestFusedScore
+    } else {
+      // BM25 and dense in parallel
+      const [bm25Hits, denseHits] = yield* Effect.all([
+        runBm25(db, options.bookIds, normalizedQuery, options.bm25TopK),
+        runDense(db, options.bookIds, queryVector, options.denseTopK),
+      ])
+      bm25Count = bm25Hits.length
+      denseCount = denseHits.length
+
+      // RRF fusion
+      const bm25Ranked = bm25Hits.map((h) => h.chunkId)
+      const denseRanked = denseHits.map((h) => h.chunkId)
+      const fusedScores = rrf(bm25Ranked, denseRanked, options.rrfK, options.weightBm25, options.weightDense)
+
+      // Build candidate map from both lists
+      for (const h of bm25Hits) {
         candidateMap.set(h.chunkId, {
           chunkId: h.chunkId,
           bookId: h.bookId,
           sectionId: h.sectionId,
           page: h.page,
           text: h.text,
-          denseScore: h.denseScore,
+          bm25Score: h.bm25Score,
           fusedScore: fusedScores.get(h.chunkId) ?? 0,
         })
       }
+      for (const h of denseHits) {
+        const existing = candidateMap.get(h.chunkId)
+        if (existing) {
+          // Schema.Struct fields are readonly — replace the entry instead of mutating.
+          candidateMap.set(h.chunkId, { ...existing, denseScore: h.denseScore })
+        } else {
+          candidateMap.set(h.chunkId, {
+            chunkId: h.chunkId,
+            bookId: h.bookId,
+            sectionId: h.sectionId,
+            page: h.page,
+            text: h.text,
+            denseScore: h.denseScore,
+            fusedScore: fusedScores.get(h.chunkId) ?? 0,
+          })
+        }
+      }
+      bestDenseScore = Math.max(0, ...denseHits.map((h) => h.denseScore))
+      bestFusedScore = Math.max(0, ...[...candidateMap.values()].map((candidate) => candidate.fusedScore))
     }
 
     if (diagnosticsEnabled("retrieval")) {
       yield* Effect.sync(() =>
         logDiagnostic("retrieval", "candidates.scored", {
-          bm25Count: bm25Hits.length,
-          denseCount: denseHits.length,
+          engine: native ? "native" : "typescript",
+          bm25Count,
+          denseCount,
           fusedCount: candidateMap.size,
           top: [...candidateMap.values()]
             .sort((a, b) => b.fusedScore - a.fusedScore)
@@ -388,8 +459,6 @@ export const retrieve = (
     }
 
     // Gate
-    const bestDenseScore = Math.max(0, ...denseHits.map((h) => h.denseScore))
-    const bestFusedScore = candidates.length > 0 ? candidates[0]!.fusedScore : 0
     const gateResult = yield* evaluateGate({
       ...options.gate,
       query: options.query,
@@ -407,8 +476,8 @@ export const retrieve = (
           bestFusedScore,
           denseThreshold: options.gate.minDenseScore,
           fusedThreshold: options.gate.minFusedScore,
-          bm25Count: bm25Hits.length,
-          denseCount: denseHits.length,
+          bm25Count,
+          denseCount,
           candidateCount: candidates.length,
         },
         gateResult.decision === "pass" ? "info" : "warn",
@@ -424,8 +493,8 @@ export const retrieve = (
 
     return RetrievalResult.make({
       candidates: finalCandidates,
-      bm25TopK: bm25Hits.length,
-      denseTopK: denseHits.length,
+      bm25TopK: bm25Count,
+      denseTopK: denseCount,
       fusedTopK: candidateMap.size,
       finalTopK: finalCandidates.length,
       gateDecision: gateResult.decision,

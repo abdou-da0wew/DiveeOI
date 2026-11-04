@@ -1,0 +1,8 @@
+# Offline training/evaluation only. The app itself never imports these.
+# CUDA wheels come from the default index; for a CPU-only box use
+#   pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.3
+transformers>=4.44
+numpy>=1.26
+onnx>=1.16
+onnxruntime>=1.18

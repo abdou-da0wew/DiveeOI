@@ -78,6 +78,7 @@ export const DEFAULTS: SettingsTree = {
     rewriteTurns: 2,
     vectorBackend: "bruteforce",
     vectorCacheMB: 256,
+    engine: "auto",
     queryEncoder: "auto",
     unloadTeacherAfterIndexing: true,
   },

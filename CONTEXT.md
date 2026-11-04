@@ -15,6 +15,15 @@ This file is the current hand-off snapshot. See `COMPOSER_INCIDENT_HANDOFF.md` f
 - Fixed the Vite development API proxy boundary so query-string routes such as `/file?directory=...` are proxied to the backend instead of falling through to `index.html`. Verified that the proxy now returns backend JSON.
 - Preserve the entire uncommitted tree; do not reset/clean it. The exact continuation inventory and current verification status are in `COMPOSER_INCIDENT_HANDOFF.md` and the newest `WORKLOG.md` entry.
 
+## Retrieval V2 (Targeted Learning) — current state
+
+- Plan: `packages/learning/RETRIEVAL_V2_PLAN.md` (live). Original rationale: `packages/learning/native/retrieval/QUERY_ENCODER_PLAN.md`.
+- Chat no longer has to run BGE-M3: `src/embed/query-encoder.ts` resolves `auto` / `student` / `bge-m3` and only selects a **promoted** student, so an unproven student can never be chosen implicitly. With `retrieval.unloadTeacherAfterIndexing` (default true) the teacher is freed once the ingest queue empties, unless chat itself still needs it.
+- Retrieval hot path can run in Rust: `retrieval.engine` = `auto` | `native` | `typescript`. `src/retrieve/native-engine.ts` spawns `divee-retrieval --serve` once, correlates NDJSON responses by id, and returns `null` (→ TypeScript fallback) on every failure. Binary lookup: `DIVEEOI_RETRIEVAL_BIN`, then `<repo>/packages/learning/native/retrieval/target/{release,debug}/divee-retrieval`.
+- Vector storage is still base64 TEXT by default. `divee-retrieval --compact` fills an additive `chunk_vecs_blob` table (readers prefer it, fall back to TEXT); `--drop-text --vacuum` is a deliberate one-way step to run only after every instance runs this build.
+- Student training lives in `packages/learning/training/` (not executed yet): dataset builder, trainer, ONNX INT8 exporter, evaluator, promoter. Promotion gates and calibrated gate thresholds are enforced by `promote.py`; the runtime manifest is `divee-student.json`.
+- Rust changes in this tree have **not** been compiled (the Arena sandbox has no Rust toolchain); run `cargo fmt --check && cargo test --offline && cargo clippy --offline -- -D warnings && cargo build --release --offline` in `packages/learning/native/retrieval` on the VDS before deploying.
+
 ## Repository commit hook
 
 - `.githooks/commit-msg` is enabled in this checkout via `core.hooksPath=.githooks`; a real temporary-repository commit and amend both produced exactly one `Co-authored-by: DiveeAgent <270451464+DiveeAgent@users.noreply.github.com>` trailer. See `PROJECT_GUIDE.md` for setup in another clone.
