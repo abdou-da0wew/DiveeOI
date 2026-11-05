@@ -785,6 +785,9 @@ def ocr_stage(args: argparse.Namespace, results: list[dict]) -> list[dict]:
             for row in passages.values():
                 handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 
+    # Start every pending book in its own worker at once: tesseract is single-threaded, so
+    # parallel books use idle cores; each worker keeps its own RLIMIT + wall clock.
+    jobs: list[dict] = []
     for position, result in enumerate(updated):
         if result.get("status") == "ok" and result.get("chunk_count", 0) > 0:
             continue
@@ -792,10 +795,16 @@ def ocr_stage(args: argparse.Namespace, results: list[dict]) -> list[dict]:
         if not pdf_path.exists():
             continue
         result_path = tempfile.mktemp(prefix=f"eb_ocr_{result['slug']}-", suffix=".json")
+        worker = mp.Process(target=_ocr_worker, args=(str(pdf_path), result, vars(args), result_path))
+        worker.start()
+        jobs.append({"position": position, "result": result, "path": result_path, "worker": worker, "deadline": time.time() + args.ocr_timeout})
+    print(f"ocr: launched {len(jobs)} worker(s) in parallel", flush=True)
+
+    for job in jobs:
+        position, result, result_path = job["position"], job["result"], job["path"]
+        worker, deadline = job["worker"], job["deadline"]
         try:
-            worker = mp.Process(target=_ocr_worker, args=(str(pdf_path), result, vars(args), result_path))
-            worker.start()
-            worker.join(args.ocr_timeout)
+            worker.join(max(1, int(deadline - time.time())))
             if worker.is_alive():
                 worker.terminate()
                 worker.join(10)
@@ -814,7 +823,6 @@ def ocr_stage(args: argparse.Namespace, results: list[dict]) -> list[dict]:
                 continue
             recovered = {**result, "status": "ok", "pages": outcome["pages"], "chars": outcome["chars"], "chunks": outcome["chunks"], "ocr": True}
             updated[position] = recovered
-            persist_ocr()  # after every recovered book: a crash never loses finished work
             print(f"ocr: {result['slug']} recovered {len(outcome['chunks'])} chunks from {outcome['pages']} pages", flush=True)
         finally:
             Path(result_path).unlink(missing_ok=True)
