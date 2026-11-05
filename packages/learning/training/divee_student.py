@@ -67,10 +67,42 @@ class QueryStudent(nn.Module):
     def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         ids = self.vocab_map[input_ids]
         # Queries longer than the trained window reuse the last position instead of failing.
-        positions = torch.arange(ids.shape[1], device=ids.device).clamp(max=self.config.max_len - 1)
+        positions = torch.arange(ids.size(1), device=ids.device).clamp(max=self.config.max_len - 1)
         x = self.norm_in(self.tok(ids) + self.pos(positions)[None, :, :])
-        x = self.encoder(x, src_key_padding_mask=(attention_mask == 0))
+        x = self._encode(x, attention_mask == 0)
         return self.proj(self.norm_out(x))
+
+    def _encode(self, x: torch.Tensor, pad_mask: torch.Tensor) -> torch.Tensor:
+        """Trace-safe re-implementation of nn.TransformerEncoder (norm_first, gelu).
+
+        nn.MultiheadAttention bakes the *dummy* sequence length into constant Reshape
+        shapes when traced with torch.onnx.export, freezing the exported graph to the
+        export-time (batch, sequence). Attention is therefore computed manually with
+        shape ops that export as fully dynamic ONNX. Identical math and identical
+        weights: state dicts from trained checkpoints load unchanged.
+        """
+        b, s, E = x.size(0), x.size(1), self.config.hidden
+        h, hd = self.config.heads, self.config.hidden // self.config.heads
+        scale = 1.0 / (hd ** 0.5)
+        key_mask = pad_mask[:, None, None, :]
+        for layer in self.encoder.layers:
+            attn = layer.self_attn
+            w, bias = attn.in_proj_weight, attn.in_proj_bias
+            x_in = layer.norm1(x)
+            q = F.linear(x_in, w[:E], None if bias is None else bias[:E])
+            k = F.linear(x_in, w[E:2 * E], None if bias is None else bias[E:2 * E])
+            v = F.linear(x_in, w[2 * E:], None if bias is None else bias[2 * E:])
+            q = q.view(b, s, h, hd).transpose(1, 2)
+            k = k.view(b, s, h, hd).transpose(1, 2)
+            v = v.view(b, s, h, hd).transpose(1, 2)
+            scores = (q @ k.transpose(-2, -1)) * scale
+            scores = scores.masked_fill(key_mask, torch.finfo(scores.dtype).min)
+            y = torch.softmax(scores, dim=-1) @ v
+            y = y.transpose(1, 2).contiguous().view(b, s, E)
+            x = x + layer.dropout1(attn.out_proj(y))
+            ff = layer.linear2(layer.dropout(layer.activation(layer.linear1(layer.norm2(x)))))
+            x = x + layer.dropout2(ff)
+        return x
 
     def embed(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         """CLS pooling + L2 normalisation: the exact post-processing transformers.js applies.
