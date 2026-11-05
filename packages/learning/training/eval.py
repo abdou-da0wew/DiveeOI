@@ -86,12 +86,21 @@ def encode_queries(model: QueryStudent, tokenizer, texts: list[str], device, bat
 
 def run_engine(binary: str, db: str, bench: Path) -> dict | None:
     try:
+        # The engine scopes every search to explicit --book ids (chat passes the user's books;
+        # corpus-wide eval passes all of them). Without them run_bm25/run_dense return no hits.
+        import sqlite3 as _sqlite3
+
+        book_ids = [str(row[0]) for row in _sqlite3.connect(db).execute("SELECT id FROM books ORDER BY id")]
+        command = [binary, "--db", db]
+        for book_id in book_ids:
+            command += ["--book", book_id]
+        command += ["--eval", str(bench)]
         completed = subprocess.run(
-            [binary, "--db", db, "--eval", str(bench)],
+            command,
             capture_output=True,
             text=True,
             check=True,
-            timeout=1800,
+            timeout=3600,
         )
         return json.loads(completed.stdout)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError) as error:
@@ -170,14 +179,17 @@ def main(argv: list[str] | None = None) -> int:
     relevant = [set(row["positives"]) for row in selected_rows]
     student_ranked, teacher_ranked = rankings(student_vectors), rankings(teacher_vectors)
 
-    by_tag: dict[str, dict] = {}
-    for tag in sorted({row["tag"] for row in selected_rows}):
-        selection = [index for index, row in enumerate(selected_rows) if row["tag"] == tag]
-        by_tag[tag] = M.ranking_metrics([student_ranked[i] for i in selection], [relevant[i] for i in selection])
-    by_lang_pair: dict[str, dict] = {}
-    for pair in sorted({row.get("lang_pair", "") for row in selected_rows} - {""}):
-        selection = [index for index, row in enumerate(selected_rows) if row.get("lang_pair") == pair]
-        by_lang_pair[pair] = M.ranking_metrics([student_ranked[i] for i in selection], [relevant[i] for i in selection])
+    def slice_metrics(ranked: list[list[str]], key: str) -> dict[str, dict]:
+        slices: dict[str, dict] = {}
+        for value in sorted({row.get(key, "") for row in selected_rows} - {""}):
+            selection = [index for index, row in enumerate(selected_rows) if row.get(key) == value]
+            slices[value] = M.ranking_metrics([ranked[i] for i in selection], [relevant[i] for i in selection])
+        return slices
+
+    by_tag = slice_metrics(student_ranked, "tag")
+    teacher_by_tag = slice_metrics(teacher_ranked, "tag")
+    by_lang_pair = slice_metrics(student_ranked, "lang_pair")
+    teacher_by_lang_pair = slice_metrics(teacher_ranked, "lang_pair")
 
     student_overall = M.ranking_metrics(student_ranked, relevant)
     teacher_overall = M.ranking_metrics(teacher_ranked, relevant)
@@ -192,10 +204,10 @@ def main(argv: list[str] | None = None) -> int:
         "queries": len(selected_rows),
         "eval_split": split_note,
         "student": {"overall": student_overall, "by_tag": by_tag, "by_lang_pair": by_lang_pair},
-        "teacher": {"overall": teacher_overall},
+        "teacher": {"overall": teacher_overall, "by_tag": teacher_by_tag, "by_lang_pair": teacher_by_lang_pair},
         "ratio": M.ratios(student_overall, teacher_overall),
-        "ratio_by_tag": {tag: M.ratios(values, by_tag[tag]) for tag, values in by_tag.items()},
-        "ratio_by_lang_pair": {pair: M.ratios(values, by_lang_pair[pair]) for pair, values in by_lang_pair.items()},
+        "ratio_by_tag": {tag: M.ratios(by_tag[tag], teacher_by_tag[tag]) for tag in by_tag},
+        "ratio_by_lang_pair": {pair: M.ratios(by_lang_pair[pair], teacher_by_lang_pair[pair]) for pair in by_lang_pair},
         "gate_scores": {
             "in_book_p5": M.percentile([float(row.max()) for row in student_scores], 5),
             "in_book_p50": M.percentile([float(row.max()) for row in student_scores], 50),

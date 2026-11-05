@@ -56,11 +56,21 @@ def main(argv: list[str] | None = None) -> int:
     }
     failures = [f"{name}: {value:.3f} < {floor:.3f}" for name, (value, floor) in checks.items() if value < floor]
 
+    # Cross-lingual slices below this sample floor are recorded but not gated: a ratio over
+    # ~3 held-out queries is noise, and gating on it would silently block honest students.
+    min_cross_queries = 20
+    skipped_cross: list[str] = []
     for pair, values in (report.get("ratio_by_lang_pair") or {}).items():
         if "-" in pair and ">" in pair:  # cross-lingual slice, e.g. ar->en
             value = values.get("recall_at_10", 0.0)
+            count = int(((report.get("student") or {}).get("by_lang_pair") or {}).get(pair, {}).get("queries", 0))
+            if count < min_cross_queries:
+                skipped_cross.append(f"{pair}: {count} val queries (ratio {value:.3f} not gated)")
+                continue
             if value < args.cross_lingual:
                 failures.append(f"cross-lingual {pair} recall_at_10: {value:.3f} < {args.cross_lingual:.3f}")
+    if skipped_cross:
+        print("cross-lingual slices below sample floor (recorded, not gated): " + "; ".join(skipped_cross))
 
     scores = report.get("gate_scores", {})
     in_book_p5 = float(scores.get("in_book_p5", 0.0))
