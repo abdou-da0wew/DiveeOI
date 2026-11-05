@@ -81,8 +81,10 @@ def main(argv: list[str] | None = None) -> int:
 
     promoted = (not failures) or args.force
     gate = {}
+    if skipped_cross:
+        gate["crossLingualSkipped"] = skipped_cross
     if separable:
-        gate = {"minDenseScore": round((in_book_p5 + off_topic_p95) / 2, 4)}
+        gate["minDenseScore"] = round((in_book_p5 + off_topic_p95) / 2, 4)
         if args.min_fused is not None:
             gate["minFusedScore"] = args.min_fused
 
