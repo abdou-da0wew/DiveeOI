@@ -165,51 +165,37 @@ class Teacher:
 
 
 def langlink_titles(titles: list[str], source_lang: str, target_lang: str, limit: int) -> dict[str, str]:
-    """Mine Wikipedia langlinks (source title -> target title) via the public API.
-
-    Batched 40 titles per request with spacing and 429 backoff — per-title requests get
-    rate-limited (HTTP 429) after a few dozen calls.
-    """
-    import time
+    """Mine Wikipedia langlinks (source title -> target title) via the public API."""
     import urllib.parse
     import urllib.request
 
     out: dict[str, str] = {}
     endpoint = f"https://{source_lang}.wikipedia.org/w/api.php"
-    headers = {"User-Agent": "diveeoi-training/1.0 (colab; contact: dev)"}
-    candidates = titles[: limit * 4]
-    for start in range(0, len(candidates), 40):
+    for title in titles[: limit * 3]:
         if len(out) >= limit:
             break
-        batch = candidates[start : start + 40]
-        for attempt in range(4):
+        try:
             params = urllib.parse.urlencode(
                 {
                     "action": "query",
                     "prop": "langlinks",
-                    "titles": "|".join(batch),
+                    "titles": title,
                     "lllang": target_lang,
-                    "lllimit": "max",
                     "format": "json",
                     "redirects": 1,
                 }
             )
-            request = urllib.request.Request(f"{endpoint}?{params}", headers=headers)
-            try:
-                with urllib.request.urlopen(request, timeout=20) as response:
-                    data = json.load(response)
-                for page in data.get("query", {}).get("pages", {}).values():
-                    if page.get("missing") is not None:
-                        continue
-                    for link in page.get("langlinks", []) or []:
-                        if link.get("lang") == target_lang and page.get("title"):
-                            out[page["title"]] = link["*"]
-                break
-            except Exception as error:  # noqa: BLE001 - network best-effort
-                wait = 3.0 * (attempt + 1)
-                print(f"  langlink batch {start // 40} attempt {attempt} failed: {error}; retry in {wait:.0f}s", flush=True)
-                time.sleep(wait)
-        time.sleep(1.2)
+            request = urllib.request.Request(f"{endpoint}?{params}", headers={"User-Agent": "diveeoi-training/1.0"})
+            with urllib.request.urlopen(request, timeout=15) as response:
+                data = json.load(response)
+            pages = data.get("query", {}).get("pages", {})
+            for page in pages.values():
+                for link in page.get("langlinks", []) or []:
+                    if link.get("lang") == target_lang and page.get("title"):
+                        out[page["title"]] = link["*"]
+        except Exception as error:  # noqa: BLE001 - network best-effort
+            print(f"  langlink lookup failed for {title!r}: {error}", flush=True)
+            continue
     return out
 
 
@@ -258,11 +244,24 @@ def main() -> int:
 
     print("== writing books.db ==", flush=True)
     db_path = out / "books.db"
-    if db_path.exists():
-        db_path.unlink()
+    # Idempotent append: the EB ingester (colab_eb_corpus.py) may have populated the db already,
+    # and re-runs must not destroy it. Wikipedia slugs are seed-deterministic, so a re-run
+    # replaces exactly its own rows and leaves every other book untouched.
     db = sqlite3.connect(db_path)
     db.executescript(SCHEMA)
-    db.execute("INSERT INTO meta (key, value) VALUES ('schema_version', '1')")
+    existing = {row[0] for row in db.execute("SELECT id FROM chunks")}
+    fresh_rows = [row for row in rows if row["chunk_id"] not in existing]
+    skipped = len(rows) - len(fresh_rows)
+    if skipped:
+        print(f"skipping {skipped} already-indexed wiki chunks", flush=True)
+    rows = fresh_rows
+    vector_by_chunk = {cid: vector_by_chunk[cid] for cid in {row["chunk_id"] for row in rows}}
+    if not rows:
+        print("wiki corpus already indexed; nothing to do", flush=True)
+        db.close()
+        return 0
+    if not db.execute("SELECT 1 FROM meta WHERE key='schema_version'").fetchone():
+        db.execute("INSERT INTO meta (key, value) VALUES ('schema_version', '1')")
     now = int(time.time() * 1000)
     embed_signature = json.dumps(
         {"repo": "Xenova/bge-m3", "revision": "4de13258303883538bd53b696b452bf8099f0858", "dtype": "fp32", "maxLength": 512}
@@ -272,7 +271,7 @@ def main() -> int:
         by_book.setdefault(row["book_slug"], []).append(row)
     for slug, book_rows in by_book.items():
         db.execute(
-            "INSERT INTO books (id, slug, title, author, lang, source_hash, source_path, pages, status, "
+            "INSERT OR REPLACE INTO books (id, slug, title, author, lang, source_hash, source_path, pages, status, "
             "parent_count, chunk_count, embed_signature, normalizer_version, created_at, indexed_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ready', 0, ?, ?, 1, ?, ?)",
             (
@@ -293,7 +292,7 @@ def main() -> int:
         # One parent section per article (the app's chunker maps chunks -> one section);
         # the parent text the LLM would see is the article's kept paragraphs joined.
         db.execute(
-            "INSERT INTO sections (id, book_id, parent_id, level, title, page_start, page_end, ord, text, heading_path) "
+            "INSERT OR REPLACE INTO sections (id, book_id, parent_id, level, title, page_start, page_end, ord, text, heading_path) "
             "VALUES (?, ?, NULL, 1, ?, 1, 1, 0, ?, ?)",
             (
                 f"{slug}-s1",
@@ -305,7 +304,7 @@ def main() -> int:
         )
         for position, row in enumerate(book_rows):
             db.execute(
-                "INSERT INTO chunks (id, book_id, section_id, ord, page, text, text_norm, token_count) "
+                "INSERT OR REPLACE INTO chunks (id, book_id, section_id, ord, page, text, text_norm, token_count) "
                 "VALUES (?, ?, ?, ?, 1, ?, ?, ?)",
                 (
                     row["chunk_id"],
@@ -317,7 +316,7 @@ def main() -> int:
                     max(1, len(row["text"]) // 4),
                 ),
             )
-            db.execute("INSERT INTO chunk_vecs (chunk_id, vec) VALUES (?, ?)", (row["chunk_id"], vector_by_chunk[row["chunk_id"]]))
+            db.execute("INSERT OR REPLACE INTO chunk_vecs (chunk_id, vec) VALUES (?, ?)", (row["chunk_id"], vector_by_chunk[row["chunk_id"]]))
     db.commit()
 
     # ------------------------------------------------------------- real queries
