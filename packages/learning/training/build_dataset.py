@@ -154,29 +154,60 @@ def first_sentence(text: str, words: int = 16) -> str:
 
 
 def synthesize(passage: dict, per_passage: int, rng: random.Random) -> list[dict]:
-    """Cheap, honest proxy queries. Never invented facts: only headings and spans of the passage."""
+    """Cheap, honest proxy queries. Never invented facts: only headings and spans of the passage.
+
+    The pool deliberately mixes many phrasings (raw heading, raw sentence spans, question /
+    explain / how / why forms and a keyword cut, per language) so the student learns
+    meaning-level matching instead of memorising a handful of fixed templates. A random subset
+    of `per_passage` is kept per passage.
+    """
     language = language_of(f"{passage['heading']} {passage['text']}", passage["book_lang"])
     heading, span = passage["heading"], first_sentence(passage["text"])
     # A heading in the other script (common in translated books, or a numbered stub) would create a
     # mixed-language query that no student would ever type; fall back to a span of the passage.
     heading_matches = 3 <= len(heading) <= 90 and language_of(heading) == language
     phrase = heading if heading_matches and len(heading) <= 80 else " ".join(span.split()[:6])
+    words = passage["text"].split()
+    second_span = " ".join(words[8:20]) if len(words) >= 22 else ""
+    if second_span and (len(second_span) < 12 or language_of(second_span) != language):
+        second_span = ""
+    keywords = " ".join([w for w in re.findall(r"[\w\u0600-\u06FF]+", phrase) if len(w) > 3][:5])
     candidates: list[tuple[str, str]] = []
 
     if heading_matches:
         candidates.append((heading, "heading"))
     if len(span.split()) >= 4:
         candidates.append((span, "span"))
+    if second_span:
+        candidates.append((second_span, "span"))
     if phrase:
         if language == "ar":
-            candidates.append((f"ما هو {phrase}؟", "question"))
-            candidates.append((f"اشرح {phrase}", "explain"))
+            candidates += [
+                (f"ما هو {phrase}؟", "question"),
+                (f"اشرح {phrase}", "explain"),
+                (f"كيف يعمل {phrase}؟", "question"),
+                (f"ما أهمية {phrase}؟", "question"),
+                (f"تحدث لي عن {phrase}", "explain"),
+            ]
         elif language == "fr":
-            candidates.append((f"Qu'est-ce que {phrase} ?", "question"))
-            candidates.append((f"Explique {phrase}", "explain"))
+            candidates += [
+                (f"Qu'est-ce que {phrase} ?", "question"),
+                (f"Explique {phrase}", "explain"),
+                (f"Comment fonctionne {phrase} ?", "question"),
+                (f"Parle-moi de {phrase}", "explain"),
+                (f"Pourquoi {phrase} est-il important ?", "question"),
+            ]
         else:
-            candidates.append((f"What is {phrase}?", "question"))
-            candidates.append((f"Explain {phrase}", "explain"))
+            candidates += [
+                (f"What is {phrase}?", "question"),
+                (f"Explain {phrase}", "explain"),
+                (f"How does {phrase} work?", "question"),
+                (f"What should I know about {phrase}?", "question"),
+                (f"Tell me about {phrase}", "explain"),
+                (f"Why is {phrase} important?", "question"),
+            ]
+    if len(keywords) >= 8 and language_of(keywords) == language:
+        candidates.append((keywords, "keywords"))
 
     seen: set[str] = set()
     unique: list[dict] = []
