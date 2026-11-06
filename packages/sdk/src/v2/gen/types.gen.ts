@@ -3544,6 +3544,9 @@ export type ConfigTargetedLearning1 = {
      * Reciprocal Rank Fusion constant.
      */
     rrfK?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    engine?: "auto" | "native" | "typescript"
+    queryEncoder?: "auto" | "student" | "bge-m3"
+    unloadTeacherAfterIndexing?: boolean
     /**
      * RRF weight for the lexical list.
      */
