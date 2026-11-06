@@ -63,6 +63,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--num-threads", type=int, default=0, help="torch CPU threads (0 = default)")
     parser.add_argument("--seed", type=int, default=13)
     parser.add_argument("--limit-queries", type=int, default=0)
+    parser.add_argument("--init", default=None, help="initialize weights from a best.pt checkpoint (resume distillation)")
     return parser.parse_args(argv)
 
 
@@ -243,6 +244,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     vocab_map = build_vocab_map([int(token_id) for token_id in vocab["ids"]], int(vocab["original_vocab"]))
     model = QueryStudent(vocab_map, config).to(device)
+    if args.init:
+        _state = torch.load(args.init, map_location="cpu")
+        model.load_state_dict(_state["state_dict"] if "state_dict" in _state else _state)
+        print(f"initialized weights from {args.init}")
     counts = parameter_counts(model)
     print(f"student parameters: {counts['total'] / 1e6:.1f}M (embedding {counts['embedding'] / 1e6:.1f}M) vocab={config.vocab_size}")
 
