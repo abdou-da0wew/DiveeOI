@@ -67,6 +67,13 @@ const FIELD_NOTES = `
     <code>Service not found: @opencode/Skill</code>. The name said "skill". The fix was
     nothing to do with skills.
   </p>
+  <p>
+    <strong>Historical note — November 6, 2026.</strong> This paper preserves the specific
+    service-context incident and the reasoning used to fix it. It is not a current release
+    report. The current repository and runtime snapshot is maintained in
+    <code>RELEASE_HANDOFF_2026-11-06.md</code>; newer subsystems such as Targeted Learning
+    are documented separately.
+  </p>
 
   <p>
     I had built the background-task system over the previous weeks: a task table, a runner
@@ -195,35 +202,37 @@ const ARCHITECTURE = `
 <article>
   <h1>The architecture of a self-hosted coding agent</h1>
   <p class="lede">
-    How DiveeOI is put together: one process, one database, a layered service graph, and
-    a set of subsystems — sessions, tools, providers, background tasks — that share a
-    single application context.
+    How DiveeOI is put together: one primary server process, subsystem-owned data stores,
+    a layered service graph, and services — sessions, tools, providers, background tasks —
+    that share the application context.
   </p>
 
   <h2>1 · The deployment shape</h2>
   <p>
     DiveeOI is a Bun process that serves both an HTTP API and the built single-page client.
-    The browser is a view; the server owns the sessions, the tools, the permissions and the
-    data. There is no second process, no message broker and no external store.
+    The browser is a view; the server owns sessions, tools, permissions and the core app
+    data. Optional supervised child processes (for example, the persistent Rust retrieval
+    engine) do not require a separate always-on service or message broker.
   </p>
   <p>
-    The state that matters is a single SQLite file
-    (<code>~/.local/share/diveeoi/diveeoi.db</code>, overridable with
-    <code>DIVEEOI_DB</code>). Schema changes are migrations, applied on boot, and the
-    migration set is the history of the data model. A second runtime — Node — is supported
-    for the SQLite bridge, but Bun is the supported path.
+    Core application state lives in SQLite under the application data directory; the legacy
+    <code>OPENCODE_DB</code> override remains supported. Targeted Learning deliberately owns
+    separate <code>books.db</code> (books, passages and vectors) and <code>student.db</code>
+    (student memory and notes) stores under its own data directory. Schema changes in the
+    core database are migrations applied on boot. Bun is the primary runtime; Node 22 is
+    supported for the SQLite bridge path.
   </p>
 
   <h2>2 · The package map</h2>
   <table>
     <thead><tr><th>Package</th><th>Responsibility</th><th>Scale</th></tr></thead>
     <tbody>
-      <tr><td>server</td><td>HTTP surface, sessions, tools, providers, the task subsystem</td><td>343 files, 56 services</td></tr>
-      <tr><td>db</td><td>schema, migrations, provider adapters, the session engine</td><td>344 files</td></tr>
-      <tr><td>api</td><td>HttpApi group and schema definitions</td><td>20 groups</td></tr>
-      <tr><td>app</td><td>the SolidJS client</td><td>Vite; the v2 redesign is in progress</td></tr>
-      <tr><td>ui</td><td>the component library</td><td>120 components, 55 of them v2</td></tr>
-      <tr><td>llm</td><td>the schema-first provider boundary</td><td>one place that knows about models</td></tr>
+      <tr><td>server</td><td>HTTP surface, sessions, tools, providers, the task subsystem</td><td>Effect service graph and runtime orchestration</td></tr>
+      <tr><td>db</td><td>schema, migrations, provider adapters, the session engine</td><td>Core SQLite persistence</td></tr>
+      <tr><td>api</td><td>HttpApi group and schema definitions</td><td>Typed endpoint and OpenAPI contract</td></tr>
+      <tr><td>app / ui</td><td>SolidJS client and shared component library</td><td>Vite, themes, reusable components</td></tr>
+      <tr><td>learning</td><td>Targeted Learning subsystem</td><td>Ingestion/OCR, BGE-M3, hybrid retrieval, student memory, trainer</td></tr>
+      <tr><td>llm</td><td>the schema-first provider boundary</td><td>model protocol and routing</td></tr>
       <tr><td>memory</td><td>the project memory graph</td><td>extraction, recall, consolidation</td></tr>
       <tr><td>plugin, plugins</td><td>the plugin SDK and the bundled plugins</td><td>hooks, tools, config</td></tr>
       <tr><td>mcp, identity, sdk</td><td>the MCP host, the brand assets, the clients</td><td>published separately</td></tr>
@@ -233,7 +242,7 @@ const ARCHITECTURE = `
   <h2>3 · The request path</h2>
   <div class="flow">
 browser ── fetch /session/:id/message
-  → HttpApi (packages/api, 20 groups)  →  session context + permissions
+  → HttpApi (packages/api)            →  session context + permissions
   → SessionPrompt                    →  the turn loop
   → ToolRegistry                     →  the tools this agent may use
   → tool (read / grep / edit / bash) →  each behind a permission rule
@@ -348,20 +357,40 @@ browser ── fetch /session/:id/message
 
   <h2>11 · Security posture</h2>
   <ul>
-    <li><strong>One password, checked per request.</strong> There are no accounts and no OAuth; the credential lives in the environment or the config, and it is the whole access-control story.</li>
+    <li><strong>Authentication modes.</strong> Basic authentication and JWT/account modes are supported. Production requires explicit strong secrets; registration is closed after the first account by default.</li>
     <li><strong>Permissions are the real boundary.</strong> Every tool call is matched against the ruleset — per tool, per pattern, last match wins — and a deny is a deny. The agent cannot widen its own permissions.</li>
     <li><strong>External paths are gated.</strong> A tool that reaches outside the project asks first, and a rule can refuse a whole class of paths.</li>
-    <li><strong>Secrets stay local.</strong> Provider keys are stored in the local database, and only the calls you configure leave the machine.</li>
+    <li><strong>External data paths are explicit.</strong> Provider keys are held by the self-hosted instance, but prompts go to the provider you choose; web tools and remote MCP servers also receive the requests you send them.</li>
     <li><strong>The network surface is what you expose.</strong> The server binds what you tell it to; behind a proxy, terminate TLS there. The database file is as sensitive as the code in it.</li>
   </ul>
 
   <h2>12 · Known limits</h2>
   <ul class="limits">
-    <li>The v2 redesign is mid-migration; some surfaces are new components and some are old ones.</li>
-    <li>There is no terminal client; the UI is the browser.</li>
-    <li>Access is a single shared password — adequate for a machine on a network, not a multi-user identity system.</li>
-    <li>SQLite serialises writers; the design assumes one operator.</li>
+    <li>There is no terminal client; the product is browser-first.</li>
+    <li>There is no built-in TLS terminator; put the server behind HTTPS at a reverse proxy.</li>
+    <li>SQLite serialises writers; this is a self-hosted, single-node architecture rather than a horizontally scaled database service.</li>
+    <li>Provider, web-search and remote MCP integrations are network boundaries; configure and review them deliberately.</li>
     <li>The bundled free tier is free and below a frontier model on hard reasoning.</li>
+  </ul>
+
+  <h2>13 · Targeted Learning and Retrieval V2</h2>
+  <p>
+    Targeted Learning is a separate subsystem for book-grounded sessions. It extracts text
+    from PDF, DOCX and text sources, performs OCR where needed, chunks passages and indexes
+    them with the pinned BGE-M3 teacher. A session selects books and retrieves evidence before
+    the model is called; a relevance gate and citation verifier keep the answer tied to the
+    passages shown for that turn.
+  </p>
+  <p>
+    Its storage is deliberately separate from ordinary project sessions: <code>books.db</code>
+    holds the library, chunks, vectors and ingest state; <code>student.db</code> holds student
+    memories and book notes. Both live under the configurable Targeted Learning data directory.
+  </p>
+  <ul>
+    <li><strong>Hybrid retrieval.</strong> SQLite FTS5/BM25 and dense cosine candidates are fused with RRF; an optional persistent Rust engine performs the hot path and TypeScript remains the fallback.</li>
+    <li><strong>Teacher and student.</strong> BGE-M3 indexes passages. A compact query student can replace it for chat only after held-out evaluation writes a promoted runtime manifest; the vector dimension and pooling contract stay compatible with existing indexes.</li>
+    <li><strong>Policy boundary.</strong> Query rewriting, relevance gates, parent expansion, session integration and grounding verification remain in TypeScript.</li>
+    <li><strong>Offline tooling.</strong> Dataset generation, multilingual evaluation, ONNX export, corpus preparation and promotion tooling live outside the normal server process.</li>
   </ul>
 </article>
 `
@@ -584,7 +613,7 @@ const page = (paper, theme, edition) => `
   </div>
   ${paper.body}
   <div class="foot">
-    <span><span class="chip">MIT</span> &nbsp; <span class="chip">self-hosted</span> &nbsp; <span class="chip">${edition} edition</span></span>
+    <span><span class="chip">self-hosted</span> &nbsp; <span class="chip">architecture notes</span> &nbsp; <span class="chip">${edition} edition</span></span>
     <span class="accent">diveeoi.dev</span>
   </div>
 </section>

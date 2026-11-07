@@ -49,6 +49,27 @@ bun --cwd packages/memory run test       # bun test
 - `patches/` contains 9 patches applied via `patchedDependencies` in root `package.json`. After changing a patched dep, run `bun install` and verify `bun patch` if needed.
 - `turbo.json`: `app#build` depends on `sdk#build`; `server#build` depends on `app#build`.
 
+## Targeted Learning development
+
+The feature package has its own TypeScript tests and typecheck:
+
+```bash
+bun --cwd packages/learning test
+bun --cwd packages/learning run typecheck
+```
+
+The Rust retrieval engine is developed independently:
+
+```bash
+cd packages/learning/native/retrieval
+cargo fmt --check
+cargo test --offline
+cargo clippy --offline -- -D warnings
+cargo build --release --offline
+```
+
+The offline query-student trainer lives in `packages/learning/training` and uses Python dependencies from its local `requirements.txt`. It is not part of the normal server runtime. Start with that folder's README and the Retrieval V2 plan before changing the 1024-dimensional encoder contract or promotion criteria.
+
 ## Typecheck
 
 Uses `tsgo` (Effect's TS fork, via `typescript: @typescript/native-preview`). The `systemd-run --user --scope -p MemoryMax=1.8G` wrappers in `server/db/api` exist to cap memory on dev machines; remove them inside containers. Never run a monorepo-wide `tsgo` from the IDE without the wrapper — it OOMs.

@@ -1,123 +1,115 @@
-# Divee query-student trainer
+# Divee query-student training toolkit
 
-Offline tooling that turns a finished `books.db` into a small Arabic+English query encoder which
-reproduces BGE-M3's 1024-d query space. Once the student is promoted, chat no longer loads BGE-M3
-(see `../RETRIEVAL_V2_PLAN.md`).
+Offline tooling for distilling a compact query encoder into BGE-M3's existing 1024-dimensional passage-vector space. The teacher embeds books; a smaller student can later embed chat questions without re-indexing those books.
 
-Nothing here runs inside the app. It is the "index once, then forget the teacher" half of
-Retrieval V2.
+Nothing in this directory runs in the normal server/chat process. It is a training, evaluation, corpus-preparation, and artifact-promotion toolkit.
 
-## Contract (do not change without re-indexing every book)
+## Compatibility contract
 
-| Item | Value |
-| --- | --- |
-| Output | 1024 floats, CLS pooled, L2 normalised |
-| Tokenizer | the BGE-M3/XLM-R tokenizer, unchanged (the pruned vocabulary lives inside the graph) |
-| Query length | 128 tokens |
-| Passage space | BGE-M3 vectors already stored in `books.db` — never re-embedded by this toolkit |
-| ONNX signature | inputs `input_ids`, `attention_mask`; output `last_hidden_state` |
+| Item | Contract |
+|---|---|
+| Embedding space | 1024 dimensions, matching stored BGE-M3 passage vectors |
+| Pooling | CLS |
+| Normalisation | L2 |
+| Tokenizer | BGE-M3/XLM-R tokenizer and compatible token IDs |
+| Maximum query length | 128 tokens |
+| ONNX inputs | `input_ids`, `attention_mask` |
+| ONNX output | `last_hidden_state`; runtime applies CLS pooling and L2 normalisation |
+| Existing book vectors | Read from `books.db`; never re-embedded by student training |
 
-The runtime applies CLS pooling + normalisation exactly as it does for the teacher, which is why
-the graph exports `last_hidden_state` and not a pooled vector.
+Changing these values requires a new compatibility strategy and evaluation against existing indexes. The runtime manifest includes the promotion state and gate results; a student is not selected by `queryEncoder=auto` until it is marked promoted.
 
-## Install
+## Install and smoke test
+
+Use a dedicated Python environment on the training machine:
 
 ```sh
-pip install -r requirements.txt      # torch, transformers, onnx, onnxruntime, numpy
-python smoke_test.py                 # metrics always; training/export when torch is present
+python -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+python smoke_test.py
 ```
 
-`smoke_test.py` is safe on a laptop CPU: it trains a 1-layer toy model for six steps, checks the
-gradients flow through the vocabulary remap, exports ONNX, and (if `onnxruntime` exists) quantizes
-to INT8.
+The CPU smoke test exercises a tiny synthetic model, gradients through vocabulary remapping, ONNX export, and INT8 quantisation when the required runtime packages are available. It validates the toolchain, not retrieval quality or production suitability.
 
-## Pipeline
+## End-to-end workflow
+
+Run from `packages/learning/training`. Use a finished, backed-up `books.db` and keep the data, checkpoint, report, and runtime artifact directories distinct.
 
 ```sh
-# 1. dataset: queries + teacher targets + pruned vocabulary + hard negatives
-python build_dataset.py --db ~/.local/share/diveeoi/targeted-learning/books.db --out data/
+# 1. Build a dataset from the indexed passages and stored teacher vectors.
+python build_dataset.py \
+  --db ~/.local/share/diveeoi/targeted-learning/books.db \
+  --out data/
 
-#    (preferred) with real captured questions instead of synthesized ones
-python build_dataset.py --db ... --out data/ --queries real-queries.jsonl
+# Prefer real captured questions when available; augment/replace behaviour is explicit.
+python build_dataset.py \
+  --db ~/.local/share/diveeoi/targeted-learning/books.db \
+  --out data/ \
+  --queries real-queries.jsonl \
+  --real-query-mode augment
 
-# 2. train (GPU strongly recommended; CPU works but slowly)
+# 2. Train the student. GPU is recommended; CPU is supported but slower.
 python train.py --data data/ --out models/student/ --epochs 6
 
-# 3. export the runtime directory (ONNX fp32 -> INT8, tokenizer/config copied from the teacher)
+# 3. Export the runtime directory (fp32 ONNX plus optional INT8 quantisation).
 python export.py --model models/student/ --data data/ --out models/student-runtime/
 
-# 4. evaluate: student vs teacher, per slice, plus gate score distributions
-python eval.py --data data/ --model models/student/ --report eval-report.json \
+# 4. Evaluate the held-out split using the same split configuration as training.
+python eval.py \
+  --data data/ \
+  --model models/student/ \
+  --report eval-report.json \
   --db ~/.local/share/diveeoi/targeted-learning/books.db \
-  --rust-bin ../native/retrieval/target/release/divee-retrieval --emit-bench bench/
+  --rust-bin ../native/retrieval/target/release/divee-retrieval \
+  --emit-bench bench/
 
-# 5. promote only if the gates pass (writes divee-student.json with promoted=true + gate thresholds)
+# 5. Promote only after every configured quality and gate criterion passes.
 python promote.py --report eval-report.json --model models/student-runtime/
 
-# 6. install it
+# 6. Install the complete runtime artifact under the Targeted Learning data directory.
 cp -r models/student-runtime ~/.local/share/diveeoi/models/divee-query-student
 ```
 
-## Corpus: Egyptian Baccalaureate textbooks + Wikipedia stand-in
+Check each script's `--help` output before adapting a command to a different corpus or split. The evaluation tool can emit engine benchmark JSONL files for the Rust engine; it passes explicit book IDs so the benchmark searches the intended corpus.
 
-`colab_corpus.py` builds a stand-in `books.db` from streamed Wikipedia articles (ar/en) so the
-toolkit has an honest corpus before the app has indexed real books. `colab_eb_corpus.py` ingests
-the official Egyptian Baccalaureate PDFs (Ar/En/Fr subjects + assessments) into the same db:
+## Dataset quality and language coverage
 
-```sh
-# on a Colab T4 runtime (stages: download -> extract -> ocr -> db)
-python colab_eb_corpus.py --stage all
-#   download : the 40 PDFs from the EB blob storage (socket timeout, size-validated, atomic)
-#   extract  : PyMuPDF text layer -> per-page chunks, one isolated worker per book
-#              (RLIMIT_AS + wall clock; a memory-bomb PDF degrades to an error book)
-#   ocr      : tesseract (ara/eng/fra) at 150 dpi for books without a text layer,
-#              also one isolated worker per book
-#   db       : embed every chunk with the fp32 BGE-M3 teacher, append books/chunks/chunk_vecs
-#              to /content/corpus/books.db, and append real queries (incl. cross-lingual pairs
-#              aligned by relative position across the Ar/En/Fr editions) to real-queries.jsonl
-```
+The builder supports Arabic, English, and French passage/query data. The synthetic query pool now mixes roughly 8–10 honest candidate forms per passage/language from headings and sentence spans: raw heading/span cuts, question/explain/how/why forms, and keyword cuts. It does not invent factual content. The configured `--queries-per-passage` selects the subset retained for each passage.
 
-Both corpus scripts write the app's exact books.db schema, so the output doubles as a ready-to-use
-library for the app (and for the Rust engine's `--compact` + engine-level eval).
+Captured questions supplied with `--queries` are preferred for realistic evaluation. Keep their source, language, book IDs, and relevance judgements intact. Synthetic data is a useful bootstrap and coverage aid, not a substitute for real user query distribution.
 
-`build_dataset.py` is language-aware for ar/en/fr (synthesized question templates per language,
-`lang_pair` reporting across the three), and `eval.py` calibrates the refusal gate with ar/en/fr
-off-topic probes.
+The Egyptian Baccalaureate corpus workflow (`colab_eb_corpus.py`) downloads the source PDFs, extracts text in isolated workers, uses OCR for image-based scans, and builds/appends the book/vector corpus. OCR workers can process pending books in parallel while each worker remains resource-limited and isolated. The Wikipedia stand-in builder appends idempotently rather than recreating the corpus database.
 
-## Judged slices
+## Evaluation and promotion
 
-| Slice | Source | Why |
-| --- | --- | --- |
-| `heading`, `span`, `question`, `explain` | synthesized | everyday retrieval |
-| `real` | `--queries` | the distribution that matters |
-| `ar->en`, `en->ar` | `--queries` (or Arabic books with English probes) | cross-lingual recall |
-| off-topic probes | built into `eval.py` | gate false-accept / false-refusal calibration |
+The evaluator reports ranking metrics overall and across tag/language-pair slices. Cross-lingual slices have a minimum sample floor; slices that cannot meet it are recorded as skipped in the promotion manifest rather than silently treated as passing. Engine evaluation scopes searches to selected book IDs. Gate calibration compares in-book and off-topic score distributions.
 
-`eval.py` also writes `bench-teacher.jsonl` / `bench-student.jsonl`; `divee-retrieval --eval`
-turns them into engine-level Recall@5/10, MRR@10, nDCG@10 and latency, i.e. the numbers that
-include BM25, Arabic normalisation and RRF.
+Default promotion ratios are evaluated against the teacher on a held-out set:
 
-## Promotion gates
+- Recall@10: at least 0.95 of teacher.
+- Recall@5: at least 0.93.
+- MRR@10 and nDCG@10: at least 0.93 each.
+- Cross-lingual Recall@10: at least 0.90.
+- Gate false-refusal increase: bounded by the configured tolerance; off-topic false-accept behaviour must also remain acceptable and thresholds must be separable.
 
-Student / teacher ratios on a held-out set (`promote.py` defaults):
+A failed gate leaves the model unpromoted. The `--force` override is explicit and recorded in the manifest; it must not be mistaken for a successful quality promotion. Inspect the JSON report and `divee-student.json` before changing runtime settings.
 
-* Recall@10 ≥ 0.95, Recall@5 ≥ 0.93, MRR@10 ≥ 0.93, nDCG@10 ≥ 0.93
-* cross-lingual Recall@10 ≥ 0.90
-* separable gate: student in-book p5 > off-topic p95, else no threshold can separate them
+## Corpus helpers
 
-Failing a gate leaves `promoted: false`, so `retrieval.queryEncoder=auto` keeps using BGE-M3.
+- `colab_corpus.py`: Wikipedia-derived stand-in corpus for Arabic/English.
+- `colab_eb_corpus.py`: Egyptian Baccalaureate PDFs, including Arabic/English/French subjects and assessments.
+- `build_dataset.py`: query/teacher target generation, vocabulary pruning, hard-negative mining.
+- `train.py`: student optimisation and held-out validation.
+- `eval.py`: overall and sliced retrieval metrics, off-topic gate evaluation, optional native-engine benchmarks.
+- `export.py`: ONNX export, quantisation, tokenizer/config and runtime manifest assembly.
+- `promote.py`: promotion gates and manifest state.
 
-## Knobs when quality is short
+## Important caveats
 
-1. `--hidden 1024 --layers 8` (still ~3× smaller than the teacher, published BGE-M3 depth-pruning
-   keeps quality this way).
-2. More/better data: `--queries`, more `--queries-per-passage`, more hard negatives.
-3. Longer training with `--w-cos 0.5 --w-nce 1.0 --w-kl 1.0` (ranking over vector imitation).
-4. `--vocab-size 100000` if Arabic morphology is being pruned too aggressively.
+- The corpus must have meaningful, relevant query judgements. A synthetic query set alone can overstate performance on its own templates.
+- Student and teacher are compared against the vectors actually stored in the target `books.db`; this is the deployed retrieval space.
+- A smoke test proves that training/export plumbing executes. It does not prove model quality, cross-lingual generalisation, latency, or memory targets.
+- Keep the teacher available until the promoted student is installed and validated. The server's `auto` mode safely uses BGE-M3 when no promoted student is present.
 
-## Two honest caveats
-
-* Targets come from `BAAI/bge-m3` (fp32); the index was built with `Xenova/bge-m3` int8. Evaluation
-  therefore always compares against the *stored* vectors, which is what chat actually uses.
-* "Matching the teacher vector" is not the goal; the loss and the metrics are ranking-based for
-  that reason.
+See [Retrieval V2 plan](../RETRIEVAL_V2_PLAN.md) for architecture, hard constraints, and the promotion checklist.

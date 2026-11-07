@@ -6,13 +6,14 @@ CRITICAL SYSTEM DIRECTIVE: Before writing, editing, or scaffolding ANY code, you
 
 ## First Read
 
-Start with `PROJECT_GUIDE.md` — it has the full architecture, every package, server startup flow, database schema, and development commands.
+Start with `PROJECT_GUIDE.md` for the package/source map and `CONTEXT.md` for the current source/runtime hand-off. The current release and verification boundary is recorded in `RELEASE_HANDOFF_2026-11-06.md`.
 
 ## Key Facts an Agent Would Miss
 
 - **TUI was removed** — all TUI/CLI code (`src/plugin/tui/`, `src/config/tui*`, `src/stubs/tui-*`, `src/cli/`, TUI tests) was deleted. Do not reference or attempt to use TUI features. `@diveeoi/plugin/tui` exists but is dead code.
 - **Effect version**: `4.0.0-beta.74` — beta APIs like `Effect.fn`, `Effect.callback`, and `effect/unstable/*` are in use. Check the catalog version before upgrading.
 - **Typecheck command**: `bun turbo typecheck` (runs per-package via tsgo). Some packages (`db`, `api`) wrap it in `systemd-run --user --scope -p MemoryMax=1.8G` for memory-constrained environments.
+- **Targeted Learning owns separate persistence** — `packages/learning` stores the book library in `books.db` and student memories in `student.db`; do not describe all product state as one SQLite file. Read `packages/learning/AGENTS.md` before changing it.
 - **`@diveeoi/http-recorder` is a test-only dependency** — never import it in production code.
 - **`packages/script` is an internal build tool** — not an npm-published package. Only referenced as a dev dependency.
 - **Conditional imports** in `packages/db`: `#sqlite`, `#pty`, `#fff` resolve to Bun or Node implementations based on runtime. Add both implementations when adding platform-specific code.
@@ -28,12 +29,13 @@ Start with `PROJECT_GUIDE.md` — it has the full architecture, every package, s
 |---|---|---|
 | `@diveeoi/server` | `packages/server` | Main server, business logic, HTTP server bootstrap, ~50+ Effect layers |
 | `@diveeoi/db` | `packages/db` | Database, AI providers, session engine, tool definitions |
-| `@diveeoi/api` | `packages/api` | Effect HttpApi definitions (~18 groups) |
+| `@diveeoi/api` | `packages/api` | Effect HttpApi definitions (21 registered groups) |
 | `@diveeoi/app` | `packages/app` | SolidJS SPA frontend |
-| `@diveeoi/ui` | `packages/ui` | Shared UI component library (197+ components) |
+| `@diveeoi/ui` | `packages/ui` | Shared SolidJS UI component library |
 | `@diveeoi/llm` | `packages/llm` | Effect Schema-first LLM client |
 | `@diveeoi/sdk` | `packages/sdk` | API client SDK (v1 + v2 generated) |
 | `@diveeoi/plugin` | `packages/plugin` | Plugin SDK |
+| `@diveeoi/learning` | `packages/learning` | Targeted Learning runtime, hybrid retrieval, grounding, student memory, and offline training |
 | `@diveeoi/effect-drizzle-sqlite` | `packages/effect-drizzle-sqlite` | Drizzle ORM + Effect SQLite adapter |
 | `@diveeoi/effect-sqlite-node` | `packages/effect-sqlite-node` | Node.js SQLite bridge |
 | `@diveeoi/http-recorder` | `packages/http-recorder` | Record/replay HTTP (test only) |
@@ -44,13 +46,14 @@ Start with `PROJECT_GUIDE.md` — it has the full architecture, every package, s
 
 - **Stack**: TypeScript 5.8, Bun 1.3.14, Effect-TS 4.0.0-beta.74, SolidJS 1.9, Vite 7.1, Tailwind 4.1, Drizzle ORM 1.0 RC2, SQLite.
 - **Server**: Effect-TS `HttpRouter`/`HttpApi` framework. All business logic is Effect layers. Entry: `packages/server/src/main.ts`.
-- **Auth**: Simple password-gated auth. No OAuth, no API keys on the server side.
+- **Auth**: Authentication supports Basic and JWT/account modes; default `DIVEEOI_AUTH_MODE` is `both`. Production must use explicit strong credentials/secrets. See `docs/security-auth.md`.
 - **Database**: SQLite via Drizzle ORM with a custom `effect-drizzle-sqlite` bridge. 35+ migrations in `packages/db/src/database/migration/`.
+- **Targeted Learning stores**: the book library and vectors live in `books.db`; student memories/notes live in `student.db`. These are separate from the core application database. Read `packages/learning/AGENTS.md` before changing the feature.
 - **Per-package AGENTS.md files exist** — read the one for the package you're working on before making changes.
 
-## Current DiveeComposer incident handoff (2026-11-02)
+## DiveeComposer incident references
 
-For any work involving provider authentication, model catalogues, model selection, Composer routing, or Models settings, read the repository-root `COMPOSER_INCIDENT_HANDOFF.md` before editing. It records the production regression, the current uncommitted recovery work, exact verification status, and the repair order. Preserve the strict free-only and context-fit guarantees. A display-only Composer catalogue entry must never be routed to an LLM request. Do not assume the uncommitted recovery work is built or deployed.
+For work involving provider authentication, model catalogues, model selection, Composer routing, or Models settings, read `COMPOSER_INCIDENT_HANDOFF.md` for the historical incident analysis and `CONTEXT.md` / `RELEASE_HANDOFF_2026-11-06.md` for current source/runtime status. Preserve the strict free-only and context-fit guarantees. A display-only Composer catalogue entry must never be routed to an LLM request. Do not infer deployment provenance from the current source HEAD.
 
 
 ## Verification Requirements
@@ -61,4 +64,4 @@ For any work involving provider authentication, model catalogues, model selectio
 
 ## Active release handoff
 
-For the current uncommitted DiveeComposer/provider recovery and release-readiness work, read RELEASE_HANDOFF_2026-11-03.md before making changes or attempting deployment. It contains the current change inventory, verification results, known test gaps, backup paths/checksums, production process state, and approval boundary. COMPOSER_INCIDENT_HANDOFF.md remains the original incident-specific analysis. Do not restart diveeoi.service or run privileged deployment commands without explicit user approval.
+For current release readiness, read `RELEASE_HANDOFF_2026-11-06.md` and `CONTEXT.md`; the November 3 hand-off is a historical snapshot. `COMPOSER_INCIDENT_HANDOFF.md` remains the original incident-specific analysis. Do not restart `diveeoi.service` or run privileged deployment commands without explicit user approval.

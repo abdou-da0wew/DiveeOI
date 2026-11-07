@@ -1,8 +1,11 @@
 # DiveeOI Targeted Learning — Worklog
 
+> **Current source snapshot — 2026-11-06:** Native Rust retrieval is now wired through a persistent NDJSON client with TypeScript fallback; settings expose `auto/native/typescript` engine selection and `auto/student/bge-m3` query-encoder selection. A promoted student manifest is required before auto mode can use a student. The training pipeline now includes broader Arabic/English/French passage-grounded synthetic queries, captured-query augmentation, held-out tag/language evaluation, cross-lingual sample floors with skipped-slice records, selected-book engine evaluation, trace-safe ONNX export, and updated corpus builders. See `packages/learning/README.md` and `packages/learning/RETRIEVAL_V2_PLAN.md` for the maintained implementation docs. The original October 26–29 notes below are historical implementation chronology, not current test results.
+
+
 **Project**: Implementing the "Targeted Learning (RAGed-Session)" feature inside DiveeOI — a self-hosted fork of OpenCode.  
 **Plan source**: A 17-section implementation plan uploaded by the user, covering 6 phases (Foundations → Books & Ingestion → Retrieval → Targeted Sessions → UI → Hardening).  
-**Repo**: `/home/z/my-project/repos/DiveeOI` (a TS/Bun/Effect/SolidJS monorepo, fork of OpenCode).  
+**Original working path at the time of the first sessions**: `/home/z/my-project/repos/DiveeOI`. The current VDS checkout is `/home/celestial-dev/DiveeOI` (TS/Bun/Effect/SolidJS monorepo, fork of OpenCode).
 **Original work dates**: 2026-10-26 to 2026-10-27 (UTC+8).
 **Original reported state**: 157 tests passing (0 failures), typecheck clean on `@diveeoi/learning` + `@diveeoi/db`, and a live server integration run was reported as passing at that earlier point. These are historical results, not current-branch verification.
 

@@ -55,6 +55,7 @@ Pass extra origins via env `CORS=a,b,...` (split in `main.ts`).
 | `project-copy` | `/api/project-copy` | project copy operations |
 | `prefs` | `/api/prefs` | `GET/PUT /api/prefs/:scope` for settings sync (see `packages/app/src/components/global-pref-sync.tsx`) |
 | `auth` | `/api/auth` | account-level auth helpers |
+| `task` | `/api/v1/tasks` | create/list/get/update/cancel/pause/resume/run/generate tasks and stream task events |
 
 Each group is defined in `packages/api/src/groups/*.ts` as `HttpApiGroup.make("server.xxx")` via `HttpApiEndpoint.{get,post}` with `Schema` request/response and `OpenApi.annotations({ identifier: "v2.xxx" })`. Public errors are explicit `Schema.ErrorClass` contracts (`ApiNotFoundError` etc.) rather than raw `HttpApiError.*`.
 
@@ -67,6 +68,37 @@ Examples (representative, not exhaustive — see `packages/server/src/server/rou
 - `POST /api/session/:id/cancel` — `SessionPrompt.cancel`
 - `GET /api/event` — SSE stream of `EventV2` types (`session.*`, `mcp.*`, `permission.*`, `tool.*`)
 - `POST /api/workspace/:id/select` — workspace routing
+
+### Targeted Learning instance API
+
+The server also mounts `TargetedLearningApi` from `packages/server/src/server/routes/instance/httpapi/groups/targeted-learning.ts`. These routes are workspace-aware and use the instance API's authentication/middleware boundary; they are separate from the generated `@diveeoi/api` groups.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/targeted-learning/setup` | Setup state and progress |
+| `POST` | `/targeted-learning/setup/start` | Start or resume model setup |
+| `POST` | `/targeted-learning/setup/repair` | Reset setup state for repair |
+| `POST` | `/targeted-learning/setup/cancel` | Cancel setup |
+| `POST` | `/targeted-learning/setup/import-local` | Import a verified local model folder |
+| `GET` / `PATCH` | `/targeted-learning/settings` | Read or update feature settings |
+| `GET` | `/targeted-learning/settings/schema` | Schema-driven settings metadata |
+| `GET` | `/targeted-learning/settings/presets` | Recommended resource presets |
+| `GET` | `/targeted-learning/health` | Feature health state |
+| `GET` | `/targeted-learning/debug/status` | Opt-in diagnostic status |
+| `GET` | `/targeted-learning/probe` | Machine/resource probe |
+| `GET` | `/targeted-learning/books` | List indexed books |
+| `POST` | `/targeted-learning/books` | Upload a book |
+| `POST` | `/targeted-learning/books/import` | Import a local source |
+| `DELETE` | `/targeted-learning/books/:bookID` | Remove a book |
+| `GET` | `/targeted-learning/jobs` | List ingest jobs |
+| `POST` | `/targeted-learning/jobs/:jobID/{pause,resume,cancel,retry}` | Control an ingest job |
+| `POST` | `/targeted-learning/search` | Inspect retrieval and gate results |
+| `GET` | `/targeted-learning/memory` | List student memory and book notes |
+| `DELETE` | `/targeted-learning/memory/student/:memoryID` | Delete a student memory |
+| `POST` | `/targeted-learning/memory/student/:memoryID/pin` | Pin a student memory |
+| `DELETE` | `/targeted-learning/memory/notes/:noteID` | Delete a book note |
+
+Endpoint payloads, path parameters, and response schemas are defined in the route group source; use the generated OpenAPI document for machine-readable contracts. See [Targeted Learning](targeted-learning.md) for the subsystem model.
 
 ## Sessions
 

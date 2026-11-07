@@ -1,173 +1,160 @@
-# Divee Retrieval V2 — plan and execution record
+# Divee Retrieval V2 — architecture, execution status, and promotion plan
 
-Status: revised 2026-11-03 (second pass, after the encoder-selection groundwork landed).
-Supersedes `native/retrieval/QUERY_ENCODER_PLAN.md` (kept as the original rationale).
+- **Reviewed:** 2026-11-06
+- **Status:** Core runtime wiring and offline training/evaluation tooling are implemented. Student quality promotion remains data- and evaluation-dependent.
+- **Scope:** `packages/learning`; this plan supersedes the original query-encoder rationale in [native/retrieval/QUERY_ENCODER_PLAN.md](native/retrieval/QUERY_ENCODER_PLAN.md).
 
-## 1. Goal
+## 1. Objective
 
-Index once with the heavy teacher (BGE-M3), then **forget it**. Normal chat runs a small
-Arabic+English query encoder plus the Rust retrieval engine. No ~570 MB BGE-M3 session in RAM
-while a student is chatting.
+Index passages once with the BGE-M3 teacher, then keep the teacher out of steady-state chat whenever a compatible student has passed evaluation and is installed. The chat query encoder must emit vectors in the exact space already stored for book passages; no book re-indexing is required to switch encoders.
 
-- **Teacher** `Xenova/bge-m3` (BGE-M3 family, 1024-d, XLM-RoBERTa based, 100+ languages including
-  Arabic — no separate "Arabic BGE-M3" exists or is needed). Used only for chunk embeddings,
-  training-data generation, and evaluation.
-- **Student** (query encoder): small multilingual Transformer that emits the **same 1024-d,
-  CLS-pooled, L2-normalised space** as the teacher, so every already-indexed book stays valid.
-  No re-embedding of any book.
-- **Engine**: SQLite FTS5 BM25 + exact cosine + RRF in Rust (`native/retrieval`), plus the TS
-  implementation as a fallback. Gate, query rewrite and parent expansion stay in TypeScript
-  (policy), the engine keeps math + SQL (hot path).
+- **Teacher:** pinned `Xenova/bge-m3`, a multilingual 1024-dimensional embedding model. It embeds book passages and supplies targets for student training/evaluation.
+- **Student:** compact multilingual query encoder. Contract: BGE-M3 tokenizer, at most 128 query tokens, 1024 output dimensions, CLS pooling, and L2 normalisation.
+- **Retrieval engine:** Rust FTS5/BM25 + dense cosine + RRF, with a TypeScript implementation as fallback.
+- **Policy boundary:** TypeScript keeps query rewrite, relevance gating, parent expansion, session integration, and grounding logic. Rust owns the retrieval hot path, not model inference or product policy.
 
-## 2. Facts verified in this repo (do not re-discover)
+## 2. Current runtime contract
 
-| Fact | Where |
-|---|---|
-| Chat embeds every question with the BGE-M3 singleton | `src/session/turn.ts` → `prepareQueryEncoder` → `src/embed/pipeline.ts` |
-| Encoder policy already exists: `auto / student / bge-m3`, promotion-gated, teacher freed after indexing | `src/embed/query-encoder.ts`, `src/settings/{schema,defaults}.ts` |
-| Vectors are base64 Float32 **TEXT** in `chunk_vecs.vec`; ingest writes that format | `src/store/schema.ts`, `src/ingest/run.ts` |
-| Rust prototype: FTS5 BM25, streaming cosine, RRF, Arabic normalisation, `--eval` metrics | `native/retrieval/src/{main,metrics}.rs` |
-| The Rust binary was **not** reachable from TypeScript | `src/retrieve/hybrid.ts` (no reference) |
-| `books.db` on the dev VDS has **0 books**; no torch/onnxruntime/BGE-M3 weights, no GPU | earlier probe |
-| Cargo dependency set is fixed for offline builds (serde + serde_json only) | `native/retrieval/Cargo.toml` |
+The runtime options are part of the Targeted Learning settings schema, defaults, UI, and generated SDK types.
 
-Consequence: **ONNX inference stays in TypeScript** (transformers.js is already a dependency) and
-the Rust engine receives the finished query vector as base64. That is the lean split until a
-vendored `ort` build is available — adding `ort` now cannot be built offline.
+| Setting | Values | Default | Meaning |
+|---|---|---|---|
+| `retrieval.engine` | `auto`, `native`, `typescript` | `auto` | Prefer the native Rust engine when installed; use TypeScript fallback otherwise |
+| `retrieval.queryEncoder` | `auto`, `student`, `bge-m3` | `auto` | Use a promoted installed student in auto mode; otherwise use BGE-M3 |
+| `retrieval.unloadTeacherAfterIndexing` | boolean | `true` | Release the teacher when indexing drains unless chat still needs it |
 
-## 3. Hard rules
+The selection rules are deliberate:
 
-1. Do not change the on-disk vector format or the ingest write path while indexing is in progress.
-   BLOB storage is **additive** (`chunk_vecs_blob`) and produced by an explicit offline `--compact`.
-2. Student output contract is fixed: 1024 floats, CLS pooling, L2 normalised, BGE-M3 tokenizer,
-   max 128 query tokens.
-3. BGE-M3 stays the default chat encoder until the student passes the gates in §7. Promotion is a
-   setting flip driven by the model manifest, never implicit.
-4. If a query encoder is unavailable the turn must degrade to BM25-only and say so in diagnostics —
-   it must never silently return semantically empty results.
-5. Never load the teacher in a chat turn when the resolved encoder is `student`.
-6. Every native-engine call is best-effort: any spawn/parse/timeout failure falls back to the
-   TypeScript path for that turn, with a diagnostic event.
+1. `auto` never selects a student solely because files exist. The installed runtime manifest must mark it promoted.
+2. Explicit `student` selection requires an installed compatible student artifact; missing/incompatible artifacts must fail safely and surface diagnostics.
+3. A student query vector must match the stored teacher vector space exactly.
+4. `auto` engine selection prefers the Rust binary if it can be resolved and started. Native spawn, protocol, timeout, or query errors fall back to the TypeScript implementation with diagnostics.
+5. Both engines must return equivalent hit fields and candidate scores. The gate consumes best dense/fused scores measured before the final top-K cut.
+6. If query embedding is unavailable, retrieval must degrade explicitly (for example, BM25-only with a diagnostic); it must not silently present semantically empty results as successful dense retrieval.
 
-## 4. Architecture
+## 3. Data and process flow
 
-```
-OFFLINE (indexing / training only)                    CHAT (steady state)
-BGE-M3 teacher ── chunk vectors (books.db)            question ─► QueryEncoder ─► 1024-d vector ─┐
-BGE-M3 teacher ── query targets ─► distill student       student (int8 ONNX ~35-50 MB)           ├─► Rust engine
-                                                          or bge-m3 (fallback)                   │   BM25 + cosine
-                                                     TS rewrites / gate / parent expansion ◄─────┘   + RRF
+```text
+INDEXING / TRAINING (offline or background)        CHAT (steady state)
+
+BGE-M3 teacher                                     question
+   │                                                  │
+   ├── passage vectors ──► books.db                  QueryEncoder
+   │                         │                      (promoted student
+   └── query targets ──► student trainer              or BGE-M3 fallback)
+                              │                        │
+                       ONNX student + manifest         ▼
+                                                query vector + text
+                                                        │
+                                                        ▼
+                                                 Rust retrieval
+                                                BM25 + cosine + RRF
+                                                        │
+                                             TypeScript fallback
+                                                        │
+                                                        ▼
+                                        TypeScript gate / rewrite /
+                                        parent context / grounding
 ```
 
-Stored vectors are read either from `chunk_vecs_blob` (BLOB, preferred once compacted) or from the
-legacy base64 TEXT column, by both implementations.
+The native engine opens the library database read-only for retrieval. Its `--serve` mode is persistent NDJSON over stdin/stdout and keeps one database handle open; the TypeScript client correlates request IDs and owns process lifecycle. Rust does not load ONNX or any embedding model.
 
-## 5. Work breakdown and status
+Stored vectors can be read from the additive `chunk_vecs_blob` table or the legacy base64 TEXT column. `--compact` migrates vectors additively; dropping legacy text is a separate compatibility-sensitive operation.
 
-| # | Deliverable | Where | Runs here? | Status |
-|---|---|---|---|---|
-| 0 | This plan | `RETRIEVAL_V2_PLAN.md` | yes | **done** |
-| 1 | `QueryEncoder` abstraction (`auto/student/bge-m3`), promotion gate, teacher unload after indexing, tests | `src/embed/query-encoder.ts`, `session/turn.ts`, `ingest/run.ts`, `settings/*` | yes | **done** (prev. session) |
-| 2 | Rust `--eval` (Recall@5/10, MRR@10, nDCG@10, latency p50/p95, per-tag slices) | `native/retrieval` | yes | **done** (prev. session) |
-| 3 | Rust `--serve` persistent NDJSON mode (one process, one open DB per chat, no per-query spawn) | `native/retrieval` | syntax-checked only | **done** (build/test pending on a machine with cargo) |
-| 4 | Rust BLOB vector reads + `--compact` (TEXT → `chunk_vecs_blob`, optional `--drop-text --vacuum`) | `native/retrieval` | syntax-checked only | **done** (build/test pending) |
-| 5 | Rust integration tests against a real SQLite fixture (BM25, dense, BLOB preference, compact, serve) | `native/retrieval` | written, not run | **done** (run on the dev VDS) |
-| 6 | TypeScript native-engine client + `retrieval.engine` setting + fallback + tests | `src/retrieve/native-engine.ts`, `src/retrieve/hybrid.ts` | yes | **done** (205 tests, typecheck clean) |
-| 7 | Distillation toolkit: dataset builder, vocab pruning, trainer, ONNX int8 export, evaluator, promoter, CPU smoke test | `packages/learning/training/` | syntax + data-path only | **done** (training run needs GPU + teacher weights) |
-| 8 | Run compaction, train, export, benchmark student vs teacher on the real library | GPU machine | **no** | blocked on finished index |
-| 9 | Flip `queryEncoder` default to `student`; keep `bge-m3` selectable | settings | — | blocked on 8 |
-| 10 | Optional HNSW | Rust | — | only if measured p95 fails at real library size |
+## 4. Implementation status
 
-## 6. Decisions taken in this pass (with reasons)
+| Deliverable | Location | Current status |
+|---|---|---|
+| Query encoder selection and teacher lifecycle | `src/embed/query-encoder.ts`, session/ingest integration | Implemented |
+| Settings schema/defaults and client contract | `src/settings`, app settings, generated SDK types | Implemented; latest generated contract is in commit `2868dc7` |
+| Rust BM25 + dense cosine + RRF | `native/retrieval/src` | Implemented |
+| Persistent NDJSON serving and TS child client | `native/retrieval`, `src/retrieve/native-engine.ts` | Implemented |
+| Native-to-TS fallback and common retrieval result shape | `src/retrieve` | Implemented |
+| Additive vector BLOB reads and compaction | `native/retrieval`, learning store schema | Implemented |
+| Engine-level benchmark mode | Rust `--eval`, Python evaluator | Implemented |
+| Dataset builder, hard negatives, vocabulary pruning | `training/build_dataset.py` | Implemented |
+| Student training and ONNX export/INT8 quantisation | `training/train.py`, `export.py`, `divee_student.py` | Implemented |
+| Evaluation, gate slices, and promotion manifest | `training/eval.py`, `promote.py` | Implemented |
+| Corpus builders | `training/colab_corpus.py`, `colab_eb_corpus.py` | Implemented |
+| Real-corpus student evaluation and final promotion | Training outputs and installed runtime artifact | Must be established from the target corpus; not implied by code completion |
 
-- **Serve mode instead of process-per-query.** A spawn + DB open per chat turn costs 5–20 ms and
-  re-reads schema; a persistent child with one read-only handle is leaner and gives stable p95.
-- **BLOB compaction is additive and reversible.** `chunk_vecs_blob` only; the TEXT column is
-  dropped only with the explicit `--drop-text` flag (plus `--vacuum`), because older app builds
-  still read TEXT.
-- **Engine split: math in Rust, policy in TS.** Gate thresholds, query rewriting and parent
-  expansion are product behaviour with tests; keeping them in one place avoids drift. The engine
-  returns hits plus `best_dense_score` / `best_fused_score`, so the gate sees exactly the same
-  numbers it sees today.
-- **No `ort` in Rust yet.** Offline cargo cannot fetch it; the TS encoder already exists.
-- **Student size default: hidden 512, 6 layers, pruned vocabulary.** Published BGE-M3 distillation
-  (e.g. 8-layer/366 M) shows depth pruning preserves retrieval quality when hidden size is kept.
-  Vocabulary pruning (250k → ~60–80k covering Arabic+English) is where the real RAM saving is:
-  the embedding matrix dominates a small encoder. `--hidden 1024 --layers 8` is the first knob if
-  the gates fail; `384/6` is the floor for a ~35 MB int8 model.
-- **Loss = cosine imitation + InfoNCE on teacher passage vectors + KL on teacher score
-  distribution.** Matching teacher vectors alone does not optimise ranking (already in §1; now
-  implemented in `training/divee_student.py`).
-- **`autoWeightByLanguage` stays dead in TS** and is not reimplemented in Rust (it never had an
-  effect); the setting remains for compatibility.
+The November 4–6 source updates add richer passage-grounded synthetic query forms (Arabic, English, French), explicit cross-lingual sample floors, recorded skipped slices, book-scoped Rust evaluation, trace-safe manual attention for ONNX export, parallel resource-limited Egyptian Baccalaureate OCR workers, and idempotent Wikipedia-corpus appends.
 
-## 7. Promotion gates (student replaces the teacher for chat)
+## 5. Non-negotiable compatibility and safety rules
 
-Measured on a held-out set the student never saw, same index, same engine:
-- Recall@10 ≥ 0.95 × teacher, Recall@5 ≥ 0.93 × teacher, MRR@10 ≥ 0.93 × teacher,
-  nDCG@10 ≥ 0.93 × teacher.
-- Cross-lingual (ar→en, en→ar) Recall@10 ≥ 0.90 × teacher.
-- Gate false-refusal ≤ teacher + 2 pp; off-topic false-accept ≤ teacher + 2 pp (thresholds
-  re-calibrated on student score distributions by `training/promote.py`).
-- p95 query latency ≤ 30 ms on the VDS; steady-state chat RSS with no teacher below 1 GiB.
+1. Do not change vector dimensions, tokenizer IDs, pooling, normalisation, or max query length without a compatibility plan and tests against existing indexes.
+2. Keep teacher passage vectors immutable during student training. A student learns to query the same space; it does not define a new passage index.
+3. Preserve the existing base64 TEXT read path while BLOB migration is additive. Only drop legacy text after every deployed app instance supports BLOB reads and a verified backup exists.
+4. Keep Rust retrieval read-only for normal search/serve.
+5. Keep retrieval policy in TypeScript so native and fallback paths cannot drift on gate or parent-context behaviour.
+6. A native failure must produce a diagnostic and a safe fallback, not a false “no results” success.
+7. Never mark a model promoted merely because training/export completed. Promotion is held-out evaluation plus manifest recording.
+8. Keep real-query datasets and evaluation reports private to the corpus owner. Diagnostic content logging remains opt-in and sensitive.
 
-Fail any gate → keep `bge-m3` as the default, iterate on data/loss; the engine, serve mode and
-BLOB storage still ship.
+## 6. Training data and evaluation
 
-## 8. Execution plan (ordered, copy-paste)
+The offline trainer lives in `packages/learning/training`. It can read stored passage vectors, accept captured user queries, synthesize query candidates from the passage's own heading and sentence spans, mine hard negatives, train a compact student, export its runtime directory, evaluate held-out slices, and generate the promotion manifest.
 
-On any machine (no GPU needed):
+Synthetic generation now uses a broader pool of approximately 8–10 candidate phrasings per passage/language: heading and sentence-span cuts, question/explain/how/why templates, and keyword cuts. It does not invent facts. These probes are useful for bootstrapping, but captured questions remain the strongest evidence that the query distribution resembles actual usage.
+
+Evaluation records overall and per-tag/per-language-pair retrieval ratios. Cross-lingual slices have a minimum sample floor; slices below the floor are recorded as skipped in the promotion manifest and cannot be silently counted as successful coverage. Native evaluation passes explicit book IDs so the engine searches the intended corpus.
+
+## 7. Promotion gates
+
+The default thresholds are implemented by `training/promote.py` and must be evaluated on a held-out set not used for training:
+
+| Metric | Student / teacher minimum |
+|---|---:|
+| Recall@10 | 0.95 |
+| Recall@5 | 0.93 |
+| MRR@10 | 0.93 |
+| nDCG@10 | 0.93 |
+| Cross-lingual Recall@10 | 0.90 |
+
+Gate calibration must also ensure that in-book and off-topic score distributions are separable. The default maximum allowed false-refusal increase is bounded by 2 percentage points; off-topic false-accept behaviour must be reviewed as well. The report records per-slice results and skipped slices.
+
+The earlier target of p95 query latency at or below 30 ms and steady-state chat RSS below 1 GiB remains a performance objective, not a verified guarantee for every host. Measure on the actual deployment hardware and corpus before publishing those numbers as achieved.
+
+A failed gate leaves the student unpromoted, so `queryEncoder=auto` stays on BGE-M3. The explicit `--force` option bypasses a gate only when intentionally requested and records that fact; forced promotion is not evidence of quality.
+
+## 8. Build and validation
+
+From the repository root:
 
 ```sh
-cd packages/learning/native/retrieval && cargo fmt --check && cargo test --offline \
-  && cargo clippy --offline -- -D warnings && cargo build --release --offline
-cd ../../ && SKIP_LIVE_EMBED=1 bun test && bun run typecheck
+bun --cwd packages/learning test
+bun --cwd packages/learning run typecheck
 ```
 
-On the machine that holds the finished `books.db` (no GPU needed):
+Native engine, from `packages/learning/native/retrieval`:
 
 ```sh
-# 1. compact vectors, then measure the space saved
-divee-retrieval --db ~/.local/share/diveeoi/targeted-learning/books.db --compact
-# 2. (optional, only after every instance runs this build)
-divee-retrieval --db .../books.db --compact --drop-text --vacuum
+cargo fmt --check
+cargo test --offline
+cargo clippy --offline -- -D warnings
+cargo build --release --offline
 ```
 
-On a GPU machine (or a long CPU run):
+Python tooling, from `packages/learning/training`:
 
 ```sh
-cd packages/learning/training && pip install -r requirements.txt
-python smoke_test.py                     # 30 s sanity: train 3 steps, export, quantize
-python build_dataset.py --db books.db --out data/ --teacher BAAI/bge-m3
-python train.py --data data/ --out models/student/ --epochs 6
-python eval.py --data data/ --model models/student/ --report eval-report.json \
-  --rust-bin ../native/retrieval/target/release/divee-retrieval
-python promote.py --report eval-report.json --model models/student/   # writes divee-student.json
+pip install -r requirements.txt
+python -m py_compile build_dataset.py train.py eval.py export.py promote.py
+python smoke_test.py
 ```
 
-Then copy `models/student/` to `<dataDir>/models/divee-query-student/` and set
-`retrieval.queryEncoder = auto` (a promoted student is used; otherwise BGE-M3 stays).
+Then run the dataset/training/evaluation workflow in [training/README.md](training/README.md) using the real target `books.db`. Preserve the report and manifest alongside the installed model.
 
-## 9. Verification performed in this pass
+## 9. Verification history and current boundary
 
-| Check | Result |
-|---|---|
-| `bun test` in `packages/learning` | 205 passed, 2 skipped, 0 failed |
-| `tsgo --noEmit` (`bun run typecheck`) | clean |
-| `python -m py_compile training/*.py` | clean |
-| `python training/smoke_test.py` | metrics pass; model/export part skips without torch |
-| `build_dataset.py --no-embed` against a fixture `books.db` | 4 passages, 12 queries (ar + en), 1024-d vectors read |
-| Rust `cargo test` / `clippy` / `fmt` | **not run here** — this sandbox has no cargo, no crate cache and no `libsqlite3` dev files; `main.rs` was parsed with tree-sitter (0 syntax errors) and reviewed by hand |
-| Native engine client behaviour | 12 tests: mapping, concurrency, error, malformed line, timeout, cooldown, restart, fallback |
+The older November 3 plan snapshot recorded 205 learning tests passing, clean TypeScript typecheck, Python syntax checks, a small no-embedding fixture dataset, and a smoke test. Rust validation was initially marked pending in that historical snapshot. Later implementation commits extended the runtime and training pipeline through November 6.
 
-## 10. Risks / open items
+Those historical counts are not proof that the full current source HEAD has been re-tested. Before a release or student promotion, rerun the relevant package tests/typecheck, Rust test/clippy/build, Python checks, and held-out real-corpus evaluation. Check `WORKLOG.md` and `RELEASE_HANDOFF_2026-11-06.md` for the source/runtime provenance boundary.
 
-- **Student quality** is unproven until trained; the promotion manifest and gate calibration exist
-  precisely so an unproven student can never silently serve chat.
-- **Query distribution**: headings and templated questions are a weak proxy for real student
-  questions. `build_dataset.py --queries real.jsonl` accepts captured real queries; that is the
-  preferred input once available.
-- **blob + TEXT divergence**: readers join `chunk_vecs`, so an orphan blob row is never read;
-  `--compact` prunes orphans on every run.
-- **Windows**: the serve client assumes a POSIX executable; the `DIVEEOI_RETRIEVAL_BIN` override
-  and TS fallback cover platforms without the binary.
+## 10. Open work
+
+- Complete representative, held-out evaluation against a finished real-book corpus with enough Arabic↔English/French cross-lingual judgements to satisfy each slice's sample floor.
+- Compare student and teacher through the same complete retrieval path, including Rust BM25/dense/RRF and gate calibration.
+- Measure p50/p95 latency and steady-state RSS on deployment hardware; keep hardware-specific targets labelled as measurements, not universal guarantees.
+- Promote and install the student only after all gates and operational checks pass.
+- Consider HNSW or other approximate search only if measured library-scale p95 justifies the added dependency and index complexity.

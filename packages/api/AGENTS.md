@@ -1,20 +1,26 @@
 # API Package (@diveeoi/api)
 
-Effect HttpApi definitions and handlers. Defines ~18 API groups with endpoints, middleware, and error types.
+Effect `HttpApi` contracts for the v2 API. This package owns typed group/endpoint definitions, schemas, error contracts, OpenAPI annotations, and API-side middleware contracts. It does not own the production server bootstrap, instance-specific route groups, storage lifecycle, or LLM/session implementation.
 
-- **`createRoutes(password?)`** in `routes.ts` is the single route assembly entrypoint. It composes `HttpApiBuilder.layer(Api)` with all handler layers, auth, CORS, schema-error middleware, database, event bus, and fetch-HTTP client via `Layer.provide` chains.
-- The `password` parameter controls auth: `undefined` → `ServerAuth.Config.defaultLayer` (auth disabled), string → password-guarded layer.
-- **`webHandler()`** wraps the routes in `HttpRouter.toWebHandler(..., { disableLogger: true })`. Read it when you need to serve the API.
-- **18 API groups** in `groups/` and matching handlers in `handlers/`. Each group follows the `HttpApiBuilder.group(Api, "name", (handlers) => ...)` pattern. If you add an endpoint, add it to both the group definition and the handler.
-- **Middleware stack** (order matters): `authorizationLayer` (auth guard) → `schemaErrorLayer` (decode errors) → PTY environment → auth config.
-- **Auth config** (`ServerAuth.Config.layer`) is the auth policy; `authorizationLayer` enforces it per-request. Auth is simply password-gated (no OAuth, no API keys).
-- **`api.ts`** defines the `Api` — `HttpApi.make("server")` with all groups registered. Add new groups here.
-- **`errors.ts`** defines API error schemas (`ApiNotFoundError`, etc.). Prefer explicit `Schema.ErrorClass` contracts over raw `HttpApiError.*` classes.
-- **`cors.ts`** — CORS config passed to `HttpApiBuilder`.
-- **`middleware/schema-error.ts`** — maps Schema decode failures to HTTP 422 with structured error bodies.
-- **`pty-environment.ts`** — provides PTY environment context needed by some API groups.
-- The API package depends on `@diveeoi/db` for `Database`, `EventV2`, and domain types. It does NOT depend on `@diveeoi/server`.
+## Entry points
 
-## Current DiveeComposer incident handoff (2026-11-02)
+- `src/api.ts`: registers the v2 `Api` groups.
+- `src/groups/`: request/response endpoint schemas.
+- `src/handlers/`: typed handler implementations consumed by server route assembly.
+- `src/cors.ts`, `src/middleware/schema-error.ts`, `src/errors.ts`: cross-cutting HTTP contracts.
 
-For any work involving provider authentication, model catalogues, model selection, Composer routing, or Models settings, read the repository-root `COMPOSER_INCIDENT_HANDOFF.md` before editing. It records the production regression, the current uncommitted recovery work, exact verification status, and the repair order. Preserve the strict free-only and context-fit guarantees. A display-only Composer catalogue entry must never be routed to an LLM request. Do not assume the uncommitted recovery work is built or deployed.
+Authentication policy and route assembly are server-owned. Read `packages/server/src/server/routes` and `docs/security-auth.md` before changing auth or middleware behavior. Targeted Learning is an instance-owned API group under `packages/server/src/server/routes/instance/httpapi/groups/targeted-learning.ts`, not a group in this package's v2 API.
+
+## Rules
+
+- Define request/response payloads with Effect Schema; prefer explicit public error schemas over leaking internal exceptions.
+- Register new v2 groups in `src/api.ts` and wire the corresponding handler through the server.
+- Preserve workspace, session, and permission boundaries. Typed schemas do not replace authorization.
+- Keep OpenAPI identifiers stable and unique; SDK generation depends on the public schema surface.
+- Do not add storage or provider implementation logic here; place it in the owning package.
+
+## Validation
+
+```bash
+bun --cwd packages/api run typecheck
+```

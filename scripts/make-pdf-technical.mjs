@@ -233,9 +233,9 @@ const html = `<!DOCTYPE html>
 
   <h1>The system, for people who will<br /><em>change</em> it.</h1>
   <p class="lede">
-    One Bun process, one SQLite file, one SolidJS client. The server owns the sessions, the
-    tools, the permissions and the data; the browser is a view. This is the map, the request
-    path, the extension points, and the gaps.
+    One primary Bun application service and one SolidJS client. The server owns sessions,
+    tools and permissions; feature-owned data stores remain separate. This is the package map,
+    request path, extension surface, and the operational boundaries.
   </p>
 
   <div class="rule"></div>
@@ -243,7 +243,7 @@ const html = `<!DOCTYPE html>
   <h2>The request path</h2>
   <div class="flow">
 <b>browser</b> → fetch /session/:id/message
-  → <b>HttpApi</b> (20 groups, packages/api) → <b>SessionPrompt</b>
+  → <b>HttpApi</b> (packages/api) → <b>SessionPrompt</b>
   → <b>ToolRegistry</b> (one registry per session) → <b>tool</b> (read/grep/edit/bash/…)
   → <b>Provider</b> → <b>model</b> → events back over SSE
   → <b>SessionProcessor</b> persists parts → <b>SQLite</b>
@@ -272,15 +272,11 @@ const html = `<!DOCTYPE html>
     <div>
       <h3>Data</h3>
       <p>
-        26 tables, 46 migrations, one file. Sessions and messages exist twice — a v1
-        shape (<span class="mono">session_message</span>,
-        <span class="mono">session_input</span>) and a v2 event shape
-        (<span class="mono">session_message</span>,
-        <span class="mono">session_context_epoch</span>) — with the v2 epoch table holding
-        the context snapshot a session resumes from. Tasks add three:
-        <span class="mono">agent_task</span>, a call journal
-        (<span class="mono">agent_task_call</span>) and a hook audit trail
-        (<span class="mono">agent_task_event</span>).
+        The core application database stores sessions, messages, permissions, projects,
+        and task state. Its v1/v2 message tables preserve the event-sourced conversation
+        model; task execution adds a call journal and hook audit trail. Targeted Learning
+        uses separate <span class="mono">books.db</span> and <span class="mono">student.db</span>
+        stores for passages/vectors and student memory.
       </p>
     </div>
   </div>
@@ -293,12 +289,12 @@ const html = `<!DOCTYPE html>
       <tr><th style="width:26%">Package</th><th style="width:34%">Holds</th><th>Notes</th></tr>
     </thead>
     <tbody>
-      <tr><td>server</td><td>HTTP, sessions, tools, providers</td><td>343 files, 56 services</td></tr>
-      <tr><td>db</td><td>schema, migrations, providers, engine</td><td>344 files; the SQLite bridge</td></tr>
-      <tr><td>api</td><td>HttpApi definitions</td><td>20 groups; schemas are the contract</td></tr>
-      <tr><td>app</td><td>the SolidJS client</td><td>Vite; the v2 redesign is in progress</td></tr>
-      <tr><td>ui</td><td>the component library</td><td>120 components, 55 of them v2</td></tr>
-      <tr><td>llm</td><td>Schema-first LLM client</td><td>the provider boundary</td></tr>
+      <tr><td>server</td><td>HTTP, sessions, tools, providers</td><td>Effect service graph and runtime orchestration</td></tr>
+      <tr><td>db</td><td>schema, migrations, providers, engine</td><td>Core SQLite persistence and adapters</td></tr>
+      <tr><td>api</td><td>HttpApi definitions</td><td>Typed schemas and OpenAPI contract</td></tr>
+      <tr><td>app / ui</td><td>SolidJS client and component library</td><td>Vite, shared themes and components</td></tr>
+      <tr><td>learning</td><td>Targeted Learning subsystem</td><td>Ingestion, OCR, hybrid retrieval, student memory and offline training</td></tr>
+      <tr><td>llm</td><td>Schema-first LLM client</td><td>Provider and protocol boundary</td></tr>
       <tr><td>plugin / plugins</td><td>the plugin SDK and bundled plugins</td><td>hooks, tools, config</td></tr>
       <tr><td>memory / mcp / identity / sdk</td><td>the rest</td><td>graph memory, MCP host, brand, clients</td></tr>
     </tbody>
@@ -306,7 +302,7 @@ const html = `<!DOCTYPE html>
 
   <div class="foot">
     <span>TypeScript 5.8 · Bun 1.3.14 · Effect-TS 4.0.0-beta.74 · SolidJS 1.9 · Drizzle 1.0-rc · SQLite · Tailwind 4.1</span>
-    <span class="accent">MIT · <span class="mono">diveeoi.dev</span></span>
+    <span class="accent">Self-hosted · <span class="mono">diveeoi.dev</span></span>
   </div>
 </section>
 
@@ -338,12 +334,14 @@ const html = `<!DOCTYPE html>
           <span class="mono">opencode.json</span>); both names are read, and the
           <span class="mono">diveeoi</span> name wins.</li>
         <li><b>The database</b> defaults to
-          <span class="mono">~/.local/share/diveeoi/diveeoi.db</span>; override with
-          <span class="mono">DIVEEOI_DB</span>. Migrations apply on boot.</li>
-        <li><b>Auth is a password</b>, served by the server and checked per request. No
-          OAuth, no accounts.</li>
-        <li><b>Tests:</b> 2 688 server, 415 client, 930 database. Typecheck per package with
-          <span class="mono">tsgo</span>.</li>
+          the application data directory (channel-aware where configured); the legacy
+          <span class="mono">OPENCODE_DB</span> override remains supported. Targeted Learning
+          persists its library and student memory separately.</li>
+        <li><b>Authentication:</b> Basic and JWT/account modes are supported; the default is
+          <span class="mono">DIVEEOI_AUTH_MODE=both</span>. Production requires explicit strong
+          secrets, and registration is closed after the first account by default.</li>
+        <li><b>Verification:</b> run the current package test suites, TypeScript checks and
+          production build for the exact source revision. Historical counts are in the worklog.</li>
       </ul>
 
       <h3 style="margin-top:4mm">Background tasks</h3>
@@ -382,9 +380,9 @@ const html = `<!DOCTYPE html>
       <table>
         <thead><tr><th style="width:42%">Gap</th><th>What it means</th></tr></thead>
         <tbody>
-          <tr><td>v2 redesign mid-migration</td><td>some surfaces are new components, some are the old ones</td></tr>
-          <tr><td>No TUI</td><td>browser only; there is no terminal client</td></tr>
-          <tr><td>One shared password</td><td>fine on a LAN, not a multi-user identity system</td></tr>
+          <tr><td>No TUI</td><td>the product is browser-first; there is no terminal client</td></tr>
+          <tr><td>No built-in TLS</td><td>terminate HTTPS at a reverse proxy such as nginx or Caddy</td></tr>
+          <tr><td>Self-hosted operations</td><td>you manage accounts/secrets, backups, upgrades, and external provider/MCP data paths</td></tr>
           <tr><td>No built-in TLS</td><td>terminate at your own proxy; protect the DB file</td></tr>
           <tr><td>SQLite concurrency</td><td>one writer at a time; fine for one operator</td></tr>
           <tr><td>Free-model ceiling</td><td>the bundled tier is free and below a frontier model at hard reasoning</td></tr>
@@ -395,7 +393,7 @@ const html = `<!DOCTYPE html>
   </div>
 
   <div class="foot">
-    <span><span class="chip">MIT</span> &nbsp; <span class="chip">self-hosted</span> &nbsp; <span class="chip">no telemetry</span></span>
+    <span><span class="chip">self-hosted</span> &nbsp; <span class="chip">web app</span> &nbsp; <span class="chip">single-node</span></span>
     <span class="accent">diveeoi.dev · github.com/abdou-da0wew/DiveeOI</span>
   </div>
 </section>

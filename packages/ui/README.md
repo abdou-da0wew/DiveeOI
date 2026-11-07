@@ -6,8 +6,8 @@ Shared SolidJS component library. Consumed by `packages/app` via `@diveeoi/ui/*`
 
 ```
 src/
-  components/          # 197+ presentational components (button, dialog, markdown, diff-changes, tron-typewriter, ...)
-  v2/components/       # 81 redesign peers (button-v2, dialog-v2, menu-v2, segmented-control-v2, ...)
+  components/          # Presentational components (button, dialog, markdown, diff-changes, tron-typewriter, ...)
+  v2/components/       # Parallel redesigned component variants (button-v2, dialog-v2, menu-v2, segmented-control-v2, ...)
   theme/               # ThemeProvider, color utilities, default palettes, v2 overrides
   pierre/              # file viewer subsys (virtualizer, worker, find, runtime, selection-bridge, media)
   context/             # marked, dialog, file

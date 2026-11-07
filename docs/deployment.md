@@ -52,7 +52,7 @@ DIVEEOI_JWT_SECRET=replace-with-at-least-32-random-characters
 # OPENAI_API_KEY=        # or provider keys via config file
 ```
 
-Database location defaults to `Global.Path.data/opencode.db` (channel-aware: `opencode-{channel}.db` if `InstallationChannel` is not `latest|beta|prod`). Override with `OPENCODE_DB` flag.
+The core application database location defaults under `Global.Path.data` (channel-aware where applicable); `OPENCODE_DB` remains the compatibility override. Targeted Learning uses its own data directory and separate `books.db` and `student.db` files. Persist and back up both the core application data directory and the configured Targeted Learning data directory.
 
 ## Self-Hosting Behind a Proxy
 
@@ -87,6 +87,12 @@ The repository includes a Targeted Learning-aware [`Dockerfile`](../Dockerfile) 
 `sst-env.d.ts` in `packages/server` and `packages/app` exists for SST deployments (`sst` consumes `packages/server/src/main.ts` as a lambda/packed handler in that mode). The monorepo uses `turbo` task deps (`sdk -> app -> server`) that translate well to `sst` function builds; set `OPENCODE_DISABLE_CHANNEL_DB=1` in CI to force a single `opencode.db` filename.
 
 Colab/EC2 CI note from `PROJECT_LESSONS.md`: always `git fetch origin && git checkout <branch> && git pull origin <branch>` before building a branch binary and verify version string (`0.0.0-dev-*` vs `0.0.0-main-*`). The default branch defaulted `main` silently validates the wrong code.
+
+## Persistent data and backups
+
+Back up the full application data directory, including the core SQLite database and generated auth key material. Targeted Learning is a separate recovery unit: preserve `books.db`, `student.db`, `setup.json`, source documents, and model files under the configured learning data directory. A database-only backup is not enough to restore an indexed library's source files or model cache.
+
+The Learning library backup action uses SQLite `VACUUM INTO` for a consistent `books.db` snapshot; include the student memory database and external source/model directories in your broader backup plan. Test restores instead of relying only on successful archive creation.
 
 ## Production Checklist
 

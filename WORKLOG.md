@@ -279,3 +279,16 @@ Built `packages/learning` skeleton, settings schema, download/state-machine, sto
 - Verified the V1 and V2 Models/Targeted Learning tabs in an isolated Vite + backend browser session; checked V2 at 543×580 with no horizontal overflow and confirmed 12px/17.4px Composer description typography. Added screenshots and a detailed QA record at `docs/qa/SETTINGS_UI_2026-11-04.md`.
 - Verification: app/UI typecheck 2/2 packages; app tests 429 pass; UI tests 68 pass; app Vite build pass; lint error-only scan pass; `git diff --check` pass.
 - Used only a temporary backend with fresh XDG directories and disposable Basic auth. No production data, credentials, API keys, or service restart were used. No commit or push.
+
+
+## 2026-11-06 — Documentation and PDF refresh
+
+- Audited the clean `dev` checkout at `2868dc79b1ab28216048dd2667885785cda65176` (matching `origin/dev`) and indexed the workspace before broad content review.
+- Refreshed the root README, current `CONTEXT.md`, current release hand-off, documentation index, architecture/configuration/API/deployment/development/getting-started guides, and Targeted Learning operator guides. Added a first-class `packages/learning/README.md` and contributor rules.
+- Reconciled the November 4–6 Targeted Learning implementation: native Rust engine selection and TS fallback, query-encoder settings/promotion contract, teacher lifecycle, expanded multilingual query synthesis, evaluation slice floors/skips, book-scoped Rust evaluation, trace-safe export, parallel EB OCR, and idempotent corpus generation.
+- Preserved dated audits, QA captures, and prior release/incident narratives as historical records; added current-state pointers rather than rewriting their chronology.
+- Read the running service state without changing it: `diveeoi.service` active, PID `1906414`, started 2026-11-05 18:54:11 UTC, listening on `0.0.0.0:6050`. Running and disk executable hashes matched (`45582ceaae4ad55ef10020c9955d3c87687e7cf1473c76bee4f129e99c84eba7`); exact build commit provenance was not proven because the current source HEAD is newer than the binary mtime.
+- Generated all six canonical user-facing PDFs (overview, technical overview, architecture dark/light, field notes dark/light), refreshed the videos-folder overview/technical copies, and kept the existing `videos/DiveeOI copy.pdf` in sync. Rendered contact sheets for dark/light variants and visually inspected the pagination and hierarchy.
+- PDF validation: all 9 deliverable files have extractable text, no text spans outside page bounds, and no stale single-database/shared-password claims. The root/video overview and technical copies are SHA-256 identical. The two PDFs under `packages/learning/test/fixtures/` were intentionally preserved as test inputs.
+- Documentation QA: 333 internal Markdown links checked across 397 maintained Markdown files with 0 missing targets (vendored resources and test/fixture skill content excluded); all five PDF generator/entrypoint modules pass `node --check`; `git diff --check` passes. The full current-HEAD monorepo build/typecheck/test matrix was not rerun because this was a documentation-only change.
+- Documentation refresh only: no service restart, production deployment, DB migration, commit, push, or cleanup.

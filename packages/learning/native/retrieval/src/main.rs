@@ -8,8 +8,12 @@ use std::{
     io::{self, BufRead, Write},
     path::{Path, PathBuf},
     ptr,
-    time::Instant,
+    time::{Duration, Instant},
 };
+
+mod embed;
+
+use embed::StudentEmbedder;
 
 const SQLITE_OK: c_int = 0;
 const SQLITE_ROW: c_int = 100;
@@ -109,6 +113,12 @@ struct Args {
     rrf_k: f64,
     bm25_weight: f64,
     dense_weight: f64,
+    /// ONNX runtime dir of the distilled student encoder (the embedder sidecar's model).
+    model_dir: Option<PathBuf>,
+    /// Where the embedder sidecar script lives (default: sibling of this crate).
+    embedder_script: Option<PathBuf>,
+    /// Force BM25-only even when a student runtime is present.
+    no_model: bool,
 }
 
 impl Args {
@@ -124,6 +134,9 @@ impl Args {
             rrf_k: 60.0,
             bm25_weight: 1.0,
             dense_weight: 1.0,
+            model_dir: None,
+            embedder_script: None,
+            no_model: false,
         }
     }
 
@@ -160,6 +173,9 @@ fn parse_args() -> Result<(Args, Command), String> {
     let (mut rrf_k, mut bm25_weight, mut dense_weight) = (60.0f64, 1.0f64, 1.0f64);
     let (mut serve, mut compact) = (false, false);
     let (mut drop_text, mut vacuum) = (false, false);
+    let mut model_dir: Option<PathBuf> = None;
+    let mut embedder_script: Option<PathBuf> = None;
+    let mut no_model = false;
 
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -170,6 +186,9 @@ fn parse_args() -> Result<(Args, Command), String> {
             "--bm25-limit" => bm25_limit = parse_usize(it.next(), "--bm25-limit")?,
             "--dense-limit" => dense_limit = parse_usize(it.next(), "--dense-limit")?,
             "--vector-base64" => vector_base64 = it.next(),
+            "--model-dir" => model_dir = it.next().map(PathBuf::from),
+            "--embedder-script" => embedder_script = it.next().map(PathBuf::from),
+            "--no-model" => no_model = true,
             "--eval" => eval = it.next().map(PathBuf::from),
             "--serve" => serve = true,
             "--compact" => compact = true,
@@ -182,9 +201,14 @@ fn parse_args() -> Result<(Args, Command), String> {
                 return Err(concat!(
                     "usage: divee-retrieval --db PATH --query TEXT --book ID [--book ID ...] ",
                     "[--vector-base64 BASE64] [--limit N] [--bm25-limit N] [--dense-limit N]\n",
+                    "       [--model-dir DIR | --no-model] [--embedder-script PATH]\n",
                     "       divee-retrieval --db PATH --serve\n",
                     "       divee-retrieval --db PATH --compact [--drop-text] [--vacuum]\n",
-                    "       divee-retrieval --db PATH --eval BENCH.jsonl [--book ID ...]"
+                    "       divee-retrieval --db PATH --eval BENCH.jsonl [--book ID ...]\n\n",
+                    "student encoder: when a student runtime dir is found (default ",
+                    "$DIVEE_STUDENT_MODEL_DIR, else <repo>/../diveeoi-artifacts/models/student-runtime), ",
+                    "plain-text queries are embedded by the distilled student (GPU when usable, CPU otherwise). ",
+                    "If the sidecar is missing or errors, the engine falls back to BM25-only."
                 )
                 .into());
             }
@@ -203,6 +227,9 @@ fn parse_args() -> Result<(Args, Command), String> {
     args.bm25_weight = bm25_weight;
     args.dense_weight = dense_weight;
     args.query = query.unwrap_or_default();
+    args.model_dir = model_dir;
+    args.embedder_script = embedder_script;
+    args.no_model = no_model;
     args.validate()?;
 
     let command = if compact {
@@ -875,9 +902,188 @@ fn default_weight() -> f64 {
     1.0
 }
 
-/// One NDJSON request -> one NDJSON response. Never panics on bad input: the caller is a long
-/// lived chat process and a malformed line must not take the engine down.
-fn handle_line(db: *mut Sqlite3, line: &str) -> String {
+/// Student-embedder configuration.
+///
+/// Policy: the distilled student is the primary query encoder and inference runs natively
+/// in Rust (see `embed.rs` — ort + tokenizers, no Python). When a runtime dir exists
+/// (flag > $DIVEE_STUDENT_MODEL_DIR > the default artifacts location) the engine loads it
+/// on first use; CUDA execution provider when the onnxruntime install ships one, CPU INT8
+/// otherwise. Any load or embed failure degrades the engine to BM25-only search — the
+/// classic "rust only with no models" mode — and the load is retried after a cooldown.
+struct EmbedderConfig {
+    disabled: bool,
+    disabled_reason: &'static str,
+    model_dir: Option<PathBuf>,
+    retry_cooldown: Duration,
+}
+
+impl EmbedderConfig {
+    fn disabled(reason: &'static str) -> Self {
+        Self {
+            disabled: true,
+            disabled_reason: reason,
+            model_dir: None,
+            retry_cooldown: Duration::from_secs(60),
+        }
+    }
+
+    fn resolve(args: &Args) -> Self {
+        if args.no_model {
+            return Self::disabled("--no-model requested");
+        }
+        let model_dir = args
+            .model_dir
+            .clone()
+            .or_else(|| env::var("DIVEE_STUDENT_MODEL_DIR").ok().map(PathBuf::from))
+            .or_else(default_model_dir);
+        let Some(model_dir) = model_dir.filter(|dir| dir.is_dir()) else {
+            return Self::disabled("no student runtime dir found");
+        };
+        Self {
+            disabled: false,
+            disabled_reason: "",
+            model_dir: Some(model_dir),
+            retry_cooldown: Duration::from_secs(60),
+        }
+    }
+}
+
+/// Default artifacts dir: a `diveeoi-artifacts/models/student-runtime` sibling of the repo.
+/// exe at <repo>/packages/learning/native/retrieval/target/release/...
+fn default_model_dir() -> Option<PathBuf> {
+    let exe = env::current_exe().ok()?;
+    let repo = exe.parent()?.ancestors().nth(6)?;
+    let candidate = repo
+        .parent()?
+        .join("diveeoi-artifacts")
+        .join("models")
+        .join("student-runtime");
+    candidate.is_dir().then_some(candidate)
+}
+
+const BASE64_ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+fn encode_base64(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
+        let packed = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | (b[2] as u32);
+        out.push(BASE64_ALPHABET[(packed >> 18) as usize & 63] as char);
+        out.push(BASE64_ALPHABET[(packed >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 {
+            BASE64_ALPHABET[(packed >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            BASE64_ALPHABET[packed as usize & 63] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+fn encode_vector(values: &[f32]) -> String {
+    encode_base64(
+        &values
+            .iter()
+            .flat_map(|value| value.to_le_bytes())
+            .collect::<Vec<u8>>(),
+    )
+}
+
+/// Fills `args.vector_base64` for plain-text queries and returns the encoder metadata that
+/// every response carries. Priority: caller-supplied vector > student model > BM25-only.
+fn attach_vector(
+    args: &mut Args,
+    embedder: &mut Option<StudentEmbedder>,
+    cfg: &EmbedderConfig,
+    degraded_since: &mut Option<Instant>,
+) -> serde_json::Value {
+    if args.vector_base64.is_some() {
+        return serde_json::json!({ "encoder": "caller" });
+    }
+    if cfg.disabled {
+        return serde_json::json!({
+            "encoder": "none",
+            "fallback": true,
+            "reason": cfg.disabled_reason,
+        });
+    }
+    if embedder.is_none() {
+        let cooldown_over = degraded_since
+            .map(|started| started.elapsed() >= cfg.retry_cooldown)
+            .unwrap_or(true);
+        if !cooldown_over {
+            return serde_json::json!({
+                "encoder": "none",
+                "fallback": true,
+                "reason": "student model degraded, retry cooldown active",
+            });
+        }
+        let Some(model_dir) = cfg.model_dir.clone() else {
+            return serde_json::json!({ "encoder": "none", "fallback": true });
+        };
+        match StudentEmbedder::load(&model_dir) {
+            Ok(loaded) => {
+                eprintln!(
+                    "student encoder loaded: dir={} model={} device={}",
+                    model_dir.display(),
+                    loaded.model_name,
+                    loaded.device
+                );
+                *embedder = Some(loaded);
+                *degraded_since = None;
+            }
+            Err(error) => {
+                *degraded_since = Some(Instant::now());
+                return serde_json::json!({
+                    "encoder": "none",
+                    "fallback": true,
+                    "embedder_error": error,
+                });
+            }
+        }
+    }
+    let Some(active) = embedder.as_mut() else {
+        return serde_json::json!({ "encoder": "none", "fallback": true });
+    };
+    let started = Instant::now();
+    match active.embed(&args.query) {
+        Ok(vector) => {
+            args.vector_base64 = Some(encode_vector(&vector));
+            serde_json::json!({
+                "encoder": "student",
+                "device": active.device,
+                "embed_model": active.model_name,
+                "embed_ms": round_ms(started.elapsed()),
+            })
+        }
+        Err(error) => {
+            // The model is errored (or the query cannot be encoded): fall back now, retry later.
+            *degraded_since = Some(Instant::now());
+            *embedder = None;
+            serde_json::json!({
+                "encoder": "none",
+                "fallback": true,
+                "embedder_error": error,
+            })
+        }
+    }
+}
+
+fn round_ms(elapsed: Duration) -> f64 {
+    (elapsed.as_secs_f64() * 1000.0 * 1000.0).round() / 1000.0
+}
+
+/// One NDJSON request -> one NDJSON response. Never panics on bad input: the caller is a
+/// long-lived chat process and a malformed line must not take the engine down.
+fn handle_line(db: *mut Sqlite3, line: &str, embedder: &mut Option<StudentEmbedder>, cfg: &EmbedderConfig, degraded_since: &mut Option<Instant>) -> String {
     let request: ServeRequest = match serde_json::from_str(line) {
         Ok(request) => request,
         Err(error) => {
@@ -899,22 +1105,42 @@ fn handle_line(db: *mut Sqlite3, line: &str) -> String {
     if let Err(error) = args.validate() {
         return serde_json::json!({ "id": request.id, "error": error }).to_string();
     }
+    let encoder_meta = attach_vector(&mut args, embedder, cfg, degraded_since);
     match search_db(db, &args) {
-        Ok((hits, best_dense, best_fused)) => serde_json::json!({
-            "id": request.id,
-            "hits": hits,
-            "best_dense_score": best_dense,
-            "best_fused_score": best_fused,
-            "elapsed_ms": started.elapsed().as_secs_f64() * 1000.0,
-        })
-        .to_string(),
+        Ok((hits, best_dense, best_fused)) => {
+            let mut response = serde_json::json!({
+                "id": request.id,
+                "hits": hits,
+                "best_dense_score": best_dense,
+                "best_fused_score": best_fused,
+                "elapsed_ms": started.elapsed().as_secs_f64() * 1000.0,
+            });
+            if let (serde_json::Value::Object(meta), Some(target)) = (&encoder_meta, response.as_object_mut()) {
+                for (key, value) in meta {
+                    target.insert(key.clone(), value.clone());
+                }
+            }
+            response.to_string()
+        }
         Err(error) => serde_json::json!({ "id": request.id, "error": error }).to_string(),
     }
 }
 
 /// Reads NDJSON requests from stdin until EOF, keeping one read-only database handle open.
+/// The student encoder is loaded once, shared across requests, and self-heals after failures.
 fn serve(args: &Args) -> Result<(), String> {
     let db = open_db(&args.db)?;
+    let cfg = EmbedderConfig::resolve(args);
+    if cfg.disabled {
+        eprintln!("student encoder disabled ({}); BM25-only fallback", cfg.disabled_reason);
+    } else if let Some(dir) = &cfg.model_dir {
+        eprintln!(
+            "student encoder enabled (dir={}); CUDA when usable, CPU INT8 otherwise",
+            dir.display()
+        );
+    }
+    let mut embedder: Option<StudentEmbedder> = None;
+    let mut degraded_since: Option<Instant> = None;
     let stdin = io::stdin();
     let stdout = io::stdout();
     for line in stdin.lock().lines() {
@@ -922,7 +1148,7 @@ fn serve(args: &Args) -> Result<(), String> {
         if line.trim().is_empty() {
             continue;
         }
-        let response = handle_line(db, line.trim());
+        let response = handle_line(db, line.trim(), &mut embedder, &cfg, &mut degraded_since);
         let mut out = stdout.lock();
         if writeln!(out, "{response}").is_err() || out.flush().is_err() {
             break;
@@ -1049,7 +1275,7 @@ fn run_eval(args: &Args, path: &Path) -> Result<EvalReport, String> {
 
 fn main() {
     let outcome: Result<String, String> = (|| {
-        let (args, command) = parse_args()?;
+        let (mut args, command) = parse_args()?;
         Ok(match command {
             Command::Compact { drop_text, vacuum } => compact(&args, drop_text, vacuum)?,
             Command::Serve => {
@@ -1059,7 +1285,18 @@ fn main() {
             Command::Eval(path) => serde_json::to_string(&run_eval(&args, &path)?)
                 .map_err(|error| error.to_string())?,
             Command::Search => {
-                serde_json::to_string(&search(&args)?).map_err(|error| error.to_string())?
+                let mut embedder: Option<StudentEmbedder> = None;
+                let mut degraded_since: Option<Instant> = None;
+                let cfg = EmbedderConfig::resolve(&args);
+                let meta = attach_vector(&mut args, &mut embedder, &cfg, &mut degraded_since);
+                let hits = search(&args)?;
+                let mut response = serde_json::json!({ "hits": hits });
+                if let (serde_json::Value::Object(meta), Some(target)) = (&meta, response.as_object_mut()) {
+                    for (key, value) in meta {
+                        target.insert(key.clone(), value.clone());
+                    }
+                }
+                serde_json::to_string(&response).map_err(|error| error.to_string())?
             }
         })
     })();
@@ -1271,9 +1508,11 @@ mod tests {
             encode_vector(&[1.0, 0.0, 0.0])
         );
         let response: serde_json::Value =
-            serde_json::from_str(&handle_line(db, &request)).expect("json response");
+            serde_json::from_str(&handle_line(db, &request, &mut None, &EmbedderConfig::disabled("test"), &mut None))
+                .expect("json response");
         let malformed: serde_json::Value =
-            serde_json::from_str(&handle_line(db, "not json")).expect("json error");
+            serde_json::from_str(&handle_line(db, "not json", &mut None, &EmbedderConfig::disabled("test"), &mut None))
+                .expect("json error");
         unsafe {
             sqlite3_close(db);
         }
@@ -1283,6 +1522,33 @@ mod tests {
         assert_eq!(response["hits"][0]["chunk_id"], "a");
         assert!(response["best_dense_score"].as_f64().unwrap_or(0.0) > 0.99);
         assert!(malformed.get("error").is_some());
+    }
+
+    #[test]
+    fn bm25_fallback_when_no_model_is_available() {
+        let fixture = Fixture::new("fallback");
+        let db = open_db(&fixture.path).expect("open");
+        // Plain-text query, embedder disabled (no student runtime): the engine must still
+        // answer — BM25-only, clearly flagged as a fallback with encoder "none".
+        let response: serde_json::Value = serde_json::from_str(&handle_line(
+            db,
+            r#"{"id":9,"query":"heart chambers","books":["book"],"limit":5}"#,
+            &mut None,
+            &EmbedderConfig::disabled("no student runtime dir found"),
+            &mut None,
+        ))
+        .expect("json response");
+        unsafe {
+            sqlite3_close(db);
+        }
+
+        assert_eq!(response["encoder"], "none");
+        assert_eq!(response["fallback"], true);
+        assert_eq!(response["reason"], "no student runtime dir found");
+        assert!(response["best_dense_score"].as_f64().unwrap_or(-1.0) == 0.0);
+        let hits = response["hits"].as_array().expect("hits array");
+        assert!(!hits.is_empty(), "bm25-only must still return hits");
+        assert!(hits.iter().any(|hit| hit["chunk_id"] == "a"));
     }
 
     #[test]

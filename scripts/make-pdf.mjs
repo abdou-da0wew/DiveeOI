@@ -225,9 +225,9 @@ const html = `<!DOCTYPE html>
 
   <h1>An AI agent that works<br />on your code, <em>on your machine</em>.</h1>
   <p class="lede">
-    DiveeOI is a web app where AI agents read, write, run and remember inside your own
-    projects. One process, one SQLite file, your machine. The only thing that leaves it is
-    the model traffic you choose to send.
+    DiveeOI is a self-hosted web app where AI agents read, write, run and remember inside
+    your projects. The server and project data stay under your control; provider, web-search
+    and remote MCP traffic goes where you configure it.
   </p>
 
   <div class="rule"></div>
@@ -239,15 +239,15 @@ const html = `<!DOCTYPE html>
         A SolidJS web app in front of an Effect-TS server. You open a project directory and
         talk to an agent in a chat: it <strong>explores your codebase</strong>, writes and
         edits files, runs your tests and linters, searches the web when you ask it to, uses
-        any MCP server you connect, and keeps a memory of your project between sessions.
+        any MCP server you connect, and keeps a memory of your project between sessions. Targeted Learning can also index books and documents for grounded sessions, with separate library and student-memory stores.
       </p>
     </div>
     <div>
       <h3>What is not it</h3>
       <p>
-        Not a cloud IDE, not a model provider, not a place your code is hosted. There is no
-        account to create and no subscription. You bring the machine; the app brings the
-        agent, the tools, the diffs and the history.
+        Not a hosted IDE or model provider. You run the server and choose its authentication
+        mode and model providers. Basic authentication and JWT account flows are supported;
+        there is no hosted DiveeOI service required to use your own instance.
       </p>
     </div>
   </div>
@@ -256,11 +256,10 @@ const html = `<!DOCTYPE html>
 
   <h2>How it works</h2>
   <ol class="steps">
-    <li><b>Point it at a project.</b> The server reads that directory and nothing else.</li>
+    <li><b>Open a project.</b> The agent works in that project/worktree context, subject to the tool permissions and filesystem rules you configure.</li>
     <li><b>Write a sentence.</b> “Fix the flaky session test”, “add a migration for the new column”, “summarise my open pull requests”. No commands, no syntax.</li>
     <li><b>The agent works through tools</b> — read, grep, glob, edit, write, bash — each one behind a permission rule you set, and each one visible in the transcript as it happens.</li>
-    <li><b>Changes arrive as a diff.</b> Nothing is applied behind your back: you read the
-      added and removed lines and accept or discard them.</li>
+    <li><b>Review the work.</b> Tool actions and their results are visible in the transcript; use the diff and Git views to inspect the changes.</li>
     <li><b>Or let it run on its own.</b> A background task is a session with a schedule: it
       re-runs on a cron expression, with its own agent, its own model, and its own log.</li>
   </ol>
@@ -288,8 +287,8 @@ const html = `<!DOCTYPE html>
   </div>
 
   <div class="foot">
-    <span>TypeScript 5.8 · Bun 1.3 · Effect-TS 4.0 · SolidJS 1.9 · Drizzle + SQLite · Tailwind 4.1</span>
-    <span class="accent">MIT · self-hosted · <span class="mono">diveeoi.dev</span></span>
+    <span>TypeScript · Bun 1.3.14 · Effect-TS 4 · SolidJS · Drizzle + SQLite · Tailwind 4</span>
+    <span class="accent">Self-hosted · <span class="mono">diveeoi.dev</span></span>
   </div>
 </section>
 
@@ -341,25 +340,25 @@ const html = `<!DOCTYPE html>
     <div>
       <h3>The product, today</h3>
       <ul class="limits">
-        <li><b>Early.</b> The v2 redesign is mid-migration: some surfaces are the new components, some are still the old ones. The app is usable and improving, not finished.</li>
+        <li><b>Actively evolving.</b> DiveeOI is developed in the open; use the current release hand-off for build, test and deployment status rather than relying on an old feature snapshot.</li>
         <li><b>Web only.</b> The terminal UI was removed on purpose. Everything happens in the browser.</li>
-        <li><b>One password.</b> Access is a single shared password — enough for a machine on your network, not a multi-user identity system. Put it behind your own proxy for anything more.</li>
-        <li><b>No built-in TLS.</b> Terminate it at nginx or Caddy. Sessions live in your SQLite file, so protect the file, not just the URL.</li>
+        <li><b>Authentication is your responsibility.</b> Basic and JWT/account modes are supported. Keep authentication enabled, use strong secrets, and close registration after initial account setup.</li>
+        <li><b>No built-in TLS.</b> Terminate it at nginx or Caddy. Protect the core app database and the separate Targeted Learning data directory, not just the URL.</li>
       </ul>
     </div>
     <div>
       <h3>Operating it</h3>
       <ul class="limits">
-        <li><b>One SQLite file is the source of truth.</b> Sessions, messages, tasks and memory live in it. Back it up like you back up your code.</li>
+        <li><b>Persistence is split by subsystem.</b> Core sessions live in the application database; Targeted Learning keeps books/vectors in <span class="mono">books.db</span> and student memories in <span class="mono">student.db</span>. Back up each data directory.</li>
         <li><b>A restart is safe.</b> Tasks that were running when the process died are picked back up: stale ones are marked interrupted, and a task's call journal is replayed instead of repeated.</li>
         <li><b>Remote sessions run remotely.</b> Over SSH the agent works on the remote machine; <span class="mono">ctx_local</span> runs a single tool call back on your laptop.</li>
-        <li><b>Nothing is required from us.</b> No telemetry, no account, no sync. If you turn on crash reporting, it goes where you pointed it.</li>
+        <li><b>Review every external boundary.</b> Prompts go to the model provider you select; web tools and remote MCP servers also make network requests. Self-hosting does not make those integrations offline.</li>
       </ul>
     </div>
   </div>
 
   <div class="foot">
-    <span><span class="pill">v2 redesign in progress</span> &nbsp; <span class="pill">web only</span> &nbsp; <span class="pill">single-user</span></span>
+    <span><span class="pill">self-hosted</span> &nbsp; <span class="pill">web UI</span> &nbsp; <span class="pill">single-node</span></span>
     <span class="accent">diveeoi.dev · github.com/abdou-da0wew/DiveeOI</span>
   </div>
 </section>

@@ -181,6 +181,25 @@ Trading memory for faster project switching is a one-key opt-in:
 
 That raises the idle TTL to 60 minutes and the capacities to 100 entries / 24 instances. `DIVEEOI_KEEP_PROJECTS_WARM=1` (or `0`) overrides the config file. These values are read once at module load in `packages/db/src/startup-settings.ts`, before any layer is built, so a change requires a server restart. The web UI exposes the same switch under **Settings → Features → Performance**; like the other feature toggles it PATCHes the global config and restarts the server.
 
+## Targeted Learning
+
+Targeted Learning settings are defined and validated by `packages/learning/src/settings/schema.ts`; defaults are in `packages/learning/src/settings/defaults.ts`. The UI's settings form and generated SDK types consume this schema. The full feature overview is in [Targeted Learning](targeted-learning.md).
+
+The important retrieval controls are:
+
+| Key | Default | Behaviour |
+|---|---:|---|
+| `targetedLearning.retrieval.engine` | `auto` | Prefer the Rust engine when its binary is available; fall back to TypeScript |
+| `targetedLearning.retrieval.queryEncoder` | `auto` | Use an installed promoted student, otherwise BGE-M3 |
+| `targetedLearning.retrieval.unloadTeacherAfterIndexing` | `true` | Release the indexing teacher when the queue is idle unless chat still needs it |
+| `targetedLearning.retrieval.bm25TopK` | `30` | Lexical candidate count before fusion |
+| `targetedLearning.retrieval.denseTopK` | `30` | Dense candidate count before fusion |
+| `targetedLearning.retrieval.rrfK` | `60` | Reciprocal Rank Fusion constant |
+| `targetedLearning.retrieval.finalTopK` | `8` | Final retrieved context count |
+| `targetedLearning.gate.minDenseScore` | `0.5` | Default dense relevance threshold |
+
+The accepted values and bounds in the schema are authoritative; this table is only a quick reference. The feature stores its book index and student memories separately from the main application database. See [Targeted Learning deployment](targeted-learning-deployment.md) for paths, backups, and offline model import.
+
 ## DiveeComposer (the built-in model router)
 
 `divee/composer` — shown in the UI as **Divee** → **DiveeComposer** — is a synthetic model, not a provider entry. It is never sent to a provider.

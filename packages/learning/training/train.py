@@ -42,7 +42,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--out", required=True)
     parser.add_argument("--teacher", default="BAAI/bge-m3", help="tokenizer source (must match the index)")
     parser.add_argument("--epochs", type=int, default=6)
-    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--batch-size", type=int, default=0, help="0 = auto (128 on CUDA, 32 on CPU)")
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--weight-decay", type=float, default=0.01)
     parser.add_argument("--warmup", type=float, default=0.05)
@@ -57,8 +57,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--val-fraction", type=float, default=0.1)
     parser.add_argument("--eval-candidates", type=int, default=20000)
-    parser.add_argument("--device", default=None)
-    parser.add_argument("--precision", choices=["fp32", "fp16", "bf16"], default="fp32", help="autocast dtype on CUDA (T4: fp16; A100/L4: bf16)")
+    parser.add_argument("--device", default=None, help="auto|cuda|cpu (default: CUDA when available, e.g. inside Colab)")
+    parser.add_argument("--precision", choices=["auto", "fp32", "fp16", "bf16"], default="auto", help="autocast dtype on CUDA; auto = bf16 on Ampere+, fp16 on T4, fp32 on CPU")
     parser.add_argument("--bf16", action="store_true", help="deprecated alias for --precision bf16")
     parser.add_argument("--num-threads", type=int, default=0, help="torch CPU threads (0 = default)")
     parser.add_argument("--seed", type=int, default=13)
@@ -206,20 +206,79 @@ def evaluate(
     }
 
 
+def detect_colab() -> str | None:
+    """Return the assigned GPU name when running inside Google Colab, else None."""
+    import os
+
+    if not os.environ.get("COLAB_GPU") and not os.path.isdir("/content"):
+        return None
+    gpu = os.environ.get("COLAB_GPU") or ""
+    if not gpu:
+        try:
+            import subprocess as _sp
+
+            probe = _sp.run(
+                ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                capture_output=True, text=True, timeout=10,
+            )
+            gpu = probe.stdout.strip().splitlines()[0] if probe.returncode == 0 and probe.stdout.strip() else "gpu"
+        except Exception:
+            gpu = "gpu"
+    return gpu
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     import torch
 
-    if args.num_threads > 0:
-        torch.set_num_threads(args.num_threads)
+    device_choice = (args.device or "auto").lower()
+    if device_choice == "auto":
+        device_choice = "cuda" if torch.cuda.is_available() else "cpu"
+    if device_choice == "cuda" and not torch.cuda.is_available():
+        print("--device cuda requested but CUDA is unavailable; falling back to cpu", flush=True)
+        device_choice = "cpu"
+    device = torch.device(device_choice)
+
+    colab_gpu = detect_colab()
+    if colab_gpu and device.type == "cuda":
+        print(f"colab detected: training on {colab_gpu} (GPU-accelerated mode)", flush=True)
+    elif colab_gpu:
+        print(f"colab detected ({colab_gpu}) but CUDA is unavailable; running on CPU", flush=True)
+
+    if device.type == "cpu":
+        if args.num_threads > 0:
+            torch.set_num_threads(args.num_threads)
+    else:
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        torch.backends.cudnn.benchmark = True
     torch.manual_seed(args.seed)
     random.seed(args.seed)
     rng_np = np.random.default_rng(args.seed)
     rng_py = random.Random(args.seed)
-    device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
-    if args.precision != "fp32" and device.type != "cuda":
-        print(f"note: --precision {args.precision} needs CUDA; running in fp32 on {device.type}", flush=True)
-    precision = "bf16" if args.bf16 else args.precision
+
+    # Resolve precision: auto picks bf16 on Ampere+ GPUs, fp16 on pre-Ampere (T4), fp32 on CPU.
+    if args.bf16 and args.precision == "auto":
+        precision = "bf16"
+    elif args.precision != "auto":
+        precision = args.precision
+    elif device.type == "cuda":
+        major, _minor = torch.cuda.get_device_capability(device)
+        precision = "bf16" if major >= 8 else "fp16"
+    else:
+        precision = "fp32"
+
+    # Resolve batch size: 0 = auto (128 on GPU, 32 on CPU — keeps CPU runs reproducible).
+    if args.batch_size > 0:
+        batch_size = args.batch_size
+    else:
+        batch_size = 128 if device.type == "cuda" else 32
+        print(f"batch-size auto -> {batch_size} ({device.type})", flush=True)
+    args.batch_size = batch_size
+
+    if precision != "fp32" and device.type != "cuda":
+        print(f"note: --precision {precision} needs CUDA; running in fp32 on {device.type}", flush=True)
+        precision = "fp32"
 
     data = load_dataset(Path(args.data))
     tokenizer = data["AutoTokenizer"].from_pretrained(args.teacher)
@@ -257,7 +316,7 @@ def main(argv: list[str] | None = None) -> int:
     if not train_indexes:
         print("no training queries", flush=True)
         return 2
-    steps_per_epoch = math.ceil(len(train_indexes) / args.batch_size)
+    steps_per_epoch = math.ceil(len(train_indexes) / batch_size)
     total_steps = max(1, steps_per_epoch * args.epochs)
     warmup_steps = int(total_steps * args.warmup)
 
@@ -272,7 +331,7 @@ def main(argv: list[str] | None = None) -> int:
     amp_dtype = {"fp16": torch.float16, "bf16": torch.bfloat16}.get(precision)
     amp_enabled = bool(amp_dtype is not None and device.type == "cuda")
     scaler = torch.amp.GradScaler("cuda", enabled=bool(amp_enabled and precision == "fp16"))
-    print(f"device: {device} precision: {precision if amp_enabled else 'fp32'}", flush=True)
+    print(f"device: {device} precision: {precision if amp_enabled else 'fp32'} batch: {batch_size}", flush=True)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
@@ -284,8 +343,8 @@ def main(argv: list[str] | None = None) -> int:
         rng_py.shuffle(train_indexes)
         started = time.time()
         running = {"loss": 0.0, "cos": 0.0, "nce": 0.0, "kl": 0.0, "batches": 0}
-        for start in range(0, len(train_indexes), args.batch_size):
-            batch_indexes = train_indexes[start : start + args.batch_size]
+        for start in range(0, len(train_indexes), batch_size):
+            batch_indexes = train_indexes[start : start + batch_size]
             if len(batch_indexes) < 2:
                 continue
             candidate_ids, candidate_rows, positive_index = build_candidates(batch_indexes, rows, passage_index)

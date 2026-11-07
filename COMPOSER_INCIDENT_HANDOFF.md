@@ -1,5 +1,7 @@
 # DiveeComposer incident handoff
 
+> **Historical incident analysis, last updated 2026-11-03.** This file preserves the original regression, root-cause investigation, and repair chronology. It is not a current working-tree or deployment-status report. Consult [CONTEXT.md](CONTEXT.md) and [RELEASE_HANDOFF_2026-11-06.md](RELEASE_HANDOFF_2026-11-06.md) for current status and verification boundaries.
+
 Last updated: 2026-11-03. Repository: `/home/celestial-dev/DiveeOI`. Branch: `dev`.
 Last pushed/deployed commit: `2f5b2c3 feat(composer): add consented heuristic fallback ranking`.
 This document is the task-specific handoff for the Composer regression and the provider/authentication failures observed immediately after that deployment.

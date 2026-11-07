@@ -1,224 +1,195 @@
 # DiveeOI
 
-> AI-powered development web app. Chat with AI agents that read, write, and execute code in your projects. Self-hosted: the web UI and the server run on your machine, your code stays local, and the only thing that leaves the machine is the LLM traffic you configure.
+**A self-hosted AI development workspace.** Run AI agents in a browser, point them at your projects, and let them inspect files, edit code, execute commands, use MCP tools, and keep project context across sessions.
 
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue?logo=typescript)](https://www.typescriptlang.org)
-[![Bun](https://img.shields.io/badge/Bun-1.3.14-black?logo=bun)](https://bun.sh)
-[![Effect](https://img.shields.io/badge/Effect-4.0.beta.74-purple)](https://effect.website)
-[![SolidJS](https://img.shields.io/badge/SolidJS-1.9-4488ff?logo=solid)](https://solidjs.com)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+DiveeOI keeps the application server and project data under your control. Model requests go to the provider you configure; web search/fetch, remote MCP servers, and other connected services also make network requests when you use them.
 
----
+## What it does
 
-## What is DiveeOI?
+| Area | Capabilities |
+|---|---|
+| **AI sessions** | Streaming conversations, tool calls, context compaction, retry, revert, fork, and handoff |
+| **Project work** | Multiple project directories, worktrees, file watching, Git-aware workflows, and per-project configuration |
+| **Agent tools** | File read/write/edit, shell, search, LSP, patch, task planning, questions, and other permission-gated tools |
+| **Model providers** | Provider catalogue and authentication, OpenAI-compatible endpoints, and per-turn model resolution |
+| **DiveeComposer** | A synthetic model choice that selects a concrete eligible provider/model for each turn; it is not sent upstream itself |
+| **MCP and plugins** | Local or remote Model Context Protocol servers, plus the plugin SDK and bundled integrations |
+| **Memory** | Persistent project knowledge graph, recall, extraction, and consolidation |
+| **Targeted Learning** | Book/document ingestion, Arabic and English OCR support, grounded `@book:` sessions, hybrid retrieval, and separate student memory |
+| **Retrieval V2** | Optional persistent Rust retrieval engine with a TypeScript fallback, plus an offline query-encoder training/evaluation pipeline |
+| **Operations** | Basic/JWT authentication, adaptive resource controls, JSONL profiling, and deployment-oriented health/API endpoints |
+| **Interface** | SolidJS web app, shared component library, localization, and light/dark themes |
 
-DiveeOI is a self-hosted web application where AI agents collaborate with you inside your codebase. You open a project directory, start a chat session, and the agent can:
+Targeted Learning and the distilled query encoder are configurable features. The `auto` query-encoder mode only selects a student model after its promotion manifest passes the configured evaluation gates; otherwise it uses BGE-M3. A training pipeline existing in the repository does not mean a student model has already been trained or promoted on your machine.
 
-- **Read and write files** — explore your project, edit code, create new files
-- **Execute shell commands** — run tests, builds, linters, any CLI tool
-- **Search the codebase** — grep, glob, LSP diagnostics
-- **Browse the web** — fetch URLs, search the internet
-- **Manage tasks** — plan implementations, track todos, ask clarifying questions
-- **Use MCP servers** — connect any Model Context Protocol server for extended capabilities
-- **Remember context** — persistent memory graph, session history, compaction
+## Quick start
 
-The frontend is a SolidJS single-page app. The backend is an Effect-TS HTTP server backed by SQLite. Everything runs locally — your code never leaves your machine except for the LLM API calls you configure.
+### Requirements
 
----
+- **Bun 1.3.14** (pinned by the repository's `packageManager` field)
+- **Node.js 22 or newer** for secondary tooling
+- A supported Linux/macOS development environment; the server's Node SQLite bridge exists for secondary runtime paths, but Bun is the primary development/runtime path
 
-## Quick Start
-
-### Prerequisites
-
-- **Bun** 1.3.14+ — [install](https://bun.sh/docs/installation)
-- **Node.js** 22+ (secondary, for some tooling)
-
-### Install and Run
+### Install
 
 ```bash
-# Clone
 git clone https://github.com/abdou-da0wew/DiveeOI.git
 cd DiveeOI
-
-# Install all workspace dependencies
 bun install
+```
 
-# Start server + frontend together (recommended)
+### Run the server and web app
+
+```bash
 bun run dev:both
-
-# Or start them separately:
-bun run dev        # server on http://localhost:4097
-bun run dev:web    # frontend on http://localhost:3000  (Vite HMR)
 ```
 
-Open `http://localhost:3000` in your browser. Pick a project directory and start chatting.
+Open **http://localhost:3000**. The Vite development server proxies API requests to the backend at **http://localhost:4097**.
 
-### Environment Variables
+To run either side separately:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `4097` | Server listen port (`packages/server/src/main.ts`) |
-| `HOST` | `0.0.0.0` | Server listen host |
-| `CORS` | _(auto)_ | Additional trusted browser origins (comma-separated) |
-| `DIVEEOI_AUTH_MODE` | `both` | Accept Basic and JWT (`basic`, `jwt`, `disabled` are also available) |
-| `DIVEEOI_SERVER_USERNAME` | `DIVEEOI` | Basic-auth username; `OPENCODE_SERVER_USERNAME` is a legacy fallback |
-| `DIVEEOI_SERVER_PASSWORD` | `divee` in non-production only | Basic-auth password; production has no default password |
-| `DIVEEOI_JWT_SECRET` | generated if omitted | Stable signing key (at least 32 characters recommended) |
-| `DIVEEOI_AUTH_ALLOW_REGISTRATION` | closed after first account | Set `1`/`true`/`yes` to allow regular-user registrations |
-| `VITE_DIVEEOI_SERVER_HOST` | `127.0.0.1` | Vite development proxy target host |
-| `VITE_DIVEEOI_SERVER_PORT` | `4097` | Vite development proxy target port |
-| `OPENCODE_DB` | `~/.local/share/opencode/opencode.db` | SQLite file (channel-aware) |
-| `DIVEEOI_PROFILER` | `0` | Set `1` to enable call-tree profiler |
-
-Create a `.env` file at the project root if needed; start from [`.env.example`](.env.example). For authentication modes, account setup, and production security guidance, see [`docs/security-auth.md`](docs/security-auth.md) and `docs/configuration.md`.
-
----
-
-## Features
-
-| Area | Details |
-|------|---------|
-| **AI Sessions** | Streaming chat, tool calling, compaction, retry, revert, handoff, forking |
-| **Providers** | OpenAI, Anthropic, Google, Bedrock, Azure, Groq, Mistral, Cohere, DeepSeek, OpenRouter, XAI, and any OpenAI-compatible endpoint |
-| **Tools** | Read, write, edit, glob, grep, shell, webfetch, websearch, LSP, patch, skill, question, todo, plan, task |
-| **MCP** | Full Model Context Protocol support — connect external tool servers |
-| **Memory** | Knowledge graph with nodes/edges, vector recall, extraction, consolidation |
-| **Targeted Learning** | Indexed books, grounded `@book:` sessions, hybrid retrieval, student memory, OCR and resumable ingest jobs |
-| **Projects** | Multi-directory workspaces, git worktrees, per-project config |
-| **Permissions** | Fine-grained tool permission system with auto-approve rules |
-| **Plugins** | Extensible plugin SDK for custom tools and providers |
-| **Optimization** | **Adaptive resource system** — cgroup-aware resource detection, 4 profiles, GC/backpressure and 22 tuned targets |
-| **Profiler** | In-process call-tree profiler → `.divee/profiler.jsonl` (opt-in via `DIVEEOI_PROFILER=1`) |
-| **i18n** | 17 locales (en, zh, ja, ko, fr, de, es, pt-BR, ru, ar, and more) |
-| **Themes** | Light/dark themes with a full theme engine |
-
----
-
-## Project Structure
-
+```bash
+bun run dev        # backend server
+bun run dev:web    # frontend with Vite HMR
 ```
+
+### First run and authentication
+
+The default authentication mode is `both` (Basic authentication and JWT accounts). In non-production development, the server has a `DIVEEOI / divee` Basic-auth fallback when no password is configured. **Production has no default Basic password.** Configure a strong password or use the account/JWT flow before exposing the server.
+
+Registration is closed after the first account by default. Set `DIVEEOI_AUTH_ALLOW_REGISTRATION=1` only when you intentionally want to allow additional regular-user registrations. Do not use `DIVEEOI_AUTH_MODE=disabled` on a reachable server.
+
+Configure an LLM provider in the application settings or the appropriate config file, then create a project and start a session.
+
+## Configuration
+
+Copy [`.env.example`](.env.example) to `.env` when environment-based configuration is useful. The full configuration hierarchy and provider settings are documented in [Configuration](docs/configuration.md).
+
+| Variable | Default / behaviour | Purpose |
+|---|---|---|
+| `PORT` | `4097` | Backend listen port |
+| `HOST` | `0.0.0.0` | Backend listen address |
+| `CORS` | automatic same-origin/local rules | Extra trusted browser origins, comma-separated |
+| `DIVEEOI_AUTH_MODE` | `both` | `both`, `basic`, `jwt`, or `disabled` |
+| `DIVEEOI_SERVER_USERNAME` | `DIVEEOI` | Basic-auth username |
+| `DIVEEOI_SERVER_PASSWORD` | development fallback only | Basic-auth password; set an explicit secret in production |
+| `DIVEEOI_JWT_SECRET` | generated and stored persistently when omitted | JWT signing secret; configure a stable secret for production |
+| `DIVEEOI_AUTH_ALLOW_REGISTRATION` | closed after first account | Set to `1`, `true`, or `yes` to allow later registrations |
+| `OPENCODE_DB` | application data directory default | Compatibility database-path override |
+| `VITE_DIVEEOI_SERVER_HOST` | `127.0.0.1` | Vite proxy target host |
+| `VITE_DIVEEOI_SERVER_PORT` | `4097` | Vite proxy target port |
+| `DIVEEOI_TL_DATA_DIR` | resolved from application data paths | Optional Targeted Learning data-directory override |
+
+The server also retains selected `OPENCODE_*` variables for compatibility with the upstream-derived configuration surface. Prefer the documented `DIVEEOI_*` names where both exist. Never commit secrets or generated credentials.
+
+## Targeted Learning
+
+Targeted Learning is a separate, book-grounded workflow rather than ordinary chat with a different prompt. Import or ingest a book, wait for indexing to finish, then start a session with the book selected or referenced using `@book:`.
+
+The retrieval path combines SQLite FTS5/BM25 candidates with dense vector candidates and Reciprocal Rank Fusion. The optional Rust engine performs the retrieval hot path; `retrieval.engine=auto` uses it when its binary is available and falls back to the TypeScript implementation when it is not. Query rewriting, gating, grounding policy, and parent-context expansion remain in TypeScript.
+
+BGE-M3 is the indexing teacher. A smaller multilingual student can serve chat queries in the same 1024-dimensional vector space after its held-out evaluation and promotion checks pass. The `auto` setting keeps BGE-M3 as the query encoder until a valid promoted student is installed. See the [Targeted Learning overview](docs/targeted-learning.md), [deployment guide](docs/targeted-learning-deployment.md), [debugging guide](docs/targeted-learning-debugging.md), and [Retrieval V2 execution plan](packages/learning/RETRIEVAL_V2_PLAN.md).
+
+## Development commands
+
+```bash
+# Root workspace
+bun run dev          # server
+bun run dev:web      # web app
+bun run dev:both     # server + web app
+bun run build        # production build
+bun run typecheck    # Turbo typecheck
+bun run lint         # oxlint
+bun run clean        # remove package dist/.turbo output
+
+# Package-level checks (run from the package directory)
+bun run typecheck
+bun test
+
+# Targeted Learning package
+cd packages/learning
+bun test
+bun run typecheck
+
+# Rust retrieval engine
+cd packages/learning/native/retrieval
+cargo fmt --check
+cargo test --offline
+cargo clippy --offline -- -D warnings
+cargo build --release --offline
+
+# Offline training toolkit (Python environment)
+cd packages/learning/training
+pip install -r requirements.txt
+python smoke_test.py
+```
+
+The root does not define a single aggregate `test` script. Run the relevant package suites; use [Development](docs/development.md) for the full workflow and test matrix.
+
+## Repository map
+
+```text
 DiveeOI/
 ├── packages/
-│   ├── server/                 # @diveeoi/server  — HTTP server + all business logic (~50 Effect layers)
-│   ├── db/                     # @diveeoi/db      — SQLite, session engine, AI providers, tools
-│   ├── api/                    # @diveeoi/api     — Effect HttpApi definitions (21 groups)
-│   ├── app/                    # @diveeoi/app     — SolidJS SPA frontend
-│   ├── ui/                     # @diveeoi/ui      — Shared UI component library (197+ components)
-│   ├── llm/                    # @diveeoi/llm     — Effect Schema-first LLM client
-│   ├── sdk/                    # @diveeoi/sdk     — Typed API client (v1 + generated v2)
-│   ├── plugin/                 # @diveeoi/plugin  — Plugin SDK
-│   ├── memory/                 # @diveeoi/memory  — Knowledge graph memory system
-│   ├── effect-drizzle-sqlite/  # Drizzle ORM + Effect SQLite adapter
-│   ├── effect-sqlite-node/     # Node.js SQLite bridge for Effect
-│   ├── http-recorder/          # HTTP cassette recorder (test only)
-│   ├── profiler/               # Performance profiler utilities
-│   ├── mcp/                    # Built-in MCP server (ocreadb)
-│   ├── plugins/                # Plugin registry / discovery
-│   ├── identity/               # Brand assets (logos, icons)
-│   └── script/                 # Internal build scripts
-├── docs/                       # Documentation
-├── patches/                    # Patched dependencies
-├── PROJECT_GUIDE.md            # Full architecture reference
-├── DIVEEOI_BRIEF.md            # Detailed project brief
-└── package.json                # Workspace root (Bun workspaces + Turbo)
+│   ├── server/                 # HTTP server, session orchestration, tools, providers
+│   ├── db/                     # SQLite schemas, migrations, providers, session engine
+│   ├── api/                    # Effect HttpApi contracts
+│   ├── app/                    # SolidJS application
+│   ├── ui/                     # Shared UI components and theme system
+│   ├── learning/               # Targeted Learning, retrieval, ingestion, training
+│   │   ├── native/retrieval/   # Rust BM25 + dense + RRF engine
+│   │   └── training/           # Offline corpus and student-encoder toolkit
+│   ├── memory/                 # Persistent knowledge graph
+│   ├── llm/                    # Schema-first LLM client and provider routing
+│   ├── sdk/                    # Typed API clients (v1 and generated v2)
+│   ├── plugin/                 # Plugin SDK
+│   ├── plugins/                # Bundled integrations
+│   ├── mcp/                    # Built-in MCP server
+│   ├── identity/               # Brand assets
+│   ├── profiler/               # In-process profiling
+│   ├── script/                 # Internal build and migration tooling
+│   ├── effect-drizzle-sqlite/  # Drizzle adapter for Effect SQLite
+│   ├── effect-sqlite-node/     # Node SQLite bridge for Effect
+│   └── http-recorder/          # Test-only HTTP cassette recorder
+├── docs/                       # Operator, contributor, architecture, and QA docs
+├── scripts/                    # Build and PDF generation scripts
+├── PROJECT_GUIDE.md            # Detailed package and code-structure reference
+├── DIVEEOI_BRIEF.md            # Product and design brief
+└── package.json                # Bun workspace and Turbo configuration
 ```
-
-See [`docs/architecture.md`](docs/architecture.md) for the full architecture breakdown, [`docs/optimization.md`](docs/optimization.md) for the adaptive perf system, and [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md) for the exhaustive package map.
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|------------|
-| Language | TypeScript 5.8 (strict) |
-| Runtime | Bun 1.3.14, Node 22 |
-| Monorepo | Bun workspaces + Turbo 2.8 |
-| Server | Effect-TS 4.0.0-beta.74 (HttpRouter, HttpApi, Layers, Streams) |
-| Frontend | SolidJS 1.9 + Vite 7.1 + Tailwind 4.1 + Kobalte |
-| Database | SQLite + Drizzle ORM 1.0 RC2 + custom Effect adapter |
-| LLM | Custom `@diveeoi/llm` + Vercel AI SDK 6.0 (20+ providers) |
-| Testing | Bun test + Playwright |
-| Linting | oxlint + Prettier + tsgo |
-
----
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [`docs/getting-started.md`](docs/getting-started.md) | Installation, first session, provider setup |
-| [`docs/architecture.md`](docs/architecture.md) | System design, layer graph, data flow, startup sequence |
-| [`docs/development.md`](docs/development.md) | Dev workflow, scripts, testing, conventions |
-| [`docs/api.md`](docs/api.md) | HTTP API groups, endpoints, auth, streaming |
-| [`docs/configuration.md`](docs/configuration.md) | Config files, env vars, providers, MCP, themes |
-| [`docs/security-auth.md`](docs/security-auth.md) | Authentication modes, account flows, credentials and production hardening |
-| [`docs/optimization.md`](docs/optimization.md) | **Memory/speed/adaptive resources — the core perf work** |
-| [`docs/deployment.md`](docs/deployment.md) | Building, self-hosting, Docker, production checklist |
-| [`docs/contributing.md`](docs/contributing.md) | How to contribute, code style, PR process |
-| [`DIVEEOI_BRIEF.md`](DIVEEOI_BRIEF.md) | Super detailed project brief — what, why, how, and for whom |
-| [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md) | Exhaustive architecture reference (every package, every directory) |
-| [`PROJECT_LESSONS.md`](PROJECT_LESSONS.md) | Hard-won lessons and gotchas from building this project |
+| Start here | Use it for |
+|---|---|
+| [Documentation index](docs/README.md) | Complete documentation map |
+| [Getting started](docs/getting-started.md) | Install, first run, provider setup |
+| [Architecture](docs/architecture.md) | Runtime shape, package boundaries, request flow, data stores |
+| [Targeted Learning](docs/targeted-learning.md) | Book ingestion, grounded sessions, retrieval, student encoder |
+| [API reference](docs/api.md) | HTTP surfaces, authentication, streaming, SDK |
+| [Configuration](docs/configuration.md) | Config hierarchy, environment, providers, feature settings |
+| [Security and authentication](docs/security-auth.md) | Basic/JWT modes, accounts, secrets, proxy hardening |
+| [Deployment](docs/deployment.md) | Builds, self-hosting, Docker, persistent data, updates |
+| [Targeted Learning deployment](docs/targeted-learning-deployment.md) | Model setup, offline import, persistent learning data |
+| [Targeted Learning debugging](docs/targeted-learning-debugging.md) | Diagnostics, status endpoints, live validation |
+| [Development](docs/development.md) | Commands, tests, conventions, troubleshooting |
+| [Optimization](docs/optimization.md) | Resource adaptation and performance work |
+| [Contributing](docs/contributing.md) | Contribution workflow and review checklist |
+| [Project guide](PROJECT_GUIDE.md) | Detailed package and source map |
+| [Project lessons](PROJECT_LESSONS.md) | Historical engineering lessons and pitfalls |
+| [Project brief](DIVEEOI_BRIEF.md) | Product goals and design rationale |
+| [Current engineering context](CONTEXT.md) | Current source/runtime state and verification boundaries |
+| [Current release hand-off](RELEASE_HANDOFF_2026-11-06.md) | Source revision, live service snapshot, and release caveats |
 
-Each package also has its own `README.md` with package-specific docs.
+### PDF editions
 
----
+- [DiveeOI overview](DiveeOI.pdf)
+- [Technical architecture overview](DiveeOI-technical.pdf)
+- [Architecture paper — dark](DiveeOI-architecture-dark.pdf) · [light](DiveeOI-architecture-light.pdf)
+- [Engineering field notes — dark](DiveeOI-field-notes-dark.pdf) · [light](DiveeOI-field-notes-light.pdf)
 
-## Development Commands
+## Security and data boundaries
 
-```bash
-# Root
-bun run dev          # Start server
-bun run dev:web      # Start frontend (Vite HMR)
-bun run dev:both     # Both concurrently (server --watch + Vite)
-bun run build        # Turbo build all packages
-bun run typecheck    # Turbo typecheck (tsgo --noEmit per package)
-bun run lint         # oxlint
-bun run clean        # Remove dist/ and .turbo/
+Self-hosted does not mean every operation is offline. The server stores project and session data locally, but configured LLM providers receive prompts and context; web tools contact external sites; remote MCP servers receive the inputs sent to their tools. Review provider, MCP, and permission settings before exposing a shared instance. Put public deployments behind TLS termination, keep authentication enabled, and back up the main application database and the separate Targeted Learning data directory.
 
-# Per package (from package directory)
-bun run typecheck    # Typecheck single package
-bun test             # Run package tests
-```
-
-See [`docs/development.md`](docs/development.md) for the full command reference.
-
----
-
-## How It Works (30-Second Version)
-
-1. **You open a project** — the server watches the directory, indexes files, and loads config. On boot it samples host/container resources (including Linux cgroup v1/v2 limits) and picks an adaptive profile (comfortable→critical) that tunes GC, SSE/WS queue sizes, tool concurrency, and SQLite cache.
-2. **You send a message** — the session engine builds a prompt (system instructions + conversation history + file context), picks a model, and streams the LLM response with an adaptive buffer/throttle.
-3. **The agent calls tools** — the LLM emits tool calls (read, edit, shell, etc.), the server executes them under a per-profile `Semaphore` and feeds results back into the loop; memory extraction at turn exit is fire-and-forget so it never stalls the next first token.
-4. **Everything is persisted** — sessions, messages, and events are stored in SQLite with lazy pagination + transparent GZIP (>10KB). The frontend syncs via SSE/WebSocket and renders the timeline in real time. A background `Bun.gc(true)` scheduler + 60s `DevMonitor` keep the process on its RSS/heap targets.
-
-## Performance — Why DiveeOI Is Fast
-
-> **DiveeOI is built to stay fast on ordinary hardware.** The server adapts to the machine it runs on, keeps its queues bounded, and never blocks the first token on background work.
-
-- **No stall on the first token**: `prompt.ts` loop exit + compaction stop fork the memory extraction instead of awaiting it — the first token is never blocked.
-- **Adaptive targets** (`packages/db/src/adaptive`): host/container-aware detection → 4 profiles. RSS/heap budgets scale with detected memory (45%/30% in comfortable mode down to 12%/8% in critical mode); GC intervals are 60s→5s, tool concurrency is capped by CPU quota (up to 16→1), stream buffers are 400→32, and SQLite cache targets are 256→16 MB. Targets refresh every 90s; pressure sheds resources immediately and recovery uses hysteresis.
-- **All hot queues bounded adaptively**: PTY tickets, WS tracker, SSE event/global queues, LLM stream, DB PRAGMA cache/mmap — each via `useAdaptiveTargets` or `makeAdaptiveLayer` so RSS tracks the profile, not the load.
-- **Profiler**: `packages/profiler` `AsyncLocalStorage` call-tree + gauges + JSONL `.divee/profiler.jsonl` — run with `DIVEEOI_PROFILER=1` to see per-route `durMs/heapDelta/concurrentMax`.
-- **Storage**: zero-deletion — full history stays queryable; disk savings come from GZIP on large tool outputs and paginated `messages({limit,before,after})`.
-- **Project retention you control**: idle projects are released after 10 minutes by default so memory tracks the work in front of you; `performance.keep_projects_warm` (or the **Settings → Features → Performance** switch) keeps them warm instead.
-
-Full phase plan + target table: [`docs/optimization.md`](docs/optimization.md) and `plans/Optimization_1.0/OPTIMIZATION_PLAN.md`.
-
----
-
-## DiveeComposer
-
-DiveeOI ships with a built-in model called **DiveeComposer** — an internal router, not a provider:
-
-- You pick it like any other model, and it is the default when you have not chosen one.
-- It is never sent to a provider. Each turn it resolves to the best **free** model that is currently reachable (preferring the bundled free tier), and only that concrete model is used for the request.
-- It picks by **quality, not by price**: a curated family tier table, the variant words in the model name, the version lineage inside a family, and the capabilities the catalog reports — plus a small boost for models that actually completed a turn. It prefers models that are reachable *right now* (the bundled free tier needs no key), and it learns from refusals: a model the gateway rejects is dropped, and a provider that rejects several of its models is dropped entirely. `performance.composer.preferred` lets you override the ranking with your own similarity list.
-- Its capabilities — image/PDF/audio/video input, context window, reasoning, variants — always mirror the model it currently routes to, so the UI enables exactly what the routed model can do.
-- The routing is invisible in the interface but explicit in the logs (`composer.route` in the server log) and in the request itself.
-
----
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+For operational details, start with [Security and authentication](docs/security-auth.md) and [Deployment](docs/deployment.md).

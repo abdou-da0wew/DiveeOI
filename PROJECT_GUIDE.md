@@ -1,6 +1,6 @@
 # DiveeOI Project Guide
 
-> **DiveeOI** is a self-hosted, AI-powered development web app: AI chat sessions, MCP (Model Context Protocol), tool definitions, an agent system, authentication, project management, file operations, git integration, and a complete HTTP API. The web UI and the server are the whole product — one process, one SQLite file, your own machine.
+> **DiveeOI** is a self-hosted, AI-powered development web app: AI chat sessions, MCP (Model Context Protocol), tool definitions, an agent system, authentication, project management, file operations, git integration, and a complete HTTP API. The application server hosts the web UI and HTTP surface; core application state and feature-owned stores such as Targeted Learning's library and student memory are persisted separately.
 
 ---
 
@@ -106,6 +106,7 @@ DiveeOI/
     ├── sdk/                    # @diveeoi/sdk    - API client SDK (v1/v2)
     ├── plugin/                 # @diveeoi/plugin - Plugin SDK
     ├── memory/                 # @diveeoi/memory - Knowledge graph memory system
+    ├── learning/               # @diveeoi/learning - Targeted Learning, ingestion, retrieval, student memory
     ├── effect-drizzle-sqlite/  # Drizzle ORM + Effect SQLite adapter
     ├── effect-sqlite-node/     # Effect SQLite for Node.js bridge
     ├── http-recorder/          # Record/replay HTTP traffic for testing
@@ -587,7 +588,7 @@ Uses `#sqlite`, `#pty`, `#fff` subpath imports with platform-specific resolution
 
 | File | Description |
 |---|---|
-| `api.ts` | Main `Api` definition — `HttpApi.make("server")` with 21 groups |
+| `api.ts` | Main `Api` definition — `HttpApi.make("server")` with the registered v2 groups |
 | `routes.ts` | Route assembly — `createRoutes()` returns composed Layer with all handlers |
 | `auth.ts` | Server auth configuration for the API |
 | `cors.ts` | CORS middleware configuration |
@@ -771,13 +772,13 @@ Defined in `app.tsx` via `@solidjs/router`:
 ## 9. Package: @diveeoi/ui
 
 **Location**: `packages/ui/`
-**Role**: Shared UI component library used by the app. Contains 197+ components, theme system, icons, styles, the pierre file viewer, and v2 component system.
+**Role**: Shared UI component library used by the app. Contains shared SolidJS components, the theme system, icons, styles, the Pierre file viewer, and the v2 component system.
 
 ### 9.1 Source Map (`src/`)
 
 | Directory | Description |
 |---|---|
-| `components/` | 197+ UI components (see below) |
+| `components/` | Shared UI components (see below) |
 | `v2/` | V2 component redesign (81 components) |
 | `theme/` | Theme system — color, context, default themes, resolver, themes/ dir, types |
 | `styles/` | CSS — base, colors, theme, utilities, animations, tailwind/ |
@@ -788,7 +789,7 @@ Defined in `app.tsx` via `@solidjs/router`:
 | `assets/` | Fonts, audio files |
 | `storybook/` | Storybook stories |
 
-### 9.2 Key UI Components (selected from 197)
+### 9.2 Key UI Components (selected)
 
 | Component | Description |
 |---|---|
@@ -1063,6 +1064,20 @@ Build and utility scripts. Used by `packages/server` as a dev dependency.
 **Location**: `packages/identity/`
 
 Brand assets — SVG/PNG logos and icons (96x96, 192x192, 512x512, mark light/dark variants).
+
+### 13.6 `@diveeoi/learning`
+
+**Location**: `packages/learning/`
+
+Targeted Learning runtime and offline training subsystem. It owns:
+- Pinned model manifests, verified downloads, setup lifecycle, and resource probes.
+- PDF/DOCX/text extraction, OCR, chunking, BGE-M3 passage embeddings, and resumable ingest jobs.
+- `books.db` library/vector storage and a separate `student.db` for student memories and book notes.
+- Hybrid BM25 + dense retrieval, optional persistent Rust engine, TypeScript fallback, query rewriting, gate policy, and citation/grounding verification.
+- Query-encoder selection (`auto` / `student` / `bge-m3`) with promotion-manifest checks and teacher unloading.
+- Offline corpus builders, student training, ONNX export, held-out evaluation, and promotion tooling under `training/`.
+
+The runtime API is mounted by the server under `/targeted-learning`. See `packages/learning/README.md`, `packages/learning/AGENTS.md`, and `docs/targeted-learning.md` before changing this subsystem.
 
 ---
 

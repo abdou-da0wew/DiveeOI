@@ -1,0 +1,5 @@
+<book_notes>
+Findings saved from earlier sessions about these books. They point to passages; re-read the
+passage with book_read_section before relying on one, and cite it as [chunk_id] when you do.
+{{LINES}}
+</book_notes>

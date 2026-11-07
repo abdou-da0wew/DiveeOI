@@ -1,0 +1,7 @@
+<book_context>
+Passages retrieved for this question. Rules: cite them as [chunk_id]; facts come ONLY from
+these passages and from tool results; if they do not answer the question, say so instead of
+guessing.
+
+{{CONTEXT}}
+</book_context>

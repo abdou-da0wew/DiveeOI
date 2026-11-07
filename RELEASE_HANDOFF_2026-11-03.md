@@ -1,5 +1,7 @@
 # DiveeOI Release & Engineering Handoff
 
+> **Historical snapshot, 2026-11-03 21:57 UTC.** The repository and service have advanced since this report. Its statements below describe the November 3 state and must not be used as present-tense deployment status. See [RELEASE_HANDOFF_2026-11-06.md](RELEASE_HANDOFF_2026-11-06.md) and [CONTEXT.md](CONTEXT.md) for the current source/runtime snapshot.
+
 **Snapshot:** 2026-11-03 21:57 UTC  
 **Repository:** `/home/celestial-dev/DiveeOI`  
 **Branch:** `dev`  

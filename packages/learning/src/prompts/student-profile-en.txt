@@ -1,0 +1,5 @@
+<student_profile>
+What you know about THIS student (how they learn). Adapt your teaching to it. It is not a
+source of facts about the subject.
+{{LINES}}
+</student_profile>

@@ -1,5 +1,20 @@
 # DiveeOI Targeted Learning — What's Done
 
+> **Current implementation snapshot — 2026-11-06.** This inventory describes the current source tree at `dev` / `2868dc7`. Its original October 29 counts and verification notes remain historical. The latest full monorepo typecheck/build/test evidence predates November 4–6 source changes; see [CONTEXT](../CONTEXT.md) and [RELEASE_HANDOFF_2026-11-06.md](../RELEASE_HANDOFF_2026-11-06.md) for the current source/runtime boundary.
+
+## Current implementation status
+
+- **Book pipeline:** pinned BGE-M3 setup, verified model downloads, PDF/DOCX/text extraction, OCR, chunking, resumable jobs, import, pause/resume/cancel/retry, and source validation.
+- **Grounded sessions:** sticky `@book:` selection, hybrid retrieval, pre-LLM relevance gate, per-turn evidence tracking, citation verification, repair retry, book tools, and separate student memory/book notes.
+- **Retrieval V2:** persistent Rust FTS5/BM25 + dense cosine + RRF engine, NDJSON client, TypeScript fallback, additive BLOB vector storage/compaction, and engine-level evaluation.
+- **Query encoder:** `auto/student/bge-m3` selection, 1024-dimensional student compatibility contract, promotion-manifest checks, and optional teacher unloading after indexing. `auto` stays on BGE-M3 until a promoted student is installed.
+- **Offline model toolkit:** passage-grounded multilingual synthetic data, captured-query augmentation, student training, trace-safe ONNX export, held-out per-tag/cross-lingual evaluation, cross-lingual sample floors, skipped-slice manifest records, and explicit promotion gates.
+- **Corpus tooling:** resource-limited isolated extraction/OCR, parallel pending-book workers for the Egyptian Baccalaureate corpus, and idempotent Wikipedia corpus appends.
+- **Runtime API and UI:** setup/settings/presets/probe, library, ingest-job controls, search diagnostics, student-memory endpoints, and settings controls for retrieval engine/query encoder/teacher lifecycle.
+
+A completed implementation path does not imply a student model has been trained, passed real-corpus evaluation, or been installed. Verify the evaluation report and `divee-student.json` manifest on the target host.
+
+
 **A historical inventory of the Targeted Learning (RAGed-Session) files, features, tests, and integration points.**
 
 > **Historical verification note — 2026-10-29:** this inventory predates the auth/security, adaptive-resource, setup-cancellation, ingest-control/recovery, and grounding-retry changes recorded in later hand-offs. Counts and pass/typecheck claims below are historical snapshots, not verification of the present worktree. At the time of this note, tests, typechecks, builds, browser runs, and model-backed checks for those changes had not been run; the pinned-model golden-vector fixture was empty. See `WORKLOG.md` and `CONTEXT.md` for later verification and remaining checks.

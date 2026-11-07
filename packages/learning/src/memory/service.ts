@@ -16,6 +16,7 @@ import path from "node:path"
 import { Effect } from "effect"
 import type { BooksDbHandle } from "../store"
 import { getRuntime } from "../runtime"
+import { prompt } from "../prompts"
 import { withDefaults } from "../settings/defaults"
 import { ensureEmbedder } from "../embed/ensure"
 import { embed } from "../embed/pipeline"
@@ -213,7 +214,7 @@ export const studentProfileBlock = (settings?: Tree, studentId = DEFAULT_STUDENT
   }
   const db = studentDb()
   if (db) for (const id of used) db.run("UPDATE student_memories SET uses = uses + 1 WHERE id = ?", [id])
-  return `<student_profile>\nWhat you know about THIS student (how they learn). Adapt your teaching to it. It is not a source of facts about the subject.\n${lines.join("\n")}\n</student_profile>`
+  return prompt("student-profile-en", { LINES: lines.join("\n") })
 }
 
 // ---------------------------------------------------------------------------
@@ -381,5 +382,5 @@ export const relevantBookNotes = async (input: {
     lines.push(line)
     size += line.length
   }
-  return `<book_notes>\nFindings saved from earlier sessions. They point to passages; re-read the passage with book_read_section before relying on one.\n${lines.join("\n")}\n</book_notes>`
+  return prompt("book-notes-en", { LINES: lines.join("\n") })
 }

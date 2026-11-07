@@ -119,6 +119,10 @@ DiveeOI can fetch a remote config via `.well-known/opencode` when `auth` contain
 
 ## Next Steps
 
+- [Targeted Learning](targeted-learning.md) — ingest books and start grounded sessions.
+- [Security and authentication](security-auth.md) — account setup and production-safe access.
+- [Deployment](deployment.md) — persistent storage, reverse proxy, backups, and updates.
+
 - [Architecture](architecture.md) — how the server, DB, LLM, and app fit together
 - [Configuration](configuration.md) — full config hierarchy and every flag
 - [API Reference](api.md) — endpoints and SDK usage

@@ -6,14 +6,14 @@
 
 ## 1. One Sentence
 
-DiveeOI is a **self-hosted AI development web app**. You point it at a project directory, chat with an LLM agent in your browser, and the agent reads/writes your files, runs your shell, and streams results back — all persisted in local SQLite.
+DiveeOI is a **self-hosted AI development web app**. You point it at project directories, chat with LLM agents in your browser, and the agents read/write files, run commands, use MCP tools, and stream results back. Core application state is stored locally; Targeted Learning maintains separate book-library and student-memory databases.
 
 ## 2. Why It Exists
 
 Most AI coding tools want your code. DiveeOI is built so that it does not have to:
 
 - the agent runs in a web app, so any browser and any remote machine can drive it, not just a terminal on your desk,
-- the server is one Effect-TS process over one SQLite file, so deploying it is a single listener with a single data directory,
+- the server is one Effect-TS application process, while feature-owned stores such as Targeted Learning's book and student databases remain separate, so the deployment is still a small self-hosted service with explicit persistent-data boundaries,
 - the provider/runtime layers stay free of a second rendering surface, so the tool, MCP and skill seams can evolve without a parallel contract,
 - everything is yours to inspect: the schema, the config, the logs, the database file.
 
@@ -37,7 +37,8 @@ browser (SolidJS)  <-- SSE/WebSocket + fetch -->  Bun HTTP server (Effect)
                                             |-> ToolRegistry (17 + MCP tools)
                                             |-> Permission (ask/allow/deny)
                                             |-> Config (hierarchical merge)
-                                            |-> SQLite via Drizzle + Effect adapter
+                                            |-> Core SQLite via Drizzle + Effect adapter
+                                            |-> Targeted Learning: books.db + student.db
                                             `-> MCP clients (stdio + remote + OAuth)
 ```
 
@@ -63,11 +64,12 @@ Tokens and cost are computed from the provider's `Usage` plus cached-token accou
 |---------|-------------|--------------|
 | `server` | the only stateful service | HTTP bootstrap, 50+ Effect layers, session lifecycle, MCP, permissions, plugins, git/worktree, snapshot diffs, config resolution |
 | `db` | persistence + provider glue + session runner | Drizzle schema + 35+ migrations, SQLite dual driver, session store/projector/coordinator, 20+ AI SDK adapters, 18 tool impls, `LayerNode`, `InstanceState`, FS/pty abstractions |
-| `api` | typed HTTP surface | 21 `HttpApi` groups + handlers + CORS + auth middleware + cursor pagination + OpenAPI |
+| `api` | typed HTTP surface | `HttpApi` groups + handlers + CORS + authentication middleware + cursor pagination + OpenAPI |
 | `app` | browser shell | SolidJS routing, 40+ `createSimpleContext` providers, connection gate, per-server shell, draft/new-session split, `GlobalPrefSync` |
 | `ui` | component library | 197 presentational components + 81 `v2` redesign peers, `ThemeProvider` with 40 themes, pierre virtualized file viewer |
 | `llm` | provider core | Schema model, `Protocol` + `Endpoint` + `Auth` + `Framing` decomposition, `Route` composition, provider facades, tool-runtime dispatcher |
 | `memory` | knowledge graph | SQLite indexer + graph scorer (8-factor weighted) + LLM extractor + consolidation scheduler, per-session semaphore |
+| `learning` | grounded learning | Book ingestion/OCR + BGE-M3 embeddings + Rust/TypeScript hybrid retrieval + grounding verifier + separate student memory + offline student trainer |
 | `sdk` | client | v1 fetch helpers + v2 generated `hey-api` client from `/openapi.json` |
 | `plugin` | extension | `ToolDefinition { args: Zod, description, execute(ctx)->{output,title,metadata,attachments} }` |
 | `effect-drizzle-sqlite` | adapter | `EffectSQLiteSession` nesting via savepoints, plus Drizzle shims |
@@ -243,4 +245,4 @@ For a reviewer walking a change, add `packages/server/src/config/config.ts:loadI
 
 ---
 
-**TL;DR**: DiveeOI is a self-contained Effect + SQLite web app for AI-assisted development. Everything of interest lives inside one Bun process and one SQLite file, with an LLM agent that loops over tools until it is done, asking you when it should. The docs in `docs/` and the per-package READMEs below are the operator's guide; this brief is the designer's guide.
+**TL;DR**: DiveeOI is a self-hosted Effect + SQLite web app for AI-assisted development. The server owns the project sessions, permissions, tools, and provider boundary; feature-specific stores remain explicit and separate. Targeted Learning adds document ingestion, grounded retrieval, a student-memory database, and an offline multilingual query-student training pipeline. The docs in `docs/` and per-package READMEs are the operator and contributor guides; this brief explains the product and its design.

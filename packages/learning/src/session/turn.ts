@@ -15,6 +15,7 @@ import { prepareQueryEncoder } from "../embed/query-encoder"
 import { retrieve, type Candidate } from "../retrieve/hybrid"
 import { withDefaults } from "../settings/defaults"
 import { buildGroundingPrompt } from "../grounding/prompt-rules"
+import { prompt } from "../prompts"
 import { recordRetrieved, resetRetrieved } from "../grounding/turn-state"
 import { relevantBookNotes, studentProfileBlock } from "../memory/service"
 import { withDiagnosticPromise } from "../diagnostics"
@@ -192,7 +193,7 @@ const prepareTargetedTurnImpl = async (input: {
     return {
       system: [
         buildGroundingPrompt({ bookTitles: input.meta.books.map((b) => b.title), language: lang, refusalMessages }),
-        "The student only attached the book(s). Greet them briefly and ask what they want to study. State no facts.",
+        prompt(lang === "ar" ? "attach-greeting-ar" : "attach-greeting-en"),
         ...(studentProfileBlock(input.settings) ? [studentProfileBlock(input.settings)!] : []),
       ],
       decision: "small-talk",
@@ -254,13 +255,17 @@ const prepareTargetedTurnImpl = async (input: {
     }),
   ]
   if (input.meta.missing?.length) {
-    system.push(`The student mentioned books that are not available: ${input.meta.missing.join(", ")}. Tell them briefly.`)
+    system.push(
+      prompt(lang === "ar" ? "missing-books-ar" : "missing-books-en", {
+        BOOKS: input.meta.missing.join(", "),
+      }),
+    )
   }
   const profile = studentProfileBlock(input.settings)
   if (profile) system.push(profile)
   if (input.sessionId) recordRetrieved(input.sessionId, result.candidates.map((c) => c.chunkId))
   if (result.gateDecision === "small-talk") {
-    system.push("This message is small talk. Reply briefly and warmly and offer to help with the attached book(s). State no facts.")
+    system.push(prompt(lang === "ar" ? "small-talk-ar" : "small-talk-en"))
   } else {
     const notes = await relevantBookNotes({
       db: runtime.booksStore.db,
@@ -271,9 +276,7 @@ const prepareTargetedTurnImpl = async (input: {
     })
     if (notes) system.push(notes)
     const context = formatContext(result.candidates, titles, Number(grounding.maxContextTokens ?? 6000))
-    system.push(
-      `<book_context>\nPassages retrieved for this question. Cite them as [chunk_id]. Use ONLY these passages and tool results for facts.\n\n${context}\n</book_context>`,
-    )
+    system.push(prompt(lang === "ar" ? "book-context-ar" : "book-context-en", { CONTEXT: context }))
   }
   return { system, decision: result.gateDecision === "small-talk" ? "small-talk" : "pass" }
 }

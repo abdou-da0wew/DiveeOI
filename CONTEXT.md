@@ -1,177 +1,43 @@
-# CONTEXT — DiveeOI implementation hand-off
+# CONTEXT — DiveeOI current engineering hand-off
 
-Last updated: 2026-11-03. VDS repository: `/home/celestial-dev/DiveeOI`. Current branch: `dev`; last pushed commit: `2f5b2c3`. The current working tree also contains uncommitted Composer recovery edits; see `COMPOSER_INCIDENT_HANDOFF.md` before touching or resetting them.
+- **Snapshot:** 2026-11-06
+- **Repository:** `/home/celestial-dev/DiveeOI`
+- **Branch:** `dev`
+- **Source HEAD at audit start:** `2868dc79b1ab28216048dd2667885785cda65176`
+- **Upstream:** `origin/dev` at the same commit
+- **Runtime:** Bun `1.3.14`, Node `22.22.1` (observed during this documentation audit)
 
-This file is the current hand-off snapshot. See `COMPOSER_INCIDENT_HANDOFF.md` for the active DiveeComposer/provider incident, exact modified files, production-vs-working-tree state, and Claude's suggested repair order. See `WORKLOG.md` for the chronological record, `DECISIONS.md` for design decisions, and `docs/TARGETED_LEARNING_WORKLOG.md` / `docs/WHATS_DONE.md` for Targeted Learning history and inventory. Older test counts in historical documents are not verification of the current branch.
+This file is the current hand-off. The previous November 3 release snapshot is historical; see `RELEASE_HANDOFF_2026-11-06.md` for the current repository/runtime distinction. `WORKLOG.md` remains chronological, `DECISIONS.md` records durable technical choices, and `docs/TARGETED_LEARNING_WORKLOG.md` records the learning subsystem's implementation history.
 
-## Active Composer incident — read before provider/model work
+## Repository and deployment state
 
-- Last pushed/deployed commit recorded for this incident: `2f5b2c3`. Recovery work remains local and uncommitted; do not claim it is live.
-- Composer catalogue visibility is separate from routing. A display-only synthetic model may stay visible when consent, quota, authentication, context, or quality rules block routing, but only a selected model tagged with a concrete target may reach an LLM request.
-- Settings V1 and V2 now contain the Composer provider toggle, local-ranking consent, Artificial Analysis key status/save/remove, and fallback environment-variable control. Key changes dispose the current instance and refresh provider queries. Manual V1/V2 QA and the isolated Composer no-route browser test passed on the VDS; evidence is in `docs/qa/COMPOSER_BROWSER_QA.md` and `docs/qa/`. Full monorepo typechecks, production builds, and DB/app/server test suites have since passed on the user-approved VDS; see the final verification section below. Live external provider authentication and quota-cycle tests remain unverified because no authorized credentials were available.
-- Provider authentication checks no longer treat a public `baseURL` or unresolved `${ENV}` placeholder as credentials. Stored API auth, provider/plugin-specific auth, configured environment variables, explicit provider headers, and keyless local/private endpoints are handled separately. A provider-wide missing-auth response cools that provider down temporarily; OpenCode free-tier refusals remain model-specific.
-- OpenCode quota exhaustion uses the persisted provider cooldown path. Composer's concrete target identity is preserved through the prompt processor, and failures are learned against the routed provider/model rather than `divee/composer`.
-- Fixed the preferences composite-key mismatch at the Drizzle source/schema level and generated a migration that repairs legacy duplicate rows while retaining the newest value. This restores the `Prefs.set()` upsert path used by Composer bans and quota cooldown persistence.
-- Fixed the Vite development API proxy boundary so query-string routes such as `/file?directory=...` are proxied to the backend instead of falling through to `index.html`. Verified that the proxy now returns backend JSON.
-- Preserve the entire uncommitted tree; do not reset/clean it. The exact continuation inventory and current verification status are in `COMPOSER_INCIDENT_HANDOFF.md` and the newest `WORKLOG.md` entry.
+- At the start of this documentation refresh, the working tree was clean and `dev` matched `origin/dev`. The documentation changes made in this pass are intentional working-tree edits; do not reset or clean them.
+- The latest source commits are from November 5–6. The most recent commit at audit start is `2868dc7` (SDK generated types expose the retrieval-engine, query-encoder, and teacher-unload settings).
+- `diveeoi.service` is active. The observed main PID was `1906414`, started at `2026-11-05 18:54:11 UTC`, with its configured executable at `packages/server/dist/@diveeoi/server-linux-x64-baseline/bin/diveeoi` and listener on `0.0.0.0:6050`.
+- The running executable and the on-disk executable had the same SHA-256 at inspection: `45582ceaae4ad55ef10020c9955d3c87687e7cf1473c76bee4f129e99c84eba7`. The file modification time was `2026-11-05 12:34:48 UTC`.
+- The checkout contains source commits newer than that binary's modification time. The binary hash is verified, but its exact source commit was not embedded or independently proven. Do not state that the running service is built from `2868dc7`.
+- A separate process was listening on `0.0.0.0:4097` during inspection. It was not changed or stopped as part of this documentation task.
+- No service restart, deployment, database migration, commit, push, or cleanup was performed during this documentation refresh.
 
-## Retrieval V2 (Targeted Learning) — current state
+## Targeted Learning — current implementation
 
-- Plan: `packages/learning/RETRIEVAL_V2_PLAN.md` (live). Original rationale: `packages/learning/native/retrieval/QUERY_ENCODER_PLAN.md`.
-- Chat no longer has to run BGE-M3: `src/embed/query-encoder.ts` resolves `auto` / `student` / `bge-m3` and only selects a **promoted** student, so an unproven student can never be chosen implicitly. With `retrieval.unloadTeacherAfterIndexing` (default true) the teacher is freed once the ingest queue empties, unless chat itself still needs it.
-- Retrieval hot path can run in Rust: `retrieval.engine` = `auto` | `native` | `typescript`. `src/retrieve/native-engine.ts` spawns `divee-retrieval --serve` once, correlates NDJSON responses by id, and returns `null` (→ TypeScript fallback) on every failure. Binary lookup: `DIVEEOI_RETRIEVAL_BIN`, then `<repo>/packages/learning/native/retrieval/target/{release,debug}/divee-retrieval`.
-- Vector storage is still base64 TEXT by default. `divee-retrieval --compact` fills an additive `chunk_vecs_blob` table (readers prefer it, fall back to TEXT); `--drop-text --vacuum` is a deliberate one-way step to run only after every instance runs this build.
-- Student training lives in `packages/learning/training/` (not executed yet): dataset builder, trainer, ONNX INT8 exporter, evaluator, promoter. Promotion gates and calibrated gate thresholds are enforced by `promote.py`; the runtime manifest is `divee-student.json`.
-- Rust changes in this tree have **not** been compiled (the Arena sandbox has no Rust toolchain); run `cargo fmt --check && cargo test --offline && cargo clippy --offline -- -D warnings && cargo build --release --offline` in `packages/learning/native/retrieval` on the VDS before deploying.
+- The feature lives in `packages/learning`; the server mounts its API under `/targeted-learning`, and the SDK exposes the configuration contract.
+- Book indexing uses the pinned BGE-M3 teacher to create passage vectors. The query-time contract remains 1024-dimensional, CLS-pooled, and L2-normalised so a distilled student can query existing indexes without re-embedding books.
+- Query encoder policy is `auto | student | bge-m3`. `auto` selects a student only when an installed student manifest is marked promoted; otherwise it uses BGE-M3. `unloadTeacherAfterIndexing` defaults to `true`, while still respecting a chat configuration that explicitly needs the teacher.
+- Retrieval engine policy is `auto | native | typescript`. `auto` uses the native Rust engine when its binary is installed and otherwise uses the TypeScript path. Both use the same retrieval contract. The Rust child is persistent NDJSON, not a per-query process; TypeScript retains policy decisions such as query rewriting, gate checks, and parent expansion.
+- The native engine supports FTS5/BM25, dense cosine over stored vectors, reciprocal-rank fusion, pre-top-K score reporting, persistent `--serve`, evaluation, and additive vector BLOB compaction. BLOB storage remains compatible with the older base64-text vector column.
+- The training toolkit builds query/teacher-target datasets, supports captured real queries, creates a larger Arabic/English/French synthetic query pool from passage text without inventing facts, trains and exports the student, evaluates held-out retrieval slices, and promotes only when the promotion gates pass.
+- Evaluation now records per-tag and per-language-pair metrics, uses a cross-lingual sample floor, records skipped slices in the promotion manifest, and passes the selected book IDs into Rust-engine evaluation. ONNX export uses trace-safe manual attention. Egyptian Baccalaureate corpus OCR workers can run in parallel across pending books, and the Wikipedia corpus builder appends idempotently.
+- The app settings UI exposes the retrieval engine, query encoder, and teacher-unload controls in the Targeted Learning settings flow. The generated SDK types were refreshed in `2868dc7`.
+- A training toolkit or a promotion mechanism does not prove a promoted student is installed. Check the local `divee-student.json` manifest and evaluation report before making a deployment claim.
 
-## Repository commit hook
+## Composer/provider incident
 
-- `.githooks/commit-msg` is enabled in this checkout via `core.hooksPath=.githooks`; a real temporary-repository commit and amend both produced exactly one `Co-authored-by: DiveeAgent <270451464+DiveeAgent@users.noreply.github.com>` trailer. See `PROJECT_GUIDE.md` for setup in another clone.
+`COMPOSER_INCIDENT_HANDOFF.md` remains the detailed historical incident analysis for catalogue visibility, routing safety, provider credentials, quota cooldowns, settings parity, and the preferences composite-key fix. It is not the current release-status document. The isolated no-route browser QA and November 3 full verification evidence remain under `docs/qa/` and `WORKLOG.md`. Real upstream provider authentication/quota-cycle checks were not completed in that verification because authorized external credentials were unavailable.
 
-## Earlier Targeted Learning verification — historical
+## Verification boundaries
 
-Bun 1.3.14 was used via `npx` for the current skill work. A temporary filtered install enabled focused DB/server tests and SDK generation; the full workspace install remains incomplete because GitHub certificate validation failed while resolving `ghostty-web`. The DB skill tests pass (8 tests / 42 expectations), the server skill/command/system tests pass (20 / 57), and the SDK generation/typecheck passes. DB package typecheck still reports 69 errors in existing files, with no diagnostics in the changed skill files; server typecheck was SIGKILLed without diagnostics. Licensing clearance for adapted content from the unlicensed `zcode-skills` repository is still pending; PR #6 remains draft and must not be merged/released before clearance. Earlier Targeted Learning diagnostics, source parsing, and `git diff --check` results are recorded below. Full package builds, browser runs, and model-backed checks remain unverified. The optional reference-vector `runSelfTest()` fixture is empty until `tl:selftest:freeze` is run with the pinned model installed; this is separate from Setup's `golden-self-test` step, which runs the live semantic sanity check and does not require fixture vectors.
-
-## Authentication and security
-
-- The default auth mode is `both`: Basic or JWT is accepted. `DIVEEOI_SERVER_USERNAME` defaults to `DIVEEOI`; the non-production, non-test Basic password defaults to `divee`. Production has no default Basic password; JWT account auth remains enabled unless auth is explicitly disabled.
-- `DIVEEOI_*` settings take precedence. `OPENCODE_SERVER_USERNAME` / `OPENCODE_SERVER_PASSWORD` remain legacy environment fallbacks only.
-- The app has a DiveeOI-themed login/register surface. Basic credentials are entered there, tested against the selected server, and held in memory rather than embedded in the built JS or persisted by the login flow. They are attached only to requests for the matching configured server origin, including direct Targeted Learning fetches. If Basic auth is not accepted, login falls back to JWT account auth. No `WWW-Authenticate: Basic` challenge is emitted, preventing a browser-native credential popup.
-- JWT access tokens are memory-only in the browser. Browser login/refresh uses a rotating, revocable, HttpOnly/SameSite cookie and persisted refresh-session rows; headerless non-browser clients retain the JSON refresh-token flow. Access/refresh token purpose is validated separately; account password/email changes revoke refresh sessions. The JWT signing secret is generated in the persistent data directory when not configured; use a stable 32+ character `DIVEEOI_JWT_SECRET` in production.
-- The first admin account is claimed through a conditional database insert, preventing two concurrent first registrations from both becoming admin. Registration remains publicly exposed until that first account exists; bootstrap should happen before exposing an uninitialized instance.
-- API Bearer injection is restricted to the app origin so account tokens are not forwarded to arbitrary configured remote servers. Basic credentials are origin-scoped separately. A `401` health response is treated as reachable so the themed login can render rather than trapping users on a connection-error screen. The Vite dev server proxies API routes to a configurable backend target.
-- Previously shared external credentials should be rotated if they are still active. No credentials are intentionally stored in this repository.
-
-See `docs/security-auth.md` for configuration and operational guidance.
-
-## Embedded skills and metadata
-
-- Current draft PR: [#6](https://github.com/abdou-da0wew/DiveeOI/pull/6) on `arena/40d798db-diveeoi`; the initial implementation is commit `30a2dbf` and the validated code/test/SDK follow-up is commit `858a1f0`.
-- The DB plugin registers 19 curated embedded skills from `packages/db/src/plugin/skill/bundled/`, with 85 static text resource imports. `SkillV2` parses category/tags/version/author/license/compatibility, links and source provenance, triggers/requirements, allowed tools, argument hints, invocation flags, and unknown attributes. Embedded resources are path-validated and materialized in the global cache by the DB/server skill tools.
-- The server V1 skill adapter uses the DB plugin's pure `SkillPlugin.embeddedSources()` catalog, avoiding a second PluginBoot instance while exposing the same metadata and resource files. Slash-command generation respects `slash` and `user-invocable`, and command responses include `argumentHint`.
-- API/OpenAPI/SDK synchronization was run with `cd packages/sdk && bun ./script/build.ts`; generated client types include skill metadata/source and command argument hints. SDK TypeScript compilation passes. Codegen also synchronized previously stale Targeted Learning endpoints.
-- **Licensing gate:** `abdou-da0wew/zcode-skills` has no root license and redistribution authorization for remaining adapted upstream content is unresolved. PR #6 is draft only. Do not merge or release until cleared. Source `charts`, `docx`, `pdf`, and `xlsx` trees with non-commercial-only terms were excluded and replaced by original DiveeOI guides; applicable Apache license copies are included.
-- Focused validation: DB skill/plugin/tool/config tests pass (8 tests, 42 expectations); server skill/command/system tests pass (20 tests, 57 expectations). DB full typecheck has 69 diagnostics in existing files but none in the changed skill files. The full server typecheck was SIGKILLed, while the restricted check timed out after about five minutes without diagnostics; see the PR for details.
-
-## Memory system status
-
-- Server integration source is present: prompt assembly passes the latest user message and active worktree into memory recall, scopes text search and graph traversal to the project, ranks query-matched/session-linked memories by relevance and importance, and injects up to eight escaped durable records. New manual and extracted memories inherit project metadata and link to the session root. Extraction is detached at prompt/compaction exits; an initial/daily extraction scheduler and eight tools are registered. The normal session-create path does not eagerly call `initializeSessionMemory`.
-- `packages/memory` tests pass (2 tests, 16 expectations), including query ranking, session-root linking, project-scoped recall, and escaped reference-only prompt injection. Memory typecheck reports errors in unchanged DB adaptive/database files and `packages/memory/src/index.ts`; the server typecheck process was SIGKILLed without diagnostics. Server boot/runtime behavior and full create→link→retrieve→update→delete coverage remain unverified; see `plans/MemoryPlan/MEMORY_SERVER_INTEGRATION_PLAN.md`.
-- Daily scheduler work is extraction, not consolidation. The consolidation service and manual tool exist, but scheduled `runMaintenance()` is not wired.
-- `packages/memory/src/consolidation.ts:194–265` has a potential merge atomicity/data-loss risk: duplicate nodes/links are modified or deleted before the primary update, without an enclosing transaction. This was not addressed in the memory/prompt implementation.
-
-## Self-hosted CI runner — Go implementation in progress
-
-- Standalone runner source: `tools/self-hosted-ci/`; operator/VPS guide: `tools/self-hosted-ci/README.md`; example systemd unit: `tools/self-hosted-ci/deploy/diveeoi-ci.service`.
-- Current design is Linux + local Docker (rootless strongly recommended), generic Git remotes with polling, selected branch/tag patterns, repository YAML workflows, per-job environment, encrypted per-repository secrets with trusted-ref gating, stream log redaction, and explicit retained artifacts. This is an early MVP, not a GitHub Actions-compatible or hosted service.
-- Added the DiveeOI monorepo pipeline at `.diveeoi/pipeline.yml`: frozen Bun install, Targeted Learning tests, app/server typechecks, `build:nobin`, and retention of `packages/app/dist`. Equivalent starter pipeline/config are under `tools/self-hosted-ci/examples/`.
-- CLI includes `daemon`, `check`, `validate`, `status`, `logs`, `artifacts`, `run`, and `secret set/list/delete`. Work state and vault are stored in the configured private storage directory; Docker logs are bounded, declared artifacts have size/file-count limits and retention, and completed run workspaces are cleaned.
-- **Verification is incomplete:** this sandbox has no Go toolchain (`go`, native `gofmt`, and `gccgo` are absent), so no Go compilation, `go test`, or `go vet` has run. All 29 `.go` files were formatted with a WASM build of gofmt and accepted by Tree-sitter; that checks formatting/syntax only, not Go type correctness. The systemd unit passed `systemd-analyze verify` with `/bin/true` substituted for the not-yet-built binary, but service startup was not exercised. Docker/Podman are also absent, so no container or VPS integration test has run. Install Go 1.22+ and Docker on a staging Linux host, then run `cd tools/self-hosted-ci && gofmt -w $(find cmd internal -type f -name '*.go') && go test ./... && go vet ./... && mkdir -p bin && go build -o ./bin/diveeoi-ci ./cmd/diveeoi-ci`; follow the README for `check`, pipeline validation, a manual run, logs, and artifact inspection. Treat the implementation as unverified until those checks pass.
-
-## Adaptive resource system
-
-`packages/db/src/adaptive/` detects host/container resources and selects `comfortable`, `balanced`, `constrained`, or `critical` targets. Linux detection accounts for cgroup v1/v2 memory limits and CPU quotas at the current cgroup and all visible ancestors, plus `/proc/meminfo`; CPU capacity uses `availableParallelism`. Targets scale RSS/heap budgets to available memory, cap queues/caches/concurrency per profile, and recover with hysteresis. The adaptive service refreshes targets periodically; SQLite cache and mmap settings subscribe to updates.
-
-The focused cgroup ancestor/parser tests pass; profile tests and platform-wide resource checks remain unrun.
-
-## Targeted Learning feature
-
-A user can attach an indexed source with `@book:<slug>`. A targeted session retrieves only from the attached books, applies a retrieval gate, and injects cited grounding context. It is self-hosted and runs the pinned embedding model locally after setup.
-
-### Main code map
-
-- `packages/learning` (`@diveeoi/learning`) contains settings, model manifest/downloader, setup state machine, embedding, parsers, OCR, chunking, ingest, SQLite store, retrieval/gating, grounding, student memory, and evaluation/self-test.
-- `packages/server/src/server/routes/instance/httpapi/groups|handlers/targeted-learning.ts` wires setup, settings, books,
-  ingest-job controls, search inspection, memory APIs, and authenticated `/targeted-learning/debug/status` under
-  `/targeted-learning`.
-- `packages/learning/src/diagnostics.ts` provides the opt-in redacting JSONL logger, rotating private files, operation
-  spans, progress/stall detection, and a status snapshot. HTTP middleware lives in
-  `packages/server/src/server/routes/instance/httpapi/middleware/targeted-learning-diagnostics.ts`.
-- `packages/server/src/session/prompt.ts` connects `@book:` mentions to targeted-session metadata, retrieval/gating, answer verification, and one repair retry.
-- `packages/app/src/components/targeted-learning-*` and the settings-targeted-learning components provide the library, job controls, memory and schema-driven settings surfaces.
-- `packages/db/src/v1/config/targeted-learning.ts` provides the global config integration.
-
-### Current implementation details
-
-- Ingest persists job stage/progress/settings checkpoints. Jobs support pause, resume, cancel and retry. Recovery claims are guarded against duplicate in-process workers; cancellation signals an in-flight recovery claim before it can schedule, and pause/resume wait for the claim to settle. Queued/running jobs are recovered at boot by re-reading the stored source, checking its SHA-256 and containment under the library directory, then rebuilding the index from the beginning. Recovery does **not** continue at the exact checkpointed batch. Paused jobs remain paused across a restart.
-- OCR progress callbacks may be asynchronous; the OCR loop awaits them so failed checkpoint/progress writes propagate and do not become unhandled promise rejections.
-- Setup accepts an `AbortSignal` per step and exposes `cancelSetup`. Cancellation returns an interrupted step to pending, interrupts the setup Fiber (`Fiber.Fiber<unknown, unknown>`), and avoids starting repair/setup while cancellation is still settling. Test added; unrun.
-- `grounding.verify = retry` is wired: a failed first citation/grounding verification removes the unverified draft and makes one repair-prompt retry; if that retry still fails, the final answer carries a warning. Retrieved passage IDs are explicitly cleared after final verification and bounded/expired in memory.
-- Local-folder model import validates manifest paths and rejects traversal plus symlinks that resolve outside the selected source/destination roots.
-- `packages/learning/scripts/freeze-selftest.ts` implements `bun run tl:selftest:freeze` for the pinned int8 model; `packages/learning/src/self-test/golden.json` currently has empty vectors for the optional reference-vector regression self-test. Setup's live semantic sanity check does not depend on those vectors.
-- Opt-in runtime diagnostics cover HTTP requests, service/recovery, setup state, downloads, ingest, retrieval/gates, targeted
-  chat/model stream, grounding, and settings updates. Flags: `DIVEEOI_TL_DEBUG`, `DIVEEOI_TL_DEBUG_LEVEL`,
-  `DIVEEOI_TL_DEBUG_HANG_MS`, `DIVEEOI_TL_DEBUG_MAX_LOG_MB`, `DIVEEOI_TL_DEBUG_FILE`,
-  `DIVEEOI_TL_DEBUG_CONTENT`, and `DIVEEOI_TL_DEBUG_CONSOLE`. Diagnostics are off by default; secret-like fields are
-  redacted, free-form content/error messages are length-only, and message text is logged only with explicit
-  `DIVEEOI_TL_DEBUG_CONTENT=1`. JSONL rotation, test steps, and authenticated status inspection are documented in
-  `docs/targeted-learning-debugging.md`.
-- Bun 1.4.2's production compiler failure from synchronous `require()` traversing the `@diveeoi/learning/node`
-  top-level-await graph is addressed in `packages/server/src/app-services.ts` with static ESM imports. The failure and
-  static-import fix passed minimal fixtures and changed-file transpilation; the full server build remains unverified
-  without complete dependencies.
-
-### Data on disk
-
-`DIVEEOI_TL_DATA_DIR` (or the app data directory's `targeted-learning/`) holds `books.db`, `books/` source files, `models/`, OCR language data and `setup.json`. Student profile/memory data is stored separately in `student.db`. Keep the data directory on persistent storage; source files are needed for ingest recovery/re-indexing.
-
-## How to verify (on a machine with Bun 1.3.14+ and dependencies)
-
-```bash
-# Start in the repository root.
-cd packages/learning && bun test test/diagnostics.test.ts && bun test && bun run typecheck
-cd ../server && bun run typecheck
-cd ../app && bun run typecheck
-# Optional pinned-model fixture generation for runSelfTest() (not required by Setup)
-cd ../learning && bun run tl:selftest:freeze
-```
-
-Then rerun the learning suite and run `scripts/tl-live-check.ts` on a host where the pinned Hugging Face model can be installed. The previous branch documented a server typecheck issue caused by the build-generated `diveeoi-web-ui.gen.ts`; check whether the current build path generates that file before treating it as a source error.
-
-## Latest verification
-
-- `bun test`: 11 focused tests pass across app auth forwarding, browser-vs-non-browser refresh-token transport, and cgroup ancestor/resource parsing.
-- Bun `--no-bundle` parsing succeeded for 20 modified TypeScript/TSX files. `git diff --check` and `bash -n scripts/divee.sh` pass.
-- The atomic first-admin SQL was exercised with Node 22's built-in SQLite: the first conditional insert returned one admin row and the second returned none.
-- Full package tests, typechecks, production builds, browser checks, and model-backed checks remain unverified because the workspace dependency install could not resolve the GitHub `ghostty-web` tarball certificate.
-- On the current branch, Bun 1.4.2 ran `packages/learning/test/diagnostics.test.ts`: 7 passed, 0 failed, 36
-  expectations. The test used a temporary Effect v4 install under `/tmp`, not a complete workspace install.
-- TypeScript native-preview checked `diagnostics.ts`, `setup/state-machine.ts`, `download/index.ts`, the diagnostics test,
-  and the HTTP diagnostics middleware with no errors. Bun 1.4.2 `build --no-bundle` transpiled 16 changed TypeScript files
-  successfully. `git diff --check` passes.
-- Bun 1.4.2's `require()`/top-level-await failure was reproduced in a minimal fixture; static ESM imports, ESM bundling, and changed-file transpilation passed. The full server build is still unverified.
-- Current startup-fix follow-up: moved the shared `JwtAuth.defaultLayer` provider around the full merged HTTP route tree
-  because several route-specific auth middleware layers depend on it. Bun 1.4.2 `build --no-bundle` transpilation and
-  `git diff --check` pass; full server startup is not verified in this dependency-free workspace.
-- Memory/prompt work: Bun 1.4.2 `packages/memory` tests pass (2 tests, 10 expectations); TypeScript syntax parsing passed for 13 changed `.ts` files. Memory typecheck reports existing errors in `packages/db/src/adaptive/detect.ts`, `packages/db/src/database/database.ts`, and `packages/memory/src/index.ts`. Server typecheck was SIGKILLed after about 9 minutes without diagnostics. A filtered server dependency install also failed while `tree-sitter-powershell` tried to download Node headers; full server typecheck/runtime checks remain pending.
-
-## Remaining verification / caveats
-
-1. Resolve dependency installation, then run the full tests, typechecks and builds for app, API, DB, learning, and server packages. The focused results above do not substitute for typechecking.
-2. Optionally freeze and verify golden vectors on the pinned int8 model for reproducible `runSelfTest()` checks; this is not a Setup prerequisite. Model-backed behavior and the live retrieval gate have not been validated here.
-3. Run browser checks for the login/register form, Basic and JWT flows, Vite proxy, adaptive-resource updates, setup cancel/repair, and ingest job controls.
-4. Exercise job recovery after process restart and inspect the intended full-source replay behavior. Unit additions for the recovery-claim/cancel race, pause/resume, cancellation cleanup and unsafe source paths are still unrun.
-5. Route-test coverage still needs a current run; the previous worklog recorded missing HTTP API scenarios for many routes, including Targeted Learning.
-
-## Embedding concurrency (updated 2026-10-30)
-`indexing.workersPerBook` (default 2) = number of batches in flight at once on ONE shared in-process model session (split work, no model duplication). Bun Worker threads, one model copy each, are opt-in only (`DIVEEOI_TL_WORKER_THREADS=1`): on the VDS (Bun 1.4.2) two Workers loading onnxruntime-node while a PDF was parsed crashed Bun (`NAPI FATAL ERROR: napi_define_properties`). Concurrent runs on a real ORT session are untested; compare `workersPerBook` 1 vs 2 with the benchmark in `scripts/tl-live-check.ts`.
-
-## 2026-11-03 verification update
-
-- Isolated Composer no-route browser test is now complete. A clean-env backend used an explicit temporary `OPENCODE_DB`, a zero-cost catalogue model on a public invalid endpoint with no provider credentials, and the visible synthetic `divee/composer` model. Two UI prompt submissions failed safely before provider invocation; the browser displayed the expected Session error toast and no stack trace. HARs contain no provider traffic.
-- The test DB was confined to `/tmp/diveeoi-composer-noroute-final-20261103`; the live 6050 DB was inspected read-only and had no QA account or session.
-- Entire DB package test suite: 1,047 passed, 0 failed, 2,815 assertions, 133 files.
-- The formerly outstanding local verification is now complete on the user-approved 32 GiB VDS: monorepo typecheck 14/14 tasks; SDK/app build 2/2 tasks; server Linux x64 and baseline build/smoke tests; DB 1,047/1,047; server 2,770 passed, 14 skipped, 1 todo, 0 failed; app 429 unit + 2 virtualizer tests passed. Final focused provider/session tests 214 passed, 1 skipped, 0 failed. Production service remains untouched; recovery changes remain uncommitted.
-
-## 2026-11-03 VDS build/test completion
-
-- The user confirmed the VDS has 32 GiB RAM and authorized local builds/typechecks; Colab is not needed for this repository session.
-- `bun turbo typecheck --concurrency=4`: 14/14 tasks passed. The non-blocking Vercel cache write-permission warning does not affect local task success.
-- SDK/app build and server Linux x64/baseline production build passed. The server baseline executable path used by `diveeoi.service` is present and executable; its build smoke test passed.
-- Full DB: 1,047 passed, 0 failed, 2,815 assertions, 133 files. Full server: 2,770 passed, 14 skipped, 1 todo, 0 failed, 7,292 assertions, 212 files. App: 429 unit tests + 2 virtualizer tests passed. Final focused provider/session suite: 214 passed, 1 skipped, 0 failed.
-- `git diff --check` and migration generator `--check` pass. Modified-source oxlint has zero diagnostics; whole-repo lint remains warning-heavy in untouched legacy/assets/docs files.
-- Live OpenRouter/AgentRouter authentication and real upstream OpenCode quota-cycle testing remain outstanding due to absent authorized provider credentials. No external provider request was sent. No commit, push, service restart, or deployment was performed; PID 914318 on port 6050 still has the old binary loaded.
-
-## Current release handoff
-
-See RELEASE_HANDOFF_2026-11-03.md for the detailed DiveeComposer/provider recovery status, code and test inventory, current VDS production state, build/typecheck/test results, database migration rehearsal, backup/rollback assets, unresolved HTTP API exercise gaps, and deployment authorization requirement. The handoff's final verification refresh is dated 2026-11-04. Production has not been restarted; ask for explicit user approval before sudo deployment.
+- The most recent recorded full monorepo typecheck, production build, and DB/server/app suite results are in the November 3 section of `WORKLOG.md`.
+- Source changes landed after that verification, including November 4 settings/UI and ingestion work and November 5–6 training/evaluation/SDK changes. Those later commits must not inherit the November 3 test counts by implication.
+- This documentation pass does not claim that the entire test matrix was rerun. Any new focused checks performed during this refresh are recorded in the November 6 worklog entry and release hand-off.
+- Before a production rollout, rebuild from the exact source commit being deployed, run the relevant checks, verify database backups/migrations, and obtain explicit approval before privileged service operations.

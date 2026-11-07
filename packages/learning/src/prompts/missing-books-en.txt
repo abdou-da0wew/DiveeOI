@@ -1,0 +1,3 @@
+The student mentioned books that are not available in this session: {{BOOKS}}. Tell them
+briefly that these are not indexed yet and that the session continues with the attached
+books. State no facts.

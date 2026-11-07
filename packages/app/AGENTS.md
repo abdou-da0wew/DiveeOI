@@ -10,9 +10,9 @@
 ## Local Dev
 
 - Run the backend and app dev servers separately.
-- Backend (from `packages/server`): `bun run packages/server/src/main.ts` (default port 4097, set via `PORT` env var)
+- Backend (from `packages/server`): `bun run --conditions=browser ./src/main.ts` (default port 4097, set via `PORT` env var)
 - App (from `packages/app`): `bun dev -- --port 4444`
-- Open `http://localhost:4444` to verify UI changes (it targets the backend at `http://localhost:4096`).
+- Open `http://localhost:4444` to verify UI changes (it targets the backend at `http://localhost:4097` by default (`VITE_DIVEEOI_SERVER_PORT` overrides it)).
 
 ## SolidJS
 
@@ -37,4 +37,4 @@ Core workflow:
 
 ## Current DiveeComposer incident handoff (2026-11-02)
 
-For any work involving provider authentication, model catalogues, model selection, Composer routing, or Models settings, read the repository-root `COMPOSER_INCIDENT_HANDOFF.md` before editing. It records the production regression, the current uncommitted recovery work, exact verification status, and the repair order. Preserve the strict free-only and context-fit guarantees. A display-only Composer catalogue entry must never be routed to an LLM request. Do not assume the uncommitted recovery work is built or deployed.
+For work involving provider authentication, model catalogues, model selection, Composer routing, or Models settings, read the repository-root `COMPOSER_INCIDENT_HANDOFF.md` for the historical incident analysis and `CONTEXT.md` / `RELEASE_HANDOFF_2026-11-06.md` for the current source/runtime and verification boundary. Preserve the strict free-only and context-fit guarantees. A display-only Composer catalogue entry must never be routed to an LLM request. Do not infer deployment provenance from the current source HEAD.

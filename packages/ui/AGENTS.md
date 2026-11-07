@@ -1,10 +1,10 @@
 # UI Package (@diveeoi/ui)
 
-Shared UI component library. Contains 197+ components, a v2 redesign system, theme engine, pierre file viewer, and i18n.
+Shared SolidJS component library. Contains the primary component set, the parallel v2 component system, theme engine, Pierre file viewer, and i18n.
 
 - **SolidJS component library** — all components use SolidJS with `createStore` over `createSignal` where possible.
-- **197+ components** in `src/components/` — buttons, dialogs, markdown renderer, session review, diff viewer, file browser, etc.
-- **V2 redesign** in `src/v2/components/` — 81 parallel components with the `-v2` suffix (`button-v2`, `dialog-v2`, etc.). Migration in progress; check if a v2 variant exists before modifying a v1 component.
+- **Primary components** in `src/components/` — buttons, dialogs, markdown renderer, session review, diff viewer, file browser, etc.
+- **V2 components** in `src/v2/components/` — parallel component variants with the `-v2` suffix (`button-v2`, `dialog-v2`, etc.). The active layout selector controls which visual system the app uses; check both variants before changing a shared interaction.
 - **Pierre file viewer** (`src/pierre/`) — a full code file viewing system with virtualizer, diff selection, comment hover, file find, selection bridge, and web worker. Non-trivial; read `src/pierre/*` before modifying.
 - **Theme system** (`src/theme/`) — `ThemeProvider` context, color manipulation, resolver, default light/dark themes, v2 overrides. Colors are manipulated programmatically (not hardcoded).
 - **Markdown renderer** (`src/components/markdown.tsx`) — uses `marked` with Shiki syntax highlighting and katex for math. Rendering happens in a web worker (`src/pierre/worker.ts`).
@@ -15,4 +15,4 @@ Shared UI component library. Contains 197+ components, a v2 redesign system, the
 
 ## Current DiveeComposer incident handoff (2026-11-02)
 
-For any work involving provider authentication, model catalogues, model selection, Composer routing, or Models settings, read the repository-root `COMPOSER_INCIDENT_HANDOFF.md` before editing. It records the production regression, the current uncommitted recovery work, exact verification status, and the repair order. Preserve the strict free-only and context-fit guarantees. A display-only Composer catalogue entry must never be routed to an LLM request. Do not assume the uncommitted recovery work is built or deployed.
+For work involving provider authentication, model catalogues, model selection, Composer routing, or Models settings, read the repository-root `COMPOSER_INCIDENT_HANDOFF.md` for the historical incident analysis and `CONTEXT.md` / `RELEASE_HANDOFF_2026-11-06.md` for the current source/runtime and verification boundary. Preserve the strict free-only and context-fit guarantees. A display-only Composer catalogue entry must never be routed to an LLM request. Do not infer deployment provenance from the current source HEAD.

@@ -9,6 +9,11 @@ boundary migration details live in
 Older deep-dive notes in this directory may still be useful, but treat
 this roadmap and the guide as the current entry points.
 
+The former `packages/opencode/core` source tree is not part of the current
+DiveeOI checkout. References to its `core/src/*` modules below are retained as
+upstream migration-history identifiers, not local files or clickable links.
+Current server implementation lives under `packages/server/src/`.
+
 This is a planning map, not a verified inventory. Before starting a task,
 re-run a targeted `git grep` from current `dev` and update this file if
 the inventory changed.
@@ -44,7 +49,7 @@ P6  OA
 - `ERR` Typed errors — replace legacy `NamedError.create(...)` and
   `Effect.die(...)` for expected service failures with
   `Schema.TaggedErrorClass` errors on the Effect error channel.
-  Shrinks: [`NamedError`](../../../core/src/util/error.ts) usage.
+  Shrinks: [`core/src/util/error.ts` (former upstream path) usage.
 - `RENDER` User-visible error rendering — preserve structured typed-error
   details at CLI, HTTP, and tool boundaries.
   Shrinks: opaque `Error: Name` rendering.
@@ -56,13 +61,13 @@ P6  OA
   `it.instance` with explicit layers.
   Shrinks: Promise-style tests, sleeps, mutable global test flags.
 - `RF` RuntimeFlags / Flag deletion — move mutable
-  [`Flag`](../../../core/src/flag/flag.ts) reads into typed runtime/config
+  [`core/src/flag/flag.ts` (former upstream path) reads into typed runtime/config
   services.
-  Shrinks: [`flag.ts`](../../../core/src/flag/flag.ts),
+  Shrinks: [`core/src/flag/flag.ts` (former upstream path),
   [`test/fixture/flag.ts`](../../test/fixture/flag.ts).
 - `GLOBAL` Global paths / import side effects — make global path state
   explicit and testable instead of mutable module state.
-  Shrinks: [`global.ts`](../../../core/src/global.ts) import-time side
+  Shrinks: [`core/src/global.ts` (former upstream path) import-time side
   effects, mutable `Global.Path` overrides, and its `Flag` dependency.
 - `INST` Instance context — keep project context explicit through Effect refs
   and bridge boundaries.
@@ -187,17 +192,17 @@ Recently completed:
 Remaining cleanup:
 
 - [ ] Sweep lingering `Flag.*` reads — many CLI/TUI/config/observability
-      callsites still import [`flag.ts`](../../../core/src/flag/flag.ts).
+      callsites still import [`core/src/flag/flag.ts` (former upstream path).
       Decide per-callsite whether to route through RuntimeFlags, accept
       as legitimate env/config boundary, or migrate to typed `Config`.
 - [ ] Delete [`test/fixture/flag.ts`](../../test/fixture/flag.ts) once
       tests no longer mutate `Flag`.
-- [ ] Delete [`flag.ts`](../../../core/src/flag/flag.ts) once no packages
+- [ ] Delete [`core/src/flag/flag.ts` (former upstream path) once no packages
       import it.
 
 ## P3: Global Paths
 
-[`global.ts`](../../../core/src/global.ts) is real connective tissue, not
+[`core/src/global.ts` (former upstream path) is real connective tissue, not
 just cosmetic ugliness. It currently mixes path calculation, import-time
 directory creation, `Flock` setup, mutable exported `Path` state, and a
 `Flag` dependency.

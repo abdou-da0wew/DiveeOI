@@ -1,6 +1,6 @@
 # Targeted Learning diagnostics and live validation
 
-Targeted Learning runtime diagnostics are opt-in and are designed for both production builds and development. The diagnostic path has focused tests and source/type checks, but the full server bundle still needs a dependency-complete build. The executable reads configuration at runtime; restart the server after changing deployment environment variables (no application rebuild is needed).
+**Reviewed 2026-11-06.** Targeted Learning runtime diagnostics are opt-in and work in production builds and development. The November 3 full production build predates later November 4–6 changes, so its test counts do not verify the current source HEAD. The executable reads configuration at runtime; restart the server after changing deployment environment variables (no application rebuild is needed). For current source/runtime provenance and verification boundaries, see [CONTEXT](../CONTEXT.md) and the [release hand-off](../RELEASE_HANDOFF_2026-11-06.md).
 
 ## Enable diagnostics
 

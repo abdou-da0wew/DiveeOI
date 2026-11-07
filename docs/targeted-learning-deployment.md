@@ -1,5 +1,7 @@
 # DiveeOI Targeted Learning — Deployment Guide
 
+**Reviewed 2026-11-06.** The query-time Rust engine and distilled student are optional runtime components. `retrieval.engine=auto` falls back to TypeScript if the Rust binary is missing or fails; `retrieval.queryEncoder=auto` uses BGE-M3 until an installed student manifest has passed promotion. See [Targeted Learning](targeted-learning.md) for the current runtime contract.
+
 This document covers deploying DiveeOI with the Targeted Learning feature,
 including the Docker recipe, model pre-seeding, and offline machines. For general
 server authentication and production hardening, see [`security-auth.md`](security-auth.md).
@@ -117,11 +119,15 @@ These are Targeted Learning presets. The server's separate adaptive runtime prof
 
 ## Backups
 
-- `books.db` — library, vectors, notes, and persisted ingest-job checkpoints
+The Targeted Learning data directory is separate from the core DiveeOI application database. Back it up independently, alongside the main application data directory.
+
+- `books.db` — library, extracted passages, vectors, and persisted ingest-job checkpoints
 - `student.db` — student profile and learning memory
 - `setup.json` — setup state (which steps completed)
 - `books/` — source files (PDFs/DOCX/TXTs) needed for replay/re-indexing
-- `models/` — the downloaded embedding model
+- `models/` — the downloaded BGE-M3 indexing/query teacher and any separately installed promoted student model
+
+The student query encoder does not replace or regenerate stored book vectors. Keep the student runtime directory and its `divee-student.json` promotion manifest together. Do not select `student` explicitly unless the model is installed and its promotion evidence has been reviewed; `auto` safely remains on BGE-M3 otherwise.
 
 The "Back up library" button in the UI uses `VACUUM INTO` to create a
 consistent snapshot of books.db.

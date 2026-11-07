@@ -2,7 +2,7 @@
 
 ## What DiveeOI Is
 
-A **self-hosted web app** where AI agents run inside your project directories: they read/write files, execute shell commands, call MCP tools, and stream results to a SolidJS SPA. The whole product is the web UI plus one server process over one SQLite file.
+A **self-hosted web app** where AI agents run inside your project directories: they read/write files, execute shell commands, call MCP tools, and stream results to a SolidJS SPA. The web UI and HTTP API are served by the application server. Core application state uses SQLite; Targeted Learning keeps its book index and student memory in separate SQLite stores under its own data directory.
 
 ## Stack
 
@@ -14,7 +14,7 @@ A **self-hosted web app** where AI agents run inside your project directories: t
 | Server | Effect-TS 4.0.0-beta.74 — `HttpRouter`, `HttpApi`, `HttpServer`, `Layer`, `Context.Service`, `Stream`, `Scope`, `ScopedCache` |
 | Frontend | SolidJS 1.9 + Vite 7.1 + Tailwind 4.1 + Kobalte + OpenTUI Solid |
 | DB | SQLite + Drizzle ORM 1.0 RC2 + custom `effect-drizzle-sqlite` adapter + `effect-sqlite-node` bridge |
-| LLM | Custom `@diveeoi/llm` (Schema-first) + Vercel AI SDK 6.0 as the default transport (native route is opt-in) |
+| LLM | Custom `@diveeoi/llm` (Schema-first) + Vercel AI SDK 6.0 transport path |
 | Testing | `bun test`, Playwright e2e |
 | Lint/Format | oxlint / Prettier 3.6 |
 
@@ -25,13 +25,14 @@ DiveeOI/
   packages/
     server/                 # HTTP server + ALL business logic (50+ layers)
     db/                     # SQLite, session engine, AI provider adapters, tools, FS, PTY
-    api/                    # Effect HttpApi definitions (21 groups)
+    api/                    # Effect HttpApi definitions and generated OpenAPI surface
     app/                    # SolidJS SPA
-    ui/                     # Shared UI library (197+ components, theme, pierre viewer, v2)
+    ui/                     # Shared UI library, theme system, Pierre viewer, and v2 components
     llm/                    # Schema-first LLM client (routes, protocols, transports, providers)
     sdk/                    # Typed HTTP client (v1 hand-written + v2 generated from OpenAPI)
     plugin/                 # Plugin SDK (tool definition helpers)
     memory/                 # Knowledge graph memory (indexer, graph, extractor, consolidation)
+    learning/               # Targeted Learning, ingestion, retrieval, student memory, offline trainer
     effect-drizzle-sqlite/  # Effect SQL <-> Drizzle adapter (generic)
     effect-sqlite-node/     # Node SQLite driver for Effect SQL (generic)
     http-recorder/           # HTTP cassette recorder (test only)
@@ -117,7 +118,7 @@ authOnlyRouterLayer -> RootHttpApi      (control, control-plane, global handlers
 eventApiRoutes      -> EventApi         (SSE)
 ptyConnectApiRoutes -> PtyConnectApi    (WebSocket upgrade)
 instanceRoutes      -> InstanceHttpApi  (15 handler groups)
-serverRoutes        -> Api (v2)         (21 groups)
+serverRoutes        -> Api (v2)         (21 registered groups, including Task)
 docRoute            -> GET /doc -> OpenApi.fromApi(PublicApi) (lazy, cached)
 themeRoute          -> rawThemeRoute
 memoryExtractRoute  -> POST /api/session/:id/memory/extract
@@ -130,7 +131,7 @@ uiRoute             -> * /* -> serveUIEffect (SPA fallback)
       + Layer.provide CorsConfig + Observability
 ```
 
-`Api` (`packages/api/src/api.ts`) is `HttpApi.make("server")` plus 21 groups. `routes.ts` provides the v2 `HttpApiBuilder` layer at a higher level. The per-request stack is `Node HTTP -> HttpRouter -> CORS -> Auth -> SchemaError -> workspaceRoutingLive + instanceContextLayer -> HttpApiBuilder dispatch -> handler`.
+`Api` (`packages/api/src/api.ts`) is `HttpApi.make("server")` with its registered groups. The server additionally mounts instance-owned route groups, including Targeted Learning, through the instance HTTP API. The per-request stack is `Node HTTP -> HttpRouter -> CORS -> Auth -> SchemaError -> workspaceRoutingLive + instanceContextLayer -> HttpApiBuilder dispatch -> handler`.
 
 `webHandler` is `HttpRouter.toWebHandler(routes, { memoMap, middleware: disposeMiddleware(traceMiddleware(effect)) })`.
 
@@ -212,6 +213,8 @@ Per-directory state is stored in `InstanceState` (per-project `ScopedCache`); th
 
 ## Database
 
+The application database is not the only SQLite store used by the product. The core application database is managed by `@diveeoi/db`; Targeted Learning owns `books.db` and `student.db` separately under its data directory. Back up the application database and the Targeted Learning directory as distinct recovery units.
+
 `packages/db/src/database/database.ts` (76 lines):
 
 ```
@@ -236,6 +239,18 @@ Conditional imports (`#sqlite`, `#pty`, `#fff`) resolve to `*.bun.ts` vs `*.node
 - `MemoryService` (18 methods) forks or blocks `indexer.initialize` based on `features.nonBlockingInit`, guards session races with `PartitionedSemaphore(1)` per `sessionId`, materializes wikilinks + explicit links, non-blocking helpers `waitForIndexer/isIndexerReady`.
 
 Layer composition: `SessionMemoryIntegration.node` -> `Session.node` + `Memory.node`; `ToolRegistry.node` includes `Memory.node`, `SessionMemoryIntegration.node`, `MemoryScheduler.node`; `createRoutes` adds `provideMerge` for both after the `app` group so they are visible to outer handlers. `MemorySchedulerLive` starts its background fiber at build time and must be provided exactly once.
+
+## Targeted Learning
+
+`packages/learning` is a feature package integrated by the server and exposed through the instance HTTP API. It owns document ingestion, text extraction/OCR, chunking, embeddings, book storage, retrieval, grounding checks, and student memory.
+
+- The pinned BGE-M3 teacher creates 1024-dimensional passage vectors during indexing.
+- Chat uses `retrieval.queryEncoder`: `auto`, `student`, or `bge-m3`. `auto` uses a student only when an installed manifest marks it promoted; otherwise BGE-M3 remains the query encoder. Student output preserves the existing CLS-pooled, L2-normalised 1024-dimensional vector space.
+- `retrieval.engine` chooses `auto`, `native`, or `typescript`. The native Rust process handles FTS5/BM25, dense cosine, and RRF. The TypeScript implementation remains the fallback; query rewriting, the relevance gate, parent expansion, and session grounding policy remain in TypeScript.
+- `books.db` stores books, extracted passages, vectors, and ingest state. `student.db` stores student memory and notes. Both are separate from the core application database.
+- Offline training and evaluation scripts live in `packages/learning/training`; they do not run inside the normal chat process. A student model is not considered deployable until the held-out evaluation and promotion manifest pass.
+
+See [Targeted Learning](targeted-learning.md), the [Retrieval V2 plan](../packages/learning/RETRIEVAL_V2_PLAN.md), and the package-level READMEs for operational and implementation detail.
 
 ## MCP
 
@@ -301,7 +316,7 @@ See `packages/app/FRONTEND-MAP.md` for the file-by-file map.
 
 ## UI and Theme
 
-`packages/ui` (197+ `src/components`, 81 `src/v2`, `src/pierre` file viewer, `src/theme`):
+`packages/ui` (`src/components`, `src/v2/components`, `src/pierre` file viewer, `src/theme`):
 
 - Components wrap Kobalte primitives (e.g. `button.tsx` wraps `@kobalte/core/button` with `data-component/variant/size` attributes and icon slot).
 - V2 is a parallel redesign (`button-v2`, etc.); migration is opt-in via `settings.general.newLayoutDesigns()` toggling `BodyDesignClass`.

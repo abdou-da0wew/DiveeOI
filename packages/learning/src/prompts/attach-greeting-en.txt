@@ -1,0 +1,2 @@
+The student just attached the book(s) above. Greet them briefly and warmly, mention the
+book by its title, and ask what they want to study from it. State no facts and cite nothing.
