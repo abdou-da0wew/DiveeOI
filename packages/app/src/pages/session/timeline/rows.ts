@@ -229,12 +229,15 @@ export namespace Timeline {
 
     if (error) {
       const data = error.data?.message
+      const rawText = unwrapErrorMessage(
+        typeof data === "string" ? data : data === undefined || data === null ? "" : String(data),
+      )
       rows.push(
         new TimelineRow.Error({
           userMessageID: userMessage.id,
-          text: unwrapErrorMessage(
-            typeof data === "string" ? data : data === undefined || data === null ? "" : String(data),
-          ),
+          // Provider failures surface as a clear, actionable sentence — never the raw
+          // upstream payload (request ids, stack frames, JSON fragments).
+          text: friendlyProviderError(rawText) ?? rawText,
         }),
       )
     }
@@ -244,6 +247,64 @@ export namespace Timeline {
 
   function isSummaryDiff(value: SnapshotFileDiff): value is SummaryDiff {
     return typeof value.file === "string"
+  }
+
+  /**
+   * Map known AI-provider failure patterns to a short, actionable, bilingual sentence.
+   * Returns undefined for anything unrecognized so genuinely new upstream errors still
+   * show their (unwrapped) text rather than a wrong explanation.
+   */
+  function friendlyProviderError(raw: string): string | undefined {
+    const m = raw.toLowerCase()
+    if (
+      m.includes("content-blocked") ||
+      m.includes("content blocked") ||
+      m.includes("content_filter") ||
+      m.includes("content filtering")
+    ) {
+      return (
+        "The AI provider's content filter refused this request. Try rephrasing the question, or switch to another provider or model in the composer.\n" +
+        "رفض مزوّد الذكاء الاصطناعي هذا الطلب بسبب مرشّح المحتوى. جرّب صياغة السؤال بطريقة أخرى، أو بدّل إلى مزوّد أو نموذج آخر من المُنشئ."
+      )
+    }
+    if (
+      m.includes("unauthorized client") ||
+      m.includes("unauthenticated") ||
+      m.includes("invalid api key") ||
+      m.includes("incorrect api key") ||
+      m.includes("api key not valid")
+    ) {
+      return (
+        "The AI provider rejected the credentials for this model. Check the provider's API key in the provider settings.\n" +
+        "رفض المزوّد بيانات الاعتماد الخاصة بهذا النموذج. تحقّق من مفتاح الـ API الخاص بالمزوّد في الإعدادات."
+      )
+    }
+    if (m.includes("rate limit") || m.includes("too many requests") || m.includes("quota exceeded")) {
+      return (
+        "The AI provider is limiting requests right now. Wait a moment and try again.\n" +
+        "المزوّد يحدّ من عدد الطلبات حاليًا. انتظر قليلًا ثم أعد المحاولة."
+      )
+    }
+    if (m.includes("modelnotfound") || m.includes("model not found") || m.includes("does not exist or is not accessible")) {
+      return (
+        "This model is not available on the provider. Pick another model in the composer.\n" +
+        "هذا النموذج غير متاح على المزوّد. اختر نموذجًا آخر من المُنشئ."
+      )
+    }
+    if (
+      m.includes("timeout") ||
+      m.includes("econnrefused") ||
+      m.includes("enotfound") ||
+      m.includes("econnreset") ||
+      m.includes("fetch failed") ||
+      m.includes("network")
+    ) {
+      return (
+        "Could not reach the AI provider. Check the network connection, then try again.\n" +
+        "تعذّر الوصول إلى مزوّد الذكاء الاصطناعي. تحقّق من الاتصال ثم أعد المحاولة."
+      )
+    }
+    return undefined
   }
 
   function reasoningHeading(text: string) {

@@ -67,11 +67,18 @@ export const evaluate = (input: GateInput): Effect.Effect<{ decision: GateDecisi
     if (input.allowSmallTalk && isSmallTalk(input.query)) {
       return { decision: "small-talk" }
     }
-    if (input.bestDenseScore < input.minDenseScore && input.bestFusedScore < input.minFusedScore) {
+    // A vectorless turn (BM25-only fallback: no engine, no model) never produces a dense
+    // score, and its best possible fused score is a single rank-1 RRF hit (1/(k+1) ≈ 0.0164
+    // at k=60). Holding it to the full fused threshold would refuse every fallback turn, so
+    // vectorless turns are graded against the bare lexical bar instead: any rank-1-ish
+    // lexical hit passes and the grounding prompt handles precision.
+    const minFused =
+      input.bestDenseScore > 0 ? input.minFusedScore : Math.min(input.minFusedScore, 0.014)
+    if (input.bestDenseScore < input.minDenseScore && input.bestFusedScore < minFused) {
       const lang = input.language === "ar" ? "ar" : "en"
       return {
         decision: "refused",
-        reason: `below threshold (dense=${input.bestDenseScore.toFixed(3)}, fused=${input.bestFusedScore.toFixed(3)})`,
+        reason: `below threshold (dense=${input.bestDenseScore.toFixed(3)}, fused=${input.bestFusedScore.toFixed(3)}, minFused=${minFused.toFixed(3)})`,
         message: input.refusalMessages?.[lang] ?? "This isn't covered in the selected book(s).",
       }
     }

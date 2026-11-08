@@ -43,6 +43,10 @@ export interface NativeResult {
   /** Best fused score before the final top-K cut (the gate uses it). */
   bestFusedScore: number
   elapsedMs: number
+  /** Which encoder served the query: "student" | "none" (BM25-only fallback). */
+  encoder?: string
+  /** True when the engine served the turn without its student model (BM25-only fallback). */
+  fallback: boolean
 }
 
 export interface NativeQuery {
@@ -161,7 +165,7 @@ const teardown = (closing: Session, error: Error) => {
 }
 
 const deliver = (current: Session, line: string) => {
-  let parsed: { id?: number; hits?: NativeHit[]; best_dense_score?: number; best_fused_score?: number; elapsed_ms?: number; error?: string }
+  let parsed: { id?: number; hits?: NativeHit[]; best_dense_score?: number; best_fused_score?: number; elapsed_ms?: number; error?: string; encoder?: string; fallback?: boolean }
   try {
     parsed = JSON.parse(line)
   } catch {
@@ -183,6 +187,10 @@ const deliver = (current: Session, line: string) => {
     bestDenseScore: Number(parsed.best_dense_score ?? 0),
     bestFusedScore: Number(parsed.best_fused_score ?? 0),
     elapsedMs: Number(parsed.elapsed_ms ?? 0),
+    // The engine flags BM25-only turns: the student model is missing, degraded, or in its
+    // retry cooldown. Callers use this to keep the fallback chain honest.
+    encoder: typeof parsed.encoder === "string" ? parsed.encoder : undefined,
+    fallback: parsed.fallback === true,
   })
 }
 

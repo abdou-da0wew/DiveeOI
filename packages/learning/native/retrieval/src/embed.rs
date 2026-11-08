@@ -187,10 +187,20 @@ impl StudentEmbedder {
         }
         providers.push(CPU::default().build());
 
+        // Explicit intra-op pool: ORT's default spawns one thread per core and then fails
+        // pthread_setaffinity on restricted cpusets (containers), which pollutes stderr. A
+        // small fixed pool keeps query latency predictable and the sidecar light.
+        let intra_threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(2)
+            .clamp(1, 4);
+
         let session = Session::builder(&environment)
             .map_err(|error| format!("cannot create session builder: {error}"))?
             .with_optimization_level(GraphOptimizationLevel::Level3)
             .map_err(|error| format!("cannot set optimization level: {error}"))?
+            .with_intra_threads(intra_threads)
+            .map_err(|error| format!("cannot set intra-op threads: {error}"))?
             .with_execution_providers(&providers)
             .map_err(|error| format!("cannot set execution providers: {error}"))?
             .commit_from_file(&model_file)

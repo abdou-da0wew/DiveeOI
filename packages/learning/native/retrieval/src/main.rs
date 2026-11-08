@@ -292,13 +292,27 @@ fn normalize(input: &str) -> String {
     out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// Common function words, English + Arabic (in normalized form). FTS5 joins bare terms with an
+/// implicit AND, so a single unmatched word ("determine" in a natural-language question) blanks
+/// the whole lexical leg and the BM25 fallback loses its safety net. Stopwords are dropped and
+/// the remaining terms are OR-joined; BM25 ranking still favours the rarer, meaningful ones.
+const FTS_STOPWORDS: [&str; 54] = [
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being", "to", "of", "in",
+    "on", "for", "and", "or", "do", "does", "did", "how", "what", "when", "where", "which",
+    "who", "why", "can", "could", "should", "would", "you", "your", "we", "they", "it", "its",
+    "في", "من", "على", "الى", "الي", "عن", "هو", "هي", "ما", "هل", "كيف", "ماذا", "هذا", "هذه",
+    "ان", "أن", "مع",
+];
+
 fn fts_expression(query: &str) -> String {
     normalize(query)
         .split_whitespace()
-        .filter(|term| !term.is_empty())
+        .filter(|term| {
+            !term.is_empty() && !FTS_STOPWORDS.contains(&term.to_lowercase().as_str())
+        })
         .map(|term| format!("\"{}\"", term.replace('"', "")))
         .collect::<Vec<_>>()
-        .join(" ")
+        .join(" OR ")
 }
 
 fn decode_base64(input: &str) -> Result<Vec<u8>, String> {
@@ -638,6 +652,14 @@ fn run_dense(db: *mut Sqlite3, args: &Args, query_vector: &[f32]) -> Result<Vec<
                 let Some(score) = cosine(query_vector, &vector) else {
                     continue;
                 };
+                // A zero or negative similarity is not a retrieval hit: keeping such rows
+                // lets RRF hand a rank-1 fused score (1/(k+1) ≈ 0.0164) to a chunk with no
+                // semantic relation to the query, which the gate's vectorless bar (0.014)
+                // then accepts as "lexical evidence" that does not exist. Cross-lingual
+                // misses (e.g. an Arabic question over an English book) hit exactly this.
+                if score <= 0.0 {
+                    continue;
+                }
 
                 if best.len() == args.dense_limit
                     && score <= best.last().map(|(s, _)| *s).unwrap_or(f64::NEG_INFINITY)
@@ -1081,13 +1103,60 @@ fn round_ms(elapsed: Duration) -> f64 {
     (elapsed.as_secs_f64() * 1000.0 * 1000.0).round() / 1000.0
 }
 
+/// Terminal failures reach a chat user, so every error response carries a clean human-readable
+/// message (English + Arabic) next to the technical detail — never a raw driver error alone.
+/// The engine keeps running: an error response answers one request, it does not stop the loop.
+fn friendly_error(kind: &str, detail: &str) -> serde_json::Value {
+    let (en, ar) = match kind {
+        "index_unavailable" => (
+            "The book search index is unavailable right now. Please try again in a moment.",
+            "فهرس البحث في الكتب غير متاح حاليًا. حاول مرة أخرى بعد قليل.",
+        ),
+        "bad_request" => (
+            "The search request was invalid.",
+            "طلب البحث غير صالح.",
+        ),
+        _ => (
+            "The book search could not be completed. Please try again in a moment.",
+            "تعذّر إكمال البحث في الكتب. حاول مرة أخرى بعد قليل.",
+        ),
+    };
+    serde_json::json!({
+        "error": en,
+        "error_ar": ar,
+        "error_kind": kind,
+        "friendly": true,
+        "detail": detail,
+    })
+}
+
+/// Bucket a raw engine error for `friendly_error`. Index-level problems (SQLite/FTS) get the
+/// dedicated outage message; everything else stays generic.
+fn classify_search_error(detail: &str) -> &'static str {
+    let lower = detail.to_lowercase();
+    if lower.contains("sqlite")
+        || lower.contains("no such table")
+        || lower.contains("unable to open")
+        || lower.contains("database")
+        || lower.contains("disk image")
+        || lower.contains("malformed")
+        || lower.contains("fts")
+    {
+        "index_unavailable"
+    } else {
+        "search_failed"
+    }
+}
+
 /// One NDJSON request -> one NDJSON response. Never panics on bad input: the caller is a
 /// long-lived chat process and a malformed line must not take the engine down.
 fn handle_line(db: *mut Sqlite3, line: &str, embedder: &mut Option<StudentEmbedder>, cfg: &EmbedderConfig, degraded_since: &mut Option<Instant>) -> String {
     let request: ServeRequest = match serde_json::from_str(line) {
         Ok(request) => request,
         Err(error) => {
-            return serde_json::json!({ "error": format!("invalid request: {error}") }).to_string();
+            let mut payload = friendly_error("bad_request", &format!("invalid request: {error}"));
+            payload["id"] = serde_json::Value::Null;
+            return payload.to_string();
         }
     };
     let mut args = Args::defaults(PathBuf::new());
@@ -1103,7 +1172,11 @@ fn handle_line(db: *mut Sqlite3, line: &str, embedder: &mut Option<StudentEmbedd
 
     let started = Instant::now();
     if let Err(error) = args.validate() {
-        return serde_json::json!({ "id": request.id, "error": error }).to_string();
+        let mut payload = friendly_error("bad_request", &error);
+        if let Some(obj) = payload.as_object_mut() {
+            obj.insert("id".into(), serde_json::json!(request.id));
+        }
+        return payload.to_string();
     }
     let encoder_meta = attach_vector(&mut args, embedder, cfg, degraded_since);
     match search_db(db, &args) {
@@ -1122,7 +1195,15 @@ fn handle_line(db: *mut Sqlite3, line: &str, embedder: &mut Option<StudentEmbedd
             }
             response.to_string()
         }
-        Err(error) => serde_json::json!({ "id": request.id, "error": error }).to_string(),
+        Err(error) => {
+            let kind = classify_search_error(&error);
+            eprintln!("search failed ({}): {error}", kind);
+            let mut payload = friendly_error(kind, &error);
+            if let Some(obj) = payload.as_object_mut() {
+                obj.insert("id".into(), serde_json::json!(request.id));
+            }
+            payload.to_string()
+        }
     }
 }
 
@@ -1552,13 +1633,54 @@ mod tests {
     }
 
     #[test]
+    fn errors_are_friendly_and_carry_both_languages() {
+        let fixture = Fixture::new("friendly");
+        let db = open_db(&fixture.path).expect("open");
+        // A config-level error (bad rrf_k) must come back as a clean, bilingual, machine-tagged
+        // message — not a bare driver string.
+        let response: serde_json::Value = serde_json::from_str(&handle_line(
+            db,
+            r#"{"id":3,"query":"heart","books":["book"],"rrf_k":-1}"#,
+            &mut None,
+            &EmbedderConfig::disabled("test"),
+            &mut None,
+        ))
+        .expect("json error response");
+        let malformed: serde_json::Value = serde_json::from_str(
+            &handle_line(db, "}}not json{{", &mut None, &EmbedderConfig::disabled("test"), &mut None),
+        )
+        .expect("json error response");
+        unsafe {
+            sqlite3_close(db);
+        }
+
+        for payload in [&response, &malformed] {
+            assert_eq!(payload["friendly"], true, "errors must be tagged friendly");
+            assert!(payload["error_kind"].is_string(), "error_kind required");
+            assert!(payload["error_ar"].is_string(), "arabic message required");
+            let message = payload["error"].as_str().unwrap_or_default();
+            assert!(!message.contains("sqlite"), "raw driver text must not lead the message");
+        }
+        assert_eq!(response["error_kind"], "bad_request");
+        assert_eq!(response["id"], 3);
+    }
+
+    #[test]
     fn arabic_normalization_handles_diacritics_and_letters() {
         assert_eq!(normalize("إِنَّ الْمَدْرَسَةَ"), "ان المدرسه");
     }
 
     #[test]
     fn fts_terms_are_quoted() {
-        assert_eq!(fts_expression("heart, chambers!"), "\"heart\" \"chambers\"");
+        assert_eq!(fts_expression("heart, chambers!"), "\"heart\" OR \"chambers\"");
+    }
+
+    #[test]
+    fn natural_language_queries_keep_or_semantics() {
+        // One unmatched content word must not blank the lexical leg: terms are OR-joined and
+        // question-word stopwords are dropped (case-insensitively — normalize keeps casing).
+        let expression = fts_expression("How do you determine the nature of the solutions of a quadratic equation?");
+        assert_eq!(expression, "\"determine\" OR \"nature\" OR \"solutions\" OR \"quadratic\" OR \"equation\"");
     }
 
     #[test]

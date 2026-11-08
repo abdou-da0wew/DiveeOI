@@ -51,6 +51,8 @@ export const RetrievalResult = Schema.Struct({
   totalContextTokens: Schema.Number,
   bestDenseScore: Schema.optional(Schema.Number),
   bestFusedScore: Schema.optional(Schema.Number),
+  /** True when the native engine served the turn without its student model (BM25-only fallback). */
+  nativeFallback: Schema.optional(Schema.Boolean),
   /** Candidates before the gate decided (only filled when options.debug is set; for the inspector). */
   ungatedCandidates: Schema.optional(Schema.Array(Candidate)),
 })
@@ -248,6 +250,11 @@ const runDense = (
         denseScore: score,
       }
     })
+    // A zero/negative cosine is not a hit: keeping such rows lets RRF hand a rank-1
+    // fused score (1/(k+1) ≈ 0.0164) to an unrelated chunk, which the gate's vectorless
+    // bar (0.014) then accepts as evidence that does not exist (e.g. an Arabic question
+    // over an English book). Drop them so an empty dense leg stays honestly empty.
+      .filter((row) => row.denseScore > 0)
     scored.sort((a, b) => b.denseScore - a.denseScore)
     return scored.slice(0, topK)
   })
@@ -362,8 +369,13 @@ export const retrieve = (
     let denseCount = 0
     let bestDenseScore = 0
     let bestFusedScore = 0
+    // The sidecar reports `fallback: true` when it served the turn without its student model
+    // (BM25-only). Surface it so the caller can give an honest not-ready answer instead of a
+    // false "not covered" refusal.
+    let nativeFallback = false
 
     if (native) {
+      nativeFallback = (native as { fallback?: boolean }).fallback === true
       for (const hit of native.hits) {
         if (hit.bm25_score !== null) bm25Count += 1
         if (hit.dense_score !== null) denseCount += 1
@@ -503,6 +515,7 @@ export const retrieve = (
       totalContextTokens,
       bestDenseScore,
       bestFusedScore,
+      nativeFallback: nativeFallback || undefined,
       ungatedCandidates: options.debug ? candidates : undefined,
     })
   })

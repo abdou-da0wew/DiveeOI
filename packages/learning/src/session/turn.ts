@@ -11,14 +11,15 @@
 import { Effect } from "effect"
 import { getRuntime } from "../runtime"
 import { embed } from "../embed/pipeline"
-import { prepareQueryEncoder } from "../embed/query-encoder"
+import { prepareQueryEncoder, resolveEncoder } from "../embed/query-encoder"
 import { retrieve, type Candidate } from "../retrieve/hybrid"
+import { nativeEngineStatus } from "../retrieve/native-engine"
 import { withDefaults } from "../settings/defaults"
 import { buildGroundingPrompt } from "../grounding/prompt-rules"
 import { prompt } from "../prompts"
 import { recordRetrieved, resetRetrieved } from "../grounding/turn-state"
 import { relevantBookNotes, studentProfileBlock } from "../memory/service"
-import { withDiagnosticPromise } from "../diagnostics"
+import { logDiagnostic, withDiagnosticPromise } from "../diagnostics"
 
 type Tree = Record<string, unknown>
 
@@ -176,17 +177,50 @@ const prepareTargetedTurnImpl = async (input: {
     )
   }
 
-  // Index-and-forget: chat uses the promoted lightweight query encoder when there is one and only
-  // falls back to loading the BGE-M3 teacher otherwise.
-  const encoder = input.ensureFn ? undefined : await prepareQueryEncoder(input.settings)
-  const ready = input.ensureFn ? await input.ensureFn() : encoder!.ready
-  if (!ready) {
-    return refuse(
-      "not-ready",
-      lang === "ar"
-        ? "نموذج التعلّم الموجّه غير جاهز. افتح الإعدادات > التعلّم الموجّه وشغّل «Start Setup»."
-        : "The Targeted Learning model isn't ready. Open Settings > Targeted Learning and run Start Setup.",
-    )
+  // Encoder policy (v3): the Rust retrieval sidecar is the primary embedding provider — when its
+  // binary is present and not in a failure cooldown, the query goes to it as plain text and it
+  // embeds natively with the student graph (CUDA when available, CPU INT8 otherwise). The
+  // in-process TypeScript encoder is only brought up when the engine cannot serve (binary
+  // missing, blocked, or `retrieval.engine: "typescript"`), so a normal turn never pays for a
+  // second model in the JS heap.
+  const engineSetting = (ret.engine as "auto" | "native" | "typescript") ?? "auto"
+  const engineStatus = engineSetting === "typescript" ? null : nativeEngineStatus()
+  // The caller can declare the model provider not ready (`ensureFn`; test seam and hard
+  // off-switch). When it does, the engine path is bypassed exactly like a missing model —
+  // the turn then runs on the standard non-model BM25 path with honest not-ready messaging.
+  const providerReady = input.ensureFn ? await input.ensureFn() : undefined
+  const engineActive =
+    !input.embedFn && providerReady !== false && !!engineStatus?.binary && Date.now() >= (engineStatus.blockedUntil ?? 0)
+
+  // Calibrated gate thresholds travel with whichever encoder serves the turn. The engine path
+  // reads them from the promoted student's manifest (a pure file check — no model load).
+  let encoderGate: { minDenseScore?: number; minFusedScore?: number } | undefined
+  let encoder: Awaited<ReturnType<typeof prepareQueryEncoder>> | undefined
+  // Whether a real embedding model is serving this turn. False means the turn runs on the
+  // standard non-model BM25 path (user-facing fallback chain: model → BM25 → honest error),
+  // so a subsequent gate refusal must NOT claim the books don't cover the question — the
+  // honest answer is that the model setup isn't finished.
+  let modelReady = true
+  if (engineActive) {
+    encoderGate = resolveEncoder(input.settings).gate
+  } else {
+    // Index-and-forget: chat uses the promoted lightweight query encoder when there is one and
+    // only falls back to loading the BGE-M3 teacher otherwise.
+    encoder = input.ensureFn ? undefined : await prepareQueryEncoder(input.settings)
+    const ready = providerReady !== undefined ? providerReady : encoder!.ready
+    encoderGate = ready ? encoder?.gate : undefined
+    modelReady = ready
+    if (!ready) {
+      // The model provider failed: degrade to the standard non-model BM25 path instead of
+      // failing the turn. The gate still refuses when grounding is too weak, and the library
+      // check above already handled a missing books.db.
+      logDiagnostic(
+        "retrieval",
+        "encoder.unavailable",
+        { reason: encoder?.reason ?? "ensureFn returned false", action: "bm25-only fallback" },
+        "warn",
+      )
+    }
   }
 
   if (input.query.trim().length === 0) {
@@ -202,9 +236,11 @@ const prepareTargetedTurnImpl = async (input: {
 
   const queryVec = input.embedFn
     ? await input.embedFn(input.query)
-    : encoder
-      ? await encoder.embed(input.query)
-      : await Effect.runPromise(embed(input.query).pipe(Effect.orElseSucceed(() => null)))
+    : engineActive
+      ? null // the sidecar embeds the query natively; a null vector tells it to do exactly that
+      : encoder?.ready
+        ? await encoder.embed(input.query)
+        : await Effect.runPromise(embed(input.query).pipe(Effect.orElseSucceed(() => null)))
   const result = await Effect.runPromise(
     retrieve(
       runtime.booksStore.db,
@@ -226,9 +262,16 @@ const prepareTargetedTurnImpl = async (input: {
         recentUserTurns: input.recentUserTurns,
         gate: {
           enabled: gate.enabled !== false,
-          // A student ships thresholds calibrated on its own score distribution.
-          minDenseScore: Number(encoder?.gate?.minDenseScore ?? gate.minDenseScore ?? 0.5),
-          minFusedScore: Number(encoder?.gate?.minFusedScore ?? gate.minFusedScore ?? 0.1),
+          // A student ships thresholds calibrated on its own score distribution. The 0.45
+          // fallback suits the teacher's score scale; the v3b student manifest ships 0.35
+          // (its distilled scores compress lower, and the grounding prompt — not the gate —
+          // is the precise off-topic filter, so the gate is biased to recall).
+          minDenseScore: Number(encoderGate?.minDenseScore ?? gate.minDenseScore ?? 0.45),
+          // 0.030 = both legs agreeing near the top (dense rank-1 0.0164 + lexical rank-1..3):
+          // reachable by genuinely relevant queries, refused by off-topic ones whose only
+          // overlap is a stray word. Vectorless (BM25-only fallback) turns are held to the
+          // bare lexical bar inside gate.ts — see the vectorless rule there.
+          minFusedScore: Number(encoderGate?.minFusedScore ?? gate.minFusedScore ?? 0.030),
           allowSmallTalk: gate.allowSmallTalk !== false,
           language: lang,
           libraryAvailable: true,
@@ -239,9 +282,31 @@ const prepareTargetedTurnImpl = async (input: {
     ),
   )
 
-  if (result.gateDecision === "refused" || result.gateDecision === "library-unavailable") {
+  if (result.gateDecision === "library-unavailable") {
+    // An outage is not a coverage refusal: say so honestly instead of claiming the books
+    // don't cover the question.
     return refuse(
-      result.gateDecision,
+      "library-unavailable",
+      lang === "ar"
+        ? "تعذّر الوصول إلى مكتبة الكتب مؤقتًا. حاول مرة أخرى بعد قليل."
+        : "The book library is temporarily unavailable. Please try again in a moment.",
+    )
+  }
+  if (result.gateDecision === "refused") {
+    // With no model serving (BM25-only fallback, in-process or in the sidecar), a refusal
+    // means "the lexical fallback found nothing" — not "the books don't cover this". Say
+    // the honest thing and point at setup instead of a false coverage claim.
+    const modelServing = modelReady && result.nativeFallback !== true
+    if (!modelServing) {
+      return refuse(
+        "not-ready",
+        lang === "ar"
+          ? "نموذج التمثيل غير جاهز بعد، ولذلك لا يمكن الحكم على تغطية الكتاب للسؤال. شغّل Start Setup من إعدادات التعلّم الموجّه ثم أعد المحاولة."
+          : "The embedding model isn't ready yet, so the books' coverage can't be judged. Run Start Setup in the Targeted Learning settings, then try again.",
+      )
+    }
+    return refuse(
+      "refused",
       refusalMessages[lang] ?? "This isn't covered in the selected book(s).",
     )
   }
