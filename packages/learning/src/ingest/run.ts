@@ -11,6 +11,7 @@
 import { createHash, randomUUID } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs"
 import path from "node:path"
+import util from "node:util"
 import { Effect } from "effect"
 import type { BooksDbHandle } from "../store"
 import { parse, type ParseResult } from "../parsers"
@@ -764,7 +765,7 @@ const runIngest = async (input: RunInput): Promise<void> => {
     })
   } catch (err) {
     const cancelled = err instanceof IngestCancelledError || control.cancelled
-    const message = cancelled ? "Ingest cancelled" : err instanceof Error ? err.message : String(err)
+    const message = cancelled ? "Ingest cancelled" : err instanceof Error ? err.message : util.inspect(err)
     if (cancelled) diagnostic.cancel({ stage: control.stage, progress: control.progress })
     else diagnostic.fail(err, { stage: control.stage, progress: control.progress, bookId, jobId })
     // Remove partial rows, keeping the book row for retry/diagnostics.

@@ -71,3 +71,7 @@ videos/
 videos-legacy/
 dist-old/
 packages/app/dist/
+# workspace-only artifacts (mirrored into diveeoi-artifacts repo)
+/DiveeOI_RESUME_PLAN.md
+/DiveeOI_Scientific_Research.docx
+/DiveeOI_Scientific_Research.pdf

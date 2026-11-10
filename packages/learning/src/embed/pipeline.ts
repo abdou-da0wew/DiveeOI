@@ -98,19 +98,17 @@ export const init = (modelDir: string, signature: EmbedSignature, options: Embed
   Effect.gen(function* () {
     if (_pipeline && _config && sameConfig(_config, options) && _modelDir === modelDir) return
 
-    // Try to load transformers.js.
+    // Try to load transformers.js. The import failure MUST fail the effect with a
+    // real error: mapping it to null propagated a null failure through ensureEmbedder
+    // into runIngest, whose top-level catch persisted String(null) == "null" as the
+    // ingest error (the error:"null" defect, live-verified 2026-11-09).
     const transformers = yield* Effect.tryPromise({
       try: () => import("@huggingface/transformers"),
-      catch: () => null as typeof import("@huggingface/transformers") | null,
-    })
-    if (!transformers) {
-      return yield* Effect.fail(
+      catch: (cause) =>
         new EmbedError({
-          message:
-            "@huggingface/transformers is not installed. Run `bun add @huggingface/transformers`.",
+          message: `transformers import failed: ${String(cause).slice(0, 300)}`,
         }),
-      )
-    }
+    })
 
     // Configure for local-only operation (plan §4.3).
     transformers.env.allowRemoteModels = false
