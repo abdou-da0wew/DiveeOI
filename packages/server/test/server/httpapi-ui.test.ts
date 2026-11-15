@@ -409,6 +409,7 @@ describe("HttpApi UI fallback", () => {
       expect(sourceList(csp, "script-src")).toContain("'wasm-unsafe-eval'")
       expect(sourceList(csp, "script-src")).toContain("'self'")
       expect(sourceList(csp, "script-src")).toContain(`'sha256-${createHash("sha256").update(script).digest("base64")}'`)
+      expect(sourceList(csp, "media-src")).toContain("https:")
       expect(csp).toContain("connect-src * data:")
     }),
   )
