@@ -9,11 +9,7 @@
 
 import { expect, test, describe } from "bun:test"
 import { Effect } from "effect"
-import {
-  buildGroundingPrompt,
-  TARGETED_SESSION_TOOL_ALLOWLIST,
-  isToolAllowed,
-} from "../src/grounding/prompt-rules"
+import { buildGroundingPrompt, TARGETED_SESSION_TOOL_ALLOWLIST, isToolAllowed } from "../src/grounding/prompt-rules"
 import { verify, buildRetryPrompt, type VerifyInput } from "../src/grounding/verifier"
 
 describe("grounding prompt rules", () => {
@@ -48,6 +44,8 @@ describe("grounding prompt rules", () => {
     expect(prompt).toContain("book_search")
     expect(prompt).toContain("book_read_section")
     expect(prompt).toContain("book_find_term")
+    expect(prompt).toContain("create_exam")
+    expect(prompt).toContain("create_ui")
   })
 
   test("prompt includes the refusal message", () => {
@@ -73,6 +71,16 @@ describe("tool allowlist", () => {
     expect(isToolAllowed("student_memory_write", true)).toBe(true)
     expect(isToolAllowed("book_note_read", true)).toBe(true)
     expect(isToolAllowed("book_note_write", true)).toBe(true)
+  })
+
+  test("exam and grounded Rich UI creation are allowed in targeted learning sessions", () => {
+    expect(isToolAllowed("create_exam", true)).toBe(true)
+    expect(TARGETED_SESSION_TOOL_ALLOWLIST.has("create_exam")).toBe(true)
+    expect(isToolAllowed("grade_exam", true)).toBe(true)
+    expect(isToolAllowed("review_exam", true)).toBe(true)
+    expect(isToolAllowed("export_exam", true)).toBe(true)
+    expect(isToolAllowed("create_ui", true)).toBe(true)
+    expect(TARGETED_SESSION_TOOL_ALLOWLIST.has("create_ui")).toBe(true)
   })
 
   test("calculator is conditional on allowCalculator", () => {
@@ -102,7 +110,7 @@ describe("tool allowlist", () => {
   })
 
   test("allowlist contains exactly the expected tools + calculator", () => {
-    expect(TARGETED_SESSION_TOOL_ALLOWLIST.size).toBe(9)
+    expect(TARGETED_SESSION_TOOL_ALLOWLIST.size).toBe(14)
     expect(TARGETED_SESSION_TOOL_ALLOWLIST.has("book_outline")).toBe(true)
     expect(TARGETED_SESSION_TOOL_ALLOWLIST.has("calculator")).toBe(true)
   })
@@ -161,9 +169,7 @@ describe("grounding verifier", () => {
     const result = await Effect.runPromise(
       verify({
         ...baseInput,
-        citations: [
-          { chunkId: "c1", sourceHash: "h1", page: 5, quotedSpan: "this exact phrase is not in the chunk" },
-        ],
+        citations: [{ chunkId: "c1", sourceHash: "h1", page: 5, quotedSpan: "this exact phrase is not in the chunk" }],
       }),
     )
     expect(result.allVerified).toBe(false)
