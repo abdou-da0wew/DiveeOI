@@ -165,4 +165,9 @@ export const dict = {
   "ui.toolErrorCard.copyError": "نسخ الخطأ",
   "ui.message.duration.seconds": "{{count}}ث",
   "ui.message.duration.minutesSeconds": "{{minutes}}د {{seconds}}ث",
+  "usrQuote.fromAnswer": "من إجابتي السابقة",
+  "ui.message.submission.exam": "تسليم الامتحان",
+  "ui.message.submission.form": "إرسال النموذج",
+  "ui.message.submission.refresh": "تحديث النموذج",
+  "ui.message.submission.quote": "محتوى مقتبس",
 }

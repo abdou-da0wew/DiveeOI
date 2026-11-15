@@ -173,4 +173,9 @@ export const dict: Record<string, string> = {
   "ui.question.multiHint": "Select all answers that apply",
   "ui.question.singleHint": "Select one answer",
   "ui.question.custom.placeholder": "Type your answer...",
+  "usrQuote.fromAnswer": "From my previous answer",
+  "ui.message.submission.exam": "Exam submission",
+  "ui.message.submission.form": "Form submission",
+  "ui.message.submission.refresh": "Form refresh",
+  "ui.message.submission.quote": "Quoted context",
 }

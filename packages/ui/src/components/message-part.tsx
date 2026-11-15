@@ -44,7 +44,7 @@ import { ToolErrorCard } from "./tool-error-card"
 import { Checkbox } from "./checkbox"
 import { DiffChanges } from "./diff-changes"
 import { Markdown } from "./markdown"
-import { CitationChip } from "./citation-chip"
+import { CitationChip, openBookCitation } from "./citation-chip"
 import { ImagePreview } from "./image-preview"
 import { getDirectory as _getDirectory, getFilename } from "@diveeoi/db/util/path"
 import { checksum } from "@diveeoi/db/util/encode"
@@ -59,6 +59,12 @@ import { animate } from "motion"
 import { useLocation } from "@solidjs/router"
 import { attached, inline, kind } from "./message-file"
 import { readPartText } from "./message-part-text"
+import { parseUsrQuotations, stripUsrQuotation } from "./usr-quote"
+import { parseUserMessage } from "./user-message-metadata"
+import { RichUIRenderer } from "./rich-ui"
+import { parseChatUISpec } from "@diveeoi/db/chat-ui-parse"
+import { parseExamDraft } from "@diveeoi/db/exam-parse"
+import { ExamToolCard } from "./exam-tool-card"
 
 async function writeClipboard(text: string): Promise<boolean> {
   const body = typeof document === "undefined" ? undefined : document.body
@@ -467,15 +473,16 @@ export function getToolInfo(
       return {
         icon: "book",
         title: tool.replace(/^book_/, "").replace(/_/g, " "),
-        subtitle: typeof input.query === "string"
-          ? input.query
-          : typeof input.term === "string"
-            ? input.term
-            : typeof input.slug === "string"
-              ? input.slug
-              : typeof input.sectionId === "string"
-                ? input.sectionId
-                : undefined,
+        subtitle:
+          typeof input.query === "string"
+            ? input.query
+            : typeof input.term === "string"
+              ? input.term
+              : typeof input.slug === "string"
+                ? input.slug
+                : typeof input.sectionId === "string"
+                  ? input.sectionId
+                  : undefined,
       }
     default:
       return {
@@ -1087,6 +1094,34 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
 
   const text = createMemo(() => textPart()?.text || "")
 
+  // Internal submissions keep their complete model-facing body in the message,
+  // while this marker supplies a compact presentation for the chat timeline.
+  const parsedMessage = createMemo(() => parseUserMessage(text()))
+  const messagePresentation = createMemo(() => parsedMessage()?.presentation)
+  const messageBody = createMemo(() => parsedMessage()?.body ?? text())
+  const disclosure = createMemo(() => {
+    const presentation = messagePresentation()
+    return presentation && presentation.kind !== "quotation" ? presentation : undefined
+  })
+
+  // usr_quotations share the same envelope but keep their own quote disclosure
+  // so the question/instruction remains readable in the conversation.
+  const quotes = createMemo(() => parseUsrQuotations(messageBody()))
+  const displayText = createMemo(() => (quotes().length > 0 ? stripUsrQuotation(messageBody()) : messageBody()))
+  const disclosureMetadata = createMemo(() => Object.entries(disclosure()?.metadata ?? {}))
+  const presentationLabel = createMemo(() => {
+    const presentation = messagePresentation()
+    if (!presentation) return
+    if (presentation.kind === "exam-submission") return i18n.t("ui.message.submission.exam")
+    if (presentation.kind === "quotation") return i18n.t("ui.message.submission.quote")
+    if (presentation.kind === "form-submission") {
+      return presentation.metadata?.action === "refresh"
+        ? i18n.t("ui.message.submission.refresh")
+        : i18n.t("ui.message.submission.form")
+    }
+    return presentation.label
+  })
+
   const files = createMemo(() => (props.parts?.filter((p) => p.type === "file") as FilePart[]) ?? [])
 
   const attachments = createMemo(() => files().filter(attached))
@@ -1123,7 +1158,7 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
   }
 
   const handleCopy = async () => {
-    const content = text()
+    const content = displayText()
     if (!content) return
     if (await writeClipboard(content)) {
       setState("copied", true)
@@ -1183,11 +1218,109 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
       </Show>
       <Show when={text()}>
         <>
-          <div data-slot="user-message-body">
-            <div data-slot="user-message-text">
-              <HighlightedText text={text()} references={inlineFiles()} agents={agents()} />
+          <For each={quotes()}>
+            {(quote) => (
+              <details data-slot="user-message-disclosure" data-kind="quotation">
+                <summary data-slot="user-message-disclosure-summary">
+                  <span data-slot="user-message-disclosure-label">
+                    {presentationLabel() ?? i18n.t("ui.message.submission.quote")}
+                  </span>
+                  <span data-slot="user-message-disclosure-summary-text">
+                    {quote.source === "book"
+                      ? `${quote.bookTitle ?? "Book"}${quote.page ? ` · p.${quote.page}` : ""}`
+                      : i18n.t("usrQuote.fromAnswer")}
+                  </span>
+                  <Icon name="chevron-down" size="small" />
+                </summary>
+                <div data-slot="user-message-disclosure-content">
+                  <div data-slot="usr-quote-card" data-source={quote.source}>
+                    <div data-slot="usr-quote-text" dir="auto">
+                      {quote.text}
+                    </div>
+                    <Show
+                      when={quote.source === "book" && quote.bookId}
+                      fallback={
+                        <span data-slot="usr-quote-source" data-source="agent">
+                          {i18n.t("usrQuote.fromAnswer")}
+                        </span>
+                      }
+                    >
+                      <button
+                        type="button"
+                        data-slot="usr-quote-source"
+                        data-source="book"
+                        onClick={() =>
+                          window.dispatchEvent(
+                            new CustomEvent("diveeoi:open-book-citation", {
+                              detail: {
+                                bookId: quote.bookId,
+                                chunkId: quote.chunkId,
+                                page: quote.page,
+                                bookTitle: quote.bookTitle,
+                                highlightText: quote.text,
+                              },
+                            }),
+                          )
+                        }
+                      >
+                        <svg class="usr-quote-source-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                          <path
+                            d="M3.5 4.75A1.75 1.75 0 0 1 5.25 3H9.25v14H5.25a1.75 1.75 0 0 1-1.75-1.75v-10.5ZM10.75 3h4a1.75 1.75 0 0 1 1.75 1.75v10.5A1.75 1.75 0 0 1 14.75 17h-4V3Z"
+                            stroke="currentColor"
+                            stroke-width="1.3"
+                            stroke-linejoin="round"
+                          />
+                        </svg>
+                        <span data-slot="usr-quote-source-label" dir="auto">
+                          {quote.bookTitle ?? "Book"}
+                          <Show when={typeof quote.page === "number" && quote.page > 0}>{` · p.${quote.page}`}</Show>
+                        </span>
+                      </button>
+                    </Show>
+                  </div>
+                </div>
+              </details>
+            )}
+          </For>
+          <Show when={disclosure()}>
+            {(presentation) => (
+              <details data-slot="user-message-disclosure" data-kind={presentation().kind}>
+                <summary data-slot="user-message-disclosure-summary">
+                  <span data-slot="user-message-disclosure-label">{presentationLabel() ?? presentation().label}</span>
+                  <Show when={presentation().summary}>
+                    <span data-slot="user-message-disclosure-summary-text">{presentation().summary}</span>
+                  </Show>
+                  <Icon name="chevron-down" size="small" />
+                </summary>
+                <div data-slot="user-message-disclosure-content">
+                  <Show when={disclosureMetadata().length > 0}>
+                    <dl data-slot="user-message-disclosure-metadata">
+                      <For each={disclosureMetadata()}>
+                        {([key, value]) => (
+                          <div data-slot="user-message-disclosure-metadata-item">
+                            <dt>{key}</dt>
+                            <dd>{String(value)}</dd>
+                          </div>
+                        )}
+                      </For>
+                    </dl>
+                  </Show>
+                  <div data-slot="user-message-body">
+                    <div data-slot="user-message-text">
+                      <HighlightedText text={displayText()} references={inlineFiles()} agents={agents()} />
+                    </div>
+                  </div>
+                </div>
+              </details>
+            )}
+          </Show>
+          <Show when={!disclosure()}>
+            <div data-slot="user-message-body">
+              <div data-slot="user-message-text">
+                <HighlightedText text={displayText()} references={inlineFiles()} agents={agents()} />
+              </div>
             </div>
-          </div>
+          </Show>
           <div data-slot="user-message-copy-wrapper">
             <Show when={metaHead() || metaTail()}>
               <span data-slot="user-message-meta-wrap">
@@ -1600,7 +1733,9 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
         </div>
         <Show when={!streaming() && citations().length > 0}>
           <div data-slot="text-part-citations">
-            <For each={citations()}>{(id) => <CitationChip citation={{ chunkId: id }} />}</For>
+            <For each={citations()}>
+              {(id) => <CitationChip citation={{ chunkId: id }} onClick={openBookCitation} />}
+            </For>
           </div>
         </Show>
         <Show when={showCopy()}>
@@ -2471,5 +2606,57 @@ ToolRegistry.register({
     )
 
     return <BasicTool icon="brain" status={props.status} trigger={trigger()} hideDetails />
+  },
+})
+
+ToolRegistry.register({
+  name: "create_ui",
+  render(props) {
+    const parsed = createMemo(() => {
+      const raw = props.metadata.richUi
+      if (!raw || typeof raw !== "object" || !("id" in raw)) return
+      const id = typeof raw.id === "string" ? raw.id : "chat-ui"
+      const result = parseChatUISpec(raw, id)
+      return result.ok ? result.value : undefined
+    })
+
+    return (
+      <Show
+        when={parsed()}
+        fallback={
+          <BasicTool
+            {...props}
+            icon="brain"
+            trigger={{ title: "Creating interactive UI", subtitle: props.output ?? "" }}
+          />
+        }
+      >
+        {(spec) => <RichUIRenderer spec={spec()} sessionID={props.sessionID} />}
+      </Show>
+    )
+  },
+})
+
+ToolRegistry.register({
+  name: "create_exam",
+  render(props) {
+    const exam = createMemo(() => {
+      const raw = props.metadata.exam
+      if (!raw || typeof raw !== "object" || !("id" in raw)) return
+      const id = typeof raw.id === "string" ? raw.id : "exam"
+      const parsed = parseExamDraft(raw, id)
+      return parsed.ok ? parsed.value : undefined
+    })
+
+    return (
+      <Show
+        when={exam()}
+        fallback={
+          <BasicTool {...props} icon="book" trigger={{ title: "Preparing exam", subtitle: props.output ?? "" }} />
+        }
+      >
+        {(value) => <ExamToolCard exam={value()} sessionID={props.sessionID} />}
+      </Show>
+    )
   },
 })

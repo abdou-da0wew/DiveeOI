@@ -135,6 +135,10 @@ export const dict = {
 
   "ui.message.expand": "展开消息",
   "ui.message.collapse": "收起消息",
+  "ui.message.submission.exam": "考试提交",
+  "ui.message.submission.form": "表单提交",
+  "ui.message.submission.refresh": "刷新表单",
+  "ui.message.submission.quote": "引用内容",
   "ui.message.copy": "复制",
   "ui.message.copyMessage": "复制消息",
   "ui.message.forkMessage": "分叉到新会话",
