@@ -272,3 +272,245 @@
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+/*
+ * Citation chips (Targeted Learning) — micro-interactive badges rendered for
+ * [chunk_id] references, both inline in markdown text and in the citation
+ * strip under an assistant message. Markup comes from ./citation-chip.tsx and
+ * the DOM decoration pass in ./markdown.tsx; clicking one opens the cited
+ * book page in the session side panel with the passage highlighted.
+ */
+
+.citation-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  vertical-align: baseline;
+  margin: 0 1px;
+  padding: 1px 7px 1px 5px;
+  border-radius: 999px;
+  border: 1px solid var(--border-weak-base, rgba(127, 127, 127, 0.35));
+  background: var(--surface-raised-base, rgba(127, 127, 127, 0.08));
+  color: var(--text-weak);
+  font-family: var(--font-family-sans);
+  font-size: 11px;
+  font-weight: var(--font-weight-medium);
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease,
+    transform 0.1s ease;
+}
+
+.citation-chip[data-status="verified"] {
+  border-color: var(--success-fg, #16a34a);
+}
+
+.citation-chip[data-status="unverified"] {
+  border-color: var(--warning-fg, #d97706);
+}
+
+.citation-chip[data-status="sourceChanged"] {
+  border-color: var(--danger-fg, #dc2626);
+}
+
+.citation-chip .citation-chip-icon {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+}
+
+.citation-chip .citation-chip-label {
+  pointer-events: none;
+}
+
+.citation-chip .citation-chip-flag {
+  font-size: 10px;
+  line-height: 1;
+  pointer-events: none;
+}
+
+/* Small auto-generated headline inside the pill: what this citation leads to
+   (section title / heading tail / book title, in the book's own language). */
+.citation-chip .citation-chip-title {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 10px;
+  font-weight: var(--font-weight-regular, 400);
+  color: var(--text-weak, inherit);
+  unicode-bidi: plaintext;
+  pointer-events: none;
+}
+
+.citation-chip:hover .citation-chip-title,
+.citation-chip:focus-visible .citation-chip-title {
+  color: var(--text-weak);
+}
+
+/* Hover preview card: the cited passage with its important sentence highlighted.
+   position: fixed (set inline) so message overflow containers cannot clip it. */
+.citation-preview {
+  position: fixed;
+  z-index: 10000;
+  max-width: 340px;
+  padding: 9px 11px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border-weak-base, rgba(127, 127, 127, 0.35));
+  background: var(--surface-raised-base, rgba(127, 127, 127, 0.08));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  font-family: var(--font-family-sans);
+  text-align: start;
+  pointer-events: none;
+}
+
+.citation-preview .citation-preview-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.citation-preview .citation-preview-book {
+  font-size: 10.5px;
+  font-weight: var(--font-weight-medium);
+  color: var(--text-weak);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  unicode-bidi: plaintext;
+}
+
+.citation-preview .citation-preview-page {
+  font-size: 10px;
+  color: var(--text-weak);
+  flex-shrink: 0;
+}
+
+.citation-preview .citation-preview-section {
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+  color: var(--text-strong);
+  margin-bottom: 5px;
+  unicode-bidi: plaintext;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.citation-preview .citation-preview-snippet {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-weak);
+  unicode-bidi: plaintext;
+}
+
+.citation-preview .citation-preview-mark {
+  background: color-mix(in srgb, #facc15 32%, transparent);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+.citation-chip:hover,
+.citation-chip:focus-visible {
+  color: var(--text-strong);
+  border-color: var(--border-strong-base, var(--border-weak-base, rgba(127, 127, 127, 0.55)));
+  background: var(--background-stronger, rgba(127, 127, 127, 0.14));
+}
+
+.citation-chip:active {
+  transform: translateY(0.5px);
+}
+
+[data-slot="text-part-citations"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+/* usr_quotations: quotation card shown above a user message that carried a
+   quoted passage (book selection or previous answer). Token pattern mirrors
+   the citation chip / preview styles above. */
+[data-slot="usr-quote-card"] {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-family: var(--font-family-sans);
+}
+
+[data-slot="usr-quote-card"] [data-slot="usr-quote-text"] {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-weak);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+}
+
+[data-slot="usr-quote-source"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 1px 8px 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border-weak-base, rgba(127, 127, 127, 0.35));
+  background: var(--background-base, transparent);
+  color: var(--text-weak);
+  font-size: 11px;
+  font-weight: var(--font-weight-medium);
+  line-height: 1.4;
+  white-space: nowrap;
+  unicode-bidi: plaintext;
+}
+
+button[data-slot="usr-quote-source"] {
+  cursor: pointer;
+  font-family: var(--font-family-sans);
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+button[data-slot="usr-quote-source"]:hover,
+button[data-slot="usr-quote-source"]:focus-visible {
+  color: var(--text-strong);
+  border-color: var(--border-strong-base, var(--border-weak-base, rgba(127, 127, 127, 0.55)));
+  background: var(--background-stronger, rgba(127, 127, 127, 0.14));
+}
+
+button[data-slot="usr-quote-source"]:active {
+  transform: translateY(0.5px);
+}
+
+[data-slot="usr-quote-source"] .usr-quote-source-icon {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+}
+
+[data-slot="usr-quote-source"] [data-slot="usr-quote-source-label"] {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Visited links keep the theme's interactive color — the browser's default
+   purple visited styling never appears in markdown content. A muted,
+   theme-derived variant is available via --link-visited-color (index.css)
+   for surfaces that want visited links to stand out. */
+[data-component="markdown"] a:visited {
+  color: var(--text-interactive-base);
+}

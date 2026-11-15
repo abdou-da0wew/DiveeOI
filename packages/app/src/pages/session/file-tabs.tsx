@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, Match, on, onCleanup, Switch } from "solid-js"
+import { createEffect, createMemo, createSignal, lazy, Match, on, onCleanup, Switch } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
 import { makeEventListener } from "@solid-primitives/event-listener"
@@ -19,6 +19,11 @@ import { usePrompt } from "@/context/prompt"
 import { getSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { createSessionTabs } from "@/pages/session/helpers"
+import { bookIdFromTab, pendingBookCite } from "@/pages/session/book-tabs"
+
+// Book viewer (Targeted Learning): mounted for `book:<id>` tabs (see book-tabs.ts).
+// Lazy so pdf.js stays out of the initial bundle until a book tab is actually opened.
+const BookPdfPanel = lazy(() => import("@/pages/session/book-pdf-panel").then((m) => ({ default: m.BookPdfPanel })))
 
 function FileCommentMenu(props: {
   moreLabel: string
@@ -171,7 +176,17 @@ function createScrollSync(input: { tab: () => string; view: ReturnType<typeof us
   }
 }
 
-export function FileTabContent(props: { tab: string }) {
+export function FileTabContent(props: { tab: string; closeTab?: (tab: string) => void }) {
+  // Book tabs (`book:<bookId>`) render the PDF viewer instead of a file. The pending
+  // cite (book-tabs.ts) carries the citation that opened/focused this tab; its fields
+  // only apply when the cite's book matches this tab's book.
+  const bookId = createMemo(() => bookIdFromTab(props.tab))
+  const bookCite = createMemo(() => {
+    const pending = pendingBookCite()
+    if (!pending || pending.bookId !== bookId()) return
+    return pending
+  })
+
   const file = useFile()
   const comments = useComments()
   const language = useLanguage()
@@ -441,16 +456,34 @@ export function FileTabContent(props: { tab: string }) {
   )
 
   return (
-    <Tabs.Content value={props.tab} class="mt-3 relative h-full">
-      <ScrollView class="h-full" viewportRef={scrollSync.setViewport} onScroll={scrollSync.handleScroll as any}>
-        <Switch>
-          <Match when={state()?.loaded}>{renderFile(contents())}</Match>
-          <Match when={state()?.loading}>
-            <div class="px-6 py-4 text-text-weak">{language.t("common.loading")}...</div>
-          </Match>
-          <Match when={state()?.error}>{(err) => <div class="px-6 py-4 text-text-weak">{err()}</div>}</Match>
-        </Switch>
-      </ScrollView>
-    </Tabs.Content>
+    <Switch>
+      <Match when={bookId()} keyed>
+        {(id) => (
+          <Tabs.Content value={props.tab} class="mt-3 relative h-full">
+            <BookPdfPanel
+              bookId={id}
+              chunkId={bookCite()?.chunkId}
+              page={bookCite()?.page}
+              bookTitle={bookCite()?.bookTitle}
+              highlightText={bookCite()?.highlightText}
+              onClose={() => props.closeTab?.(props.tab)}
+            />
+          </Tabs.Content>
+        )}
+      </Match>
+      <Match when={true}>
+        <Tabs.Content value={props.tab} class="mt-3 relative h-full">
+          <ScrollView class="h-full" viewportRef={scrollSync.setViewport} onScroll={scrollSync.handleScroll as any}>
+            <Switch>
+              <Match when={state()?.loaded}>{renderFile(contents())}</Match>
+              <Match when={state()?.loading}>
+                <div class="px-6 py-4 text-text-weak">{language.t("common.loading")}...</div>
+              </Match>
+              <Match when={state()?.error}>{(err) => <div class="px-6 py-4 text-text-weak">{err()}</div>}</Match>
+            </Switch>
+          </ScrollView>
+        </Tabs.Content>
+      </Match>
+    </Switch>
   )
 }

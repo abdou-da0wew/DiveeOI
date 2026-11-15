@@ -9,6 +9,7 @@ import { getFilename } from "@diveeoi/db/util/path"
 import { useFile } from "@/context/file"
 import { useLanguage } from "@/context/language"
 import { useCommand } from "@/context/command"
+import { bookIdFromTab, pendingBookCite } from "@/pages/session/book-tabs"
 
 export function FileVisual(props: { path: string; active?: boolean }): JSX.Element {
   return (
@@ -27,16 +28,41 @@ export function FileVisual(props: { path: string; active?: boolean }): JSX.Eleme
   )
 }
 
+// Book tabs (`book:<id>`) have no file path: show the book title (when the
+// pending citation carries one) or a plain "Book" label next to a book icon.
+function BookTabVisual(props: { bookId: string }): JSX.Element {
+  const pending = createMemo(() => {
+    const cite = pendingBookCite()
+    return cite && cite.bookId === props.bookId ? cite : undefined
+  })
+  return (
+    <div class="flex items-center gap-x-1.5 min-w-0">
+      <svg viewBox="0 0 20 20" fill="none" class="size-4 shrink-0 text-text-weak" aria-hidden="true">
+        <path
+          d="M3.5 4.75A1.75 1.75 0 0 1 5.25 3H9.25v14H5.25a1.75 1.75 0 0 1-1.75-1.75v-10.5ZM10.75 3h4a1.75 1.75 0 0 1 1.75 1.75v10.5A1.75 1.75 0 0 1 14.75 17h-4V3Z"
+          stroke="currentColor"
+          stroke-width="1.3"
+          stroke-linejoin="round"
+        />
+      </svg>
+      <span class="text-14-medium truncate">{pending()?.bookTitle?.trim() || "Book"}</span>
+    </div>
+  )
+}
+
 export function SortableTab(props: { tab: string; onTabClose: (tab: string) => void }): JSX.Element {
   const file = useFile()
   const language = useLanguage()
   const command = useCommand()
   const sortable = createSortable(props.tab)
   const path = createMemo(() => file.pathFromTab(props.tab))
+  const bookId = createMemo(() => bookIdFromTab(props.tab))
   const content = createMemo(() => {
     const value = path()
-    if (!value) return
-    return <FileVisual path={value} />
+    if (value) return <FileVisual path={value} />
+    const id = bookId()
+    if (id) return <BookTabVisual bookId={id} />
+    return
   })
   return (
     <div use:sortable class="h-full flex items-center" classList={{ "opacity-0": sortable.isActiveDraggable }}>

@@ -25,6 +25,7 @@ import {
 } from "./markdown-worker"
 import { markdownBlockKey, type MarkdownToken } from "./markdown-worker-protocol"
 import { shouldResetCodeTokens, type RenderedCodeState } from "./markdown-code-state"
+import { enrichCitationChip } from "./citation-chip"
 
 type Entry = {
   raw: string
@@ -237,6 +238,102 @@ function decorate(root: HTMLDivElement, labels: CopyLabels) {
     ensureCodeWrapper(block, labels)
   }
   markCodeLinks(root)
+  markCitations(root)
+}
+
+// ---------------------------------------------------------------------------
+// Inline book citations — Targeted Learning answers cite passages as
+// [chunk_id] (e.g. "[bk_1054259ed5844b74-s0-p2-c15]"). The tokens are turned
+// into the same micro-interactive .citation-chip badges used by the citation
+// strip (see ./citation-chip.tsx): clicking one opens the cited book page in
+// the session side panel with the passage highlighted.
+// ---------------------------------------------------------------------------
+
+const INLINE_CITATION_RE = /\[([a-zA-Z0-9][a-zA-Z0-9_-]*-s\d+(?:-p\d+)?-c\d+)\](?!\()/g
+
+function createCitationChip(chunkId: string) {
+  const bookId = chunkId.split("-s")[0] ?? chunkId
+  const ordinal = /-c(\d+)$/.exec(chunkId)?.[1] ?? ""
+  const chip = document.createElement("button")
+  chip.type = "button"
+  chip.className = "citation-chip"
+  chip.setAttribute("data-chunk-id", chunkId)
+  chip.setAttribute("data-book-id", bookId)
+  chip.setAttribute("title", `Open in book · ${chunkId}`)
+  chip.setAttribute("aria-label", `Open book citation ${chunkId}`)
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
+  svg.setAttribute("class", "citation-chip-icon")
+  svg.setAttribute("viewBox", "0 0 20 20")
+  svg.setAttribute("fill", "none")
+  svg.setAttribute("aria-hidden", "true")
+  svg.innerHTML =
+    '<path d="M3.5 4.75A1.75 1.75 0 0 1 5.25 3H9.25v14H5.25a1.75 1.75 0 0 1-1.75-1.75v-10.5ZM10.75 3h4a1.75 1.75 0 0 1 1.75 1.75v10.5A1.75 1.75 0 0 1 14.75 17h-4V3Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>'
+  chip.appendChild(svg)
+  const label = document.createElement("span")
+  label.className = "citation-chip-label"
+  label.textContent = ordinal ? `c${ordinal}` : "book"
+  chip.appendChild(label)
+  // Small headline (section/heading/book title) + hover preview with the cited passage's
+  // important part highlighted — shared with the citation strip's chips
+  // (see ./citation-chip.tsx). Applied asynchronously: the pill renders immediately in its
+  // compact form and enriches itself when the metadata arrives.
+  enrichCitationChip(chip, chunkId)
+  return chip
+}
+
+function markCitations(root: HTMLDivElement) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => {
+      const value = node.nodeValue ?? ""
+      if (!value.includes("-c") || !value.includes("[")) return NodeFilter.FILTER_REJECT
+      const parent = node.parentElement
+      if (parent?.closest("pre, code, a, button, [data-component='citation-chip']")) return NodeFilter.FILTER_REJECT
+      INLINE_CITATION_RE.lastIndex = 0
+      return INLINE_CITATION_RE.test(value) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT
+    },
+  })
+  const nodes: Text[] = []
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) nodes.push(n as Text)
+  for (const node of nodes) {
+    const text = node.nodeValue ?? ""
+    INLINE_CITATION_RE.lastIndex = 0
+    const fragment = document.createDocumentFragment()
+    let last = 0
+    let match: RegExpExecArray | null
+    let replaced = false
+    while ((match = INLINE_CITATION_RE.exec(text))) {
+      const before = text.slice(last, match.index)
+      if (before) fragment.appendChild(document.createTextNode(before))
+      fragment.appendChild(createCitationChip(match[1]!))
+      last = match.index + match[0].length
+      replaced = true
+    }
+    if (!replaced) continue
+    if (last < text.length) fragment.appendChild(document.createTextNode(text.slice(last)))
+    node.replaceWith(fragment)
+  }
+}
+
+function setupCitationOpen(root: HTMLDivElement) {
+  const handleClick = (event: MouseEvent) => {
+    const target = event.target
+    if (!(target instanceof Element)) return
+    const chip = target.closest("[data-component='citation-chip'], .citation-chip")
+    if (!(chip instanceof HTMLButtonElement)) return
+    const chunkId = chip.getAttribute("data-chunk-id")
+    if (!chunkId) return
+    event.preventDefault()
+    event.stopPropagation()
+    window.dispatchEvent(
+      new CustomEvent("diveeoi:open-book-citation", {
+        detail: { chunkId, bookId: chip.getAttribute("data-book-id") ?? chunkId.split("-s")[0] },
+      }),
+    )
+  }
+  root.addEventListener("click", handleClick)
+  return () => {
+    root.removeEventListener("click", handleClick)
+  }
 }
 
 function setupCodeCopy(root: HTMLDivElement, getLabels: () => CopyLabels) {
@@ -423,6 +520,7 @@ export function Markdown(
   )
 
   let copyCleanup: (() => void) | undefined
+  let citationCleanup: (() => void) | undefined
 
   createEffect(() => {
     const container = root()
@@ -456,10 +554,12 @@ export function Markdown(
         copy: i18n.t("ui.message.copy"),
         copied: i18n.t("ui.message.copied"),
       }))
+    if (!citationCleanup) citationCleanup = setupCitationOpen(container)
   })
 
   onCleanup(() => {
     if (copyCleanup) copyCleanup()
+    if (citationCleanup) citationCleanup()
     activeCodeKeys.forEach(disposeCode)
     completedCode.clear()
   })

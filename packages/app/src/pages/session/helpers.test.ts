@@ -146,6 +146,27 @@ describe("createSessionTabs", () => {
     })
   })
 
+  test("keeps an active exam tab focused without treating it as a file tab", () => {
+    createRoot((dispose) => {
+      const [state] = createStore({
+        active: "exam:science-1" as string | undefined,
+        all: ["file://src/a.ts", "exam:science-1", "context"],
+      })
+      const tabs = createMemo(() => ({ active: () => state.active, all: () => state.all }))
+      const result = createSessionTabs({
+        tabs,
+        pathFromTab: (tab) => (tab.startsWith("file://") ? tab.slice("file://".length) : undefined),
+        normalizeTab: (tab) => (tab.startsWith("file://") ? `norm:${tab.slice("file://".length)}` : tab),
+      })
+
+      expect(result.activeTab()).toBe("exam:science-1")
+      expect(result.openedTabs()).toEqual(["norm:src/a.ts"])
+      expect(result.activeFileTab()).toBeUndefined()
+      expect(result.closableTab()).toBe("exam:science-1")
+      dispose()
+    })
+  })
+
   test("prefers context and review fallbacks when no file tab is active", () => {
     createRoot((dispose) => {
       const [state] = createStore({

@@ -1,0 +1,121 @@
+/* Selectable text layer over the book PDF canvas (pdfjs-dist TextLayer).
+   The canvas below stays the visual source of truth; spans are transparent
+   hit-targets that make the rendered page text selectable.
+
+   The .endOfContent drag helper and the .selecting state mirror the official
+   pdf.js viewer chrome (web/pdf_viewer.css) — the standalone TextLayer class
+   does not create them, and without them drag-selection from whitespace,
+   from below the last line, and triple-clicks collapse erratically. This is
+   exactly what Firefox's built-in PDF viewer ships. */
+.textLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  overflow: hidden;
+  opacity: 1;
+  line-height: 1;
+  text-align: initial;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+  /* Explicitly re-enable selection: an ancestor with user-select:none (the
+     app shell) otherwise makes every span selection collapse to empty. */
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.textLayer span,
+.textLayer br {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0 0;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* pdf.js 4.x wraps runs in group spans that must not offset the text runs. */
+.textLayer span.markedContent {
+  top: 0;
+  height: 0;
+}
+
+/* Keep real text runs above the group wrappers so hit-testing matches the
+   glyphs (official pdf.js rule). */
+.textLayer > :not(.markedContent),
+.textLayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+}
+
+.textLayer span[role="img"] {
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+/* Selection tint follows the active theme (--selection-bg is defined
+   globally in index.css from the theme's own brand token). Text color is
+   intentionally NOT set here: the spans are transparent overlays and an
+   opaque selection color would paint ghost text over the canvas. */
+.textLayer ::selection {
+  background: var(--selection-bg);
+}
+
+.textLayer br::selection {
+  background: transparent;
+}
+
+/* Official pdf.js drag-selection helper: an invisible block below the last
+   line. Starting a drag inside it extends the selection to the end of the
+   content instead of collapsing; while .selecting is set (mousedown inside
+   the layer) it stretches across the whole layer so downward drags from
+   whitespace behave like Firefox's viewer. */
+.textLayer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.textLayer.selecting .endOfContent {
+  top: 0;
+}
+
+/* Lightweight link annotation layer (rendered by book-pdf-panel.tsx):
+   transparent anchor rects positioned over the page, ABOVE the text layer in
+   the official pdf.js ordering. They stay invisible so the page art is
+   untouched; a soft accent tint appears on hover. While a selection drag is
+   active the links stop intercepting pointer events so selection stays
+   smooth over link areas (same trick the official viewer uses for its
+   annotation layer). */
+.pdf-link-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+}
+
+.pdf-link-layer a {
+  position: absolute;
+  display: block;
+  pointer-events: auto;
+  color: transparent;
+  cursor: pointer;
+  border-radius: 2px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.pdf-link-layer a:hover {
+  background: color-mix(in srgb, var(--v2-text-text-accent, var(--text-interactive-base, #034cff)) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v2-text-text-accent, var(--text-interactive-base, #034cff)) 35%, transparent);
+}
+
+.textLayer.selecting ~ .pdf-link-layer a {
+  pointer-events: none;
+}

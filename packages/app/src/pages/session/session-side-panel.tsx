@@ -4,6 +4,7 @@ import { createMediaQuery } from "@solid-primitives/media"
 import { Tabs } from "@diveeoi/ui/tabs"
 import { IconButton } from "@diveeoi/ui/icon-button"
 import { TooltipKeybind } from "@diveeoi/ui/tooltip"
+import { setCitationMetaFetcher } from "@diveeoi/ui/citation-chip"
 import { ResizeHandle } from "@diveeoi/ui/resize-handle"
 import { Mark } from "@diveeoi/ui/logo"
 import { DragDropProvider, DragDropSensors, DragOverlay, SortableProvider, closestCenter } from "@thisbeyond/solid-dnd"
@@ -19,8 +20,10 @@ import { useCommand } from "@/context/command"
 import { useFile, type SelectedLineRange } from "@/context/file"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
+import { useServerSDK } from "@/context/server-sdk"
 import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
+import { authFetch } from "@/utils/auth-client"
 import { createFileTabListSync } from "@/pages/session/file-tab-scroll"
 import { FileTabContent } from "@/pages/session/file-tabs"
 import {
@@ -32,6 +35,8 @@ import {
 } from "@/pages/session/helpers"
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
+import { openBookTab, type OpenBookCitationDetail } from "@/pages/session/book-tabs"
+import { ExamSidePanelBridge, ExamTabContents, ExamTabOverlay, ExamTabTriggers } from "@/pages/session/exam-side-tabs"
 
 type RenderDiff = (SnapshotFileDiff & { file: string }) | VcsFileDiff
 
@@ -65,6 +70,47 @@ export function SessionSidePanel(props: {
   const shown = settings.visibility.fileTree
 
   const reviewOpen = createMemo(() => isDesktop() && view().reviewPanel.opened())
+
+  // A citation chip was clicked somewhere in the app: open (or focus) the book
+  // viewer as a tab in this session's tab strip (see book-tabs.ts / file-tabs.tsx).
+  createEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<OpenBookCitationDetail>).detail
+      if (!detail?.bookId) return
+      openBookTab(tabs(), {
+        bookId: detail.bookId,
+        ...(detail.chunkId ? { chunkId: detail.chunkId } : {}),
+        ...(typeof detail.page === "number" ? { page: detail.page } : {}),
+        ...(detail.bookTitle ? { bookTitle: detail.bookTitle } : {}),
+        ...(detail.highlightText ? { highlightText: detail.highlightText } : {}),
+      })
+    }
+    window.addEventListener("diveeoi:open-book-citation", handler)
+    onCleanup(() => window.removeEventListener("diveeoi:open-book-citation", handler))
+  })
+
+  // Citation pills fetch their small headline + hover preview (book/section title, page,
+  // snippet) through this bridge: the ui package has no auth plumbing of its own, so the
+  // app registers one authenticated, batched fetcher for all chips (citation-chip.tsx).
+  const serverSDK = useServerSDK()
+  createEffect(() => {
+    const base = serverSDK()?.url ?? ""
+    if (!base) {
+      setCitationMetaFetcher(null)
+      return
+    }
+    setCitationMetaFetcher(async (chunkIds: string[]) => {
+      const resp = await authFetch(`${base}/targeted-learning/chunks/meta`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chunkIds }),
+      })
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+      return (await resp.json()) as unknown
+    })
+    onCleanup(() => setCitationMetaFetcher(null))
+  })
+
   const fileOpen = createMemo(
     () =>
       isDesktop() &&
@@ -229,6 +275,7 @@ export function SessionSidePanel(props: {
         }}
         style={{ width: panelWidth() }}
       >
+        <ExamSidePanelBridge />
         <Show when={open()}>
           <div
             class="size-full flex"
@@ -244,7 +291,7 @@ export function SessionSidePanel(props: {
                 "pointer-events-none": !reviewOpen(),
               }}
             >
-              <div class="size-full min-w-0 h-full bg-background-base">
+              <div class="relative size-full min-w-0 h-full bg-background-base">
                 <DragDropProvider
                   onDragStart={handleDragStart}
                   onDragEnd={handleDragEnd}
@@ -302,6 +349,7 @@ export function SessionSidePanel(props: {
                         <SortableProvider ids={openedTabs()}>
                           <For each={openedTabs()}>{(tab) => <SortableTab tab={tab} onTabClose={tabs().close} />}</For>
                         </SortableProvider>
+                        <ExamTabTriggers />
                         <div class="bg-background-stronger h-full shrink-0 sticky right-0 z-10 flex items-center justify-center pr-3">
                           <TooltipKeybind
                             title={language.t("command.file.open")}
@@ -354,10 +402,12 @@ export function SessionSidePanel(props: {
                       </Tabs.Content>
                     </Show>
 
+                    <ExamTabContents />
                     <Show when={activeFileTab()} keyed>
-                      {(tab) => <FileTabContent tab={tab} />}
+                      {(tab) => <FileTabContent tab={tab} closeTab={(t: string) => tabs().close(t)} />}
                     </Show>
                   </Tabs>
+                  <ExamTabOverlay />
                   <DragOverlay>
                     <Show when={store.activeDraggable} keyed>
                       {(tab) => {

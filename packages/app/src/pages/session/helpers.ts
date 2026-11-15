@@ -35,7 +35,7 @@ export const createSessionTabs = (input: TabsInput) => {
         .tabs()
         .all()
         .flatMap((tab) => {
-          if (tab === "context" || tab === "review") return []
+          if (tab === "context" || tab === "review" || tab.startsWith("exam:")) return []
           const value = input.pathFromTab(tab) ? input.normalizeTab(tab) : tab
           if (seen.has(value)) return []
           seen.add(value)
@@ -50,6 +50,10 @@ export const createSessionTabs = (input: TabsInput) => {
     if (active === "context") return active
     if (active === "review" && review()) return active
     if (active && input.pathFromTab(active)) return input.normalizeTab(active)
+    // Non-file tabs have no path, so they must be handled explicitly or a
+    // fallback file tab could steal focus from the active book or exam.
+    if (active && (active.startsWith("book:") || active.startsWith("exam:")) && input.tabs().all().includes(active))
+      return active
 
     const first = openedTabs()[0]
     if (first) return first
@@ -65,6 +69,7 @@ export const createSessionTabs = (input: TabsInput) => {
   const closableTab = createMemo(() => {
     const active = activeTab()
     if (active === "context") return active
+    if (active?.startsWith("exam:") && input.tabs().all().includes(active)) return active
     if (!openedTabs().includes(active)) return
     return active
   })
