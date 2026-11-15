@@ -55,6 +55,7 @@ import { normalize } from "@diveeoi/ui/session-diff"
 import { useFileComponent } from "@diveeoi/ui/context/file"
 import { shouldMarkBoundaryGesture, normalizeWheelDelta } from "@/pages/session/message-gesture"
 import { SessionContextUsage } from "@/components/session-context-usage"
+import { SelectionQuoteBubble, type QuoteAction, type QuotePayload } from "@/components/selection-quote-toolbar"
 import { useDialog } from "@diveeoi/ui/context/dialog"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { useLanguage } from "@/context/language"
@@ -1235,6 +1236,32 @@ export function MessageTimeline(props: {
     )
   }
 
+
+  // --- usr quotations: selecting assistant output ---------------------------
+  // Selecting text inside an assistant row offers Explain / Ask after a short
+  // debounce (no Memorize — that is book-specific). SelectionQuoteBubble owns
+  // the selection plumbing; the chosen action is dispatched as the same
+  // `diveeoi:usr-quote-action` window event the book panel uses, so the
+  // composer turns it into a user message.
+  const inAssistantRow = (node: Node | null | undefined): { ok: boolean; messageID?: string } => {
+    const el = node instanceof Element ? node : node?.parentElement
+    if (!el) return { ok: false }
+    // Never quote the user's own messages, form controls, the composer, or
+    // the book panel's selectable text layer.
+    if (el.closest('[data-component="user-message"]')) return { ok: false }
+    if (el.closest('input, textarea, [contenteditable="true"]')) return { ok: false }
+    if (el.closest(".textLayer")) return { ok: false }
+    const row = el.closest('[data-timeline-row="AssistantPart"]')
+    if (!row) return { ok: false }
+    return { ok: true, messageID: row.getAttribute("data-message-id") ?? undefined }
+  }
+
+  const handleSelectionQuoteAction = (action: QuoteAction, quote: QuotePayload, question?: string) => {
+    window.dispatchEvent(
+      new CustomEvent("diveeoi:usr-quote-action", { detail: { action, question, quote } }),
+    )
+  }
+
   return (
     <div class="relative w-full h-full min-w-0">
       <div
@@ -1584,6 +1611,16 @@ export function MessageTimeline(props: {
           </Show>
         </div>
       </ScrollView>
+      <SelectionQuoteBubble
+        capture={(sel, range) => {
+          const start = inAssistantRow(range.startContainer)
+          const end = inAssistantRow(range.endContainer)
+          if (!start.ok || !end.ok) return null
+          return { source: "agent", messageID: start.messageID }
+        }}
+        actions={["explain", "ask"]}
+        onAction={handleSelectionQuoteAction}
+      />
     </div>
   )
 }

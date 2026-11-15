@@ -1,0 +1,17 @@
+/* Entrance animation for the selection quote bubble: a small fade-up each
+   time the bubble mounts for a new selection (keyed content is re-created per
+   capture, so the animation replays without touching the fixed wrapper). */
+.selection-quote-bubble-pop {
+  animation: selection-quote-bubble-in 140ms ease-out;
+}
+
+@keyframes selection-quote-bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

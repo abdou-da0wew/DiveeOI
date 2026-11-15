@@ -922,4 +922,12 @@ export const dict = {
   "targetedLearning.memory.outdated": "\u0642\u062f\u064a\u0645",
   "targetedLearning.memory.fallbackBook": "\u0643\u062a\u0627\u0628",
   "targetedLearning.memory.failed": "\u062e\u062f\u0645\u0629 \u0627\u0644\u0630\u0627\u0643\u0631\u0629 \u063a\u064a\u0631 \u0645\u062a\u0627\u062d\u0629 \u062d\u0627\u0644\u064a\u064b\u0627.",
-  "targetedLearning.workspace": "\u0645\u0633\u0627\u062d\u0629 \u0627\u0644\u062a\u0639\u0644\u0651\u0645",}
+  "targetedLearning.workspace": "\u0645\u0633\u0627\u062d\u0629 \u0627\u0644\u062a\u0639\u0644\u0651\u0645",
+  "book.quote.explain": "\u0627\u0634\u0631\u062d",
+  "book.quote.memorize": "\u0633\u0627\u0639\u062f\u0646\u064a \u0639\u0644\u0649 \u0627\u0644\u062d\u0641\u0638",
+  "book.quote.ask": "\u0627\u0633\u0623\u0644",
+  "book.quote.askPlaceholder": "\u0627\u0633\u0623\u0644 \u0639\u0646 \u0647\u0630\u0627\u2026",
+  "usrQuote.explainPrompt": "اشرح هذه الفقرة من مادة دراستنا.",
+  "usrQuote.memorizePrompt": "ساعدني على حفظ هذا.",
+  "usrQuote.fromAnswer": "من إجابتي السابقة",
+}

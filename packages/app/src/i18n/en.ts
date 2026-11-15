@@ -1270,4 +1270,12 @@ export const dict = {
   "targetedLearning.memory.outdated": "outdated",
   "targetedLearning.memory.fallbackBook": "book",
   "targetedLearning.memory.failed": "The memory service is unavailable.",
-  "targetedLearning.workspace": "Learning workspace",}
+  "targetedLearning.workspace": "Learning workspace",
+  "book.quote.explain": "Explain",
+  "book.quote.memorize": "Help me memorize",
+  "book.quote.ask": "Ask",
+  "book.quote.askPlaceholder": "Ask about this…",
+  "usrQuote.explainPrompt": "Explain this passage from our study material.",
+  "usrQuote.memorizePrompt": "Help me memorize this.",
+  "usrQuote.fromAnswer": "From my previous answer",
+}

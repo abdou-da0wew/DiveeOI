@@ -46,6 +46,7 @@ import { useDialog } from "@diveeoi/ui/context/dialog"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { useCommand } from "@/context/command"
 import { Persist, persisted } from "@/utils/persist"
+import { serializeUsrQuotation, type UsrQuotation } from "@/utils/usr-quotations"
 import { usePermission } from "@/context/permission"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
@@ -790,6 +791,55 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     clearEditor()
     prompt.set([...DEFAULT_PROMPT, ...images], 0)
     command.trigger(cmd.id, "slash")
+  }
+
+  // --- usr quotations: quoted book passages / answers -> composer -----------
+  // The book PDF panel (book-pdf-panel.tsx) and the message timeline
+  // (message-timeline.tsx) dispatch `diveeoi:usr-quote-action` when the user
+  // picks Explain / Memorize / Ask on a selection. The quote is serialized
+  // into the composer (usr-quotations.ts) and submitted, so the quotation
+  // reaches the model inside the message text and UserMessageDisplay renders
+  // it back as a quotation card.
+  {
+    let usrQuoteInFlight = false
+    const onUsrQuoteAction = (event: Event) => {
+      if (usrQuoteInFlight) return
+      const detail = (
+        event as CustomEvent<{
+          action: UsrQuotation["action"]
+          question?: string
+          quote: Omit<UsrQuotation, "v" | "action">
+        }>
+      ).detail
+      const quote = detail?.quote
+      if (!quote || typeof quote.text !== "string" || !quote.text.trim()) return
+      const action = detail.action
+      const instruction =
+        action === "explain"
+          ? language.t("usrQuote.explainPrompt")
+          : action === "memorize"
+            ? language.t("usrQuote.memorizePrompt")
+            : (detail.question ?? "")
+      if (!instruction.trim()) return
+      // Guard against double submits while the programmatic submit settles.
+      usrQuoteInFlight = true
+      setTimeout(() => {
+        usrQuoteInFlight = false
+      }, 250)
+      const msg = serializeUsrQuotation({ ...quote, v: 1, action }, instruction)
+      prompt.set([{ type: "text", content: msg, start: 0, end: msg.length }], msg.length)
+      try {
+        document
+          .querySelector<HTMLFormElement>(
+            '[data-component="session-composer"], [data-component="session-new-composer"]',
+          )
+          ?.requestSubmit()
+      } catch {
+        // Form not mounted — the composed text stays in the composer.
+      }
+    }
+    window.addEventListener("diveeoi:usr-quote-action", onUsrQuoteAction)
+    onCleanup(() => window.removeEventListener("diveeoi:usr-quote-action", onUsrQuoteAction))
   }
 
   const {
