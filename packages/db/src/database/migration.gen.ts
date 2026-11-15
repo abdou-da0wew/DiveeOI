@@ -52,5 +52,6 @@ export const migrations: DatabaseMigration.Migration[] = (
     import("./migration/20261031123734_declare_auth_tables"),
     import("./migration/20261102220154_20261102000002_preference_primary_key"),
     import("./migration/20261103001500_bootstrap_anchor_content_fts"),
+    import("./migration/20261115145554_diveeoi_exam_assessments"),
   ])
 ).map((module) => module.default) satisfies DatabaseMigration.Migration[]

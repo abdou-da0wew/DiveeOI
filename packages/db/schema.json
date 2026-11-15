@@ -1,9 +1,9 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "cb7dd279-5655-476b-ac8c-641a188df82b",
+  "id": "b6bcba3b-0839-4ff5-8f9c-fc575f1d7e93",
   "prevIds": [
-    "7d355b82-76a9-4c2e-b1d2-fcdd80a17f9b"
+    "cb7dd279-5655-476b-ac8c-641a188df82b"
   ],
   "ddl": [
     {
@@ -48,6 +48,14 @@
     },
     {
       "name": "event",
+      "entityType": "tables"
+    },
+    {
+      "name": "diveeoi_exam_attempt",
+      "entityType": "tables"
+    },
+    {
+      "name": "diveeoi_exam",
       "entityType": "tables"
     },
     {
@@ -781,6 +789,286 @@
       "name": "data",
       "entityType": "columns",
       "table": "event"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "diveeoi_exam_attempt"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "exam_id",
+      "entityType": "columns",
+      "table": "diveeoi_exam_attempt"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "diveeoi_exam_attempt"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "attempt_number",
+      "entityType": "columns",
+      "table": "diveeoi_exam_attempt"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "3",
+      "generated": null,
+      "name": "difficulty",
+      "entityType": "columns",
+      "table": "diveeoi_exam_attempt"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "answers_json",
+      "entityType": "columns",
+      "table": "diveeoi_exam_attempt"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "interaction_json",
+      "entityType": "columns",
+      "table": "diveeoi_exam_attempt"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "grade_json",
+      "entityType": "columns",
+      "table": "diveeoi_exam_attempt"
+    },
+    {
+      "type": "real",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "score",
+      "entityType": "columns",
+      "table": "diveeoi_exam_attempt"
+    },
+    {
+      "type": "real",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "max_score",
+      "entityType": "columns",
+      "table": "diveeoi_exam_attempt"
+    },
+    {
+      "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "percentage",
+      "entityType": "columns",
+      "table": "diveeoi_exam_attempt"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "needs_review",
+      "entityType": "columns",
+      "table": "diveeoi_exam_attempt"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "elapsed_ms",
+      "entityType": "columns",
+      "table": "diveeoi_exam_attempt"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "submitted_at",
+      "entityType": "columns",
+      "table": "diveeoi_exam_attempt"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_created",
+      "entityType": "columns",
+      "table": "diveeoi_exam_attempt"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_updated",
+      "entityType": "columns",
+      "table": "diveeoi_exam_attempt"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "diveeoi_exam"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "diveeoi_exam"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "title",
+      "entityType": "columns",
+      "table": "diveeoi_exam"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "spec_json",
+      "entityType": "columns",
+      "table": "diveeoi_exam"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "secret_ciphertext",
+      "entityType": "columns",
+      "table": "diveeoi_exam"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "secret_iv",
+      "entityType": "columns",
+      "table": "diveeoi_exam"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "secret_auth_tag",
+      "entityType": "columns",
+      "table": "diveeoi_exam"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "grading_json",
+      "entityType": "columns",
+      "table": "diveeoi_exam"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "3",
+      "generated": null,
+      "name": "adaptive_difficulty",
+      "entityType": "columns",
+      "table": "diveeoi_exam"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "1",
+      "generated": null,
+      "name": "attempts_allowed",
+      "entityType": "columns",
+      "table": "diveeoi_exam"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_created",
+      "entityType": "columns",
+      "table": "diveeoi_exam"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "time_updated",
+      "entityType": "columns",
+      "table": "diveeoi_exam"
     },
     {
       "type": "text",
@@ -2559,6 +2847,51 @@
     },
     {
       "columns": [
+        "exam_id"
+      ],
+      "tableTo": "diveeoi_exam",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_diveeoi_exam_attempt_exam_id_diveeoi_exam_id_fk",
+      "entityType": "fks",
+      "table": "diveeoi_exam_attempt"
+    },
+    {
+      "columns": [
+        "session_id"
+      ],
+      "tableTo": "session",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_diveeoi_exam_attempt_session_id_session_id_fk",
+      "entityType": "fks",
+      "table": "diveeoi_exam_attempt"
+    },
+    {
+      "columns": [
+        "session_id"
+      ],
+      "tableTo": "session",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_diveeoi_exam_session_id_session_id_fk",
+      "entityType": "fks",
+      "table": "diveeoi_exam"
+    },
+    {
+      "columns": [
         "project_id"
       ],
       "tableTo": "project",
@@ -2942,6 +3275,24 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "diveeoi_exam_attempt_pk",
+      "table": "diveeoi_exam_attempt",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "diveeoi_exam_pk",
+      "table": "diveeoi_exam",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "permission_pk",
       "table": "permission",
       "entityType": "pks"
@@ -3125,6 +3476,60 @@
       "name": "event_aggregate_type_seq_idx",
       "entityType": "indexes",
       "table": "event"
+    },
+    {
+      "columns": [
+        {
+          "value": "exam_id",
+          "isExpression": false
+        },
+        {
+          "value": "attempt_number",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "origin": "manual",
+      "name": "diveeoi_exam_attempt_number_idx",
+      "entityType": "indexes",
+      "table": "diveeoi_exam_attempt"
+    },
+    {
+      "columns": [
+        {
+          "value": "session_id",
+          "isExpression": false
+        },
+        {
+          "value": "submitted_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "diveeoi_exam_attempt_session_idx",
+      "entityType": "indexes",
+      "table": "diveeoi_exam_attempt"
+    },
+    {
+      "columns": [
+        {
+          "value": "session_id",
+          "isExpression": false
+        },
+        {
+          "value": "time_created",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "diveeoi_exam_session_idx",
+      "entityType": "indexes",
+      "table": "diveeoi_exam"
     },
     {
       "columns": [

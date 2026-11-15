@@ -121,6 +121,45 @@ export default {
         );
       `)
       yield* tx.run(`
+        CREATE TABLE \`diveeoi_exam_attempt\` (
+          \`id\` text PRIMARY KEY,
+          \`exam_id\` text NOT NULL,
+          \`session_id\` text NOT NULL,
+          \`attempt_number\` integer NOT NULL,
+          \`difficulty\` integer DEFAULT 3 NOT NULL,
+          \`answers_json\` text NOT NULL,
+          \`interaction_json\` text,
+          \`grade_json\` text NOT NULL,
+          \`score\` real DEFAULT 0 NOT NULL,
+          \`max_score\` real DEFAULT 0 NOT NULL,
+          \`percentage\` real,
+          \`needs_review\` integer DEFAULT 0 NOT NULL,
+          \`elapsed_ms\` integer DEFAULT 0 NOT NULL,
+          \`submitted_at\` integer NOT NULL,
+          \`time_created\` integer NOT NULL,
+          \`time_updated\` integer NOT NULL,
+          CONSTRAINT \`fk_diveeoi_exam_attempt_exam_id_diveeoi_exam_id_fk\` FOREIGN KEY (\`exam_id\`) REFERENCES \`diveeoi_exam\`(\`id\`) ON DELETE CASCADE,
+          CONSTRAINT \`fk_diveeoi_exam_attempt_session_id_session_id_fk\` FOREIGN KEY (\`session_id\`) REFERENCES \`session\`(\`id\`) ON DELETE CASCADE
+        );
+      `)
+      yield* tx.run(`
+        CREATE TABLE \`diveeoi_exam\` (
+          \`id\` text PRIMARY KEY,
+          \`session_id\` text NOT NULL,
+          \`title\` text NOT NULL,
+          \`spec_json\` text NOT NULL,
+          \`secret_ciphertext\` text NOT NULL,
+          \`secret_iv\` text NOT NULL,
+          \`secret_auth_tag\` text NOT NULL,
+          \`grading_json\` text NOT NULL,
+          \`adaptive_difficulty\` integer DEFAULT 3 NOT NULL,
+          \`attempts_allowed\` integer DEFAULT 1 NOT NULL,
+          \`time_created\` integer NOT NULL,
+          \`time_updated\` integer NOT NULL,
+          CONSTRAINT \`fk_diveeoi_exam_session_id_session_id_fk\` FOREIGN KEY (\`session_id\`) REFERENCES \`session\`(\`id\`) ON DELETE CASCADE
+        );
+      `)
+      yield* tx.run(`
         CREATE TABLE \`permission\` (
           \`id\` text PRIMARY KEY,
           \`project_id\` text NOT NULL,
@@ -386,6 +425,9 @@ export default {
       yield* tx.run(`CREATE INDEX \`auth_refresh_expiry_idx\` ON \`auth_refresh_token\` (\`expires_at\`);`)
       yield* tx.run(`CREATE UNIQUE INDEX \`event_aggregate_seq_idx\` ON \`event\` (\`aggregate_id\`,\`seq\`);`)
       yield* tx.run(`CREATE INDEX \`event_aggregate_type_seq_idx\` ON \`event\` (\`aggregate_id\`,\`type\`,\`seq\`);`)
+      yield* tx.run(`CREATE UNIQUE INDEX \`diveeoi_exam_attempt_number_idx\` ON \`diveeoi_exam_attempt\` (\`exam_id\`,\`attempt_number\`);`)
+      yield* tx.run(`CREATE INDEX \`diveeoi_exam_attempt_session_idx\` ON \`diveeoi_exam_attempt\` (\`session_id\`,\`submitted_at\`);`)
+      yield* tx.run(`CREATE INDEX \`diveeoi_exam_session_idx\` ON \`diveeoi_exam\` (\`session_id\`,\`time_created\`);`)
       yield* tx.run(`CREATE UNIQUE INDEX \`permission_project_action_resource_idx\` ON \`permission\` (\`project_id\`,\`action\`,\`resource\`);`)
       yield* tx.run(`CREATE INDEX \`agent_task_event_task_idx\` ON \`agent_task_event\` (\`task_id\`,\`fired_at\`);`)
       yield* tx.run(`CREATE INDEX \`agent_task_status_idx\` ON \`agent_task\` (\`status\`,\`auto_run\`);`)
