@@ -6,10 +6,9 @@ import { SessionEvent } from "../event"
 import { SessionMessage } from "../message"
 import { SessionSchema } from "../schema"
 
-export class PublishError extends Schema.TaggedErrorClass<PublishError>()(
-  "Session.EventPublishError",
-  { detail: Schema.String },
-) {
+export class PublishError extends Schema.TaggedErrorClass<PublishError>()("Session.EventPublishError", {
+  detail: Schema.String,
+}) {
   override get message() {
     return `Session event publish failed: ${this.detail}`
   }
@@ -148,13 +147,15 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
     Effect.gen(function* () {
       const tool = tools.get(callID)
       if (!tool) return yield* Effect.fail(new PublishError({ detail: `Tool input end before start: ${callID}` }))
-      yield* events.publish(SessionEvent.Tool.Input.Ended, {
-        sessionID: input.sessionID,
-        timestamp: yield* timestamp,
-        assistantMessageID: tool.assistantMessageID,
-        callID,
-        text: value,
-      })
+      if (tool.name !== "create_exam") {
+        yield* events.publish(SessionEvent.Tool.Input.Ended, {
+          sessionID: input.sessionID,
+          timestamp: yield* timestamp,
+          assistantMessageID: tool.assistantMessageID,
+          callID,
+          text: value,
+        })
+      }
       tool.inputEnded = true
     }),
   )
@@ -166,7 +167,8 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
   })
 
   const startToolInput = Effect.fnUntraced(function* (event: { readonly id: string; readonly name: string }) {
-    if (tools.has(event.id)) return yield* Effect.fail(new PublishError({ detail: `Duplicate tool input start: ${event.id}` }))
+    if (tools.has(event.id))
+      return yield* Effect.fail(new PublishError({ detail: `Duplicate tool input start: ${event.id}` }))
     const assistantMessageID = yield* startAssistant()
     tools.set(event.id, {
       assistantMessageID,
@@ -190,8 +192,11 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
     const tool = tools.get(event.id)
     if (!tool) return yield* Effect.fail(new PublishError({ detail: `Tool input end before start: ${event.id}` }))
     if (tool.name !== event.name)
-      return yield* Effect.fail(new PublishError({ detail: `Tool input name changed for ${event.id}: ${tool.name} -> ${event.name}` }))
-    if (tool.inputEnded) return yield* Effect.fail(new PublishError({ detail: `Duplicate tool input end: ${event.id}` }))
+      return yield* Effect.fail(
+        new PublishError({ detail: `Tool input name changed for ${event.id}: ${tool.name} -> ${event.name}` }),
+      )
+    if (tool.inputEnded)
+      return yield* Effect.fail(new PublishError({ detail: `Duplicate tool input end: ${event.id}` }))
     yield* toolInput.end(event.id)
   })
 
@@ -222,7 +227,9 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
 
   const assistantMessageIDForTool = (callID: string) => {
     const tool = tools.get(callID)
-    return tool ? Effect.succeed(tool.assistantMessageID) : Effect.fail(new PublishError({ detail: `Unknown tool call: ${callID}` }))
+    return tool
+      ? Effect.succeed(tool.assistantMessageID)
+      : Effect.fail(new PublishError({ detail: `Unknown tool call: ${callID}` }))
   }
 
   const publish = Effect.fn("SessionRunner.publishLLMEvent")(function* (
@@ -284,16 +291,21 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
         const tool = tools.get(event.id)
         if (!tool) return yield* Effect.fail(new PublishError({ detail: `Tool input delta before start: ${event.id}` }))
         if (tool.name !== event.name)
-          return yield* Effect.fail(new PublishError({ detail: `Tool input name changed for ${event.id}: ${tool.name} -> ${event.name}` }))
-        if (tool.inputEnded) return yield* Effect.fail(new PublishError({ detail: `Tool input delta after end: ${event.id}` }))
+          return yield* Effect.fail(
+            new PublishError({ detail: `Tool input name changed for ${event.id}: ${tool.name} -> ${event.name}` }),
+          )
+        if (tool.inputEnded)
+          return yield* Effect.fail(new PublishError({ detail: `Tool input delta after end: ${event.id}` }))
         yield* toolInput.append(event.id, event.text)
-        yield* events.publish(SessionEvent.Tool.Input.Delta, {
-          sessionID: input.sessionID,
-          timestamp: yield* timestamp,
-          assistantMessageID: tool.assistantMessageID,
-          callID: event.id,
-          delta: event.text,
-        })
+        if (tool.name !== "create_exam") {
+          yield* events.publish(SessionEvent.Tool.Input.Delta, {
+            sessionID: input.sessionID,
+            timestamp: yield* timestamp,
+            assistantMessageID: tool.assistantMessageID,
+            callID: event.id,
+            delta: event.text,
+          })
+        }
         return
       }
       case "tool-input-end":
@@ -304,7 +316,9 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
         const tool = tools.get(event.id)!
         if (!tool.inputEnded) yield* endToolInput(event)
         if (tool.name !== event.name)
-          return yield* Effect.fail(new PublishError({ detail: `Tool call name changed for ${event.id}: ${tool.name} -> ${event.name}` }))
+          return yield* Effect.fail(
+            new PublishError({ detail: `Tool call name changed for ${event.id}: ${tool.name} -> ${event.name}` }),
+          )
         if (tool.called) return yield* Effect.fail(new PublishError({ detail: `Duplicate tool call: ${event.id}` }))
         tool.called = true
         tool.providerExecuted = event.providerExecuted === true
@@ -315,7 +329,7 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
           assistantMessageID: tool.assistantMessageID,
           callID: event.id,
           tool: event.name,
-          input: record(event.input),
+          input: event.name === "create_exam" ? { redacted: true } : record(event.input),
           provider: {
             executed: tool.providerExecuted,
             ...(event.providerMetadata === undefined ? {} : { metadata: event.providerMetadata }),
@@ -325,9 +339,12 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
       }
       case "tool-result": {
         const tool = tools.get(event.id)
-        if (!tool?.called) return yield* Effect.fail(new PublishError({ detail: `Tool result before call: ${event.id}` }))
+        if (!tool?.called)
+          return yield* Effect.fail(new PublishError({ detail: `Tool result before call: ${event.id}` }))
         if (tool.name !== event.name)
-          return yield* Effect.fail(new PublishError({ detail: `Tool result name changed for ${event.id}: ${tool.name} -> ${event.name}` }))
+          return yield* Effect.fail(
+            new PublishError({ detail: `Tool result name changed for ${event.id}: ${tool.name} -> ${event.name}` }),
+          )
         if (tool.settled) {
           if (event.result.type === "error") return
           return yield* Effect.fail(new PublishError({ detail: `Duplicate tool result: ${event.id}` }))
@@ -364,9 +381,12 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
       }
       case "tool-error": {
         const tool = tools.get(event.id)
-        if (!tool?.called) return yield* Effect.fail(new PublishError({ detail: `Tool error before call: ${event.id}` }))
+        if (!tool?.called)
+          return yield* Effect.fail(new PublishError({ detail: `Tool error before call: ${event.id}` }))
         if (tool.name !== event.name)
-          return yield* Effect.fail(new PublishError({ detail: `Tool error name changed for ${event.id}: ${tool.name} -> ${event.name}` }))
+          return yield* Effect.fail(
+            new PublishError({ detail: `Tool error name changed for ${event.id}: ${tool.name} -> ${event.name}` }),
+          )
         if (tool.settled) return yield* Effect.fail(new PublishError({ detail: `Duplicate tool error: ${event.id}` }))
         tool.settled = true
         yield* events.publish(SessionEvent.Tool.Failed, {

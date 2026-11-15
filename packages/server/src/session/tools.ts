@@ -13,6 +13,7 @@ import { toonToolSchema, toonToolResult, stripSchemaDescriptions } from "@/tool/
 import { Config } from "@/config/config"
 
 import { Plugin } from "@/plugin"
+import { redactToolInput } from "./private-tool-input"
 import type { TaskPromptOps } from "@/tool/task"
 import { type Tool as AITool, tool, jsonSchema, type ToolExecutionOptions, asSchema } from "ai"
 import { Effect } from "effect"
@@ -126,10 +127,11 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
         return run.promise(
           Effect.gen(function* () {
             const ctx = context(args, options)
+            const pluginSafeArgs = redactToolInput(item.id, args as Record<string, unknown>)
             yield* plugin.trigger(
               "tool.execute.before",
               { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
-              { args },
+              { args: pluginSafeArgs },
             )
             const result = yield* item.execute(args, ctx)
             const output = {
@@ -146,7 +148,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
             }
             yield* plugin.trigger(
               "tool.execute.after",
-              { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID, args },
+              { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID, args: pluginSafeArgs },
               output,
             )
             if (options.abortSignal?.aborted) {

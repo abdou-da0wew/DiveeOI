@@ -14,6 +14,7 @@ import { Snapshot } from "@/snapshot"
 import { Session } from "./session"
 import { LLM } from "./llm"
 import { MessageV2 } from "./message-v2"
+import { isPrivateToolInput, redactToolInput } from "./private-tool-input"
 import { isOverflow } from "./overflow"
 import { PartID } from "./schema"
 import type { SessionID } from "./schema"
@@ -441,7 +442,7 @@ export const layer = Layer.effect(
             {
               const toolCall = yield* ensureToolCall(value)
               const assistantMessageID = mirrorAssistant ? yield* requireV2AssistantMessage(toolCall.call) : undefined
-              if (assistantMessageID) {
+              if (assistantMessageID && !isPrivateToolInput(toolCall.part.tool)) {
                 yield* events.publish(SessionEvent.Tool.Input.Delta, {
                   sessionID: ctx.sessionID,
                   assistantMessageID,
@@ -457,7 +458,7 @@ export const layer = Layer.effect(
           case "tool-input-end": {
             const toolCall = yield* ensureToolCall(value)
             // Temporary dual-write while migrating session messages to v2 events (removal in v2).
-            if (mirrorAssistant) {
+            if (mirrorAssistant && !isPrivateToolInput(toolCall.part.tool)) {
               const assistantMessageID = yield* requireV2AssistantMessage(toolCall.call)
               yield* events.publish(SessionEvent.Tool.Input.Ended, {
                 sessionID: ctx.sessionID,
@@ -479,7 +480,7 @@ export const layer = Layer.effect(
             const input = isRecord(value.input) ? value.input : { value: value.input }
             if (!toolCall.call.inputEnded) {
               // Temporary dual-write while migrating session messages to v2 events (removal in v2).
-              if (mirrorAssistant) {
+              if (mirrorAssistant && !isPrivateToolInput(toolCall.part.tool)) {
                 const assistantMessageID = yield* requireV2AssistantMessage(toolCall.call)
                 yield* events.publish(SessionEvent.Tool.Input.Ended, {
                   sessionID: ctx.sessionID,
@@ -498,7 +499,7 @@ export const layer = Layer.effect(
                 assistantMessageID,
                 callID: value.id,
                 tool: value.name,
-                input,
+                input: redactToolInput(value.name, input),
                 provider: {
                   executed: toolCall.part.metadata?.providerExecuted === true,
                   ...(value.providerMetadata ? { metadata: value.providerMetadata } : {}),
@@ -545,7 +546,7 @@ export const layer = Layer.effect(
               permission: "doom_loop",
               patterns: [value.name],
               sessionID: ctx.assistantMessage.sessionID,
-              metadata: { tool: value.name, input },
+              metadata: { tool: value.name, input: redactToolInput(value.name, input) },
               always: [value.name],
               ruleset: agent.permission,
             })

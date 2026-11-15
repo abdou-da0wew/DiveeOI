@@ -1,3 +1,4 @@
+import { isPrivateToolInput, redactToolInput } from "./private-tool-input"
 import { LayerNode } from "@diveeoi/db/effect/layer-node"
 import { PermissionV1 } from "@diveeoi/db/v1/permission"
 import { Slug } from "@diveeoi/db/util/slug"
@@ -704,9 +705,28 @@ export const layer: Layer.Layer<
 
     const updatePart = <T extends SessionV1.Part>(part: T): Effect.Effect<T> =>
       Effect.gen(function* () {
+        // create_exam answer keys are persisted separately using authenticated
+        // server-side encryption. Never write the raw key (or provider JSON
+        // fragments that may contain it) into the event log / Part projection.
+        let persisted = part
+        if (part.type === "tool" && isPrivateToolInput(part.tool)) {
+          const state = part.state
+          const input =
+            "input" in state && state.input && typeof state.input === "object"
+              ? redactToolInput(part.tool, state.input as Record<string, unknown>)
+              : undefined
+          persisted = {
+            ...part,
+            state: {
+              ...state,
+              ...(input ? { input } : {}),
+              ...("raw" in state ? { raw: "" } : {}),
+            },
+          } as T
+        }
         yield* events.publish(SessionV1.Event.PartUpdated, {
           sessionID: part.sessionID,
-          part: structuredClone(part),
+          part: structuredClone(persisted),
           time: Date.now(),
         })
         return part
