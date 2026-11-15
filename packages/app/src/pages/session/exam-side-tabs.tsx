@@ -256,7 +256,7 @@ export function ExamSidePanelBridge() {
           presentation: buildExamSubmissionPresentation(entry),
         },
       }).then(
-        () => setExamReportStatus(entry.exam.id, "sent"),
+        (sent) => setExamReportStatus(entry.exam.id, sent ? "sent" : "error"),
         (error: unknown) => {
           setExamReportStatus(entry.exam.id, "error")
           showToast({
