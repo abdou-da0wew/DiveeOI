@@ -21,6 +21,7 @@ import { TodoWriteTool } from "./todo"
 import { WebFetchTool } from "./webfetch"
 import { WriteTool } from "./write"
 import { InvalidTool } from "./invalid"
+import { RichUITool } from "./rich-ui"
 
 import * as Tool from "./tool"
 import { Config } from "@/config/config"
@@ -120,6 +121,7 @@ export const layer = Layer.effect(
     const writetool = yield* WriteTool
     const edit = yield* EditTool
     const greptool = yield* GrepTool
+    const richUI = yield* RichUITool
     const agent = yield* Agent.Service
 
     // Memory tools — dynamically imported so a disabled memory feature never
@@ -290,6 +292,7 @@ export const layer = Layer.effect(
           taskCreate: Tool.init(taskCreate),
           taskList: Tool.init(taskList),
           taskStatus: Tool.init(taskStatus),
+          richUI: Tool.init(richUI),
           taskLogs: Tool.init(taskLogs),
           taskControl: Tool.init(taskControl),
         })
@@ -313,6 +316,7 @@ export const layer = Layer.effect(
           tool.taskCreate,
           tool.taskList,
           tool.taskStatus,
+          tool.richUI,
           tool.taskLogs,
           tool.taskControl,
           // Memory tools (empty when the memory feature is disabled)
@@ -460,7 +464,31 @@ export const layer = Layer.effect(
                   {
                     init: Effect.gen(function* () {
                       const mod: any = yield* Effect.promise(() => import("./learning/book-find-term"))
-                      return yield* Tool.init(yield* (mod.BookFindTermTool as Effect.Effect<Tool.Info>))
+                      return yield* Tool.init(yield* mod.BookFindTermTool as Effect.Effect<Tool.Info>)
+                    }),
+                  },
+                  {
+                    init: Effect.gen(function* () {
+                      const mod: any = yield* Effect.promise(() => import("./learning/create-exam"))
+                      return yield* Tool.init(yield* mod.CreateExamTool as Effect.Effect<Tool.Info>)
+                    }),
+                  },
+                  {
+                    init: Effect.gen(function* () {
+                      const mod: any = yield* Effect.promise(() => import("./learning/grade-exam"))
+                      return yield* Tool.init(yield* mod.GradeExamTool as Effect.Effect<Tool.Info>)
+                    }),
+                  },
+                  {
+                    init: Effect.gen(function* () {
+                      const mod: any = yield* Effect.promise(() => import("./learning/review-exam"))
+                      return yield* Tool.init(yield* mod.ReviewExamTool as Effect.Effect<Tool.Info>)
+                    }),
+                  },
+                  {
+                    init: Effect.gen(function* () {
+                      const mod: any = yield* Effect.promise(() => import("./learning/export-exam"))
+                      return yield* Tool.init(yield* mod.ExportExamTool as Effect.Effect<Tool.Info>)
                     }),
                   },
                   {
