@@ -22,6 +22,7 @@ import { buildRequestParts } from "./build-request-parts"
 import { setCursorPosition } from "./editor-dom"
 import { formatServerError } from "@/utils/server-errors"
 import { ScopedKey } from "@/utils/server-scope"
+import { serializeUserMessage, type UserMessagePresentation } from "@diveeoi/ui/user-message-metadata"
 
 let unverifiedMessageCount = 0
 const MESSAGE_LIMIT = 10
@@ -41,6 +42,7 @@ export type FollowupDraft = {
   agent: string
   model: { providerID: string; modelID: string }
   variant?: string
+  presentation?: UserMessagePresentation
 }
 
 type FollowupSendInput = {
@@ -58,7 +60,8 @@ const draftText = (prompt: Prompt) => prompt.map((part) => ("content" in part ? 
 const draftImages = (prompt: Prompt) => prompt.filter((part): part is ImageAttachmentPart => part.type === "image")
 
 export async function sendFollowupDraft(input: FollowupSendInput) {
-  const text = draftText(input.draft.prompt)
+  const draft = draftText(input.draft.prompt)
+  const text = input.draft.presentation ? serializeUserMessage(draft, input.draft.presentation) : draft
   const images = draftImages(input.draft.prompt)
   const [, setStore] = input.serverSync.child(input.draft.sessionDirectory)
 
@@ -594,8 +597,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         if (totalMessages >= MESSAGE_LIMIT && authState.user && !authState.user.verified) {
           showToast({
             title: "Verify your email",
-            description:
-              "You've reached the message limit for unverified users. Please verify your email to continue.",
+            description: "You've reached the message limit for unverified users. Please verify your email to continue.",
           })
         }
       })
