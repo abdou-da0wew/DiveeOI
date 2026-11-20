@@ -231,8 +231,12 @@ export const prepareQueryEncoder = async (userSettings?: Tree): Promise<Prepared
   if (resolution.encoder === "none" || !runtime) return none(resolution.reason)
 
   const useTeacher = async (reason: string): Promise<PreparedEncoder> => {
-    const ok = await Effect.runPromise(ensureEmbedder(userSettings).pipe(Effect.map(() => true), Effect.orElseSucceed(() => false)))
-    if (!ok) return none(`${reason}; bge-m3 is not ready`)
+    try {
+      await Effect.runPromise(ensureEmbedder(userSettings))
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      return none(`${reason}; bge-m3 failed to initialize: ${detail.slice(0, 320)}`)
+    }
     return {
       ready: true,
       encoder: "bge-m3",

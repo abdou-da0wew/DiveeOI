@@ -33,9 +33,10 @@ export interface AdaptiveTargets {
 // pressure: upgrade thresholds include a margin so small measurement changes
 // do not repeatedly grow and shrink caches and worker pools.
 const PROFILE_THRESHOLDS: Record<ResourceProfile, { minFreeMB: number; minFreeRatio: number }> = {
-  comfortable: { minFreeMB: 4096, minFreeRatio: 0.5 },
-  balanced: { minFreeMB: 1024, minFreeRatio: 0.2 },
-  constrained: { minFreeMB: 512, minFreeRatio: 0.1 },
+  // A desktop-class profile needs real headroom, not merely reclaimable page cache.
+  comfortable: { minFreeMB: 4608, minFreeRatio: 0.6 },
+  balanced: { minFreeMB: 3584, minFreeRatio: 0.5 },
+  constrained: { minFreeMB: 768, minFreeRatio: 0.12 },
   critical: { minFreeMB: 0, minFreeRatio: 0 },
 }
 
@@ -129,17 +130,17 @@ const PROFILE_MULTIPLIERS: Record<ResourceProfile, Partial<AdaptiveTargets>> = {
   },
   balanced: {
     gcIntervalMs: 30000,
-    maxToolConcurrency: 8,
-    maxLLMStreamBuffer: 200,
-    maxSSEQueueSize: 1000,
-    maxWSConnections: 1000,
-    ptyTicketCapacity: 5000,
+    maxToolConcurrency: 4,
+    maxLLMStreamBuffer: 160,
+    maxSSEQueueSize: 700,
+    maxWSConnections: 512,
+    ptyTicketCapacity: 2500,
     ptyTicketTTLMs: 120000,
-    cacheTTLMs: 600000,
-    sqliteCacheMB: 128,
+    cacheTTLMs: 420000,
+    sqliteCacheMB: 96,
     llmRequestTimeoutMs: 90000,
     dbQueryTimeoutMs: 7500,
-    maxConcurrentTasks: 4,
+    maxConcurrentTasks: 2,
     heartbeatIntervalMs: 45000,
     watchdogStallMs: 240000,
     ftsBatchRows: 5000,
@@ -150,18 +151,18 @@ const PROFILE_MULTIPLIERS: Record<ResourceProfile, Partial<AdaptiveTargets>> = {
     todoReminderEveryToolCalls: 12,
   },
   constrained: {
-    gcIntervalMs: 15000,
-    maxToolConcurrency: 3,
-    maxLLMStreamBuffer: 100,
+    gcIntervalMs: 12000,
+    maxToolConcurrency: 2,
+    maxLLMStreamBuffer: 64,
     maxSSEQueueSize: 400,
     maxWSConnections: 400,
     ptyTicketCapacity: 1500,
     ptyTicketTTLMs: 60000,
     cacheTTLMs: 120000,
-    sqliteCacheMB: 64,
+    sqliteCacheMB: 48,
     llmRequestTimeoutMs: 60000,
     dbQueryTimeoutMs: 5000,
-    maxConcurrentTasks: 2,
+    maxConcurrentTasks: 1,
     heartbeatIntervalMs: 60000,
     watchdogStallMs: 150000,
     ftsBatchRows: 2000,
@@ -196,10 +197,10 @@ const PROFILE_MULTIPLIERS: Record<ResourceProfile, Partial<AdaptiveTargets>> = {
 }
 
 const MEMORY_BUDGET_RATIO: Record<ResourceProfile, { rss: number; heap: number }> = {
-  comfortable: { rss: 0.45, heap: 0.3 },
-  balanced: { rss: 0.32, heap: 0.22 },
-  constrained: { rss: 0.22, heap: 0.14 },
-  critical: { rss: 0.12, heap: 0.08 },
+  comfortable: { rss: 0.28, heap: 0.18 },
+  balanced: { rss: 0.22, heap: 0.14 },
+  constrained: { rss: 0.16, heap: 0.1 },
+  critical: { rss: 0.09, heap: 0.05 },
 }
 
 export const computeTargets = (sys: SystemResources, profile = computeProfile(sys)): AdaptiveTargets => {
@@ -212,11 +213,21 @@ export const computeTargets = (sys: SystemResources, profile = computeProfile(sy
   const heapTargetMB = Math.max(32, Math.min(rssTargetMB, Math.round(totalMemoryMB * budget.heap)))
   const cpuCores = Math.max(1, Number.isFinite(sys.cpuCores) ? Math.floor(sys.cpuCores) : 1)
 
+  // Rotational disks benefit from a useful SQLite page cache, but very large
+  // caches compete with the OS page cache and amplify memory pressure on small
+  // machines. Keep HDD cache bounded while retaining mmap for repeated reads.
+  const requestedCacheMB = mult.sqliteCacheMB ?? BASE_TARGETS.sqliteCacheMB
+  const sqliteCacheMB =
+    sys.storageHint === "hdd"
+      ? Math.min(requestedCacheMB, 64)
+      : Math.min(requestedCacheMB, profile === "comfortable" ? 192 : 96)
+
   return {
     ...BASE_TARGETS,
     ...mult,
     rssTargetMB,
     heapTargetMB,
+    sqliteCacheMB,
     maxToolConcurrency: Math.max(1, Math.min(mult.maxToolConcurrency ?? BASE_TARGETS.maxToolConcurrency, cpuCores)),
   }
 }

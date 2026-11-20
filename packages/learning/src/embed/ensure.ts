@@ -5,6 +5,7 @@
 
 import { existsSync } from "node:fs"
 import path from "node:path"
+import { totalmem } from "node:os"
 import { Effect } from "effect"
 import { getRuntime, modelFilesDir, onnxFileFor } from "../runtime"
 import { withDefaults } from "../settings/defaults"
@@ -59,6 +60,17 @@ export const checkModelFiles = (userSettings?: Tree): { options: EmbedOptions; m
 
 export const loadTokenizerForChunking = (repo: string) => tryTokenizer(repo)
 
+// Repeatedly invoking the full BGE tokenizer for every sentence makes PDF
+// chunking disproportionately expensive on 8 GiB-and-smaller machines. The
+// chunker already has a language-aware estimator for boundaries; embedding
+// still uses the real BGE tokenizer inside Transformers.js.
+const shouldLoadExactChunkTokenizer = () => {
+  const override = process.env.DIVEEOI_CHUNK_TOKENIZER
+  if (override === "exact") return true
+  if (override === "estimate") return false
+  return totalmem() > 8 * 1024 ** 3
+}
+
 export const ensureEmbedder = (userSettings?: Tree): Effect.Effect<EmbedOptions, EmbedError> =>
   Effect.gen(function* () {
     const runtime = getRuntime()
@@ -75,6 +87,8 @@ export const ensureEmbedder = (userSettings?: Tree): Effect.Effect<EmbedOptions,
       { repo: runtime.manifest.repo, revision: runtime.manifest.revision, dtype: options.dtype, maxLength: options.maxLength },
       options,
     )
-    yield* Effect.promise(() => tryTokenizer(runtime.manifest.repo))
+    if (shouldLoadExactChunkTokenizer()) {
+      yield* Effect.promise(() => tryTokenizer(runtime.manifest.repo))
+    }
     return options
   })

@@ -34,6 +34,52 @@ describe("grounding prompt rules", () => {
     expect(prompt).toContain("تعلّم موجّه بالكتاب")
   })
 
+  test("English prompt uses guided discovery and Feynman-style teach-back without forcing it", () => {
+    const prompt = buildGroundingPrompt({
+      bookTitles: ["X"],
+      language: "en",
+      refusalMessages: { en: "x", ar: "x" },
+    })
+    expect(prompt).toContain("learning destination")
+    expect(prompt).toContain("one focused")
+    expect(prompt).toContain("Feynman-style teach-back")
+    expect(prompt).toContain("checkpoint whenever it fits")
+    expect(prompt).toContain("simple one-concept question")
+    expect(prompt).toContain("analogy")
+    expect(prompt).toContain("after a couple of unproductive attempts")
+    expect(prompt).toContain("Return to the original question last")
+    expect(prompt).toContain("let the student respond")
+    expect(prompt).toContain("Rich interactive learning interfaces")
+    expect(prompt).toContain("layoutMode: auto")
+    expect(prompt).toContain("card-in-card layouts")
+    expect(prompt).toContain("declared numeric state key")
+    expect(prompt).toContain("platformer")
+    expect(prompt).toContain("manual")
+  })
+
+  test("Arabic prompt includes the equivalent guided-learning rules", () => {
+    const prompt = buildGroundingPrompt({
+      bookTitles: ["X"],
+      language: "ar",
+      refusalMessages: { en: "x", ar: "x" },
+    })
+    expect(prompt).toContain("النتيجة التعليمية")
+    expect(prompt).toContain("دورة فاينمان")
+    expect(prompt).toContain("سؤال التحقق عادةً")
+    expect(prompt).toContain("سؤال تحقق")
+    expect(prompt).toContain("الشرح المباشر")
+    expect(prompt).toContain("تشبيه")
+    expect(prompt).toContain("محاولتان تقريبًا")
+    expect(prompt).toContain("السؤال الأصلي")
+    expect(prompt).toContain("انتظر رد الطالب")
+    expect(prompt).toContain("الواجهات التعليمية التفاعلية")
+    expect(prompt).toContain("layoutMode: auto")
+    expect(prompt).toContain("بطاقات داخل بطاقات")
+    expect(prompt).toContain("diagram")
+    expect(prompt).toContain("quiz")
+    expect(prompt).toContain("platformer")
+  })
+
   test("prompt includes the allowed-tools list", () => {
     const prompt = buildGroundingPrompt({
       bookTitles: ["X"],

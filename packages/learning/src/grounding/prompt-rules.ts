@@ -14,8 +14,11 @@
 // that is what the gate (§8.3), the tool allowlist (§9.3) and the
 // verifier (verifier.ts §9.6) enforce together.
 //
-// The prompt text itself lives in `../prompts/grounding-system-{en,ar}.txt`
-// (editable without touching code; this file fills in the session variables).
+// The prompt text itself lives in `../prompts/grounding-system-{en,ar}.txt`.
+// It defines the default teaching loop as well as evidence constraints: guided prerequisites,
+// one focused checkpoint at a time, targeted analogy, and Feynman-style teach-back. This block
+// is injected for every targeted-learning LLM turn; auxiliary prompt fragments add context only.
+// (The text files remain editable without touching code; this file fills in session variables.)
 
 import { prompt } from "../prompts"
 

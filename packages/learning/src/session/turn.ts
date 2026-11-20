@@ -391,7 +391,10 @@ const inspectRetrievalImpl = async (input: {
   if (bookIds.length === 0) return empty("not-ready", "no indexed books")
   const encoder = input.ensureFn ? undefined : await prepareQueryEncoder(input.settings)
   const ready = input.ensureFn ? await input.ensureFn() : encoder!.ready
-  if (!ready) return empty("not-ready", "the embedding model is not ready (run Start Setup)")
+  if (!ready) {
+    const reason = encoder?.reason ?? "the query encoder could not be prepared"
+    return empty("not-ready", `the embedding model is not ready: ${reason}`)
+  }
   if (encoder?.gate) {
     thresholds = {
       minDenseScore: Number(encoder.gate.minDenseScore ?? thresholds.minDenseScore),
