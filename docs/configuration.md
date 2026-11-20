@@ -239,6 +239,17 @@ Code paths call `profiler.wrap` / `measure` / `scope` / `gauge`; sampled scopes 
 
 OpenTelemetry is gated behind `cfg.experimental.openTelemetry` and the optional `OtelTracer` service.
 
+## Remote SSH Sessions
+
+Remote Sessions use the SSH environment and files of the DiveeOI server process. The outbound SSH settings are independent from the inbound SSH REPL listener settings. Common overrides are:
+
+- `DIVEEOI_SSH_KEY_DIR`, `DIVEEOI_SSH_CONFIG_FILE`, and `DIVEEOI_SSH_KNOWN_HOSTS_FILE` for OpenSSH discovery and trusted host keys.
+- `DIVEEOI_REMOTE_CONFIG_DIR`, `DIVEEOI_REMOTE_PROFILES_FILE`, and `DIVEEOI_REMOTE_SECRET_KEY_FILE` for the server-wide saved profile store and its encryption key.
+- `DIVEEOI_REMOTE_SECRET_KEY` for an explicitly provisioned 32-byte AES-256-GCM key (64 hex characters or base64).
+- `SSH_AUTH_SOCK` for the agent socket inherited by the server process.
+
+The default files live under `~/.ssh` and `~/.config/diveeoi`. Stored passwords and private-key passphrases are encrypted; the profile file and encryption key must be backed up together and kept owner-only. Unknown host keys are rejected until verified and added to the server account's `known_hosts`. See [Remote Sessions](remote-sessions.md) for the complete trust and operations guide.
+
 ## Writing Config Safely
 
 - For machine writes, call `Config.updateGlobal` (for `~/.config/opencode/*`) or `Config.update` (for instance `config.json`). Do not round-trip JSON manually — the `jsonc-parser` patch preserves comments.

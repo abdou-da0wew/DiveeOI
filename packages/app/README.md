@@ -83,3 +83,16 @@ Frontend map: `packages/app/FRONTEND-MAP.md` is the file-level map (generated vi
 ## Layout toggle
 
 `Settings.general.newLayoutDesigns()` toggles `BodyDesignClass` (`text-12-regular` vs `font-(family-name:...) text-[13px] font-[440]`). `SessionRoute` watches that flag to replace a `/session` with `/new-session?draftId=` autocreation when `newLayoutDesigns` is enabled.
+
+
+## Remote Sessions
+
+Settings → Remote Sessions manages the SSH profiles exposed by the authenticated server. The session-header remote action attaches or disconnects a saved profile and working directory. Credentials and SSH keys stay on the server; do not add private-key contents or passwords to browser state or logs.
+
+Browser regressions cover profile discovery/save/test and session attachment:
+
+```bash
+PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/google-chrome PLAYWRIGHT_CHROMIUM_ARGS=--no-sandbox bun run test:e2e:remote
+```
+
+Playwright uses the backend's default port 4097 and the Vite proxy variables `VITE_DIVEEOI_SERVER_HOST` / `VITE_DIVEEOI_SERVER_PORT`.

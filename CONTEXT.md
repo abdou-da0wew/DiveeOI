@@ -1,23 +1,23 @@
 # CONTEXT — DiveeOI current engineering hand-off
 
-- **Snapshot:** 2026-11-06
-- **Repository:** `/home/celestial-dev/DiveeOI`
+- **Snapshot:** 2026-11-20
+- **Repository:** `/home/ababado/DiveeOI-ai-learning-update`
 - **Branch:** `dev`
-- **Source HEAD at audit start:** `2868dc79b1ab28216048dd2667885785cda65176`
-- **Upstream:** `origin/dev` at the same commit
-- **Runtime:** Bun `1.3.14`, Node `22.22.1` (observed during this documentation audit)
+- **Source baseline:** `51e3c91` (the `dev` revision before this implementation and commit series)
+- **Runtime used for this pass:** Bun `1.4.4`; Node.js runtime available in the workspace
 
-This file is the current hand-off. The previous November 3 release snapshot is historical; see `RELEASE_HANDOFF_2026-11-06.md` for the current repository/runtime distinction. `WORKLOG.md` remains chronological, `DECISIONS.md` records durable technical choices, and `docs/TARGETED_LEARNING_WORKLOG.md` records the learning subsystem's implementation history.
+This file is the current source and verification hand-off. `WORKLOG.md` remains chronological, `CHANGELOG.md` records release-facing changes, and `DECISIONS.md` records durable technical choices. Previous deployment observations are historical and remain in the dated release hand-offs; do not infer the current running service version from this checkout.
 
 ## Repository and deployment state
 
-- At the start of this documentation refresh, the working tree was clean and `dev` matched `origin/dev`. The documentation changes made in this pass are intentional working-tree edits; do not reset or clean them.
-- The latest source commits are from November 5–6. The most recent commit at audit start is `2868dc7` (SDK generated types expose the retrieval-engine, query-encoder, and teacher-unload settings).
-- `diveeoi.service` is active. The observed main PID was `1906414`, started at `2026-11-05 18:54:11 UTC`, with its configured executable at `packages/server/dist/@diveeoi/server-linux-x64-baseline/bin/diveeoi` and listener on `0.0.0.0:6050`.
-- The running executable and the on-disk executable had the same SHA-256 at inspection: `45582ceaae4ad55ef10020c9955d3c87687e7cf1473c76bee4f129e99c84eba7`. The file modification time was `2026-11-05 12:34:48 UTC`.
-- The checkout contains source commits newer than that binary's modification time. The binary hash is verified, but its exact source commit was not embedded or independently proven. Do not state that the running service is built from `2868dc7`.
-- A separate process was listening on `0.0.0.0:4097` during inspection. It was not changed or stopped as part of this documentation task.
-- No service restart, deployment, database migration, commit, push, or cleanup was performed during this documentation refresh.
+- The working tree contained several independent feature areas when this pass resumed. All edits were preserved and split into category-specific commits on `dev`; the commit breakdown and verification boundaries are recorded in `WORKLOG.md`.
+- This source pass includes expanded Rich UI parsing/rendering (Learning and platformer components), exam validation, more conservative Targeted Learning resource/grounding policy, bounded workspace indexing, and both inbound and outbound SSH work. Outbound Remote Sessions provide server-owned OpenSSH discovery, encrypted shared profiles, strict `known_hosts` verification, host-aware per-session context, SFTP discovery/writes, agent-tool routing, and Settings/session attach UI. See `docs/remote-sessions.md`.
+- Remote profiles and SSH key material belong to the DiveeOI server account. Profiles are server-wide for the instance, not isolated by browser account. Secrets are encrypted with AES-256-GCM and an owner-only key file; back up both files together.
+- Host keys are verified against the server account's OpenSSH `known_hosts` file. Unknown or changed keys fail closed. Do not disable this check or treat unverified `ssh-keyscan` output as trusted.
+- The tracked `.githooks/commit-msg` hook is enabled in this checkout with `core.hooksPath=.githooks`; it adds DiveeAgent's GitHub noreply co-author trailer exactly once. See `.githooks/README.md`.
+- Verification: server and app typechecks passed; the focused remote suite passed 7 tests / 21 assertions; the live local-SSH smoke passed; Oxlint and Biome focused checks passed. A direct one-worker browser run passed both Remote Sessions specs earlier, but the final isolated-port package-script retry was not confirmed. The Vite production app build did not complete; the native single-target server build had passed in an earlier run before the last verification refinements. See `WORKLOG.md` for exact boundaries.
+- The app's Vite/Playwright proxy defaults to backend port `4097` and uses `VITE_DIVEEOI_SERVER_HOST` / `VITE_DIVEEOI_SERVER_PORT`.
+- The commit series is published on `origin/dev`. No production deployment, database migration, or service restart was performed; never infer deployment from local source or build output.
 
 ## Targeted Learning — current implementation
 

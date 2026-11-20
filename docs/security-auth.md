@@ -61,3 +61,10 @@ The browser uses the app origin and does not call `localhost` to reach the backe
 7. Do not put secrets in `.env.example`, built frontend variables, URLs, screenshots, logs, or version control. If a credential was previously shared outside a secure channel, rotate it.
 
 See `.env.example` for the environment-variable template.
+
+
+## SSH Remote Sessions trust boundary
+
+Remote SSH management endpoints require the configured DiveeOI server authentication middleware. The SSH client, discovered identities, profile store, key files, and agent socket belong to the server process, not to the browser. Saved SSH profiles are stored in one server-wide file for the instance; they are not isolated by individual browser account. Only give server access to people who are permitted to use those remote credentials.
+
+Host keys are verified strictly against the server account's OpenSSH `known_hosts`; unknown or changed keys fail closed. Verify a new fingerprint through a trusted channel before adding it. Profile passwords and private-key passphrases are encrypted with AES-256-GCM and a separate owner-only key file. Back up both files together, never commit either, and restrict server filesystem access. See [Remote Sessions](remote-sessions.md).

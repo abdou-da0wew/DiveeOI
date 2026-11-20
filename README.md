@@ -14,6 +14,7 @@ DiveeOI keeps the application server and project data under your control. Model 
 | **Model providers** | Provider catalogue and authentication, OpenAI-compatible endpoints, and per-turn model resolution |
 | **DiveeComposer** | A synthetic model choice that selects a concrete eligible provider/model for each turn; it is not sent upstream itself |
 | **MCP and plugins** | Local or remote Model Context Protocol servers, plus the plugin SDK and bundled integrations |
+| **Remote Sessions** | SSH host discovery, strict host-key checks, encrypted server-side profiles, and per-session remote shell/SFTP contexts |
 | **Memory** | Persistent project knowledge graph, recall, extraction, and consolidation |
 | **Targeted Learning** | Book/document ingestion, Arabic and English OCR support, grounded `@book:` sessions, hybrid retrieval, and separate student memory |
 | **Retrieval V2** | Optional persistent Rust retrieval engine with a TypeScript fallback, plus an offline query-encoder training/evaluation pipeline |
@@ -63,7 +64,7 @@ Configure an LLM provider in the application settings or the appropriate config 
 
 ## Configuration
 
-Copy [`.env.example`](.env.example) to `.env` when environment-based configuration is useful. The full configuration hierarchy and provider settings are documented in [Configuration](docs/configuration.md).
+Copy [`.env.example`](.env.example) to `.env` when environment-based configuration is useful. The full configuration hierarchy and provider settings are documented in [Configuration](docs/configuration.md). SSH Remote Sessions are covered in [Remote Sessions](docs/remote-sessions.md).
 
 | Variable | Default / behaviour | Purpose |
 |---|---|---|
@@ -79,6 +80,9 @@ Copy [`.env.example`](.env.example) to `.env` when environment-based configurati
 | `VITE_DIVEEOI_SERVER_HOST` | `127.0.0.1` | Vite proxy target host |
 | `VITE_DIVEEOI_SERVER_PORT` | `4097` | Vite proxy target port |
 | `DIVEEOI_TL_DATA_DIR` | resolved from application data paths | Optional Targeted Learning data-directory override |
+| `DIVEEOI_SSH_CONFIG_FILE` / `DIVEEOI_SSH_KNOWN_HOSTS_FILE` | `~/.ssh/config` / `~/.ssh/known_hosts` | Server-side SSH discovery and host-key trust database |
+| `DIVEEOI_REMOTE_CONFIG_DIR` / `DIVEEOI_REMOTE_PROFILES_FILE` | `~/.config/diveeoi` / `remote-profiles.json` | Server-wide saved SSH profile storage |
+| `DIVEEOI_REMOTE_SECRET_KEY_FILE` | `~/.config/diveeoi/remote-profiles.key` | Encryption key for stored SSH passwords and private-key passphrases |
 
 The server also retains selected `OPENCODE_*` variables for compatibility with the upstream-derived configuration surface. Prefer the documented `DIVEEOI_*` names where both exist. Never commit secrets or generated credentials.
 

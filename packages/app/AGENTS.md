@@ -38,3 +38,11 @@ Core workflow:
 ## Current DiveeComposer incident handoff (2026-11-02)
 
 For work involving provider authentication, model catalogues, model selection, Composer routing, or Models settings, read the repository-root `COMPOSER_INCIDENT_HANDOFF.md` for the historical incident analysis and `CONTEXT.md` / `RELEASE_HANDOFF_2026-11-06.md` for the current source/runtime and verification boundary. Preserve the strict free-only and context-fit guarantees. A display-only Composer catalogue entry must never be routed to an LLM request. Do not infer deployment provenance from the current source HEAD.
+
+
+## Remote Sessions UI
+
+- Settings → Remote Sessions manages server-side SSH profiles; browser code must never receive saved passwords, passphrases, or private-key contents.
+- The session-header remote dialog only selects a saved profile and working directory; attachment persists the profile reference to session metadata.
+- Keep accessible names on custom SelectV2 controls and connect each TextInputV2 label to the actual input id.
+- Remote browser regressions live in `e2e/smoke/remote-sessions.spec.ts` and `e2e/smoke/remote-session-attach.spec.ts`. Playwright's default backend proxy port is 4097; use `VITE_DIVEEOI_SERVER_HOST` / `VITE_DIVEEOI_SERVER_PORT` in its web server environment.

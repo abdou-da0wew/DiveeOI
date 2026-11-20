@@ -14,6 +14,7 @@ Start with `PROJECT_GUIDE.md` for the package/source map and `CONTEXT.md` for th
 - **Effect version**: `4.0.0-beta.74` — beta APIs like `Effect.fn`, `Effect.callback`, and `effect/unstable/*` are in use. Check the catalog version before upgrading.
 - **Typecheck command**: `bun turbo typecheck` (runs per-package via tsgo). Some packages (`db`, `api`) wrap it in `systemd-run --user --scope -p MemoryMax=1.8G` for memory-constrained environments.
 - **Targeted Learning owns separate persistence** — `packages/learning` stores the book library in `books.db` and student memories in `student.db`; do not describe all product state as one SQLite file. Read `packages/learning/AGENTS.md` before changing it.
+- **Remote SSH credentials are server-owned** — saved profiles and encrypted secrets are shared per server instance, not per browser account. Keep strict known_hosts verification and shell argument quoting intact; see `docs/remote-sessions.md`.
 - **`@diveeoi/http-recorder` is a test-only dependency** — never import it in production code.
 - **`packages/script` is an internal build tool** — not an npm-published package. Only referenced as a dev dependency.
 - **Conditional imports** in `packages/db`: `#sqlite`, `#pty`, `#fff` resolve to Bun or Node implementations based on runtime. Add both implementations when adding platform-specific code.
@@ -50,6 +51,7 @@ Start with `PROJECT_GUIDE.md` for the package/source map and `CONTEXT.md` for th
 - **Database**: SQLite via Drizzle ORM with a custom `effect-drizzle-sqlite` bridge. 35+ migrations in `packages/db/src/database/migration/`.
 - **Targeted Learning stores**: the book library and vectors live in `books.db`; student memories/notes live in `student.db`. These are separate from the core application database. Read `packages/learning/AGENTS.md` before changing the feature.
 - **Per-package AGENTS.md files exist** — read the one for the package you're working on before making changes.
+- **Remote UI/API tests** — Settings and session attachment regressions live in `packages/app/e2e/smoke/remote-sessions.spec.ts` and `remote-session-attach.spec.ts`; the live SSH adapter smoke is `packages/server/script/remote-ssh-smoke.ts`.
 
 ## DiveeComposer incident references
 

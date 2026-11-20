@@ -131,3 +131,12 @@ Plain async code should pass explicit context or stay inside an Effect fiber; do
 ## Current DiveeComposer incident handoff (2026-11-02)
 
 For work involving provider authentication, model catalogues, model selection, Composer routing, or Models settings, read the repository-root `COMPOSER_INCIDENT_HANDOFF.md` for the historical incident analysis and `CONTEXT.md` / `RELEASE_HANDOFF_2026-11-06.md` for the current source/runtime and verification boundary. Preserve the strict free-only and context-fit guarantees. A display-only Composer catalogue entry must never be routed to an LLM request. Do not infer deployment provenance from the current source HEAD.
+
+
+## Remote SSH and SFTP
+
+- Keep remote profiles and their secret encryption key on the server filesystem with owner-only permissions. Profiles are server-wide; do not imply per-browser-account isolation.
+- Every outbound SSH connection must validate its host key against the server account's `known_hosts`. Unknown or changed keys must fail closed.
+- Quote remote working directories and environment values as POSIX shell arguments. JSON string escaping is not shell escaping.
+- Keep the SFTP `glob`, `findUp`, `up`, `groupUp`, `globUp`, recursive parent creation, copy, and directory removal behavior covered by focused tests.
+- Run `bun run test:remote` for SFTP/host-key tests; run the live `script/remote-ssh-smoke.ts` only against a host whose key is already trusted.

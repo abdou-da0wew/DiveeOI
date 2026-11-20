@@ -24,3 +24,21 @@ Format: decision · alternatives · why · trade-off.
 18. **Synthetic queries must be grounded in source passage text.** The builder now samples a wider Arabic/English/French candidate pool from headings and sentence spans, while real captured queries can augment or replace synthetic examples. Alt: unconstrained LLM-generated questions. Why: avoid adding facts that the passage does not contain. Trade-off: synthetic coverage still cannot replace real user queries.
 19. **Keep legacy vector TEXT while BLOB compaction is additive.** The Rust engine reads the compacted BLOB first and falls back to the legacy base64 TEXT. Only drop TEXT after all running instances support BLOB and a backup is verified.
 20. **Corpus workers are isolated and bounded; parallelism is across pending books.** Egyptian Baccalaureate extract/OCR uses worker isolation and resource/time limits, while the corpus builder can process multiple books concurrently. This improves throughput without allowing one malformed PDF to consume the entire training worker.
+
+
+## 2026-11-19 — Remote SSH trust and session context
+
+- **Outbound SSH must fail closed on host-key trust.** The SSH2 client validates the raw host key against the server account's OpenSSH `known_hosts` before user authentication. Hashed entries, non-default ports, wildcard exclusions, and revoked entries are handled. Do not add an accept-all verifier or silently learn unknown host keys.
+- **Remote profiles are server-owned and server-wide.** Profile metadata and encrypted secrets are stored on the DiveeOI server filesystem. Passwords and private-key passphrases use AES-256-GCM with a separate owner-only key file. Browser APIs never return secret values. This is not per-browser-account isolation, so access to the server API is also access to its configured remote profiles.
+- **A session's remote reference is explicit metadata.** The selected profile ID and working directory are attached to the session; the remote connection-cache identity incorporates profile version/auth identity so profile edits cannot reuse stale credentials. Distinct sessions keep independent working directories.
+- **Remote filesystem operations use SFTP, command operations use SSH exec.** SFTP implements directory discovery, recursive parent creation, copy, chmod, rename, and directory-aware deletion. Remote cwd and environment arguments are POSIX-quoted; do not use JSON string escaping as shell escaping. Lower-level SFTP open/stream/link/temp-directory helpers remain explicitly unsupported; ProxyJump is discovered but not yet tunneled.
+- **Remote verification is intentionally layered.** Fake-SFTP tests cover deterministic path semantics, the local SSH smoke covers real authentication/exec/SFTP against a trusted local host key, and Playwright covers the Settings and session attachment UI. A mocked browser test does not replace a live network-host check.
+
+
+## 2026-11-20 — UI, indexing, and runtime decisions
+
+- **Rich UI parsing is schema-first and component-specific.** The database parser validates component contracts before the shared UI renders them; Learning and platformer components keep their parsing/schema logic separate. This avoids mixing domain validation into visual components.
+- **Exam content must not contain self-grading quiz widgets.** Exams use their own question and private answer-key flow; a self-grading Rich UI quiz in exam material is rejected rather than allowed to expose an alternate answer channel.
+- **Workspace indexing is lazy and bounded.** Do not start a recursive scan for every project instance or rebuild directory arrays for every file; initialize the fallback index only when discovery is requested and cap its entries.
+- **Adaptive resource budgets should preserve OS headroom.** SQLite page-cache sizing is storage-aware, HDD cache is capped, and low-memory cleanup uses both an absolute and a proportional threshold.
+- **Build-selection environment variables participate in Turbo cache identity.** A low-memory or target-specific binary build must not reuse output produced under incompatible build flags.

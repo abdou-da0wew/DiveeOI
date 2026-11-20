@@ -60,3 +60,18 @@ bun --cwd packages/server run build        # bun run script/build.ts
 ## Conventions
 
 See `packages/server/AGENTS.md` for the `export * as Foo from "./foo"` self-reexport pattern, `InstanceState` vs `makeRuntime`, `EffectBridge`, and `Scope` cleanup guidance. New `Tool.define` must be yielded inside the `ToolRegistry.layer` and listed in both `builtin` and `ToolRegistry.node` dependencies.
+
+
+## Remote SSH sessions
+
+Outbound SSH lives in `src/ssh-client` and `src/ssh`. The raw management router is registered from `src/server/routes/instance/httpapi/server.ts` and is protected by server authorization middleware. Profiles and encrypted secrets are owned by the server process and shared server-wide.
+
+- `ssh/ssh-discovery.ts` reads OpenSSH config, bounded Include trees, known_hosts, and SSH-agent identities.
+- `ssh/remote-profile-store.ts` persists profile metadata and AES-256-GCM encrypted passwords/passphrases with owner-only permissions.
+- `ssh-client/connection.ts` verifies the remote host key against known_hosts before authenticating, then exposes SSH exec and SFTP operations.
+- `ssh-client/sftp-discovery.ts` implements recursive glob and upward discovery; `sftp-paths.ts` creates missing directory parents.
+- `ssh-client/remote-fs.ts` binds each session's remote profile and working directory to its own remote filesystem context.
+
+Do not remove host-key verification or replace shell argument quoting with JSON quoting. The SFTP adapter intentionally reports unsupported open/stream/link/temp-directory operations; remote agents should use shell for those operations. See `docs/remote-sessions.md`.
+
+The focused tests can be run without the global server test preload via `bun run test:remote`. The live smoke script is `bun script/remote-ssh-smoke.ts`; configure a trusted target host key in the server account's known_hosts first.
