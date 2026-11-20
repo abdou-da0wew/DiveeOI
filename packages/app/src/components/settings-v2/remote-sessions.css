@@ -1,0 +1,205 @@
+.settings-v2-tab-header.settings-v2-remote-header {
+  padding-bottom: 24px;
+}
+
+.settings-v2-remote-header .settings-v2-tab-header-row,
+.settings-v2-remote-header-actions,
+.settings-v2-remote-card,
+.settings-v2-remote-card-actions,
+.settings-v2-remote-key-create,
+.settings-v2-remote-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.settings-v2-remote-header-actions,
+.settings-v2-remote-card-actions {
+  flex-shrink: 0;
+}
+
+.settings-v2-tab-body.settings-v2-remote {
+  gap: 28px;
+}
+
+.settings-v2-remote [data-component="settings-v2-list"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 8px 18px;
+}
+
+.settings-v2-remote-card {
+  padding-block: 14px;
+  border-bottom: 0.5px solid var(--v2-border-border-base);
+}
+
+.settings-v2-remote-card:last-child {
+  border-bottom: none;
+}
+
+.settings-v2-remote-card-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-v2-remote-card-title {
+  overflow-wrap: anywhere;
+  color: var(--v2-text-text-base);
+  font-size: 13px;
+  font-weight: 560;
+}
+
+.settings-v2-remote-card-title span {
+  margin-left: 6px;
+  color: var(--v2-text-text-muted);
+  font-size: 11px;
+  font-weight: 450;
+}
+
+.settings-v2-remote-card-meta,
+.settings-v2-remote-help,
+.settings-v2-remote-meta {
+  color: var(--v2-text-text-muted);
+  font-size: 11px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.settings-v2-remote-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 2px 0;
+}
+
+.settings-v2-remote-empty {
+  padding: 24px 10px;
+  color: var(--v2-text-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.settings-v2-remote-notice {
+  padding: 10px 12px;
+  border: 1px solid var(--v2-border-border-base);
+  border-radius: 7px;
+  color: var(--v2-text-text-base);
+  background: var(--v2-background-bg-layer-01);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.settings-v2-remote-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  padding: 18px;
+  border: 0.5px solid var(--v2-border-border-base);
+  border-radius: 8px;
+  background: var(--v2-background-bg-layer-01);
+}
+
+.settings-v2-remote-form label,
+.settings-v2-remote-form .settings-v2-remote-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+  color: var(--v2-text-text-muted);
+  font-size: 11px;
+}
+
+.settings-v2-remote-form label > [data-component="select-v2"],
+.settings-v2-remote-form label > [data-component="text-input-v2"],
+.settings-v2-remote-form .settings-v2-remote-field > [data-component="select-v2"] {
+  width: 100%;
+}
+
+.settings-v2-remote-form-wide {
+  grid-column: 1 / -1;
+}
+
+.settings-v2-remote-form-actions {
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+.settings-v2-remote-key-create {
+  justify-content: flex-start;
+  padding: 14px;
+  border: 0.5px solid var(--v2-border-border-base);
+  border-radius: 8px;
+  background: var(--v2-background-bg-layer-01);
+}
+
+.settings-v2-remote-key-create [data-component="text-input-v2"] {
+  width: min(280px, 100%);
+}
+
+.settings-v2-remote-key {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding-block: 14px;
+  border-bottom: 0.5px solid var(--v2-border-border-base);
+}
+
+.settings-v2-remote-key:last-child {
+  border-bottom: none;
+}
+
+.settings-v2-remote-public-key {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 5px;
+  color: var(--v2-text-text-muted);
+  background: var(--v2-background-bg-base);
+  font-family: var(--font-family-mono, monospace);
+  font-size: 10px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+@media (max-width: 760px) {
+  .settings-v2-remote-header .settings-v2-tab-header-row,
+  .settings-v2-remote-card {
+    align-items: flex-start;
+  }
+
+  .settings-v2-remote-header .settings-v2-tab-header-row,
+  .settings-v2-remote-card {
+    flex-direction: column;
+  }
+
+  .settings-v2-remote-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-v2-remote-form-wide {
+    grid-column: auto;
+  }
+
+  .settings-v2-remote-card-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .settings-v2-remote-key-create {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settings-v2-remote-key-create [data-component="text-input-v2"] {
+    width: 100%;
+  }
+}
