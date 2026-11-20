@@ -3,6 +3,8 @@ import { numericExpressionInputs, parseChatUIControl, parseNumericExpression } f
 import { parseAdvancedChatUIComponent } from "./chat-ui-advanced-parse"
 import { parseChatUICompositionComponent } from "./chat-ui-composition-parse"
 import { parseChatUIState } from "./chat-ui-state-parse"
+import { parseChatUILearningComponent } from "./chat-ui-learning-parse"
+import { parseChatUIPlatformer } from "./chat-ui-platformer-parse"
 
 type Parsed<T> = ParseResult<T>
 type RecordValue = Record<string, unknown>
@@ -54,10 +56,30 @@ export function parseChatUIComponents(
       components.push(composition.value)
       continue
     }
+    const platformer = parseChatUIPlatformer(input)
+    if (platformer) {
+      if (!platformer.ok) return platformer
+      components.push(platformer.value)
+      continue
+    }
+    const learning = parseChatUILearningComponent(input)
+    if (learning) {
+      if (!learning.ok) return learning
+      components.push(learning.value)
+      continue
+    }
     const advanced = parseAdvancedChatUIComponent(input)
     if (advanced) {
       if (!advanced.ok) return advanced
       components.push(advanced.value)
+      continue
+    }
+    if (input.type === "divider") {
+      const label = optionalString(input.label, "divider.label", 80)
+      if (!label.ok) return label
+      const style = input.style === undefined ? "solid" : input.style
+      if (style !== "solid" && style !== "dashed") return { ok: false, error: "Divider style must be solid or dashed" }
+      components.push({ type: "divider", style, ...(label.value ? { label: label.value } : {}) })
       continue
     }
     if (input.type === "heading") {
@@ -128,15 +150,21 @@ export function parseChatUIComponents(
       if (!Array.isArray(input.points) || input.points.length < 2 || input.points.length > 32) {
         return { ok: false, error: "Charts need between 2 and 32 points" }
       }
-      const points: Array<{ label: string; value: number }> = []
+      const points: Array<{ label: string; value: number } | { label: string; key: string }> = []
       for (const pointRaw of input.points) {
         const point = object(pointRaw)
         if (!point) return { ok: false, error: "Chart point must be an object" }
         const label = string(point.label, "point.label", 48)
-        const current = finite(point.value, "point.value", -1e9, 1e9)
         if (!label.ok) return label
-        if (!current.ok) return current
-        points.push({ label: label.value, value: current.value })
+        if (point.key !== undefined) {
+          const key = string(point.key, "point.key", 48)
+          if (!key.ok) return key
+          points.push({ label: label.value, key: key.value })
+        } else {
+          const current = finite(point.value, "point.value", -1e9, 1e9)
+          if (!current.ok) return current
+          points.push({ label: label.value, value: current.value })
+        }
       }
       components.push({ type: "chart", title: title.value, kind: input.kind, points })
       continue
@@ -230,6 +258,27 @@ export function parseChatUIComponents(
   return { ok: true, value: components }
 }
 
+function findGroupWithoutManualLayout(components: ChatUIComponent[]): string | undefined {
+  for (const component of components) {
+    if (component.type === "group") {
+      if (!component.layout) return component.id
+      const nested = findGroupWithoutManualLayout(component.components)
+      if (nested) return nested
+    }
+    if (component.type === "conditional") {
+      const nested = findGroupWithoutManualLayout(component.components)
+      if (nested) return nested
+    }
+    if (component.type === "tabs") {
+      for (const tab of component.tabs) {
+        const nested = findGroupWithoutManualLayout(tab.components)
+        if (nested) return nested
+      }
+    }
+  }
+  return undefined
+}
+
 export function parseChatUISpec(value: unknown, id: string): Parsed<ChatUISpec> {
   const input = object(value)
   if (!input) return { ok: false, error: "UI spec must be an object" }
@@ -241,9 +290,21 @@ export function parseChatUISpec(value: unknown, id: string): Parsed<ChatUISpec> 
   if (!components.ok) return components
   const state = parseChatUIState(input.state, components.value)
   if (!state.ok) return state
+  const layoutMode =
+    input.layoutMode === undefined || input.layoutMode === "auto"
+      ? "auto"
+      : input.layoutMode === "hybrid" || input.layoutMode === "manual"
+        ? input.layoutMode
+        : undefined
+  if (!layoutMode) return { ok: false, error: "layoutMode must be auto, hybrid, or manual" }
   const layout =
-    input.layout === "grid" ? "grid" : input.layout === "stack" || input.layout === undefined ? "stack" : undefined
-  if (!layout) return { ok: false, error: "Layout must be stack or grid" }
+    input.layout === "grid" ? "grid" : input.layout === "stack" ? "stack" : input.layout === undefined ? undefined : null
+  if (layout === null) return { ok: false, error: "Layout must be stack or grid" }
+  if (layoutMode === "manual" && !layout) return { ok: false, error: "Manual layout mode requires an explicit root layout" }
+  if (layoutMode === "manual") {
+    const missingGroup = findGroupWithoutManualLayout(components.value)
+    if (missingGroup) return { ok: false, error: `Manual layout mode requires an explicit layout for group: ${missingGroup}` }
+  }
   if (input.persistState !== undefined && typeof input.persistState !== "boolean") {
     return { ok: false, error: "persistState must be a boolean" }
   }
@@ -254,7 +315,8 @@ export function parseChatUISpec(value: unknown, id: string): Parsed<ChatUISpec> 
       version: 1,
       title: title.value,
       ...(description.value ? { description: description.value } : {}),
-      layout,
+      layoutMode,
+      ...(layout ? { layout } : {}),
       ...(input.persistState === true ? { persistState: true } : {}),
       ...(state.value ? { state: state.value } : {}),
       components: components.value,

@@ -8,8 +8,8 @@ import { Database } from "@diveeoi/db/database/database"
 import { ExamTable } from "@diveeoi/db/exam/sql"
 import { encryptExamSecret } from "../../exam/crypto"
 import * as Tool from "../tool"
-import { richUIComponentsSchema } from "../rich-ui-schema"
-import { richUIComponentDefinition } from "../rich-ui-component-schema"
+import { richUIExamComponentsSchema } from "../rich-ui-schema"
+import { richUIExamComponentDefinition } from "../rich-ui-component-schema"
 import { richUIExpressionDefinition } from "../rich-ui-shared-schema"
 
 type ExamMetadata = { error?: boolean; exam?: ExamSpec }
@@ -114,7 +114,7 @@ const parameters: JSONSchema7 = {
               additionalProperties: false,
             },
           },
-          components: richUIComponentsSchema,
+          components: richUIExamComponentsSchema,
         },
         required: ["id", "type", "prompt"],
         additionalProperties: false,
@@ -125,7 +125,7 @@ const parameters: JSONSchema7 = {
   additionalProperties: false,
   definitions: {
     Expression: richUIExpressionDefinition,
-    ChatUIComponent: richUIComponentDefinition,
+    ChatUIComponent: richUIExamComponentDefinition,
   },
 }
 

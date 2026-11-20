@@ -10,7 +10,7 @@ export function Workflow(props: { component: Extract<ChatUIAdvancedComponent, { 
     ...extra().map((label, index) => ({ id: `added-${index}`, label, kind: "process" as const })),
   ])
   return (
-    <section class="flex min-w-0 flex-col gap-3 rounded-xl border border-border-weak-base bg-background-stronger p-4">
+    <section class="flex min-w-0 flex-col gap-3 py-1">
       <h3 class="text-14-semibold text-text-strong">{props.component.title}</h3>
       <div class="rounded-lg bg-background-base p-3">
         <div class="mb-2 flex items-center justify-between text-10-medium uppercase tracking-wide text-text-weak">
@@ -118,7 +118,7 @@ export function Desktop(props: { component: Extract<ChatUIAdvancedComponent, { t
 export function Database(props: { component: Extract<ChatUIAdvancedComponent, { type: "database" }> }) {
   const [selected, setSelected] = createSignal(0)
   return (
-    <section class="flex min-w-0 flex-col gap-3 rounded-xl border border-border-weak-base bg-background-stronger p-4">
+    <section class="flex min-w-0 flex-col gap-3 py-1">
       <div class="flex items-center justify-between gap-3">
         <h3 class="text-14-semibold text-text-strong">{props.component.title}</h3>
         <span class="text-10-regular text-text-weak">{props.component.rows.length} records</span>
@@ -182,7 +182,7 @@ export function API(props: { component: Extract<ChatUIAdvancedComponent, { type:
   const [endpoint, setEndpoint] = createSignal(props.component.endpoint)
   const [sent, setSent] = createSignal(false)
   return (
-    <section class="flex min-w-0 flex-col gap-3 rounded-xl border border-border-weak-base bg-background-stronger p-4">
+    <section class="flex min-w-0 flex-col gap-3 py-1">
       <h3 class="text-14-semibold text-text-strong">{props.component.title}</h3>
       <div class="flex min-w-0 gap-2">
         <select

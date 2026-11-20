@@ -1,4 +1,5 @@
 import { For, Match, Show, Switch } from "solid-js"
+import type { ChatUIAdvancedComponent, ChatUIComponent, ChatUILayoutMode } from "@diveeoi/db/chat-ui"
 import { RichUIChart } from "./rich-ui-chart"
 import {
   RichUIComposition,
@@ -9,26 +10,39 @@ import {
 import { Markdown } from "./markdown"
 import { RichUISimulation } from "./rich-ui-simulation"
 import { RichUIAdvanced } from "./rich-ui-advanced"
-import type { ChatUIAdvancedComponent, ChatUIComponent } from "@diveeoi/db/chat-ui"
+import { RichUIDiagram, RichUIQuiz } from "./rich-ui-learning"
+import { RichUIPlatformer } from "./rich-ui-platformer"
 
 export function ComponentView(props: {
   component: ChatUIComponent
   state: ChatUIState
   setState: StateSetter
+  layoutMode: ChatUILayoutMode
+  depth?: number
   onSubmit?: (state: ChatUIState, intent?: "submit" | "refresh") => void
   onFilesChange?: (key: string, files: File[]) => void
 }) {
+  const depth = () => props.depth ?? 0
   return (
     <Switch>
       <Match
-        when={["group", "tabs", "conditional", "field", "button", "file-upload", "state-value", "computed"].includes(
-          props.component.type,
-        )}
+        when={[
+          "group",
+          "tabs",
+          "conditional",
+          "field",
+          "button",
+          "file-upload",
+          "state-value",
+          "computed",
+        ].includes(props.component.type)}
       >
         <RichUIComposition
           component={props.component as ChatUICompositionComponent}
           state={props.state}
           setState={props.setState}
+          layoutMode={props.layoutMode}
+          depth={depth()}
           onSubmit={props.onSubmit}
           onFilesChange={props.onFilesChange}
           renderComponent={(component) => (
@@ -36,11 +50,42 @@ export function ComponentView(props: {
               component={component}
               state={props.state}
               setState={props.setState}
+              layoutMode={props.layoutMode}
+              depth={depth() + 1}
               onSubmit={props.onSubmit}
               onFilesChange={props.onFilesChange}
             />
           )}
         />
+      </Match>
+      <Match when={props.component.type === "divider"}>
+        {(() => {
+          const value = props.component as Extract<ChatUIComponent, { type: "divider" }>
+          return (
+            <div class="flex min-w-0 items-center gap-3 py-1" role="separator">
+              <div class="h-px min-w-0 flex-1" classList={{
+                "bg-border-weak-base": value.style === "solid",
+                "border-t border-dashed border-border-weak-base": value.style === "dashed",
+              }} />
+              <Show when={value.label}>
+                <span class="shrink-0 text-10-medium text-text-weak">{value.label}</span>
+                <div class="h-px min-w-0 flex-1" classList={{
+                  "bg-border-weak-base": value.style === "solid",
+                  "border-t border-dashed border-border-weak-base": value.style === "dashed",
+                }} />
+              </Show>
+            </div>
+          )
+        })()}
+      </Match>
+      <Match when={props.component.type === "platformer"}>
+        <RichUIPlatformer component={props.component as Extract<ChatUIComponent, { type: "platformer" }>} />
+      </Match>
+      <Match when={props.component.type === "quiz"}>
+        <RichUIQuiz component={props.component as Extract<ChatUIComponent, { type: "quiz" }>} />
+      </Match>
+      <Match when={props.component.type === "diagram"}>
+        <RichUIDiagram component={props.component as Extract<ChatUIComponent, { type: "diagram" }>} />
       </Match>
       <Match
         when={[
@@ -74,7 +119,7 @@ export function ComponentView(props: {
         })()}
       </Match>
       <Match when={props.component.type === "text"}>
-        <div class="text-13-regular leading-relaxed text-text-base">
+        <div class="min-w-0 text-13-regular leading-relaxed text-text-base">
           <Markdown text={(props.component as Extract<ChatUIComponent, { type: "text" }>).content} />
         </div>
       </Match>
@@ -82,8 +127,8 @@ export function ComponentView(props: {
         {(() => {
           const value = props.component as Extract<ChatUIComponent, { type: "metric" }>
           return (
-            <div class="min-w-0 rounded-xl border border-border-weak-base bg-background-stronger p-4">
-              <div class="text-11-medium text-text-weak">{value.label}</div>
+            <div class="min-w-0 py-2">
+              <div class="text-10-medium text-text-weak">{value.label}</div>
               <div
                 class="mt-1 truncate text-24-semibold tabular-nums"
                 classList={{
@@ -106,11 +151,11 @@ export function ComponentView(props: {
           const value = props.component as Extract<ChatUIComponent, { type: "callout" }>
           return (
             <div
-              class="rounded-xl border px-4 py-3"
+              class="border-l-2 py-1 pl-3"
               classList={{
-                "border-border-weak-base bg-background-base": value.tone === "info",
-                "border-icon-success-base/30 bg-icon-success-base/5": value.tone === "success",
-                "border-icon-warning-base/30 bg-icon-warning-base/5": value.tone === "warning",
+                "border-border-base": value.tone === "info",
+                "border-icon-success-base": value.tone === "success",
+                "border-icon-warning-base": value.tone === "warning",
               }}
             >
               <div class="text-12-semibold text-text-strong">{value.title}</div>
@@ -124,7 +169,7 @@ export function ComponentView(props: {
           const value = props.component as Extract<ChatUIComponent, { type: "progress" }>
           const percent = Math.min(100, Math.max(0, (value.value / value.max) * 100))
           return (
-            <div class="rounded-xl border border-border-weak-base bg-background-stronger p-4">
+            <div class="min-w-0 py-1">
               <div class="flex items-center justify-between gap-3">
                 <span class="text-12-medium text-text-strong">{value.label}</span>
                 <span class="font-mono text-11-regular tabular-nums text-text-weak">
@@ -133,7 +178,7 @@ export function ComponentView(props: {
                   {value.unit ?? ""}
                 </span>
               </div>
-              <div class="mt-3 h-2 overflow-hidden rounded-full bg-background-base">
+              <div class="mt-2 h-2 overflow-hidden rounded-full bg-background-base">
                 <div
                   class="h-full rounded-full bg-text-strong/75 transition-[width] duration-200"
                   style={{ width: `${percent}%` }}
@@ -144,22 +189,23 @@ export function ComponentView(props: {
         })()}
       </Match>
       <Match when={props.component.type === "chart"}>
-        <RichUIChart chart={props.component as Extract<ChatUIComponent, { type: "chart" }>} />
+        <RichUIChart
+          chart={props.component as Extract<ChatUIComponent, { type: "chart" }>}
+          state={props.state}
+        />
       </Match>
       <Match when={props.component.type === "table"}>
         {(() => {
           const value = props.component as Extract<ChatUIComponent, { type: "table" }>
           return (
-            <div class="min-w-0 overflow-hidden rounded-xl border border-border-weak-base bg-background-stronger">
+            <div class="min-w-0 overflow-hidden">
               <Show when={value.title}>
-                <div class="border-b border-border-weak-base px-4 py-3 text-13-semibold text-text-strong">
-                  {value.title}
-                </div>
+                <div class="pb-2 text-13-semibold text-text-strong">{value.title}</div>
               </Show>
               <div class="max-w-full overflow-x-auto">
                 <table class="w-full border-collapse text-left text-12-regular">
                   <thead>
-                    <tr class="bg-background-base">
+                    <tr class="border-b border-border-weak-base bg-background-base/60">
                       <For each={value.columns}>
                         {(column) => <th class="whitespace-nowrap px-3 py-2.5 font-medium text-text-weak">{column}</th>}
                       </For>
@@ -168,7 +214,7 @@ export function ComponentView(props: {
                   <tbody>
                     <For each={value.rows}>
                       {(row) => (
-                        <tr class="border-t border-border-weak-base">
+                        <tr class="border-b border-border-weak-base last:border-0">
                           <For each={row}>{(cell) => <td class="px-3 py-2.5 text-text-base">{cell}</td>}</For>
                         </tr>
                       )}

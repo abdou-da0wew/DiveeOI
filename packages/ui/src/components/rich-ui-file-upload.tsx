@@ -47,7 +47,7 @@ export function RichUIFileUpload(props: {
     props.onFilesChange?.(value.key, chosen)
   }
   return (
-    <div class="flex min-w-0 flex-col gap-2 rounded-xl border border-border-weak-base bg-background-base p-3">
+    <div class="flex min-w-0 flex-col gap-2">
       <label class="text-12-medium text-text-strong">{value.label}</label>
       <input
         type="file"

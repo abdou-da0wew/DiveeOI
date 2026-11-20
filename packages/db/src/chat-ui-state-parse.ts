@@ -141,6 +141,14 @@ export function parseChatUIState(
           }
         }
       }
+      if (component.type === "chart") {
+        for (const point of component.points) {
+          if ("key" in point) {
+            if (!stateByKey.has(point.key)) return `Chart references undeclared state key: ${point.key}`
+            if (typeof stateByKey.get(point.key) !== "number") return `Chart data binding must reference numeric state: ${point.key}`
+          }
+        }
+      }
       if (component.type === "state-value" && !stateByKey.has(component.key)) {
         return `Component references undeclared state key: ${component.key}`
       }

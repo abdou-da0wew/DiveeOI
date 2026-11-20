@@ -9,9 +9,12 @@ export const compositionRichUIComponentSchemas: JSONSchema7Definition[] = [
       id: idField,
       title: stringField,
       layout: { enum: ["stack", "row", "grid"] },
+      surface: { enum: ["none", "subtle", "outlined"] },
+      separator: { enum: ["none", "top", "bottom", "between"] },
+      gap: { enum: ["tight", "normal", "relaxed"] },
       components: { type: "array", minItems: 1, maxItems: 24, items: { $ref: "#/definitions/ChatUIComponent" } },
     },
-    required: ["type", "id", "layout", "components"],
+    required: ["type", "id", "components"],
     additionalProperties: false,
   },
   {
@@ -21,6 +24,7 @@ export const compositionRichUIComponentSchemas: JSONSchema7Definition[] = [
       id: idField,
       title: stringField,
       key: idField,
+      surface: { enum: ["none", "subtle", "outlined"] },
       tabs: {
         type: "array",
         minItems: 2,

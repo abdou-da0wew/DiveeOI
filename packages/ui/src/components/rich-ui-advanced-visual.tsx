@@ -4,7 +4,7 @@ import type { ChatUIAdvancedComponent } from "@diveeoi/db/chat-ui"
 export function Scene(props: { component: Extract<ChatUIAdvancedComponent, { type: "scene" }> }) {
   const [rotation, setRotation] = createSignal(props.component.rotation)
   return (
-    <section class="flex min-w-0 flex-col gap-3 rounded-xl border border-border-weak-base bg-background-stronger p-4">
+    <section class="flex min-w-0 flex-col gap-3 py-1">
       <h3 class="text-14-semibold text-text-strong">{props.component.title}</h3>
       <Show when={props.component.description}>
         <p class="text-11-regular text-text-weak">{props.component.description}</p>
@@ -71,7 +71,7 @@ export function Wizard(props: { component: Extract<ChatUIAdvancedComponent, { ty
       return next
     })
   return (
-    <section class="flex min-w-0 flex-col gap-3 rounded-xl border border-border-weak-base bg-background-stronger p-4">
+    <section class="flex min-w-0 flex-col gap-3 py-1">
       <div class="flex items-center justify-between gap-2">
         <h3 class="text-14-semibold text-text-strong">{props.component.title}</h3>
         <span class="text-10-medium text-text-weak">
@@ -146,7 +146,7 @@ export function Monitor(props: { component: Extract<ChatUIAdvancedComponent, { t
   const [paused, setPaused] = createSignal(false)
   const [refresh, setRefresh] = createSignal(0)
   return (
-    <section class="flex min-w-0 flex-col gap-3 rounded-xl border border-border-weak-base bg-background-stronger p-4">
+    <section class="flex min-w-0 flex-col gap-3 py-1">
       <div class="flex items-center justify-between gap-2">
         <h3 class="text-14-semibold text-text-strong">{props.component.title}</h3>
         <span class="rounded-full bg-background-base px-2 py-1 text-10-medium text-text-weak">
@@ -197,7 +197,7 @@ export function Circuit(props: { component: Extract<ChatUIAdvancedComponent, { t
   const current = createMemo(() => (enabled() ? voltage() / resistance() : 0))
   const power = createMemo(() => (enabled() ? voltage() * current() : 0))
   return (
-    <section class="flex min-w-0 flex-col gap-3 rounded-xl border border-border-weak-base bg-background-stronger p-4">
+    <section class="flex min-w-0 flex-col gap-3 py-1">
       <h3 class="text-14-semibold text-text-strong">{props.component.title}</h3>
       <div class="rounded-lg bg-background-base p-3">
         <svg viewBox="0 0 320 100" class="w-full" role="img" aria-label="Series circuit diagram">

@@ -47,15 +47,31 @@ export function parseChatUICompositionComponent(
     const title = optionalString(input.title, "group.title", 120)
     if (!id.ok) return id
     if (!title.ok) return title
-    if (!["stack", "row", "grid"].includes(String(input.layout)))
+    const groupLayout = input.layout === undefined ? undefined : input.layout
+    if (groupLayout !== undefined && !["stack", "row", "grid"].includes(String(groupLayout)))
       return { ok: false, error: "Group layout must be stack, row, or grid" }
     const children = parseChildren(input.components, depth + 1)
     if (!children.ok) return children
+    const surface = input.surface === undefined ? "none" : input.surface
+    const separator = input.separator === undefined ? "none" : input.separator
+    const gap = input.gap === undefined ? "normal" : input.gap
+    if (!["none", "subtle", "outlined"].includes(String(surface))) {
+      return { ok: false, error: "Group surface must be none, subtle, or outlined" }
+    }
+    if (!["none", "top", "bottom", "between"].includes(String(separator))) {
+      return { ok: false, error: "Group separator must be none, top, bottom, or between" }
+    }
+    if (!["tight", "normal", "relaxed"].includes(String(gap))) {
+      return { ok: false, error: "Group gap must be tight, normal, or relaxed" }
+    }
     components.push({
       type: "group",
       id: id.value,
-      layout: input.layout as "stack" | "row" | "grid",
+      ...(groupLayout ? { layout: groupLayout as "stack" | "row" | "grid" } : {}),
       ...(title.value ? { title: title.value } : {}),
+      surface: surface as "none" | "subtle" | "outlined",
+      separator: separator as "none" | "top" | "bottom" | "between",
+      gap: gap as "tight" | "normal" | "relaxed",
       components: children.value,
     })
     return { ok: true, value: components[0]! }
@@ -82,12 +98,16 @@ export function parseChatUICompositionComponent(
     if (new Set(tabs.map((tab) => tab.id)).size !== tabs.length) return { ok: false, error: "Tab IDs must be unique" }
     const stateKey = input.key === undefined ? undefined : identifier(input.key, "tabs.key")
     if (stateKey && !stateKey.ok) return stateKey
+    if (input.surface !== undefined && !["none", "subtle", "outlined"].includes(String(input.surface))) {
+      return { ok: false, error: "Tabs surface must be none, subtle, or outlined" }
+    }
     components.push({
       type: "tabs",
       id: id.value,
       ...(title.value ? { title: title.value } : {}),
       tabs,
       ...(stateKey?.ok ? { key: stateKey.value } : {}),
+      ...(input.surface !== undefined ? { surface: input.surface as "none" | "subtle" | "outlined" } : {}),
     })
     return { ok: true, value: components[0]! }
   }

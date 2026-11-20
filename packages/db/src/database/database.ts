@@ -31,10 +31,11 @@ export const layer = makeAdaptiveLayer((targets) =>
       yield* db.run("PRAGMA journal_mode = WAL")
       yield* db.run("PRAGMA synchronous = NORMAL")
       yield* db.run("PRAGMA busy_timeout = 5000")
+      yield* db.run("PRAGMA wal_autocheckpoint = 1000")
+      yield* db.run("PRAGMA journal_size_limit = 67108864")
       yield* db.run(`PRAGMA cache_size = -${targets.sqliteCacheMB * 1000}`)
       yield* db.run(`PRAGMA mmap_size = ${targets.sqliteCacheMB * 2 * 1024 * 1024}`)
       yield* db.run("PRAGMA foreign_keys = ON")
-      yield* db.run("PRAGMA wal_checkpoint(PASSIVE)")
       yield* DatabaseMigration.apply(db)
 
       const adaptive = yield* sharedAdaptive

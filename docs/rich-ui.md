@@ -1,99 +1,352 @@
-# Rich UI protocol
+# DiveeOI Rich UI protocol
 
-DiveeOI rich chat interfaces are agent-authored declarative component trees. The model chooses the structure for the current task; the renderer does not select from a fixed gallery of templates.
+DiveeOI rich interfaces are declarative, model-authored component trees rendered by a statically bundled SolidJS component registry. The model designs the experience; the renderer supplies responsive behavior, accessible controls, safe local interactions, and consistent visual hierarchy.
 
-## Runtime contract
+The protocol deliberately does **not** accept model-authored HTML, CSS, JavaScript, JSX, arbitrary callbacks, DOM selectors, dynamic imports, or network handlers. Visuals and interactions are built from validated component data and a bounded numeric expression language.
 
-- `create_ui` accepts a versioned `ChatUISpec`, validates it on the server, and emits the validated spec as tool metadata.
-- `RichUIRenderer` renders the specification with statically bundled SolidJS components. It never evaluates model-authored JavaScript, HTML, CSS, JSX, or arbitrary expression source. Numeric calculations use only the separately validated, depth-bounded expression tree.
-- A spec contains a title, optional description, `stack` or `grid` root layout, optional initial state, and up to 24 top-level components.
-- Nested groups, tabs, and conditionals are supported up to four levels deep and 64 total components. Each nested component array is independently bounded.
-- State is local to the rendered component instance by default. A spec may opt into `persistState: true`; the client then restores only declared, type-compatible primitive values from browser-profile storage, scoped by session ID and UI ID. This is not a secret store or cross-device database.
-- A button may include `submit` or `refresh`. Both hand the current state back into the same conversation as untrusted user-provided data. `submit` can also attach selected files. `refresh` asks the agent to produce refreshed output; it is not a live network poll.
+## 1. Layout modes
 
-## Composition primitives
+Every UI has a `layoutMode`. If omitted, it defaults to `auto`.
 
-| Component     | Purpose                                                                 | Interaction                                                                                          |
-| ------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `group`       | Nested `stack`, `row`, or `grid` layout                                 | Children share the spec state                                                                        |
-| `tabs`        | Switch between labeled panels                                           | Optional declared state key keeps the selected tab synchronized                                      |
-| `conditional` | Show children when a state key equals a typed value                     | Reacts to shared state                                                                               |
-| `field`       | Text, number, toggle, or select control                                 | Updates declared state; text/number fields support required, min/max, length, pattern, and help text |
-| `file-upload` | Select supported user files                                             | Adds selected files to the next form submission                                                      |
-| `state-value` | Display a state value                                                   | Updates reactively                                                                                   |
-| `computed`    | Derive a numeric value from shared state with a bounded expression tree | Recalculates reactively                                                                              |
-| `button`      | Action surface                                                          | Runs bounded local actions or hands state to the active conversation                                 |
+| Mode | Who designs the composition? | Who handles spacing and responsiveness? | Use it when |
+| --- | --- | --- | --- |
+| `auto` | The model supplies meaningful content and component order. | The renderer chooses responsive columns, spacing, and visual hierarchy. | Default. The model should not have to think about borders, gaps, or grid breakpoints. |
+| `hybrid` | The model chooses groups, tabs, root layout hints, and meaningful separators. | The renderer handles responsive behavior and flattens nested visual surfaces. | The composition matters, but the model should not micromanage every style. |
+| `manual` | The model explicitly defines the layout and surface hierarchy. | The renderer follows those declared choices while keeping controls accessible and bounded. | Precise layouts, dashboards, custom panels, and deliberate art direction. |
 
-The root `state` array declares unique `{ key, value }` entries. Fields, values, conditions, grids, uploads, tabs, and button actions must reference declared keys. The parser verifies types, unique component IDs, select membership, and action compatibility.
+### Auto
 
-Button local actions are restricted to:
+Use:
 
-- `set`: replace a value without changing its type.
+```json
+{
+  "title": "Study overview",
+  "layoutMode": "auto",
+  "components": [
+    { "type": "metric", "label": "Water coverage", "value": 70, "unit": "%" },
+    { "type": "metric", "label": "Fresh water available", "value": 1, "unit": "%" },
+    { "type": "chart", "title": "Water distribution", "kind": "bar", "points": [
+      { "label": "Salt water", "value": 97 },
+      { "label": "Frozen", "value": 2 },
+      { "label": "Available fresh", "value": 1 }
+    ]},
+    { "type": "text", "content": "Most of Earth's water is not directly available for drinking." }
+  ]
+}
+```
+
+In auto mode, omit the root `layout` when the renderer should decide. The renderer uses responsive auto-fit columns for compact components and lets long text, headings, quizzes, diagrams, maps, tables, and other wide components occupy the full row. A supplied `layout: "stack"` is a single-column hint; `layout: "grid"` is a responsive grid hint.
+
+Groups are unboxed by default. Do not use groups just to create cards. Use them to express a real relationship between components.
+
+### Hybrid
+
+Use when the model knows the semantic layout but wants the renderer to make it fit the viewport:
+
+```json
+{
+  "title": "Experiment",
+  "layoutMode": "hybrid",
+  "layout": "grid",
+  "components": [
+    {
+      "type": "group",
+      "id": "inputs",
+      "title": "Inputs",
+      "layout": "grid",
+      "gap": "normal",
+      "surface": "subtle",
+      "components": []
+    }
+  ]
+}
+```
+
+Hybrid mode respects the root `layout` when provided. It respects the model's top-level group surface choices, but flattens surfaces on nested groups and nested tabs. This prevents a card from being placed inside another card while preserving the model's semantic composition.
+
+### Manual
+
+Manual mode is the full-composition escape hatch. It requires an explicit root `layout`:
+
+```json
+{
+  "title": "Operations console",
+  "layoutMode": "manual",
+  "layout": "grid",
+  "components": [
+    {
+      "type": "group",
+      "id": "left-panel",
+      "layout": "stack",
+      "surface": "outlined",
+      "gap": "relaxed",
+      "separator": "none",
+      "components": []
+    },
+    {
+      "type": "group",
+      "id": "right-panel",
+      "layout": "stack",
+      "surface": "subtle",
+      "gap": "normal",
+      "components": []
+    }
+  ]
+}
+```
+
+Manual mode respects `stack`, `row`, and `grid` groups, `tight`, `normal`, and `relaxed` gaps, `none`, `subtle`, and `outlined` surfaces, and `none`, `top`, `bottom`, and `between` separators. Use explicit surfaces sparingly: even manual layouts look better with a clear hierarchy than with every group boxed.
+
+## 2. Surface hierarchy and visual quality
+
+The renderer provides **one outer UI shell** with a title and description. Components should not recreate that shell.
+
+Follow these rules:
+
+1. **Never create card-in-card layouts by default.** Do not wrap every metric, chart, table, simulation, quiz, map, or diagram in its own bordered rounded container. Those components already provide their own visual structure.
+2. **Groups are structural, not decorative.** Use a group to express a coherent set of components or an intentional responsive row/grid. In auto mode, groups stay unboxed. In hybrid mode, only top-level group surfaces are honored. In manual mode, declared surfaces are respected.
+3. **Prefer whitespace over borders.** Separate sections with spacing and typography. Use a divider only when there is a real conceptual boundary.
+4. **Use backgrounds with purpose.** A subtle background can distinguish a code preview, diagram canvas, selected result, or interactive control. Avoid repeating the same background on every ancestor.
+5. **Use hierarchy, not repetition.** One clear heading, short supporting text, a focused visual, then the relevant control is usually better than several nested panels with repeated titles.
+6. **Keep controls next to their outputs.** A slider that changes a chart should be in the same group or adjacent to the chart. Avoid splitting cause and effect across unrelated tabs.
+7. **Design mobile-first.** Use short labels, keep controls full-width where appropriate, use rows only for compact related content, and allow tables/diagrams to scroll horizontally rather than squeezing labels until they become decorative noise.
+8. **Avoid empty UI.** Do not add decorative metrics, tabs, cards, or charts just to make the response look larger.
+
+### Explicit separators
+
+The `divider` component supports a solid or dashed line and an optional label:
+
+```json
+{ "type": "divider", "label": "Practice", "style": "solid" }
+```
+
+Groups may also declare a separator: `top`, `bottom`, or `between`. In auto mode, prefer letting the renderer decide; in hybrid/manual, use these only when the visual break communicates structure.
+
+## 3. Root spec and state
+
+A `ChatUISpec` contains:
+
+- `id`: generated by the server.
+- `version`: currently `1`.
+- `title` and optional `description`.
+- `layoutMode`: `auto`, `hybrid`, or `manual`; defaults to `auto`.
+- Optional root `layout`: `stack` or `grid`.
+- Optional `persistState: true`.
+- Optional state declarations.
+- Between 1 and 24 components.
+
+The root state array contains unique primitive `{ key, value }` declarations. Values may be strings, finite numbers, or booleans. Fields, tab selectors, conditionals, button actions, computed expressions, file uploads, editable grids, and live charts must reference declared keys. The parser validates value types and references before the UI reaches the client.
+
+State is local to the rendered UI instance by default. `persistState: true` restores declared, type-compatible primitive values from browser-profile storage scoped by session ID and UI ID. This is not a secret store or cross-device database. Never persist credentials, API keys, passwords, tokens, or other secrets.
+
+## 4. Component catalogue
+
+### Content and hierarchy
+
+| Component | Purpose |
+| --- | --- |
+| `heading` | Section heading, level 2 or 3. |
+| `text` | Markdown-formatted explanatory content. |
+| `divider` | Optional labeled solid/dashed separator. |
+| `callout` | Focused info, success, or warning note. |
+| `metric` | One important value with an optional unit/tone. |
+| `progress` | Bounded current/max progress display. |
+| `table` | Static, readable comparison or reference table. |
+
+### Composition and forms
+
+| Component | Purpose | Interaction |
+| --- | --- | --- |
+| `group` | `stack`, `row`, or `grid` semantic layout. | Children share root state. Optional gap/surface/separator. |
+| `tabs` | Switch between 2–8 labeled panels. | Optional declared string key synchronizes the selected tab. |
+| `conditional` | Show children when a typed state value equals a declared value. | Reacts immediately to state. |
+| `field` | Text, number, toggle, or select input. | Updates state; supports required, ranges, length, patterns, options, and help text. |
+| `button` | Explicit action surface. | Bounded set/toggle/increment/filter/navigate/submit/refresh actions. |
+| `file-upload` | Select supported files. | Attaches selected files only on submit/refresh. |
+| `state-value` | Display one declared state value. | Updates reactively. |
+| `computed` | Derive a numeric value. | Recalculates through the bounded numeric expression tree. |
+
+### Interactive learning
+
+#### Quiz
+
+`quiz` creates an answerable exercise with progress, answer checking, correct/incorrect feedback, explanations, final score, and retry.
+
+- 1–10 questions.
+- 2–6 options per question.
+- Each option and question has a unique ID.
+- `selection: "single"` requires exactly one correct option.
+- `selection: "multiple"` permits multiple correct options.
+- Include concise explanations so feedback teaches, not merely grades.
+
+Example:
+
+```json
+{
+  "type": "quiz",
+  "title": "Water cycle check",
+  "questions": [{
+    "id": "q1",
+    "prompt": "Which process forms clouds?",
+    "selection": "single",
+    "options": [
+      { "id": "evap", "label": "Evaporation" },
+      { "id": "condense", "label": "Condensation" }
+    ],
+    "correctOptionIds": ["condense"],
+    "explanation": "Water vapor cools and forms tiny liquid droplets."
+  }]
+}
+```
+
+#### Diagram
+
+`diagram` renders a connected node graph with directional layout, edge labels, selectable nodes, and a detail panel.
+
+- 2–12 nodes and 1–24 edges.
+- Each node has an ID, label, optional detail, and kind (`start`, `process`, `decision`, `output`).
+- Each edge references two declared node IDs.
+- Choose `left-right` for short processes or `top-down` for vertical sequences.
+- Keep labels short and details explanatory.
+
+### Playable 2D platformer
+
+Use `platformer` when the user explicitly asks for a playable game or when movement is the best way to demonstrate a concept. It renders a self-contained 2D SVG level with button controls and deterministic local physics.
+
+A platformer contains:
+
+- A bounded world (`width` 320–1400, `height` 240–900) and a starting player rectangle.
+- 1–20 solid platforms, up to 12 hazards, up to 20 collectibles, up to 5 checkpoints, and one goal.
+- A visual theme (`neon`, `sky`, or `forest`).
+- Bounded physics: movement speed, gravity, jump velocity, lives, double-jump, and dash.
+
+Example:
+
+```json
+{
+  "type": "platformer",
+  "title": "Neon Runner",
+  "description": "Collect the crystals and reach the exit.",
+  "theme": "neon",
+  "width": 800,
+  "height": 450,
+  "player": { "x": 28, "y": 326, "width": 24, "height": 34 },
+  "platforms": [
+    { "id": "start", "x": 0, "y": 360, "width": 190, "height": 90 },
+    { "id": "ledge", "x": 240, "y": 290, "width": 120, "height": 24 },
+    { "id": "finish-ground", "x": 430, "y": 360, "width": 370, "height": 90 }
+  ],
+  "hazards": [{ "id": "spikes", "x": 490, "y": 330, "width": 48, "height": 30 }],
+  "collectibles": [{ "id": "crystal-a", "x": 120, "y": 330 }],
+  "checkpoints": [{ "id": "midpoint", "x": 440, "y": 360 }],
+  "goal": { "x": 750, "y": 294, "width": 26, "height": 66 },
+  "physics": {
+    "moveSpeed": 5.2,
+    "gravity": 0.82,
+    "jumpVelocity": 14.5,
+    "maxLives": 3,
+    "doubleJump": true,
+    "dash": true
+  }
+}
+```
+
+Controls include left/right movement, vertical and directional jumps, dash, wait, a frames-per-press slider, and restart. The physics engine handles landing, collectible pickup, hazard collisions, falling, checkpoint activation/respawn, lives, and victory. Button presses advance 2–12 deterministic simulation frames; this is a turn-driven chat game, not an autonomous 60 FPS background loop. Keep levels fair: the spawn must be safe, platforms must be reachable, hazards must be avoidable, and the goal must be attainable with the supplied movement physics.
+
+The parser bounds all entity counts, IDs, dimensions, coordinates, and physics values. No game-authored code or arbitrary SVG is accepted; the renderer draws only its predefined safe primitives.
+
+### Charts and live data
+
+Charts support `bar` and `line`. Static points use `{ label, value }`. A live point uses `{ label, key }`, where `key` must reference a declared numeric state value:
+
+```json
+{
+  "state": [{ "key": "temperature", "value": 22 }],
+  "components": [
+    { "type": "field", "id": "temperature-input", "key": "temperature", "label": "Temperature", "control": "number", "min": 0, "max": 50 },
+    { "type": "chart", "title": "Temperature", "kind": "line", "points": [
+      { "label": "Current", "key": "temperature" },
+      { "label": "Reference", "value": 20 }
+    ]}
+  ]
+}
+```
+
+Changing the field updates the chart immediately. A key binding must point to numeric state; strings and booleans are rejected. Do not call a static chart "live".
+
+### Simulations
+
+A `simulation` contains 1–8 controls (slider, toggle, select) and 1–8 outputs. Each output uses a validated expression tree and can reference control IDs through `{ op: "input", name: "controlId" }`. Supported operators are literal, input, negation, absolute value, square root, add, subtract, multiply, divide, power, min, and max. The tree is depth-bounded; arbitrary source code is never evaluated.
+
+Keep the number of controls small. Show only outputs that help explain the relationship. Keep formulas, units, and labels consistent.
+
+### Advanced built-ins
+
+| Component | Behavior and limits |
+| --- | --- |
+| `platformer` | Play a bounded 2D level with platforms, hazards, collectibles, checkpoints, lives, double-jump, and dash. |
+| `workflow` | Select nodes, add bounded process nodes, execute the local workflow simulation. |
+| `desktop` | Switch between sample desktop apps/windows. |
+| `database` | Inspect sample rows and selected record details. |
+| `api` | Simulated local API requests; never performs a real network request. |
+| `scene` | Rotate/select built-in 3D-style primitive scenes. |
+| `wizard` | Multi-step guided form. |
+| `monitor` | Refresh/pause built-in monitor metrics. |
+| `circuit` | Interactive Ohm's-law controls and computed output. |
+| `map` | Validated latitude/longitude coordinate preview and OpenStreetMap link; not an embedded live basemap. |
+| `data-grid` | Typed text/number columns, bounded row count, optional editing. |
+| `media` | HTTPS image, video, or audio from public hostnames. |
+
+## 5. Safe actions and submissions
+
+Button local actions are limited to:
+
+- `set`: replace a declared value without changing its type.
 - `toggle`: invert a boolean.
-- `increment`: add a bounded numeric delta to a numeric value.
-- `filter`: update a declared primitive state key with a same-typed value.
-- `navigate`: set a declared tab-state key to one of the tabs declared in the component.
-- `submit`: hand off current state and selected files to the current conversation.
-- `refresh`: hand off current state to the agent and request updated output.
+- `increment`: add a bounded numeric delta.
+- `filter`: set a same-typed primitive value.
+- `navigate`: select a declared tab.
+- `submit`: hand current state and selected files to the active conversation.
+- `refresh`: hand current state to the agent and request a fresh result.
 
-There are no arbitrary event handlers, code strings, network callbacks, DOM selectors, or dynamic imports.
+There are no arbitrary event handlers, code strings, direct network callbacks, DOM selectors, or dynamic imports. Submit and refresh are conversation handoffs, not privileged HTTP or database callbacks. The application uses the current agent's ordinary tools and permission flow for any subsequent action. A UI submission does not itself authorize external side effects.
 
-## File attachments, grids, maps, and media
+File uploads accept PNG/JPEG/WebP/GIF images, PDF, plain text, Markdown, CSV, and JSON. A UI can select up to five files, each no larger than the configured size (8 MB by default, maximum 12 MB), with a 20 MB total submission limit. File bytes are ephemeral and are not restored by persistence.
 
-`file-upload` accepts a bounded allowlist of PNG/JPEG/WebP/GIF images, PDF, plain text, Markdown, CSV, and JSON. A UI can select at most five files, each no larger than the control's configured size (default 8 MB, maximum 12 MB), with a combined submission limit of 20 MB. Selecting a file does not upload it; the file is attached only when a form submit or refresh action is used. File bytes are ephemeral and are not restored by `persistState`.
+Editable data-grid rows are serialized as JSON in their declared string state (up to 48 KB, with 100-character text cells) and included in a form submission. They are data, never executable source.
 
-`data-grid` supports typed text/number columns, bounded row counts, and optional row editing. Edited rows are serialized as JSON in the component's declared string state (up to 48 KB, with 100-character text cells) and are included in a form submission. Grid strings are bounded separately from ordinary text fields and are not treated as executable data.
+Media requires HTTPS URLs on public hostnames. Credentials, IP-literal hosts, localhost, and common local-network hostnames are rejected.
 
-`map` validates latitude/longitude ranges and marker identity. The component displays a simple coordinate preview and a link to OpenStreetMap. It does not embed live basemap tiles or claim to provide a full GIS layer. `media` supports image, video, and audio with HTTPS URLs on public hostnames; credentials, IP-literal hosts, localhost, and common local-network hostnames are rejected.
+## 6. Design recipes
 
-## Form submission and authorized actions
+### Explanation with a visual
 
-`submit` and `refresh` are conversation handoffs, not privileged HTTP or database callbacks. The app validates the current session, bounded primitive values, selected-file MIME/size/count, then attaches files to the active conversation. Submitted JSON is explicitly marked untrusted. The active agent continues the task with its available tools and ordinary permission checks. If a task requires a real API, database, file, or external operation, the agent must use an existing authorized tool, integration, or MCP connection. A form click never grants extra access and cannot inject an arbitrary URL, SQL statement, shell command, or tool name into a privileged executor.
+Use a short heading and short prose, then a diagram that shows the causal sequence, followed by one small quiz. Keep the quiz to one or two questions if the user asked for a simple explanation.
 
-`persistState: true` is opt-in and saves only declared primitive state in the browser profile, namespaced by session and UI ID. Restoration ignores undeclared keys, type changes, oversized strings, and non-finite numbers. Do not place passwords, API keys, session cookies, or other secrets in Rich UI state. This storage is local to the browser profile and is not a secure vault or server-side shared record.
+### Hands-on science lesson
 
-## Display and simulation components
+Use a small set of controls, a live chart bound to the same declared numeric state, and one computed output. Add an explanation of what changes and why.
 
-The basic display set includes `heading`, `text`, `metric`, `callout`, `progress`, `chart`, and `table`. `simulation` provides bounded sliders, toggles, selects, and a numeric expression tree. Expressions are depth-limited and can reference only declared simulation controls.
+### Comparison dashboard
 
-## Specialized interactive components
+Use 2–4 metrics, one chart or table, and a concise callout. In auto mode, omit the layout and let the renderer position compact elements. Do not put every metric inside a group with an outlined surface.
 
-| Component   | Built-in behavior                                     | Explicit limitation                                           |
-| ----------- | ----------------------------------------------------- | ------------------------------------------------------------- |
-| `workflow`  | Select nodes, add a local node, run a local preview   | Does not call an external workflow engine                     |
-| `desktop`   | Switch between simulated app windows                  | Not an actual operating-system session                        |
-| `database`  | Inspect selectable sample records                     | No database connection or writes                              |
-| `api`       | Edit method/endpoint and reveal a sample response     | No HTTP request is sent                                       |
-| `scene`     | Rotate an SVG cube, sphere, or pyramid                | Not a WebGL/Three.js scene                                    |
-| `wizard`    | Navigate multi-step local form state                  | No independent persistence endpoint                           |
-| `monitor`   | Pause/resume and refresh displayed metrics            | Sample values are not host telemetry                          |
-| `circuit`   | Adjust voltage/resistance and calculate current/power | Ideal DC circuit model only                                   |
-| `map`       | Inspect marker coordinates and open OpenStreetMap     | Coordinate preview, not embedded live tiles                   |
-| `data-grid` | Edit bounded typed rows                               | Data is local state until submitted                           |
-| `media`     | Display HTTPS image/video/audio                       | Remote media is not fetched through a privileged server proxy |
+### Process or system explanation
 
-These are optional building blocks, not fixed page templates. The agent can mix them with groups, tabs, state-bound controls, and ordinary display components to produce a task-specific interface.
+Use a diagram with 3–8 nodes, concise edge labels, and meaningful node details. Choose the direction that matches the natural reading order.
 
-## Learning assessments
+### Multi-part reference
 
-`create_exam` creates a public question specification and a separate server-side encrypted answer key. It requires an answer-key entry for every question. Objective questions use correct option IDs; written questions use exact accepted answers, a rubric whose criterion points total the question value, or `manualReview: true` when a tutor/agent must assess the response. The answer key and grading rules are encrypted with AES-256-GCM and are never included in the public exam metadata or browser-synchronized tool input. The encryption key comes from `DIVEEOI_EXAM_ENCRYPTION_KEY` (32 bytes encoded as hex or base64) or a persistent `exam-answer-key.bin` file in DiveeOI's data directory, created with mode `0600`. Operators must preserve that key in protected backups; losing it makes existing answer keys undecryptable. Rotate it only with a deliberate key-migration procedure.
+Use tabs only when content genuinely represents alternate views. If the user needs to see the whole sequence at once, use a stack or diagram instead.
 
-`grade_exam` verifies session ownership and attempt order, grades objective answers, applies configured partial credit and negative marking, matches accepted written answers, scores rubric criteria, and stores the answer and interactive settings for each attempt. Ambiguous written answers are flagged for tutor/agent review rather than assigned a fabricated automatic score. `review_exam` updates only written questions marked for review and recomputes the result. `attemptsAllowed` controls retries. Optional adaptive settings select a difficulty-matched subset and adjust the next attempt's difficulty based on the previous percentage. Question-order randomization happens once at creation; reloading an already-normalized spec does not shuffle it again. `export_exam` creates JSON or CSV with attempts, answers, grading feedback, simulation settings, and aggregate analytics; it excludes answer keys and requests the normal `export_exam` permission.
+## 7. Validation contract
 
-Interactive question state is kept separate from answers, saved with the exam attempt, and included in the grading submission. The app displays per-question results, partial credit, tutor-review status, attempt totals, and retry availability.
-
-## Security and CSP
-
-The renderer consumes structured data and uses statically bundled SolidJS components. It does not use `eval`, `Function`, script injection, arbitrary stylesheets, or model-provided source code. Interactive behavior is implemented in trusted renderer code and constrained by server-side parsing. The exam answer-key fields are separated from the public exam spec, encrypted at rest, and redacted from persisted tool-call/event data and plugin hooks. A component that needs a real external action must use an existing authorized tool or a separately implemented application capability rather than smuggling an endpoint or callback into a UI spec.
-
-## Runtime clocks and locations
-
-The server injects a fresh `<runtime_context>` block into each model step. It carries the UTC instant, the user's local date/time and timezone when provided by the browser, locale, coarse user location and source, plus a separate host date/time, OS timezone, and approximate public network-egress location. User-facing dates and schedules use the user's timezone; machine operations use the host timezone. Background runs must use their own fresh context rather than embedding old timestamps.
-
-User location comes only from a trusted proxy's coarse geolocation headers or a clearly labeled timezone-derived country fallback. Host location comes from an operator override or a cached public-IP geolocation lookup. Both are approximate and can reflect network egress, VPNs, proxies, or carrier routing. Raw IP addresses, exact street addresses, and coordinates are never included in model context. Operators can set `DIVEEOI_HOST_LOCATION` and `DIVEEOI_HOST_TIMEZONE`, or disable host lookup with `DIVEEOI_DISABLE_HOST_GEOLOCATION=1`.
-
-Targeted Learning allows `create_ui`, `create_exam`, `grade_exam`, `review_exam`, and `export_exam`. All subject-matter facts and UI sample data, labels, and calculated examples in that mode must come from passages read/retrieved during the current turn. Export still uses the ordinary permission flow.
-
-## Remaining capability boundary
-
-Direct per-component API/database bindings and a general credential-vault/connector binding are intentionally not exposed in Rich UI yet. Generated UI specs cannot supply arbitrary URLs, SQL, headers, credentials, or executable callbacks. Real external actions continue through the current agent's existing authorized tools, integrations, and MCP connections, preserving their existing permissions and approvals. Persistent Rich UI state is browser-profile scoped; it is not yet a server-side, cross-device state store. The map renderer is a coordinate preview rather than a live tile widget.
+- Components are statically rendered from a bounded schema.
+- Nested component arrays are bounded to four levels and 64 total components; each list has its own item cap.
+- IDs are unique and validated.
+- State bindings and action types are type-checked.
+- Numeric expressions are bounded and safe.
+- Quiz answers and diagram edges must reference declared options/nodes.
+- Live chart bindings must reference declared numeric state.
+- Unsafe media URLs and unsupported upload types are rejected.
+- No model-supplied markup, scripts, stylesheets, or arbitrary code are evaluated.

@@ -21,7 +21,7 @@ function Control(props: {
   const select = control.type === "select" ? control : undefined
 
   return (
-    <label class="flex min-w-0 flex-col gap-2 rounded-lg border border-border-weak-base bg-background-base p-3">
+    <label class="flex min-w-0 flex-col gap-2 py-1">
       <span class="flex items-center justify-between gap-3 text-12-medium text-text-strong">
         <span>{control.label}</span>
         <Show when={slider}>
@@ -80,7 +80,7 @@ export function RichUISimulation(props: { component: Simulation }) {
     }))
 
   return (
-    <section class="flex min-w-0 flex-col gap-3 rounded-xl border border-border-weak-base bg-background-stronger p-4">
+    <section class="flex min-w-0 flex-col gap-3 py-1">
       <div class="flex flex-col gap-1">
         <h3 class="text-14-semibold text-text-strong">{props.component.title}</h3>
         <Show when={props.component.description}>
@@ -101,7 +101,7 @@ export function RichUISimulation(props: { component: Simulation }) {
       <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <For each={outputs()}>
           {(output) => (
-            <div class="min-w-0 rounded-lg bg-background-base px-3 py-3">
+            <div class="min-w-0 border-t border-border-weak-base py-3">
               <div class="text-11-medium text-text-weak">{output.label}</div>
               <div class="mt-1 truncate font-mono text-20-semibold tabular-nums text-text-strong">
                 {formatRichUINumber(output.value, output.precision ?? 2)}

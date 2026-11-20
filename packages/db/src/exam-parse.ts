@@ -1,9 +1,22 @@
-import type { ExamAdaptiveSettings, ExamQuestion, ExamSpec } from "./chat-ui"
+import type { ChatUIComponent, ExamAdaptiveSettings, ExamQuestion, ExamSpec } from "./chat-ui"
 import { parseChatUISpec } from "./chat-ui-parse"
 import { finite, identifier, object, optionalString, string } from "./exam-parse-helpers"
 import type { Parsed } from "./exam-parse-helpers"
 
 export { parseExamAnswerKey } from "./exam-answer-key-parse"
+
+function containsSelfGradingQuiz(components: ChatUIComponent[]): boolean {
+  for (const component of components) {
+    if (component.type === "quiz") return true
+    if (component.type === "group" || component.type === "conditional") {
+      if (containsSelfGradingQuiz(component.components)) return true
+    }
+    if (component.type === "tabs") {
+      if (component.tabs.some((tab) => containsSelfGradingQuiz(tab.components))) return true
+    }
+  }
+  return false
+}
 
 export function parseExamDraft(
   value: unknown,
@@ -93,6 +106,12 @@ export function parseExamDraft(
         )
       : { ok: true as const, value: undefined }
     if (!interactive.ok) return interactive
+    if (interactive.value && containsSelfGradingQuiz(interactive.value.components)) {
+      return {
+        ok: false,
+        error: `Question ${questionId.value} cannot include a self-grading quiz in exam material; use the exam question and private answerKey instead`,
+      }
+    }
     if (hasState && !hasComponents)
       return { ok: false, error: `Question ${questionId.value} cannot declare state without components` }
 

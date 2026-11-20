@@ -8,7 +8,7 @@ import { gradeExamAttempt, nextAdaptiveDifficulty, selectAdaptiveQuestions } fro
 import { parseExamDraft } from "@diveeoi/db/exam-parse"
 import { ExamAttemptTable, ExamTable } from "@diveeoi/db/exam/sql"
 import * as Tool from "../tool"
-import type { ExecuteResult } from "../tool/tool"
+import type { ExecuteResult } from "../tool"
 import { decryptExamSecret } from "../../exam/crypto"
 import {
   analytics,

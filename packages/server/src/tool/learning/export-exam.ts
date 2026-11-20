@@ -4,6 +4,19 @@ import type { JSONSchema7 } from "@ai-sdk/provider"
 import { Database } from "@diveeoi/db/database/database"
 import { ExamAttemptTable, ExamTable } from "@diveeoi/db/exam/sql"
 import * as Tool from "../tool"
+import type { ExecuteResult } from "../tool"
+
+type ExportMetadata = {
+  error?: boolean
+  format?: "json" | "csv"
+  attemptCount?: number
+  analytics?: {
+    attemptCount: number
+    averagePercentage: number
+    bestPercentage: number
+    latestPercentage: number
+  }
+}
 
 const jsonSchema: JSONSchema7 = {
   type: "object",
@@ -29,7 +42,10 @@ export const ExportExamTool = Tool.define(
       description: `Export a completed exam's attempt history, answers, scoring feedback, elapsed times, and aggregate analytics as JSON or CSV. The exam must belong to the current session. This export does not include the private answer key or rubric. Ask for export permission before creating the attachment.`,
       parameters: Schema.Struct({ examID: Schema.String, format: Schema.Literals(["json", "csv"]) }),
       jsonSchema,
-      execute: (args: { examID: string; format: "json" | "csv" }, ctx: Tool.Context) =>
+      execute: (
+        args: { examID: string; format: "json" | "csv" },
+        ctx: Tool.Context,
+      ): Effect.Effect<ExecuteResult<ExportMetadata>> =>
         Effect.gen(function* () {
           if (!/^[A-Za-z0-9_-]{1,80}$/.test(args.examID)) {
             return { title: "Exam export failed", output: "The exam ID is invalid.", metadata: { error: true } }

@@ -1,10 +1,14 @@
 import type { JSONSchema7, JSONSchema7Definition } from "@ai-sdk/provider"
 import { advancedRichUIComponentSchemas } from "./rich-ui-advanced-schema"
 import { compositionRichUIComponentSchemas } from "./rich-ui-composition-schema"
+import { learningRichUIComponentSchemas, quizRichUIComponentSchema } from "./rich-ui-learning-schema"
+import { platformerRichUIComponentSchema } from "./rich-ui-platformer-schema"
 import { expression, idField, numberField, stringField } from "./rich-ui-shared-schema"
 
 const componentVariants: JSONSchema7Definition[] = [
   ...advancedRichUIComponentSchemas,
+  ...learningRichUIComponentSchemas,
+  platformerRichUIComponentSchema,
   {
     type: "object",
     properties: { type: { const: "heading" }, text: stringField, level: { enum: [2, 3] } },
@@ -64,8 +68,9 @@ const componentVariants: JSONSchema7Definition[] = [
         maxItems: 32,
         items: {
           type: "object",
-          properties: { label: stringField, value: numberField },
-          required: ["label", "value"],
+          properties: { label: stringField, value: numberField, key: idField },
+          required: ["label"],
+          anyOf: [{ required: ["value"] }, { required: ["key"] }],
           additionalProperties: false,
         },
       },
@@ -170,4 +175,8 @@ const componentVariants: JSONSchema7Definition[] = [
   ...compositionRichUIComponentSchemas,
 ]
 
-export const richUIComponentDefinition: JSONSchema7 = { anyOf: componentVariants }
+export const richUIComponentDefinition: JSONSchema7 = { anyOf: [...componentVariants, quizRichUIComponentSchema] }
+
+// Graded exams reuse the same component renderer, but must never embed a
+// self-grading quiz whose correctOptionIds would be visible to the client.
+export const richUIExamComponentDefinition: JSONSchema7 = { anyOf: componentVariants }

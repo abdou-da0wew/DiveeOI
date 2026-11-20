@@ -2,10 +2,17 @@ import type { JSONSchema7 } from "@ai-sdk/provider"
 import { eq } from "drizzle-orm"
 import { Effect, Schema } from "effect"
 import { Database } from "@diveeoi/db/database/database"
-import type { ExamGrade } from "@diveeoi/db/chat-ui"
+import type { ExamAnalytics, ExamGrade } from "@diveeoi/db/chat-ui"
 import { ExamAttemptTable, ExamTable } from "@diveeoi/db/exam/sql"
 import { parseExamDraft } from "@diveeoi/db/exam-parse"
 import * as Tool from "../tool"
+import type { ExecuteResult } from "../tool"
+
+type ReviewMetadata = {
+  error?: boolean
+  examGrade?: ExamGrade
+  analytics?: ExamAnalytics
+}
 import { analytics } from "./exam-grading-shared"
 
 export const ReviewExamTool = Tool.define(
@@ -43,7 +50,10 @@ export const ReviewExamTool = Tool.define(
         required: ["examID", "attemptNumber", "reviews"],
         additionalProperties: false,
       } satisfies JSONSchema7,
-      execute: (args: { examID: string; attemptNumber: number; reviews: unknown[] }, ctx: Tool.Context) =>
+      execute: (
+        args: { examID: string; attemptNumber: number; reviews: unknown[] },
+        ctx: Tool.Context,
+      ): Effect.Effect<ExecuteResult<ReviewMetadata>> =>
         Effect.gen(function* () {
           if (
             !/^[A-Za-z0-9_-]{1,80}$/.test(args.examID) ||

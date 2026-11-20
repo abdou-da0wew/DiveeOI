@@ -723,3 +723,243 @@ describe("Exam protocol", () => {
     expect(result).toEqual({ ok: false, error: "randomizeQuestions must be a boolean" })
   })
 })
+
+describe("Rich UI layout and learning components", () => {
+  test("defaults to auto layout and supports hybrid and explicit manual layout", () => {
+    const automatic = parseChatUISpec({ title: "Auto", components: [{ type: "text", content: "Responsive" }] }, "auto-ui")
+    expect(automatic.ok).toBe(true)
+    if (automatic.ok) {
+      expect(automatic.value.layoutMode).toBe("auto")
+      expect(automatic.value.layout).toBeUndefined()
+    }
+
+    const hybrid = parseChatUISpec({
+      title: "Hybrid",
+      layoutMode: "hybrid",
+      layout: "grid",
+      components: [{ type: "heading", text: "Overview", level: 2 }],
+    }, "hybrid-ui")
+    expect(hybrid.ok).toBe(true)
+    if (hybrid.ok) {
+      expect(hybrid.value.layoutMode).toBe("hybrid")
+      expect(hybrid.value.layout).toBe("grid")
+    }
+
+    const manualWithoutLayout = parseChatUISpec({
+      title: "Manual",
+      layoutMode: "manual",
+      components: [{ type: "text", content: "Explicit layout required" }],
+    }, "manual-ui")
+    expect(manualWithoutLayout).toEqual({ ok: false, error: "Manual layout mode requires an explicit root layout" })
+
+    const automaticGroup = parseChatUISpec({
+      title: "Automatic group",
+      layoutMode: "auto",
+      components: [{
+        type: "group",
+        id: "responsive-group",
+        components: [{ type: "text", content: "Renderer decides" }],
+      }],
+    }, "automatic-group")
+    expect(automaticGroup.ok).toBe(true)
+    if (automaticGroup.ok) {
+      const group = automaticGroup.value.components[0]
+      expect(group?.type === "group" ? group.layout : "not-a-group").toBeUndefined()
+    }
+
+    const manualGroupWithoutLayout = parseChatUISpec({
+      title: "Manual group",
+      layoutMode: "manual",
+      layout: "grid",
+      components: [{
+        type: "group",
+        id: "missing-group-layout",
+        components: [{ type: "text", content: "Must choose" }],
+      }],
+    }, "manual-group")
+    expect(manualGroupWithoutLayout).toEqual({
+      ok: false,
+      error: "Manual layout mode requires an explicit layout for group: missing-group-layout",
+    })
+  })
+
+  test("parses interactive quiz, clickable diagram, and declared state-bound chart data", () => {
+    const result = parseChatUISpec({
+      title: "Water cycle lab",
+      layoutMode: "auto",
+      state: [{ key: "evaporation", value: 30 }, { key: "condensation", value: 20 }],
+      components: [
+        {
+          type: "chart",
+          title: "Water movement",
+          kind: "line",
+          points: [
+            { label: "Evaporation", key: "evaporation" },
+            { label: "Condensation", key: "condensation" },
+          ],
+        },
+        {
+          type: "quiz",
+          title: "Check your understanding",
+          questions: [{
+            id: "cycle-q1",
+            prompt: "What forms clouds?",
+            options: [{ id: "heat", label: "Heating" }, { id: "cool", label: "Cooling water vapor" }],
+            correctOptionIds: ["cool"],
+            explanation: "Cooling causes water vapor to condense into tiny droplets.",
+          }],
+        },
+        {
+          type: "diagram",
+          title: "Water cycle",
+          direction: "left-right",
+          nodes: [
+            { id: "evap", label: "Evaporation", detail: "Liquid water becomes vapor", kind: "process" },
+            { id: "cloud", label: "Condensation", kind: "process" },
+            { id: "rain", label: "Precipitation", kind: "output" },
+          ],
+          edges: [{ from: "evap", to: "cloud" }, { from: "cloud", to: "rain", label: "droplets grow" }],
+        },
+        { type: "divider", label: "Practice", style: "dashed" },
+        {
+          type: "group",
+          id: "details",
+          layout: "grid",
+          surface: "subtle",
+          separator: "between",
+          gap: "relaxed",
+          components: [{ type: "metric", label: "Evaporation", value: 30 }],
+        },
+      ],
+    }, "water-lab")
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.components.map((component) => component.type)).toEqual([
+      "chart", "quiz", "diagram", "divider", "group",
+    ])
+  })
+
+  test("rejects invalid quiz answer references, diagram connections, and non-numeric chart bindings", () => {
+    const invalidQuiz = parseChatUISpec({
+      title: "Invalid quiz",
+      components: [{
+        type: "quiz",
+        title: "Question",
+        questions: [{
+          id: "q1",
+          prompt: "Pick one",
+          options: [{ id: "a", label: "A" }, { id: "b", label: "B" }],
+          correctOptionIds: ["missing"],
+        }],
+      }],
+    }, "bad-quiz")
+    expect(invalidQuiz).toEqual({ ok: false, error: "Quiz answer references unknown option: missing" })
+
+    const invalidDiagram = parseChatUISpec({
+      title: "Invalid diagram",
+      components: [{
+        type: "diagram",
+        title: "Flow",
+        nodes: [{ id: "a", label: "A" }, { id: "b", label: "B" }],
+        edges: [{ from: "a", to: "missing" }],
+      }],
+    }, "bad-diagram")
+    expect(invalidDiagram).toEqual({ ok: false, error: "Diagram connections must link two different declared nodes" })
+
+    const invalidChartBinding = parseChatUISpec({
+      title: "Invalid live chart",
+      state: [{ key: "label", value: "not numeric" }],
+      components: [{
+        type: "chart",
+        title: "Bound data",
+        kind: "bar",
+        points: [{ label: "A", key: "label" }, { label: "B", value: 4 }],
+      }],
+    }, "bad-live-chart")
+    expect(invalidChartBinding).toEqual({ ok: false, error: "Chart data binding must reference numeric state: label" })
+  })
+})
+
+describe("Rich UI platformer component", () => {
+  const level = {
+    type: "platformer",
+    title: "Neon Runner",
+    description: "Collect the crystals and reach the flag.",
+    theme: "neon",
+    width: 800,
+    height: 450,
+    player: { x: 20, y: 328, width: 24, height: 32 },
+    platforms: [
+      { id: "ground", x: 0, y: 360, width: 800, height: 90 },
+      { id: "ledge", x: 300, y: 260, width: 120, height: 24 },
+    ],
+    hazards: [{ id: "spikes", x: 440, y: 340, width: 36, height: 20 }],
+    collectibles: [{ id: "crystal-1", x: 120, y: 344 }],
+    checkpoints: [{ id: "checkpoint-1", x: 520, y: 360 }],
+    goal: { x: 740, y: 300, width: 24, height: 60 },
+    physics: { moveSpeed: 5.2, gravity: 0.82, jumpVelocity: 14.5, maxLives: 3, doubleJump: true, dash: true },
+  }
+
+  test("accepts a bounded platformer with physics and level entities", () => {
+    const result = parseChatUISpec({ title: "Game", components: [level] }, "game-ui")
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const game = result.value.components[0]
+    expect(game?.type).toBe("platformer")
+    if (game?.type === "platformer") {
+      expect(game.physics.doubleJump).toBe(true)
+      expect(game.platforms).toHaveLength(2)
+      expect(game.collectibles).toHaveLength(1)
+    }
+  })
+
+  test("rejects geometry outside the world and non-integer life counts", () => {
+    const outOfBounds = parseChatUISpec({
+      title: "Bad level",
+      components: [{ ...level, platforms: [{ id: "bad", x: 790, y: 360, width: 40, height: 20 }] }],
+    }, "bad-level")
+    expect(outOfBounds).toEqual({ ok: false, error: "platformer.platforms[0] must fit inside the world bounds" })
+
+    const invalidLives = parseChatUISpec({
+      title: "Bad physics",
+      components: [{ ...level, physics: { ...level.physics, maxLives: 2.5 } }],
+    }, "bad-physics")
+    expect(invalidLives).toEqual({ ok: false, error: "platformer.physics.maxLives must be an integer" })
+  })
+})
+
+describe("Exam supplemental Rich UI safety", () => {
+  test("rejects self-grading quiz components that would expose answer IDs in a graded exam", () => {
+    const result = parseExamDraft({
+      title: "Secure exam",
+      questions: [{
+        id: "q1",
+        type: "single",
+        prompt: "Select one answer.",
+        options: [{ id: "a", label: "A" }, { id: "b", label: "B" }],
+        components: [{
+          type: "group",
+          id: "nested-material",
+          layout: "stack",
+          components: [{
+            type: "quiz",
+            title: "Leaking answer key",
+            questions: [{
+              id: "quiz-q1",
+              prompt: "Which option is correct?",
+              options: [{ id: "secret-a", label: "A" }, { id: "secret-b", label: "B" }],
+              correctOptionIds: ["secret-a"],
+            }],
+          }],
+        }],
+      }],
+      answerKey: [{ questionId: "q1", correctOptionIDs: ["a"] }],
+    }, "secure-exam")
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Question q1 cannot include a self-grading quiz in exam material; use the exam question and private answerKey instead",
+    })
+  })
+})

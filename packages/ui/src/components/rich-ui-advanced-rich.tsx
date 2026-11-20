@@ -24,7 +24,7 @@ export function RichUIMap(props: { component: Extract<ChatUIAdvancedComponent, {
     `https://www.openstreetmap.org/?mlat=${props.component.center.latitude}&mlon=${props.component.center.longitude}#map=${props.component.zoom}/${props.component.center.latitude}/${props.component.center.longitude}`
 
   return (
-    <section class="flex min-w-0 flex-col gap-3 rounded-xl border border-border-weak-base bg-background-stronger p-4">
+    <section class="flex min-w-0 flex-col gap-3 py-1">
       <div class="flex items-center justify-between gap-3">
         <h3 class="text-14-semibold text-text-strong">{props.component.title}</h3>
         <a
@@ -133,7 +133,7 @@ export function RichUIDataGrid(props: {
   const deleteRow = (index: number) => update(rows().filter((_, current) => current !== index))
 
   return (
-    <section class="flex min-w-0 flex-col gap-3 rounded-xl border border-border-weak-base bg-background-stronger p-4">
+    <section class="flex min-w-0 flex-col gap-3 py-1">
       <div class="flex items-center justify-between gap-3">
         <h3 class="text-14-semibold text-text-strong">{props.component.title}</h3>
         <span class="text-10-regular text-text-weak">
@@ -213,7 +213,7 @@ export function RichUIDataGrid(props: {
 
 export function RichUIMedia(props: { component: Extract<ChatUIAdvancedComponent, { type: "media" }> }) {
   return (
-    <section class="flex min-w-0 flex-col gap-3 rounded-xl border border-border-weak-base bg-background-stronger p-4">
+    <section class="flex min-w-0 flex-col gap-3 py-1">
       <h3 class="text-14-semibold text-text-strong">{props.component.title}</h3>
       <div class="grid min-w-0 gap-3 sm:grid-cols-2">
         <For each={props.component.items}>

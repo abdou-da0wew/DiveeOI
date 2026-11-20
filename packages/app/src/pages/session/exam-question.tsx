@@ -51,12 +51,14 @@ export function QuestionCard(props: {
               id: `exam-${props.question.id}`,
               version: 1,
               title: "Interactive material",
+              layoutMode: "auto",
               layout: "stack",
               state: props.question.state,
               components: components()!,
             }}
             state={props.questionState}
             onStateChange={props.onQuestionStateChange}
+            embedded
           />
         </div>
       </Show>

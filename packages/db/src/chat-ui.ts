@@ -61,6 +61,64 @@ export type ChatUIAdvancedComponent =
     }
 
 export type ChatUIStateValue = string | number | boolean
+export type ChatUILayoutMode = "auto" | "hybrid" | "manual"
+export type ChatUILayout = "stack" | "grid"
+export type ChatUISurface = "none" | "subtle" | "outlined"
+export type ChatUISeparator = "none" | "top" | "bottom" | "between"
+export type ChatUIGap = "tight" | "normal" | "relaxed"
+
+export type ChatUIPlatformerComponent = {
+  type: "platformer"
+  title: string
+  description?: string
+  theme: "neon" | "sky" | "forest"
+  width: number
+  height: number
+  player: { x: number; y: number; width: number; height: number }
+  platforms: Array<{ id: string; x: number; y: number; width: number; height: number }>
+  hazards: Array<{ id: string; x: number; y: number; width: number; height: number }>
+  collectibles: Array<{ id: string; x: number; y: number }>
+  checkpoints: Array<{ id: string; x: number; y: number }>
+  goal: { x: number; y: number; width: number; height: number }
+  physics: {
+    moveSpeed: number
+    gravity: number
+    jumpVelocity: number
+    maxLives: number
+    doubleJump: boolean
+    dash: boolean
+  }
+}
+
+export type ChatUIQuizComponent = {
+  type: "quiz"
+  title: string
+  description?: string
+  questions: Array<{
+    id: string
+    prompt: string
+    selection: "single" | "multiple"
+    options: Array<{ id: string; label: string }>
+    correctOptionIds: string[]
+    explanation?: string
+  }>
+}
+
+export type ChatUIDiagramComponent = {
+  type: "diagram"
+  title: string
+  description?: string
+  direction: "left-right" | "top-down"
+  nodes: Array<{
+    id: string
+    label: string
+    detail?: string
+    kind: "start" | "process" | "decision" | "output"
+  }>
+  edges: Array<{ from: string; to: string; label?: string }>
+}
+
+export type ChatUILearningComponent = ChatUIQuizComponent | ChatUIDiagramComponent
 
 export type ChatUIAction =
   | { type: "set"; key: string; value: ChatUIStateValue }
@@ -73,13 +131,23 @@ export type ChatUIAction =
 
 export type ChatUIComponent =
   | ChatUIAdvancedComponent
-  | { type: "group"; id: string; title?: string; layout: "stack" | "row" | "grid"; components: ChatUIComponent[] }
+  | {
+      type: "group"
+      id: string
+      title?: string
+      layout?: "stack" | "row" | "grid"
+      surface?: ChatUISurface
+      separator?: ChatUISeparator
+      gap?: ChatUIGap
+      components: ChatUIComponent[]
+    }
   | {
       type: "tabs"
       id: string
       title?: string
       tabs: Array<{ id: string; label: string; components: ChatUIComponent[] }>
       key?: string
+      surface?: ChatUISurface
     }
   | { type: "conditional"; id: string; key: string; equals: ChatUIStateValue; components: ChatUIComponent[] }
   | {
@@ -112,12 +180,20 @@ export type ChatUIComponent =
     }
   | { type: "state-value"; key: string; label: string; unit?: string }
   | { type: "computed"; id: string; label: string; expression: NumericExpression; unit?: string; precision: number }
+  | { type: "divider"; label?: string; style: "solid" | "dashed" }
   | { type: "heading"; text: string; level: 2 | 3 }
   | { type: "text"; content: string }
   | { type: "metric"; label: string; value: string | number; unit?: string; tone?: "default" | "positive" | "warning" }
   | { type: "callout"; title: string; content: string; tone: "info" | "success" | "warning" }
   | { type: "progress"; label: string; value: number; max: number; unit?: string }
-  | { type: "chart"; title: string; kind: "bar" | "line"; points: Array<{ label: string; value: number }> }
+  | {
+      type: "chart"
+      title: string
+      kind: "bar" | "line"
+      points: Array<{ label: string; value: number } | { label: string; key: string }>
+    }
+  | ChatUILearningComponent
+  | ChatUIPlatformerComponent
   | { type: "table"; title?: string; columns: string[]; rows: Array<Array<string | number>> }
   | {
       type: "simulation"
@@ -132,7 +208,8 @@ export type ChatUISpec = {
   version: 1
   title: string
   description?: string
-  layout: "stack" | "grid"
+  layoutMode: ChatUILayoutMode
+  layout?: ChatUILayout
   /** Persist non-sensitive state in the current browser profile, scoped to this session and UI. */
   persistState?: boolean
   state?: Array<{ key: string; value: ChatUIStateValue }>

@@ -1,5 +1,5 @@
 import type { JSONSchema7 } from "@ai-sdk/provider"
-import { richUIComponentDefinition } from "./rich-ui-component-schema"
+import { richUIComponentDefinition, richUIExamComponentDefinition } from "./rich-ui-component-schema"
 import { idField, richUIExpressionDefinition } from "./rich-ui-shared-schema"
 
 export const richUIComponentsSchema: JSONSchema7 = {
@@ -7,6 +7,13 @@ export const richUIComponentsSchema: JSONSchema7 = {
   minItems: 1,
   maxItems: 24,
   items: { $ref: "#/definitions/ChatUIComponent" },
+}
+
+export const richUIExamComponentsSchema: JSONSchema7 = {
+  type: "array",
+  minItems: 1,
+  maxItems: 24,
+  items: richUIExamComponentDefinition,
 }
 
 export const richUIParameters: JSONSchema7 = {
@@ -17,6 +24,7 @@ export const richUIParameters: JSONSchema7 = {
       properties: {
         title: { type: "string", maxLength: 120 },
         description: { type: "string", maxLength: 400 },
+        layoutMode: { enum: ["auto", "hybrid", "manual"] },
         layout: { enum: ["stack", "grid"] },
         persistState: { type: "boolean" },
         state: {
