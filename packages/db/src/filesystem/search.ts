@@ -9,7 +9,6 @@ import { FSUtil } from "../fs-util"
 import { Location } from "../location"
 import { Ripgrep } from "../ripgrep"
 import { RelativePath } from "../schema"
-import { Flag } from "../flag/flag"
 
 export interface Interface {
   readonly find: (input: FileSystem.FindInput) => Effect.Effect<FileSystem.Entry[]>
@@ -29,22 +28,46 @@ export const ripgrepLayer = Layer.effect(
     const state = {
       files: [] as string[],
       directories: [] as string[],
+      all: [] as string[],
     }
     const directories = new Set<string>()
-    yield* ripgrep
-      .find({
-        cwd: location.directory,
-        pattern: "*",
-        limit: location.vcs ? Number.MAX_SAFE_INTEGER : 100_000,
-        onEntry: (entry) =>
-          Effect.sync(() => {
-            state.files.push(entry.path)
-            const parts = entry.path.split("/")
-            parts.slice(0, -1).forEach((_, index) => directories.add(parts.slice(0, index + 1).join("/") + path.sep))
-            state.directories = Array.from(directories)
-          }),
-      })
-      .pipe(Effect.orDie, Effect.asVoid, Effect.forkIn(scope))
+
+    // Keep the fallback index bounded and update directory state incrementally.
+    // Rebuilding Array.from(directories) for every file made large workspaces
+    // perform quadratic copying while ripgrep was still scanning the HDD.
+    // Keep the fallback index idle until the file picker asks for it.
+    // Scanning during per-workspace layer construction multiplied one crawl
+    // into hundreds of concurrent ripgrep processes.
+    const maxIndexedFiles = 40_000
+    let indexStarted = false
+    const startIndex = Effect.suspend(() => {
+      if (indexStarted) return Effect.void
+      indexStarted = true
+      return ripgrep
+        .find({
+          cwd: location.directory,
+          pattern: "*",
+          limit: maxIndexedFiles,
+          onEntry: (entry) =>
+            Effect.sync(() => {
+              const relative = entry.path.replaceAll("\\", "/")
+              state.files.push(relative)
+              state.all.push(relative)
+
+              let end = relative.indexOf("/")
+              while (end !== -1) {
+                const directory = relative.slice(0, end + 1)
+                if (!directories.has(directory)) {
+                  directories.add(directory)
+                  state.directories.push(directory)
+                  state.all.push(directory)
+                }
+                end = relative.indexOf("/", end + 1)
+              }
+            }),
+        })
+        .pipe(Effect.orDie, Effect.asVoid, Effect.forkIn(scope), Effect.asVoid)
+    })
     return Service.of({
       glob: (input) =>
         Effect.gen(function* () {
@@ -101,16 +124,17 @@ export const ripgrepLayer = Layer.effect(
         }),
       find: (input) =>
         Effect.gen(function* () {
+          yield* startIndex
           const items =
             input.type === "file"
               ? state.files
               : input.type === "directory"
                 ? state.directories
-                : [...state.files, ...state.directories]
+                : state.all
           return fuzzysort.go(input.query, items, { limit: input.limit ?? 50 }).map((item) => {
             const relative = item.target
-            const type = relative.endsWith(path.sep) ? ("directory" as const) : ("file" as const)
-            const clean = type === "directory" ? relative.slice(0, -path.sep.length) : relative
+            const type = relative.endsWith("/") ? ("directory" as const) : ("file" as const)
+            const clean = type === "directory" ? relative.slice(0, -1) : relative
             const absolute = path.resolve(location.directory, clean)
             return new FileSystem.Entry({
               path: RelativePath.make(relative),
@@ -132,8 +156,15 @@ export const fffLayer = Layer.effect(
         Fff.create({
           basePath: location.directory,
           aiMode: true,
-          enableFsRootScanning: true,
-          enableHomeDirScanning: true,
+          // Keep indexing scoped to the active workspace. Scanning / and the
+          // entire home directory duplicates work, churns HDD metadata caches,
+          // and can retain several GiB in the native content/mmap indexes.
+          enableFsRootScanning: false,
+          enableHomeDirScanning: false,
+          // Start serving without warming every file into an mmap/content cache.
+          // Filename search remains indexed; grep can read matching files on demand.
+          disableMmapCache: true,
+          disableContentIndexing: true,
         }),
       catch: (cause) => `FFF.create threw: ${cause}`,
     })
@@ -232,10 +263,6 @@ export const fffLayer = Layer.effect(
   }),
 )
 
-export const defaultLayer = Layer.unwrap(
-  Effect.sync(() =>
-    Flag.OPENCODE_DISABLE_FFF || !Fff.available()
-      ? ripgrepLayer
-      : fffLayer.pipe(Layer.catch(() => ripgrepLayer)),
-  ),
-)
+// FFF starts a native background index while the location layer is built.
+// Keep workspace startup idle and use the lazy ripgrep index for picker search.
+export const defaultLayer = ripgrepLayer

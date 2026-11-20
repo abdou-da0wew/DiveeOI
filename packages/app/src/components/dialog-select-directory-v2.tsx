@@ -12,7 +12,6 @@ import { ServerConnection } from "@/context/server"
 import {
   absoluteTreePath,
   activeTreeNavigation,
-  advanceTreePreload,
   classifyOpenProjects,
   type ClassifiedProject,
   fullPickerPath,
@@ -21,7 +20,6 @@ import {
   pickerFileSearchQuery,
   pickerAbsoluteInput,
   pickerMode,
-  preloadTreeDirectories,
   cleanPickerInput,
   createDirectorySearch,
   currentPickerSuggestions,
@@ -61,7 +59,7 @@ export function DialogSelectDirectoryV2(props: DialogSelectDirectoryV2Props) {
   const [error, setError] = createSignal(false)
   const [rootValid, setRootValid] = createSignal(false)
   const listings = new Map<string, Promise<Array<{ name: string; type: "file" | "directory" }> | undefined>>()
-  const advanced = new Set<string>()
+  const projectScanController = new AbortController()
   let tree: FileTree | undefined
   let container: HTMLDivElement | undefined
   let pathArea: HTMLDivElement | undefined
@@ -110,11 +108,15 @@ export function DialogSelectDirectoryV2(props: DialogSelectDirectoryV2Props) {
   const [suggestedProjects] = createResource(
     () => (input() ? undefined : { home: home(), server: props.server }),
     ({ home: homeDir }) =>
-      homeDir ? classifyOpenProjects(sdk.client, homeDir).catch(() => [] as ClassifiedProject[]) : [],
+      homeDir
+        ? classifyOpenProjects(sdk.client, homeDir, undefined, false, projectScanController.signal).catch(
+            () => [] as ClassifiedProject[],
+          )
+        : [],
     { initialValue: [] as ClassifiedProject[] },
   )
 
-  async function load(path: string, generation: number, preload = true) {
+  async function load(path: string, generation: number) {
     const key = path.replace(/\/+$/, "")
     setError(false)
     const absolute = absoluteTreePath(root(), key)
@@ -133,9 +135,6 @@ export function DialogSelectDirectoryV2(props: DialogSelectDirectoryV2Props) {
       return false
     }
     tree?.batch(policy.entries(key, nodes).map((item) => ({ type: "add", path: item })))
-    if (preload && advanceTreePreload(advanced, key)) {
-      void Promise.all(preloadTreeDirectories(key, nodes).map((directory) => load(directory, generation, false)))
-    }
     return true
   }
 
@@ -151,7 +150,6 @@ export function DialogSelectDirectoryV2(props: DialogSelectDirectoryV2Props) {
     setRoot(value)
     setInput(displayPickerPath(value, value, home()))
     listings.clear()
-    advanced.clear()
     tree?.resetPaths([])
     const valid = await load("", token)
     if (!activeTreeNavigation(token, navigation)) return
@@ -265,10 +263,15 @@ export function DialogSelectDirectoryV2(props: DialogSelectDirectoryV2Props) {
   createEffect(() => {
     const path = start()
     if (!path || root()) return
+    // Warm the bounded filename index only when this picker is mounted.
+    void sdk.client.find.files({ directory: path, query: "", type: "directory", limit: 1 }).catch(() => [])
     void navigate(path)
   })
 
-  onCleanup(() => tree?.cleanUp())
+  onCleanup(() => {
+    projectScanController.abort()
+    tree?.cleanUp()
+  })
 
   return (
     <Dialog title={props.title ?? language.t("command.project.open")} size="large" class="directory-picker-v2">

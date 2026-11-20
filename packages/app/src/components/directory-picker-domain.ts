@@ -390,14 +390,21 @@ function listingHash(nodes: Array<{ name: string; type: string }>): string {
   return h.toString(36)
 }
 
-/** Check if any tracked directories changed since cache was built. */
+/** Check cached paths through one workspace root, never one root per child. */
 async function listingChanged(
   client: ClassifyClient,
   cacheEntry: ClassifyCacheEntry,
+  signal?: AbortSignal,
 ): Promise<boolean> {
   for (const [dir, oldHash] of Object.entries(cacheEntry.dirListingHashes)) {
+    if (signal?.aborted) return true
+    const relative = pickerRelativePath(cacheEntry.homeDir, dir)
+    if (relative === undefined) return true
     try {
-      const nodes = await client.file.list({ directory: dir, path: "" }).then((r) => r.data ?? [])
+      const nodes = await client.file
+        .list({ directory: cacheEntry.homeDir, path: relative })
+        .then((r) => r.data ?? [])
+      if (signal?.aborted) return true
       if (listingHash(nodes) !== oldHash) return true
     } catch {
       return true // if we can't check, assume stale
@@ -419,56 +426,66 @@ export async function classifyOpenProjects(
   homeDir: string,
   existingProjects?: string[],
   force?: boolean,
+  signal?: AbortSignal,
 ): Promise<ClassifiedProject[]> {
-  if (!homeDir) return []
+  if (!homeDir || signal?.aborted) return []
 
-  // Check cache
+  const base = trimPickerPath(homeDir)
+
+  // Revalidate cached paths against the same workspace root.
   if (!force) {
     const cache = readClassifyCache()
-    const cached = cache.get(homeDir)
+    const cached = cache.get(base)
     if (cached && Date.now() - cached.timestamp < CLASSIFICATION_CACHE_TTL_MS) {
-      const stale = await listingChanged(client, cached)
+      const stale = await listingChanged(client, cached, signal)
+      if (signal?.aborted) return []
       if (!stale) return cached.results
     }
   }
 
-  // Full classification walk
   const existing = new Set((existingProjects ?? []).map((p) => trimPickerPath(p)))
   const results = new Map<string, ClassifiedProject>()
   const seen = new Set<string>()
+  const scheduled = new Set<string>([base])
   const dirHashes: Record<string, string> = {}
+  const queue: Array<{ path: string; depth: number }> = [{ path: base, depth: 0 }]
+  const maxDirectories = 24
+  const maxDepth = 2
+  const maxResults = 20
+  const workerCount = 2
 
-  async function walk(dir: string, depth: number): Promise<void> {
-    if (depth >= 3 || results.size >= 50) return
-
-    const key = trimPickerPath(dir)
-    if (seen.has(key) || existing.has(key)) return
+  async function scanDirectory(current: { path: string; depth: number }) {
+    const key = trimPickerPath(current.path)
+    if (seen.has(key) || existing.has(key)) return [] as Array<{ path: string; depth: number }>
     seen.add(key)
 
+    const relative = pickerRelativePath(base, key)
+    if (relative === undefined || signal?.aborted) return []
     const nodes: Array<{ name: string; type: string; absolute?: string }> = await client.file
-      .list({ directory: key, path: "" })
+      .list({ directory: base, path: relative })
       .then((r) => r.data ?? [])
       .catch(() => [])
+    if (signal?.aborted) return []
 
     dirHashes[key] = listingHash(nodes)
-
     const subdirs: string[] = []
     let detectedLang: string | undefined
 
     for (const node of nodes) {
       if (node.type === "directory") {
-        if (node.name === ".git" && !detectedLang) {
-          detectedLang = "project"
-        }
+        if (node.name === ".git" && !detectedLang) detectedLang = "project"
         if (!isIgnoredDirectory(node.name)) {
-          subdirs.push(node.absolute ? trimPickerPath(node.absolute) : joinPickerPath(key, node.name))
+          const child = node.absolute ? trimPickerPath(node.absolute) : joinPickerPath(key, node.name)
+          if (pickerRelativePath(base, child) !== undefined && !scheduled.has(child)) {
+            scheduled.add(child)
+            subdirs.push(child)
+          }
         }
         continue
       }
+
       const lang = PROJECT_INDICATORS[node.name]
-      if (lang && lang !== "project") {
-        detectedLang = lang
-      }
+      if (lang && lang !== "project") detectedLang = lang
     }
 
     if (detectedLang) {
@@ -480,21 +497,27 @@ export async function classifyOpenProjects(
       })
     }
 
-    if (!detectedLang || depth < 1) {
-      await Promise.all(subdirs.map((sub) => walk(sub, depth + 1)))
-    }
+    if (current.depth >= maxDepth || (detectedLang && current.depth >= 1)) return []
+    return subdirs.map((child) => ({ path: child, depth: current.depth + 1 }))
   }
 
-  await walk(homeDir, 0)
+  // Breadth-first batches ensure at most two requests are ever in flight.
+  while (queue.length > 0 && seen.size < maxDirectories && results.size < maxResults && !signal?.aborted) {
+    const batch = queue.splice(0, Math.min(workerCount, maxDirectories - seen.size))
+    const children = await Promise.all(batch.map(scanDirectory))
+    for (const group of children) queue.push(...group)
+  }
+
+  if (signal?.aborted) return []
+  if (signal?.aborted) return []
 
   const classified = Array.from(results.values())
     .sort((a, b) => a.name.localeCompare(b.name))
-    .slice(0, 50)
+    .slice(0, maxResults)
 
-  // Write cache
   const cache = readClassifyCache()
-  cache.set(homeDir, {
-    homeDir,
+  cache.set(base, {
+    homeDir: base,
     results: classified,
     dirListingHashes: dirHashes,
     timestamp: Date.now(),

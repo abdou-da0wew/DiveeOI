@@ -47,6 +47,12 @@ const FILES = [
 
 export const PATTERNS = [...FILES, ...FOLDERS]
 
+// Ripgrep evaluates glob exclusions before descending into matching folders.
+// Keep this derived from the same policy used by the filesystem watcher.
+export const RIPGREP_GLOBS = PATTERNS.map((pattern) =>
+  pattern.includes("/") ? `--glob=!${pattern}` : `--glob=!**/${pattern}/**`,
+)
+
 export function match(filepath: string, opts?: { extra?: string[]; whitelist?: string[] }) {
   for (const pattern of opts?.whitelist || []) {
     if (Glob.match(pattern, filepath)) return false

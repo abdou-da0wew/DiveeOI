@@ -1,10 +1,12 @@
 export * as Ripgrep from "./ripgrep"
 
 import { Context, Effect, Fiber, Layer, Schema, Stream } from "effect"
+import * as Semaphore from "effect/Semaphore"
 import { ChildProcess } from "effect/unstable/process"
 import path from "path"
 import { LayerNode } from "./effect/layer-node"
 import { Entry, Match } from "./filesystem/schema"
+import { Ignore } from "./filesystem/ignore"
 import { FSUtil } from "./fs-util"
 import { AppProcess, collectStream, waitForAbort } from "./process"
 import { NonNegativeInt, PositiveInt, RelativePath } from "./schema"
@@ -124,6 +126,8 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const process = yield* AppProcess.Service
     const binary = yield* RipgrepBinary.Service
+    // This layer is shared by location services. One permit caps rg globally.
+    const processLimit = yield* Semaphore.make(1)
 
     const run = <A>(input: {
       readonly cwd: string
@@ -137,7 +141,7 @@ export const layer = Layer.effect(
       const program = Effect.scoped(
         Effect.gen(function* () {
           const handle = yield* process.spawn(
-            ChildProcess.make(yield* binary.filepath, input.args, { cwd: input.cwd, extendEnv: true, stdin: "ignore" }),
+            ChildProcess.make(yield* binary.filepath, ["--threads=1", ...input.args], { cwd: input.cwd, extendEnv: true, stdin: "ignore" }),
           )
           const stderrFiber = yield* collectStream(handle.stderr, ERROR_BYTES).pipe(
             Effect.map((output) => output.buffer.toString("utf8")),
@@ -172,7 +176,7 @@ export const layer = Layer.effect(
         }),
       )
       const abortable = input.signal ? program.pipe(Effect.raceFirst(waitForAbort(input.signal))) : program
-      return abortable.pipe(
+      return processLimit.withPermits(1)(abortable).pipe(
         Effect.mapError((cause) =>
           cause instanceof Error || cause instanceof InvalidPatternError
             ? cause
@@ -193,7 +197,7 @@ export const layer = Layer.effect(
             ...(input.hidden ? ["--hidden"] : []),
             ...(input.follow ? ["--follow"] : []),
             `--glob=${input.pattern}`,
-            "--glob=!**/.git/**",
+            ...Ignore.RIPGREP_GLOBS,
             ".",
           ],
           parse: (line) =>
@@ -227,7 +231,7 @@ export const layer = Layer.effect(
             ...(input.hidden ? ["--hidden"] : []),
             ...(input.follow ? ["--follow"] : []),
             ...(input.pattern === "*" ? [] : [`--glob=${input.pattern}`]),
-            "--glob=!**/.git/**",
+            ...Ignore.RIPGREP_GLOBS,
             ".",
           ],
           parse: (line) => {
@@ -257,7 +261,7 @@ export const layer = Layer.effect(
             "--hidden",
             "--no-messages",
             ...(input.include ? [`--glob=${input.include}`] : []),
-            "--glob=!**/.git/**",
+            ...Ignore.RIPGREP_GLOBS,
             "--",
             input.pattern,
             input.file ?? ".",

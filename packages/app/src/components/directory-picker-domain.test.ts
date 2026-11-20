@@ -14,6 +14,7 @@ import {
   treeEntries,
   treePathWithin,
   currentPickerSuggestions,
+  classifyOpenProjects,
   createDirectorySearch,
   displayPickerPath,
   pickerParent,
@@ -149,6 +150,40 @@ test("resolves directory autocomplete from the current browser root", async () =
   await search("components")
 
   expect(directories).toEqual(["/repo", "/repo/src"])
+})
+
+test("bounds project discovery to one workspace root and two concurrent requests", async () => {
+  const requests: Array<{ directory: string; path: string }> = []
+  let active = 0
+  let peak = 0
+  const client = {
+    file: {
+      list: async ({ directory, path }: { directory: string; path: string }) => {
+        requests.push({ directory, path })
+        active += 1
+        peak = Math.max(peak, active)
+        await new Promise((resolve) => setTimeout(resolve, 1))
+        active -= 1
+        return {
+          data:
+            path === ""
+              ? Array.from({ length: 40 }, (_, index) => ({
+                  name: `directory-${index}`,
+                  type: "directory",
+                  absolute: `/home/luke/directory-${index}`,
+                }))
+              : [],
+        }
+      },
+    },
+  } as unknown as Parameters<typeof classifyOpenProjects>[0]
+
+  const projects = await classifyOpenProjects(client, "/home/luke", [], true)
+
+  expect(projects).toEqual([])
+  expect(peak).toBeLessThanOrEqual(2)
+  expect(requests).toHaveLength(24)
+  expect(requests.every((request) => request.directory === "/home/luke")).toBeTrue()
 })
 
 test("identifies the next directory level to preload", () => {

@@ -27,6 +27,22 @@ describe("Ripgrep", () => {
     ),
   )
 
+  it.live("skips generated and dependency folders while indexing files", () =>
+    withTmp((cwd) =>
+      Effect.gen(function* () {
+        yield* Effect.promise(() => fs.mkdir(path.join(cwd, "src"), { recursive: true }))
+        yield* Effect.promise(() => fs.mkdir(path.join(cwd, "node_modules", "pkg"), { recursive: true }))
+        yield* Effect.promise(() => fs.mkdir(path.join(cwd, "dist"), { recursive: true }))
+        yield* Effect.promise(() => fs.writeFile(path.join(cwd, "src", "app.ts"), "source\n"))
+        yield* Effect.promise(() => fs.writeFile(path.join(cwd, "node_modules", "pkg", "index.js"), "dependency\n"))
+        yield* Effect.promise(() => fs.writeFile(path.join(cwd, "dist", "generated.js"), "generated\n"))
+
+        const result = yield* (yield* Ripgrep.Service).find({ cwd, pattern: "*", limit: 100 })
+        expect(result.map((item) => item.path)).toEqual([RelativePath.make(path.join("src", "app.ts"))])
+      }),
+    ),
+  )
+
   it.live("greps files with include filtering", () =>
     withTmp((cwd) =>
       Effect.gen(function* () {
