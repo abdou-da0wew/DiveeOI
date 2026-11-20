@@ -95,7 +95,7 @@ try {
           // memory AND this process is a meaningful part of the pressure.
           const hostLow =
             system !== null &&
-            system.availableMemoryMB < Math.max(512, system.totalMemoryMB * 0.1)
+            system.availableMemoryMB < Math.max(768, system.totalMemoryMB * 0.2)
           if (hostLow && rssMB > rssTargetMB) {
             if (typeof Bun !== "undefined" && Bun.gc) Bun.gc(true)
             yield* Effect.logWarning("Emergency GC", { rssMB: Math.round(rssMB), target: rssTargetMB, profile })
