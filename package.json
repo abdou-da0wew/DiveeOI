@@ -15,6 +15,7 @@
     "build:all": "bun scripts/build.ts --all",
     "typecheck": "bun turbo typecheck",
     "lint": "oxlint",
+    "lint:biome:remote": "biome lint packages/server/src/ssh-client/connection.ts packages/server/src/ssh-client/index.ts packages/server/src/ssh-client/remote-fs.ts packages/server/src/ssh-client/remote-search.ts packages/server/src/ssh-client/sftp-discovery.ts packages/server/src/ssh-client/sftp-fs.ts packages/server/src/ssh-client/sftp-fs.test.ts packages/server/src/ssh-client/sftp-paths.ts packages/server/src/ssh-client/ssh-host-verifier.ts packages/server/src/ssh-client/ssh-host-verifier.test.ts packages/server/src/ssh-client/types.ts packages/server/script/remote-ssh-smoke.ts packages/app/src/components/remote-session-api.ts packages/app/src/components/dialog-session-remote.tsx packages/app/src/components/settings-v2/remote-sessions.tsx packages/app/src/components/settings-v2/remote-sessions-model.ts packages/app/src/components/settings-v2/remote-sessions-content.tsx packages/app/src/components/settings-v2/remote-sessions-form.tsx packages/app/e2e/smoke/remote-sessions.spec.ts packages/app/e2e/smoke/remote-session-attach.spec.ts packages/app/playwright.config.ts packages/app/e2e/utils/mock-server.ts",
     "clean": "rm -rf packages/*/dist packages/*/.turbo"
   },
   "workspaces": {
@@ -86,9 +87,11 @@
     }
   },
   "devDependencies": {
+    "@biomejs/biome": "2.6.8",
     "@tsconfig/bun": "catalog:",
     "@types/bcryptjs": "2.4.6",
     "concurrently": "10.0.3",
+    "oxlint": "1.94.0",
     "prettier": "3.6.2",
     "turbo": "2.8.13"
   },
