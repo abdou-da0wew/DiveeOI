@@ -33,7 +33,11 @@ const createEmbeddedWebUIBundle = async () => {
   // Vite hashes from a previous app build. Rebuilding guarantees fresh imports.
   console.log(`Building Web UI to embed in the binary`)
   const buildEnv = { ...process.env, OPENCODE_CHANNEL: Script.channel }
-  await $`bun run --cwd ${appDir} build`.env(buildEnv)
+  if (process.env.DIVEEOI_REUSE_WEB_UI === "1") {
+    console.log("Reusing the existing Web UI dist bundle")
+  } else {
+    await $`bun run --cwd ${appDir} build`.env(buildEnv)
+  }
   const files = (await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: dist })))
     .map((file) => file.replaceAll("\\", "/"))
     .filter((file) => !file.endsWith(".map"))
@@ -58,6 +62,8 @@ const createEmbeddedWebUIBundle = async () => {
 }
 
 const embeddedFileMap = skipEmbedWebUi || !shouldBuildBinary ? null : await createEmbeddedWebUIBundle()
+const embeddedFilePath = path.join(dir, "src/server/shared/diveeoi-web-ui.gen.ts")
+if (embeddedFileMap) fs.writeFileSync(embeddedFilePath, embeddedFileMap)
 
 const allTargets: {
   os: string
@@ -196,8 +202,7 @@ if (shouldBuildBinary) {
       execArgv: [`--user-agent=diveeoi/${Script.version}`, "--use-system-ca", "--memory-limit=1200", "--max-old-space-size=512", "--"],
       windows: {},
     },
-    files: embeddedFileMap ? { "diveeoi-web-ui.gen.ts": embeddedFileMap } : {},
-    entrypoints: ["./src/main.ts", parserWorker, ...(embeddedFileMap ? ["diveeoi-web-ui.gen.ts"] : [])],
+    entrypoints: ["./src/main.ts", parserWorker, ...(embeddedFileMap ? ["./src/server/shared/diveeoi-web-ui.gen.ts"] : [])],
     define: {
       FFF_LIBC: JSON.stringify(item.abi === "musl" ? "musl" : "gnu"),
       OPENCODE_VERSION: `'${Script.version}'`,
@@ -248,6 +253,8 @@ if (shouldBuildBinary) {
   binaries[name] = Script.version
   }
 }
+
+if (embeddedFileMap) fs.rmSync(embeddedFilePath, { force: true })
 
 if (Script.release) {
   for (const key of Object.keys(binaries)) {

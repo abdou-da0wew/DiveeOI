@@ -2,9 +2,13 @@ import { FSUtil } from "@diveeoi/db/fs-util"
 import { Effect, Stream } from "effect"
 import { HttpBody, HttpClient, HttpClientRequest, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { createHash } from "node:crypto"
+import { existsSync } from "node:fs"
+import path from "node:path"
 import { ProxyUtil } from "../proxy-util"
 
-let embeddedUIPromise: Promise<Record<string, string> | null> | undefined
+type EmbeddedUIAssets = Record<string, string | Uint8Array>
+
+let embeddedUIPromise: Promise<EmbeddedUIAssets | null> | undefined
 
 export const UI_UPSTREAM = new URL("https://app.opencode.ai")
 
@@ -41,10 +45,36 @@ export function upstreamURL(path: string) {
   return new URL(path, UI_UPSTREAM).toString()
 }
 
+function fileBackedUI(): EmbeddedUIAssets | null {
+  const directory = process.env.DIVEEOI_WEB_UI_DIR
+  if (!directory) return null
+
+  const root = path.resolve(directory)
+  if (!existsSync(path.join(root, "index.html"))) return null
+
+  const assets: EmbeddedUIAssets = {}
+  for (const relative of new Bun.Glob("**/*").scanSync({ cwd: root, onlyFiles: true })) {
+    if (relative.endsWith(".map")) continue
+    const key = relative.replaceAll("\\", "/")
+    assets[key] = path.join(root, relative)
+  }
+  return assets
+}
+
 export function embeddedUI(disableEmbeddedWebUi: boolean) {
   if (disableEmbeddedWebUi) return Promise.resolve(null)
   return (embeddedUIPromise ??=
-    import("./diveeoi-web-ui.gen.ts").then((module) => module.default as Record<string, string>).catch(() => null))
+    import("./diveeoi-web-ui.gen.ts")
+      .then((module) => module.default as EmbeddedUIAssets)
+      .catch((error) => {
+        const local = fileBackedUI()
+        if (local) {
+          console.info("[ui] Serving file-backed Web UI", { directory: process.env.DIVEEOI_WEB_UI_DIR })
+          return local
+        }
+        console.error("[ui] Failed to load embedded Web UI:", error)
+        return null
+      }))
 }
 
 function notFound() {
@@ -63,7 +93,7 @@ function embeddedUIResponse(file: string, body: Uint8Array) {
 export function serveEmbeddedUIEffect(
   requestPath: string,
   fs: FSUtil.Interface,
-  embeddedWebUI: Record<string, string | Uint8Array | Buffer>,
+  embeddedWebUI: EmbeddedUIAssets,
 ) {
   const key = requestPath.replace(/^\//, "") || "index.html"
   const requested = embeddedWebUI[key]
