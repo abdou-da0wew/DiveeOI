@@ -74,7 +74,7 @@ import { ProjectCopy } from "@diveeoi/db/project/copy"
 import { PtyTicket } from "@diveeoi/db/pty/ticket"
 import { Ripgrep } from "@diveeoi/db/ripgrep"
 import { SessionProjector } from "@diveeoi/db/session/projector"
-import { FSUtil } from "@diveeoi/db/fs-util"
+import { RemoteFS } from "@/ssh-client/remote-fs"
 import { Memory } from "@diveeoi/memory"
 import { node as enabledLearningNode, disabledNode as disabledLearningNode } from "@diveeoi/learning/node"
 
@@ -102,7 +102,7 @@ const learningNode = Features.flags.learning ? enabledLearningNode : disabledLea
 export const serviceNodes = [
   Global.node,
   Npm.node,
-  FSUtil.node,
+  RemoteFS.node,
   Database.node,
   Auth.node,
   Account.node,

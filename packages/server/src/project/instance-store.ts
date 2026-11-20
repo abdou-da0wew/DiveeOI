@@ -18,6 +18,7 @@ export interface LoadInput {
   project?: Project.Info
   /** Remote session config — when present, boot uses the remote context. */
   remote?: import("@/ssh-client").RemoteConfig
+  localDirectory?: string
 }
 
 export interface Interface {
@@ -59,7 +60,9 @@ export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootst
     // Remote sessions get a composite cache key so two remotes with the same
     // path on different hosts don't collide.
     const cacheKey = (input: { directory: string; remote?: import("@/ssh-client").RemoteConfig }) =>
-      input.remote ? `remote:${input.remote.host}:${input.remote.port}:${input.directory}` : input.directory
+      input.remote
+        ? `remote:${input.remote.identity ?? ""}:${input.remote.user}@${input.remote.host}:${input.remote.port}:${input.directory}`
+        : input.directory
 
     const boot = (input: LoadInput & { directory: string }) =>
       Effect.gen(function* () {
@@ -77,6 +80,8 @@ export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootst
                 sandboxes: [],
               },
               remote: input.remote,
+              stateKey: cacheKey(input),
+              localDirectory: input.localDirectory,
             }
           : input.project && input.worktree
             ? {
@@ -102,10 +107,10 @@ export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootst
         return true
       })
 
-    const completeLoad = (directory: string, input: LoadInput, entry: Entry) =>
+    const completeLoad = (key: string, input: LoadInput, entry: Entry) =>
       Effect.gen(function* () {
-        const exit = yield* Effect.exit(boot({ ...input, directory }))
-        if (Exit.isFailure(exit)) yield* removeEntry(directory, entry)
+        const exit = yield* Effect.exit(boot(input))
+        if (Exit.isFailure(exit)) yield* removeEntry(key, entry)
         yield* Deferred.done(entry.deferred, exit).pipe(Effect.asVoid)
       })
 
@@ -126,7 +131,7 @@ export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootst
 
     const disposeContext = Effect.fn("InstanceStore.disposeContext")(function* (ctx: InstanceContext) {
       yield* Effect.logInfo("disposing instance", { directory: ctx.directory })
-      yield* Effect.promise(() => runDisposers(ctx.directory))
+      yield* Effect.promise(() => runDisposers(ctx.stateKey ?? ctx.directory))
       yield* emitDisposed({ directory: ctx.directory, project: ctx.project.id })
     })
 
@@ -139,10 +144,11 @@ export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootst
     })
 
     const load = (input: LoadInput): Effect.Effect<InstanceContext> => {
-      const directory = FSUtil.resolve(input.directory)
+      const directory = input.remote ? input.directory : FSUtil.resolve(input.directory)
+      const key = cacheKey({ ...input, directory })
       return Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
-          const existing = cache.get(directory)
+          const existing = cache.get(key)
           if (existing) {
             existing.lastUsed = Date.now()
             existing.refs++
@@ -157,10 +163,10 @@ export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootst
           }
 
           const entry: Entry = { deferred: Deferred.makeUnsafe<InstanceContext>(), refs: 1, lastUsed: Date.now() }
-          cache.set(directory, entry)
+          cache.set(key, entry)
           yield* Effect.gen(function* () {
-            yield* Effect.logInfo("creating instance", { directory: directory })
-            yield* completeLoad(directory, input, entry)
+            yield* Effect.logInfo("creating instance", { directory, key })
+            yield* completeLoad(key, { ...input, directory }, entry)
           }).pipe(Effect.forkIn(scope, { startImmediately: true }))
           return yield* restore(Deferred.await(entry.deferred)).pipe(
             Effect.ensuring(
@@ -175,20 +181,21 @@ export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootst
     }
 
     const reload = (input: LoadInput): Effect.Effect<InstanceContext> => {
-      const directory = FSUtil.resolve(input.directory)
+      const directory = input.remote ? input.directory : FSUtil.resolve(input.directory)
+      const key = cacheKey({ ...input, directory })
       return Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
-          const previous = cache.get(directory)
+          const previous = cache.get(key)
           const entry: Entry = { deferred: Deferred.makeUnsafe<InstanceContext>(), refs: 1, lastUsed: Date.now() }
-          cache.set(directory, entry)
+          cache.set(key, entry)
           yield* Effect.gen(function* () {
-            yield* Effect.logInfo("reloading instance", { directory: directory })
+            yield* Effect.logInfo("reloading instance", { directory, key })
             if (previous) {
               yield* Deferred.await(previous.deferred).pipe(Effect.ignore)
-              yield* Effect.promise(() => runDisposers(directory))
+              yield* Effect.promise(() => runDisposers(key))
               yield* emitDisposed({ directory, project: input.project?.id })
             }
-            yield* completeLoad(directory, input, entry)
+            yield* completeLoad(key, { ...input, directory }, entry)
           }).pipe(Effect.forkIn(scope, { startImmediately: true }))
           return yield* restore(Deferred.await(entry.deferred)).pipe(
             Effect.ensuring(
@@ -203,13 +210,14 @@ export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootst
     }
 
     const dispose = Effect.fn("InstanceStore.dispose")(function* (ctx: InstanceContext) {
-      const entry = cache.get(ctx.directory)
+      const key = cacheKey({ directory: ctx.directory, remote: ctx.remote })
+      const entry = cache.get(key)
       if (!entry) return yield* disposeContext(ctx)
 
       const exit = yield* Deferred.await(entry.deferred).pipe(Effect.exit)
-      if (Exit.isFailure(exit)) return yield* removeEntry(ctx.directory, entry).pipe(Effect.asVoid)
+      if (Exit.isFailure(exit)) return yield* removeEntry(key, entry).pipe(Effect.asVoid)
       if (exit.value !== ctx) return
-      yield* disposeEntry(ctx.directory, entry, ctx).pipe(Effect.asVoid)
+      yield* disposeEntry(key, entry, ctx).pipe(Effect.asVoid)
     })
 
     const disposeDirectory = Effect.fn("InstanceStore.disposeDirectory")(function* (input: string) {

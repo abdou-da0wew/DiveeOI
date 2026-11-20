@@ -14,6 +14,10 @@ export interface InstanceContext {
    * accessible via the `ctx_local` tool-call override.
    */
   readonly remote?: RemoteConfig
+  /** Internal identity for per-instance caches; differs for identical paths on separate SSH hosts. */
+  readonly stateKey?: string
+  /** Local workspace root retained when the session is attached to a remote host. */
+  readonly localDirectory?: string
 }
 
 export const context = LocalContext.create<InstanceContext>("instance")

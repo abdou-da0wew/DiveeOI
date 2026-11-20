@@ -2,7 +2,7 @@ import { Layer, ManagedRuntime } from "effect"
 import { attach } from "./run-service"
 import * as Observability from "@diveeoi/db/observability"
 
-import { FSUtil } from "@diveeoi/db/fs-util"
+import { RemoteFS } from "@/ssh-client/remote-fs"
 import { Database } from "@diveeoi/db/database/database"
 import { Auth } from "@/auth"
 import { Account } from "@/account/account"
@@ -22,7 +22,6 @@ import { Discovery } from "@/skill/discovery"
 import { Question } from "@/question"
 import { Permission } from "@/permission"
 import { Todo } from "@/session/todo"
-import { RemoteSession } from "@/ssh-client"
 import { LocalFS } from "@/tool/local-fs"
 import { Session } from "@/session/session"
 import { SessionStatus } from "@/session/status"
@@ -59,7 +58,7 @@ import { EventV2Bridge } from "@/event-v2-bridge"
 export const AppLayer = Layer.mergeAll(
   Npm.defaultLayer,
   AdaptiveResourceDefaultLayer,
-  FSUtil.defaultLayer,
+  RemoteFS.defaultLayer,
   Database.defaultLayer,
   Auth.defaultLayer,
   Account.defaultLayer,
@@ -78,7 +77,6 @@ export const AppLayer = Layer.mergeAll(
   Question.defaultLayer,
   Permission.defaultLayer,
   Todo.defaultLayer,
-  RemoteSession.defaultLayer,
   LocalFS.layer,
   Session.defaultLayer,
   SessionStatus.defaultLayer,

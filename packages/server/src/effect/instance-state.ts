@@ -16,7 +16,12 @@ export const context = Effect.gen(function* () {
   const ctx = yield* InstanceRef
   if (!ctx) {
     yield* Effect.logWarning("InstanceState.context called without InstanceRef")
-    return { directory: process.cwd(), worktree: process.cwd(), project: { id: "startup" as any, worktree: process.cwd(), time: { created: 0, updated: 0 }, sandboxes: [] }, remote: undefined } as InstanceContext
+    return {
+      directory: process.cwd(),
+      worktree: process.cwd(),
+      project: { id: "startup" as any, worktree: process.cwd(), time: { created: 0, updated: 0 }, sandboxes: [] },
+      remote: undefined,
+    } as InstanceContext
   }
   return ctx
 })
@@ -26,6 +31,7 @@ export const workspaceID = Effect.gen(function* () {
 })
 
 export const directory = Effect.map(context, (ctx) => ctx.directory)
+export const stateKey = Effect.map(context, (ctx) => ctx.stateKey ?? ctx.directory)
 
 // Per-directory state is expensive to build (plugins, references, provider
 // projections) but cheap to rebuild on demand. Effect's ScopedCache evicts the
@@ -58,7 +64,7 @@ export const make = <A, E = never, R = never>(
 
 export const get = <A, E, R>(self: InstanceState<A, E, R>) =>
   Effect.gen(function* () {
-    return yield* ScopedCache.get(self.cache, yield* directory)
+    return yield* ScopedCache.get(self.cache, yield* stateKey)
   })
 
 export const use = <A, E, R, B>(self: InstanceState<A, E, R>, select: (value: A) => B) => Effect.map(get(self), select)
@@ -70,12 +76,12 @@ export const useEffect = <A, E, R, B, E2, R2>(
 
 export const has = <A, E, R>(self: InstanceState<A, E, R>) =>
   Effect.gen(function* () {
-    return yield* ScopedCache.has(self.cache, yield* directory)
+    return yield* ScopedCache.has(self.cache, yield* stateKey)
   })
 
 export const invalidate = <A, E, R>(self: InstanceState<A, E, R>) =>
   Effect.gen(function* () {
-    return yield* ScopedCache.invalidate(self.cache, yield* directory)
+    return yield* ScopedCache.invalidate(self.cache, yield* stateKey)
   })
 
 export * as InstanceState from "./instance-state"
