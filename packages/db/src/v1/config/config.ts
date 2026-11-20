@@ -39,6 +39,19 @@ export const Info = Schema.Struct({
   server: Schema.optional(ConfigServerV1.Server).annotate({
     description: "Server configuration for opencode serve and web commands",
   }),
+  ssh: Schema.optional(
+    Schema.Struct({
+      enabled: Schema.optional(Schema.Boolean),
+      host: Schema.optional(Schema.String),
+      port: Schema.optional(PositiveInt),
+      username: Schema.optional(Schema.String),
+      hostKeyFile: Schema.optional(Schema.String),
+      listenTimeoutMs: Schema.optional(PositiveInt),
+    }),
+  ).annotate({
+    description:
+      "Optional inbound SSH REPL listener. Password authentication uses DIVEEOI_SSH_PASSWORD or the server password environment variable.",
+  }),
   command: Schema.optional(Schema.Record(Schema.String, ConfigCommandV1.Info)).annotate({
     description: "Command configuration, see https://opencode.ai/docs/commands",
   }),

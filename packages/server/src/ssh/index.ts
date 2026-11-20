@@ -36,7 +36,10 @@ import { AgentTask } from "@/task/task"
 export interface SshStartOptions {
   host: string
   port: number
+  username?: string
   password: string
+  hostKeyFile?: string
+  listenTimeoutMs?: number
 }
 
 export interface Interface {
@@ -77,80 +80,133 @@ export const layer = Layer.effect(
         try: () => import("ssh2"),
         catch: () => new Error("ssh2 import failed"),
       })
-      const { generateKeyPairSync } = yield* Effect.promise(() => import("node:crypto"))
-      const { existsSync, readFileSync, writeFileSync, mkdirSync } = yield* Effect.promise(() => import("node:fs"))
+      const { loadSSHHostKey } = yield* Effect.promise(() => import("./ssh-host-key"))
       const pathMod = yield* Effect.promise(() => import("node:path"))
-      const stateDir = process.env.XDG_STATE_HOME || pathMod.join(process.env.HOME || "/tmp", ".local", "state", "diveeoi")
-      const keyPath = pathMod.join(stateDir, "ssh_host_key")
-      if (!existsSync(keyPath)) {
-        try { mkdirSync(stateDir, { recursive: true }) } catch {}
-        const { privateKey } = generateKeyPairSync("ed25519", {
-          type: "pkcs8",
-          format: "pem",
-        })
-        const keyPem = typeof privateKey === "string" ? privateKey : (privateKey as any).export({ type: "pkcs8", format: "pem" }) as string
-        writeFileSync(keyPath, keyPem, { mode: 0o600 })
-      }
-      const hostKey = readFileSync(keyPath, "utf-8")
-      const sshServer = new ssh2.Server({
-        hostKeys: [hostKey],
-      }, (client) => {
-        client.on("authentication", (ctx) => {
-          if (ctx.method === "password" && ctx.password === opts.password) {
-            ctx.accept()
-          } else {
-            ctx.reject()
-          }
-        }).on("ready", () => {
-          client.on("session", (accept) => {
-            const session = accept()
-            session.on("pty", (accept) => accept())
-            session.on("shell", (accept) => {
-              const stream = accept()
-              stream.write("DiveeOI SSH REPL. Commands: run <prompt>, tasks, status <id>, cancel <id>.\r\n")
-              let buffer = ""
-              stream.on("data", (data: Buffer) => {
-                buffer += data.toString()
-                while (buffer.includes("\n")) {
-                  const idx = buffer.indexOf("\n")
-                  const line = buffer.slice(0, idx).trim()
-                  buffer = buffer.slice(idx + 1)
-                  if (line) {
-                    void Effect.runPromise(
-                      Effect.gen(function* () {
-                        const parts = line.split(/\s+/)
-                        const cmd = parts[0]
-                        if (cmd === "tasks") {
-                          const taskSvc = yield* Effect.tryPromise({ try: () => import("@/task/task"), catch: () => new Error("import failed") })
-                          const svc = yield* taskSvc.AgentTask.Service
-                          const tasks = yield* svc.list()
-                          stream.write(tasks.map(t => `${t.id} [${t.status}] ${t.prompt.slice(0, 80)}`).join("\r\n") + "\r\n")
-                        } else if (cmd === "run" && parts[1]) {
-                          const prompt = parts.slice(1).join(" ")
-                          const taskSvc = yield* Effect.tryPromise({ try: () => import("@/task/task"), catch: () => new Error("import failed") })
-                          const svc = yield* taskSvc.AgentTask.Service
-                          const task = yield* svc.create({ prompt, autoRun: true })
-                          stream.write(`Created task ${task.id}\r\n`)
-                        } else if (cmd === "cancel" && parts[1]) {
-                          const taskSvc = yield* Effect.tryPromise({ try: () => import("@/task/task"), catch: () => new Error("import failed") })
-                          const svc = yield* taskSvc.AgentTask.Service
-                          yield* svc.cancel(parts[1])
-                          stream.write(`Cancelled ${parts[1]}\r\n`)
-                        } else {
-                          stream.write("Unknown command. Commands: run <prompt>, tasks, status <id>, cancel <id>.\r\n")
-                        }
-                      }).pipe(Effect.catch((err) => Effect.sync(() => stream.write(`Error: ${String(err)}\r\n`)))) as any,
-                    )
-                  }
-                  stream.write("> ")
-                }
-              })
-              stream.write("> ")
-            })
-          })
-        })
+      const stateDir =
+        process.env.XDG_STATE_HOME || pathMod.join(process.env.HOME || process.cwd(), ".local", "state", "diveeoi")
+      const keyPath =
+        opts.hostKeyFile ?? process.env.DIVEEOI_SSH_HOST_KEY_FILE ?? pathMod.join(stateDir, "ssh_host_key")
+      const hostKey = yield* Effect.tryPromise({
+        try: () => loadSSHHostKey(keyPath),
+        catch: (error) => error as Error,
       })
-      sshServer.listen(opts.port, opts.host)
+      const sshServer = new ssh2.Server(
+        {
+          hostKeys: [hostKey],
+        },
+        (client) => {
+          client
+            .on("authentication", (ctx) => {
+              const usernameMatches = !opts.username || ctx.username === opts.username
+              if (ctx.method === "password" && usernameMatches && ctx.password === opts.password) {
+                ctx.accept()
+              } else {
+                ctx.reject()
+              }
+            })
+            .on("ready", () => {
+              client.on("session", (accept) => {
+                const session = accept()
+                session.on("pty", (accept) => accept())
+                session.on("shell", (accept) => {
+                  const stream = accept()
+                  stream.write("DiveeOI SSH REPL. Commands: run <prompt>, tasks, status <id>, cancel <id>.\r\n")
+                  let buffer = ""
+                  stream.on("data", (data: Buffer) => {
+                    buffer += data.toString()
+                    while (buffer.includes("\n")) {
+                      const idx = buffer.indexOf("\n")
+                      const line = buffer.slice(0, idx).trim()
+                      buffer = buffer.slice(idx + 1)
+                      if (line) {
+                        void Effect.runPromise(
+                          Effect.gen(function* () {
+                            const parts = line.split(/\s+/)
+                            const cmd = parts[0]
+                            if (cmd === "tasks") {
+                              const taskSvc = yield* Effect.tryPromise({
+                                try: () => import("@/task/task"),
+                                catch: () => new Error("import failed"),
+                              })
+                              const svc = yield* taskSvc.AgentTask.Service
+                              const tasks = yield* svc.list()
+                              stream.write(
+                                tasks.map((t) => `${t.id} [${t.status}] ${t.prompt.slice(0, 80)}`).join("\r\n") +
+                                  "\r\n",
+                              )
+                            } else if (cmd === "run" && parts[1]) {
+                              const prompt = parts.slice(1).join(" ")
+                              const taskSvc = yield* Effect.tryPromise({
+                                try: () => import("@/task/task"),
+                                catch: () => new Error("import failed"),
+                              })
+                              const svc = yield* taskSvc.AgentTask.Service
+                              const task = yield* svc.create({ prompt, autoRun: true })
+                              stream.write(`Created task ${task.id}\r\n`)
+                            } else if (cmd === "cancel" && parts[1]) {
+                              const taskSvc = yield* Effect.tryPromise({
+                                try: () => import("@/task/task"),
+                                catch: () => new Error("import failed"),
+                              })
+                              const svc = yield* taskSvc.AgentTask.Service
+                              yield* svc.cancel(parts[1])
+                              stream.write(`Cancelled ${parts[1]}\r\n`)
+                            } else {
+                              stream.write(
+                                "Unknown command. Commands: run <prompt>, tasks, status <id>, cancel <id>.\r\n",
+                              )
+                            }
+                          }).pipe(
+                            Effect.catch((err) => Effect.sync(() => stream.write(`Error: ${String(err)}\r\n`))),
+                          ) as any,
+                        )
+                      }
+                      stream.write("> ")
+                    }
+                  })
+                  stream.write("> ")
+                })
+              })
+            })
+        },
+      )
+      yield* Effect.tryPromise({
+        try: () =>
+          new Promise<void>((resolve, reject) => {
+            const timeoutMs = Number.isInteger(Number(process.env.DIVEEOI_SSH_LISTEN_TIMEOUT_MS))
+              ? Math.max(1000, Math.min(30000, Number(process.env.DIVEEOI_SSH_LISTEN_TIMEOUT_MS)))
+              : 8000
+            const timer = setTimeout(() => {
+              cleanup()
+              reject(new Error(`SSH listener startup timed out after ${timeoutMs}ms`))
+            }, timeoutMs)
+            const onListening = () => {
+              cleanup()
+              resolve()
+            }
+            const onError = (error: Error) => {
+              cleanup()
+              reject(error)
+            }
+            const cleanup = () => {
+              clearTimeout(timer)
+              sshServer.off("listening", onListening)
+              sshServer.off("error", onError)
+            }
+            sshServer.once("listening", onListening)
+            sshServer.once("error", onError)
+            sshServer.listen(opts.port, opts.host)
+          }),
+        catch: (error) => error as Error,
+      }).pipe(
+        Effect.tapError((error) =>
+          Effect.logError("ssh.listener.failed", {
+            host: opts.host,
+            port: opts.port,
+            message: error.message,
+          }),
+        ),
+      )
       server = {
         close: () => {
           sshServer.close()
@@ -183,24 +239,39 @@ export const node = LayerNode.make(layer, [Config.node, AgentTask.node])
  * and the probe passed. Returns immediately if disabled or unavailable.
  */
 export const maybeStart = Effect.fn("SshServer.maybeStart")(function* () {
+  const configService = yield* Config.Service
+  const config = yield* configService.get()
+  const settings = config.ssh ?? {}
+  const enabled =
+    process.env.DIVEEOI_SSH_ENABLED === undefined
+      ? settings.enabled !== false
+      : process.env.DIVEEOI_SSH_ENABLED !== "false"
+  if (!enabled) {
+    yield* Effect.logInfo("ssh.start.skipped", { reason: "SSH listener disabled" })
+    return
+  }
+
   const svc = yield* Service
-  // Config-driven gating happens in main.ts; this helper just calls start
-  // with defaults if the caller hasn't read config yet.
-  const host = process.env.DIVEEOI_SSH_HOST ?? "127.0.0.1"
-  const port = parseInt(process.env.DIVEEOI_SSH_PORT ?? "2222", 10)
+  const host = process.env.DIVEEOI_SSH_HOST ?? settings.host ?? "127.0.0.1"
+  const port = Number.parseInt(process.env.DIVEEOI_SSH_PORT ?? String(settings.port ?? 2222), 10)
+  const username = process.env.DIVEEOI_SSH_USERNAME ?? settings.username ?? process.env.DIVEEOI_SERVER_USERNAME
   const password =
     process.env.DIVEEOI_SSH_PASSWORD ??
     process.env.DIVEEOI_SERVER_PASSWORD ??
     process.env.OPENCODE_SERVER_PASSWORD ??
     ""
   if (!password) {
-    yield* Effect.logWarning("ssh.start.skipped", { reason: "no password configured" })
+    yield* Effect.logInfo("ssh.start.skipped", { reason: "no SSH password configured" })
     return
   }
-  const result = yield* svc.start({ host, port, password })
-  if (result.started) {
-    yield* Effect.logInfo("ssh.listening", { host, port })
-  }
-})
+
+  const hostKeyFile = process.env.DIVEEOI_SSH_HOST_KEY_FILE ?? settings.hostKeyFile
+  const listenTimeoutMs = Number.parseInt(
+    process.env.DIVEEOI_SSH_LISTEN_TIMEOUT_MS ?? String(settings.listenTimeoutMs ?? 8000),
+    10,
+  )
+  const result = yield* svc.start({ host, port, username, password, hostKeyFile, listenTimeoutMs })
+  if (result.started) yield* Effect.logInfo("ssh.listening", { host, port, username: username ?? "*" })
+}, Effect.provide(Config.defaultLayer))
 
 export * as SshServer from "./index"
