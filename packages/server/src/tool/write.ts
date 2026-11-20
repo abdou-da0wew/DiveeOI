@@ -12,6 +12,7 @@ import { Format } from "../format"
 import { FSUtil } from "@diveeoi/db/fs-util"
 import { InstanceState } from "@/effect/instance-state"
 import { trimDiff } from "./edit"
+import { withLocalToolContext } from "./remote-local-context"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import * as Bom from "@/util/bom"
 
@@ -22,7 +23,10 @@ export const Parameters = Schema.Struct({
   filePath: Schema.String.annotate({
     description: "The absolute path to the file to write (must be absolute, not relative)",
   }),
-  ctx_local: Schema.optional(Schema.Boolean).annotate({ description: "Remote sessions: when true, operate on the LOCAL machine instead of the remote SSH host. Defaults to false (remote)." }),
+  ctx_local: Schema.optional(Schema.Boolean).annotate({
+    description:
+      "Remote sessions: when true, operate on the LOCAL machine instead of the remote SSH host. Defaults to false (remote).",
+  }),
 })
 
 export const WriteTool = Tool.define(
@@ -36,70 +40,73 @@ export const WriteTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: { content: string; filePath: string }, ctx: Tool.Context) =>
-        Effect.gen(function* () {
-          const instance = yield* InstanceState.context
-          const filepath = path.isAbsolute(params.filePath)
-            ? params.filePath
-            : path.join(instance.directory, params.filePath)
-          yield* assertExternalDirectoryEffect(ctx, filepath)
+      execute: (params: { content: string; filePath: string; ctx_local?: boolean }, ctx: Tool.Context) =>
+        withLocalToolContext(
+          Effect.gen(function* () {
+            const instance = yield* InstanceState.context
+            const filepath = path.isAbsolute(params.filePath)
+              ? params.filePath
+              : path.join(instance.directory, params.filePath)
+            yield* assertExternalDirectoryEffect(ctx, filepath)
 
-          const exists = yield* fs.existsSafe(filepath)
-          const source = exists ? yield* Bom.readFile(fs, filepath) : { bom: false, text: "" }
-          const next = Bom.split(params.content)
-          const desiredBom = source.bom || next.bom
-          const contentOld = source.text
-          const contentNew = next.text
+            const exists = yield* fs.existsSafe(filepath)
+            const source = exists ? yield* Bom.readFile(fs, filepath) : { bom: false, text: "" }
+            const next = Bom.split(params.content)
+            const desiredBom = source.bom || next.bom
+            const contentOld = source.text
+            const contentNew = next.text
 
-          const diff = trimDiff(createTwoFilesPatch(filepath, filepath, contentOld, contentNew))
-          yield* ctx.ask({
-            permission: "edit",
-            patterns: [path.relative(instance.worktree, filepath)],
-            always: ["*"],
-            metadata: {
-              filepath,
-              diff,
-            },
-          })
+            const diff = trimDiff(createTwoFilesPatch(filepath, filepath, contentOld, contentNew))
+            yield* ctx.ask({
+              permission: "edit",
+              patterns: [path.relative(instance.worktree, filepath)],
+              always: ["*"],
+              metadata: {
+                filepath,
+                diff,
+              },
+            })
 
-          yield* fs.writeWithDirs(filepath, Bom.join(contentNew, desiredBom))
-          if (yield* format.file(filepath)) {
-            yield* Bom.syncFile(fs, filepath, desiredBom)
-          }
-          yield* events.publish(FileSystem.Event.Edited, { file: filepath })
-          yield* events.publish(Watcher.Event.Updated, {
-            file: filepath,
-            event: exists ? "change" : "add",
-          })
-
-          let output = "Wrote file successfully."
-          yield* lsp.touchFile(filepath, "document")
-          const diagnostics = yield* lsp.diagnostics()
-          const normalizedFilepath = FSUtil.normalizePath(filepath)
-          let projectDiagnosticsCount = 0
-          for (const [file, issues] of Object.entries(diagnostics)) {
-            const current = file === normalizedFilepath
-            if (!current && projectDiagnosticsCount >= MAX_PROJECT_DIAGNOSTICS_FILES) continue
-            const block = LSP.Diagnostic.report(current ? filepath : file, issues)
-            if (!block) continue
-            if (current) {
-              output += `\n\nLSP errors detected in this file, please fix:\n${block}`
-              continue
+            yield* fs.writeWithDirs(filepath, Bom.join(contentNew, desiredBom))
+            if (yield* format.file(filepath)) {
+              yield* Bom.syncFile(fs, filepath, desiredBom)
             }
-            projectDiagnosticsCount++
-            output += `\n\nLSP errors detected in other files:\n${block}`
-          }
+            yield* events.publish(FileSystem.Event.Edited, { file: filepath })
+            yield* events.publish(Watcher.Event.Updated, {
+              file: filepath,
+              event: exists ? "change" : "add",
+            })
 
-          return {
-            title: path.relative(instance.worktree, filepath),
-            metadata: {
-              diagnostics,
-              filepath,
-              exists: exists,
-            },
-            output,
-          }
-        }).pipe(Effect.orDie),
+            let output = "Wrote file successfully."
+            yield* lsp.touchFile(filepath, "document")
+            const diagnostics = yield* lsp.diagnostics()
+            const normalizedFilepath = FSUtil.normalizePath(filepath)
+            let projectDiagnosticsCount = 0
+            for (const [file, issues] of Object.entries(diagnostics)) {
+              const current = file === normalizedFilepath
+              if (!current && projectDiagnosticsCount >= MAX_PROJECT_DIAGNOSTICS_FILES) continue
+              const block = LSP.Diagnostic.report(current ? filepath : file, issues)
+              if (!block) continue
+              if (current) {
+                output += `\n\nLSP errors detected in this file, please fix:\n${block}`
+                continue
+              }
+              projectDiagnosticsCount++
+              output += `\n\nLSP errors detected in other files:\n${block}`
+            }
+
+            return {
+              title: path.relative(instance.worktree, filepath),
+              metadata: {
+                diagnostics,
+                filepath,
+                exists: exists,
+              },
+              output,
+            }
+          }),
+          params.ctx_local === true,
+        ).pipe(Effect.orDie),
     }
   }),
 )

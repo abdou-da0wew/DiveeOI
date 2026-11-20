@@ -1,4 +1,4 @@
-import { Effect, Stream } from "effect"
+import { Effect, Option, Stream } from "effect"
 import os from "os"
 import { createWriteStream } from "node:fs"
 import * as Tool from "./tool"
@@ -23,6 +23,8 @@ import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { ShellPrompt, type Parameters } from "./shell/prompt"
 import { BashArity } from "@/permission/arity"
+import { RemoteSession, type RemoteConfig } from "@/ssh-client"
+import { makeSSHSpawner } from "@/ssh-client/ssh-spawner"
 
 export { Parameters } from "./shell/prompt"
 
@@ -348,6 +350,7 @@ export const ShellTool = Tool.define(
   Effect.gen(function* () {
     const config = yield* Config.Service
     const spawner = yield* ChildProcessSpawner
+    const remoteSession = Option.getOrUndefined(yield* Effect.serviceOption(RemoteSession.Service))
     const fs = yield* FSUtil.Service
     const trunc = yield* Truncate.Service
     const plugin = yield* Plugin.Service
@@ -445,6 +448,7 @@ export const ShellTool = Tool.define(
         env: NodeJS.ProcessEnv
         timeout: number
         description: string
+        remote?: RemoteConfig
       },
       ctx: Tool.Context,
     ) {
@@ -493,7 +497,9 @@ export const ShellTool = Tool.define(
           })
           try {
             elevation.fs.writeFileSync(elevation.passwordPath, sudoPassword, { mode: 0o600 })
-            elevation.fs.writeFileSync(elevation.helperPath, elevation.askpassScript(elevation.passwordPath), { mode: 0o700 })
+            elevation.fs.writeFileSync(elevation.helperPath, elevation.askpassScript(elevation.passwordPath), {
+              mode: 0o700,
+            })
             elevationCleanup = [elevation.helperPath, elevation.passwordPath]
             elevatedCommand = `sudo -A -p '' ${input.command}`
             elevatedEnv = { ...input.env, SUDO_ASKPASS: elevation.helperPath }
@@ -554,10 +560,13 @@ export const ShellTool = Tool.define(
         }
         if (!force && Date.now() - lastFlushAt < flushMs) {
           if (!pendingFlush) {
-            pendingFlush = setTimeout(() => {
-              pendingFlush = undefined
-              void Effect.runPromise(flushMetadata()).catch(() => {})
-            }, flushMs - (Date.now() - lastFlushAt))
+            pendingFlush = setTimeout(
+              () => {
+                pendingFlush = undefined
+                void Effect.runPromise(flushMetadata()).catch(() => {})
+              },
+              flushMs - (Date.now() - lastFlushAt),
+            )
           }
           return Effect.void
         }
@@ -612,13 +621,20 @@ export const ShellTool = Tool.define(
           yield* Effect.addFinalizer(closeSink)
           // P11: use elevatedCommand/elevatedEnv when elevation was set up.
           // The askpass files are cleaned up via the finalizer below.
-          const handle = yield* spawner.spawn(cmd(input.shell, elevatedCommand, input.cwd, elevatedEnv))
+          const activeSpawner = input.remote
+            ? remoteSession
+              ? makeSSHSpawner(yield* remoteSession.acquire(input.remote))
+              : yield* Effect.fail(new Error("Remote SSH service is unavailable in this runtime"))
+            : spawner
+          const handle = yield* activeSpawner.spawn(cmd(input.shell, elevatedCommand, input.cwd, elevatedEnv))
           // P11: clean up the askpass password file + helper script
           if (elevationCleanup.length > 0) {
             yield* Effect.addFinalizer(() =>
               Effect.sync(() => {
                 elevationCleanup.forEach((f) => {
-                  try { require("node:fs").unlinkSync(f) } catch {}
+                  try {
+                    require("node:fs").unlinkSync(f)
+                  } catch {}
                 })
               }),
             )
@@ -762,9 +778,18 @@ export const ShellTool = Tool.define(
           execute: (params: Parameters, ctx: Tool.Context) =>
             Effect.gen(function* () {
               const instanceCtx = yield* InstanceState.context
+              const executionContext =
+                params.ctx_local === true && instanceCtx.remote
+                  ? {
+                      ...instanceCtx,
+                      directory: instanceCtx.localDirectory ?? process.cwd(),
+                      worktree: instanceCtx.localDirectory ?? process.cwd(),
+                      remote: undefined,
+                    }
+                  : instanceCtx
               const cwd = params.workdir
-                ? yield* resolvePath(params.workdir, instanceCtx.directory, shell)
-                : instanceCtx.directory
+                ? yield* resolvePath(params.workdir, executionContext.directory, shell)
+                : executionContext.directory
               if (params.timeout !== undefined && params.timeout < 0) {
                 throw new Error(`Invalid timeout value: ${params.timeout}. Timeout must be a positive number.`)
               }
@@ -775,8 +800,8 @@ export const ShellTool = Tool.define(
                   const tree = yield* Effect.acquireRelease(parse(params.command, ps), (tree) =>
                     Effect.sync(() => tree.delete()),
                   )
-                  const scan = yield* collect(tree.rootNode, cwd, ps, shell, instanceCtx)
-                  if (!containsPath(cwd, instanceCtx)) scan.dirs.add(cwd)
+                  const scan = yield* collect(tree.rootNode, cwd, ps, shell, executionContext)
+                  if (!containsPath(cwd, executionContext)) scan.dirs.add(cwd)
                   yield* ask(ctx, scan, params)
                 }),
               )
@@ -789,6 +814,7 @@ export const ShellTool = Tool.define(
                   env: yield* shellEnv(ctx, cwd),
                   timeout,
                   description: params.description,
+                  remote: executionContext.remote,
                 },
                 ctx,
               )

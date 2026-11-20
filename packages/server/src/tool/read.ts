@@ -2,6 +2,7 @@ import { Effect, Option, Schema, Scope, Stream } from "effect"
 import { NonNegativeInt } from "@diveeoi/db/schema"
 import * as path from "path"
 import * as Tool from "./tool"
+import { withLocalToolContext } from "./remote-local-context"
 import { FSUtil } from "@diveeoi/db/fs-util"
 import { LSP } from "@/lsp/lsp"
 import DESCRIPTION from "./read.txt"
@@ -384,19 +385,7 @@ export const ReadTool = Tool.define<
       description: DESCRIPTION,
       parameters: Parameters,
       execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context<Metadata>) =>
-        Effect.gen(function* () {
-          // ctx_local: when true on a remote session, provide the LocalFS
-          // service in place of FSUtil.Service for this call only.
-          if (params.ctx_local === true) {
-            const { LocalFS } = yield* Effect.promise(() => import("./local-fs"))
-            const localFs = yield* LocalFS.Service
-            return yield* run(params, ctx).pipe(
-              Effect.provideService(FSUtil.Service, localFs as any),
-              Effect.orDie,
-            )
-          }
-          return yield* run(params, ctx).pipe(Effect.orDie)
-        }) as any,
+        withLocalToolContext(run(params, ctx), params.ctx_local === true).pipe(Effect.orDie) as any,
     }
   }),
 )

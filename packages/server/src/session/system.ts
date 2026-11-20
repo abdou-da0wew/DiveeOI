@@ -138,7 +138,10 @@ export const layer = Layer.effect(
                   `  Platform: ${ctx.remote.platform ?? "linux"}`,
                   `  Remote host: ${ctx.remote.host}:${ctx.remote.port}`,
                   `  Today's date: ${new Date().toDateString()}`,
-                  `  NOTE: You are on a REMOTE SSH session. All file/shell operations run on ${ctx.remote.host}. Use ctx_local=true on any tool call to run it on the LOCAL machine instead.`,
+                  `  NOTE: You are on a REMOTE SSH session. All file/shell operations run on ${ctx.remote.host}. Use ctx_local=true on a supported tool call to run it on the LOCAL machine instead.`,
+                  `  Remote transport: shell commands execute over SSH; file reads/writes/edits use the SFTP-backed filesystem. grep and glob run on the remote host with ripgrep.`,
+                  `  Use the normal read, write, edit, grep, glob, and shell tools for remote work. Use ctx_local=true only when you intentionally need the local server machine.`,
+                  `  SSH authentication is managed by the saved profile in Settings > Remote Sessions. Never ask the user to paste private keys or passwords into chat, and never print credentials.`,
                 ]
               : [
                   `  Working directory: ${ctx.directory}`,
@@ -174,9 +177,8 @@ export const layer = Layer.effect(
 
         let skillsBlock: string | undefined
         if (!Permission.disabled(["skill"], agent.permission).has("skill")) {
-          const mentionSkills = mentionResult.mentions.length > 0
-            ? skillMentions.formatMentions(mentionResult.mentions)
-            : undefined
+          const mentionSkills =
+            mentionResult.mentions.length > 0 ? skillMentions.formatMentions(mentionResult.mentions) : undefined
 
           if (mentionSkills && (tier === "normal" || tier === "generous" || tier === "unlimited")) {
             skillsBlock = `<skills>\n${mentionSkills}\n</skills>`
@@ -210,8 +212,7 @@ export const layer = Layer.effect(
 
         // The background-task block names the task tools, so it is only worth its tokens
         // when the agent is actually allowed to use them.
-        const tasksBlock =
-          Permission.disabled(["task"], agent.permission).size > 0 ? undefined : PROMPT_TASKS
+        const tasksBlock = Permission.disabled(["task"], agent.permission).size > 0 ? undefined : PROMPT_TASKS
 
         const budgetHint = `<budget:token_budget>${tier}:${budgetInfo.remainingTokens}</budget:token_budget>`
 

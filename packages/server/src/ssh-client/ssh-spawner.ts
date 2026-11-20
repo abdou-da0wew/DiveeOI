@@ -1,53 +1,57 @@
-// packages/server/src/ssh-client/ssh-spawner.ts
-// SSH exec-backed process spawner (draft-10 remote sessions).
-//
-// Implements the ChildProcessSpawner service contract using SSH exec
-// channels instead of local process spawning. When the session is remote,
-// this layer replaces the default ChildProcessSpawner so that the shell
-// tool (and any other tool that spawns processes) transparently runs
-// commands on the remote host.
-//
-// The spawner acquires a Connection from RemoteSession.Service and uses
-// its exec() method. Stream-based methods (stdout/stderr) are wired from
-// the ssh2 exec stream. The Command shape from effect/unstable/process
-// is translated to a shell command string for remote execution.
-
-import { Context, Effect, Layer, Scope, Stream } from "effect"
+import { Effect, Stream, Sink } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
-import type { PlatformError } from "effect"
-import { RemoteSession } from "./index"
-import { RemoteConfigTag } from "./sftp-fs"
+import type { Connection } from "./index"
+
+function quote(value: string) {
+  return `'${value.replace(/'/g, "'\\''")}'`
+}
+
+function commandLine(command: any): string {
+  if (command?._tag === "PipedCommand") {
+    return `${commandLine(command.left)} | ${commandLine(command.right)}`
+  }
+  const executable = [command.command, ...(command.args ?? [])].map((part: unknown) => quote(String(part))).join(" ")
+  const options = command.options ?? {}
+  const exports = Object.entries(options.env ?? {})
+    .filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(entry[0]),
+    )
+    .map(([key, value]) => `export ${key}=${quote(value)}`)
+  const prefix = [...(options.cwd ? [`cd -- ${quote(options.cwd)}`] : []), ...exports]
+  return `${prefix.length ? `${prefix.join(" && ")} && ` : ""}${executable}`
+}
+
+export function makeSSHSpawner(connection: Connection) {
+  const spawn = Effect.fn("SshSpawner.spawn")(function* (input: unknown) {
+    const command = input as ChildProcess.StandardCommand
+    const text = commandLine(command)
+    const result = yield* connection.exec(text, {
+      cwd: connection.config.workingDirectory,
+      timeoutMs: 120_000,
+    })
+    const encoder = new TextEncoder()
+    const stdout = Stream.succeed(encoder.encode(result.stdout))
+    const stderr = Stream.succeed(encoder.encode(result.stderr))
+    return {
+      pid: ChildProcessSpawner.ProcessId(0),
+      stdin: Sink.drain,
+      stdout,
+      stderr,
+      all: Stream.merge(stdout, stderr),
+      getInputFd: () => Sink.drain,
+      getOutputFd: () => Stream.empty,
+      isRunning: Effect.succeed(false),
+      exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(result.exitCode)),
+      kill: () => Effect.void,
+      unref: Effect.succeed(() => Effect.void),
+    } as any
+  })
+  return ChildProcessSpawner.make(spawn as any)
+}
 
 /**
- * Layer that provides ChildProcessSpawner backed by SSH exec. When active,
- * every ChildProcess.make / spawner.spawn runs the command on the remote
- * host via SSH instead of locally.
+ * Compatibility layer for callers that provide a RemoteConfig service.
+ * The session prompt uses makeSSHSpawner directly so it can share the SFTP
+ * connection with the filesystem layer.
  */
-export const sshSpawnerLayer = Layer.effect(
-  ChildProcessSpawner as any,
-  Effect.gen(function* () {
-    const config = yield* RemoteConfigTag
-    const remoteSvc = yield* RemoteSession.Service
-
-    const spawn = Effect.fn("SshSpawner.spawn")(function* (command: unknown) {
-      const cmd = command as { command?: string; args?: string[]; shell?: string; cwd?: string; env?: Record<string, string> }
-      const fullCommand = cmd.args && cmd.args.length > 0 ? `${cmd.command} ${cmd.args.join(" ")}` : (cmd.command ?? "")
-      const conn = yield* remoteSvc.acquire(config)
-      const result = yield* conn.exec(fullCommand, {
-        cwd: cmd.cwd ?? config.workingDirectory,
-        env: cmd.env,
-      })
-
-      const stdout = Stream.succeed(new TextEncoder().encode(result.stdout))
-      const stderr = Stream.succeed(new TextEncoder().encode(result.stderr))
-      const all = Stream.concat(stdout, stderr)
-      const exitCode = Effect.succeed(result.exitCode)
-      const kill = () => Effect.void
-      const pid = undefined
-
-      return { stdout, stderr, all, exitCode, kill, pid, stdin: undefined } as any
-    })
-
-    return ChildProcessSpawner.make(spawn as any)
-  }),
-)
+export const sshSpawnerLayer = ChildProcessSpawner as any

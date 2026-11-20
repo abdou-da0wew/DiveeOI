@@ -56,6 +56,8 @@ import { Todo } from "../session/todo"
 import { LSP } from "@/lsp/lsp"
 import { Instruction } from "../session/instruction"
 import { FSUtil } from "@diveeoi/db/fs-util"
+import { RemoteFS } from "@/ssh-client/remote-fs"
+import { RemoteSession } from "@/ssh-client"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { Agent } from "../agent/agent"
 import { Skill } from "../skill"
@@ -181,9 +183,7 @@ export const layer = Layer.effect(
           return [tools.search, tools.recall, tools.edit]
         })
 
-    const ctx7Defs = yield* getCtx7Defs().pipe(
-      Effect.catch(() => Effect.succeed([] as Tool.Def[])),
-    )
+    const ctx7Defs = yield* getCtx7Defs().pipe(Effect.catch(() => Effect.succeed([] as Tool.Def[])))
 
     const state = yield* InstanceState.make<State>(
       Effect.fn("ToolRegistry.state")(function* (ctx) {
@@ -330,114 +330,117 @@ export const layer = Layer.effect(
         const taskDef: TaskDef = tool.task
         const readDef: ReadDef = tool.read
         const lazy: Array<{ init: Effect.Effect<Tool.Def> }> = [
-            {
-              init: Effect.gen(function* () {
-                const mod: any = yield* Effect.promise(() => import("./skill"))
-                const info = yield* (mod.SkillTool as Effect.Effect<Tool.Info>)
-                return yield* Tool.init(info)
-              }),
-            },
-            {
-              init: Effect.gen(function* () {
-                const mod: any = yield* Effect.promise(() => import("./apply_patch"))
-                const info = yield* (mod.ApplyPatchTool as Effect.Effect<Tool.Info>)
-                return yield* Tool.init(info)
-              }),
-            },
-            // P6 machine tools — lazy-loaded so the ChildProcessSpawner /
-            // FSUtil / Ripgrep service deps stay scoped to each tool's init
-            // and don't widen the registry's state-initializer R type.
-            {
-              init: Effect.gen(function* () {
-                const mod: any = yield* Effect.promise(() => import("./machine/notify"))
-                return yield* Tool.init(yield* (mod.NotifyTool as Effect.Effect<Tool.Info>))
-              }),
-            },
-            {
-              init: Effect.gen(function* () {
-                const mod: any = yield* Effect.promise(() => import("./machine/system-info"))
-                return yield* Tool.init(yield* (mod.SystemInfoTool as Effect.Effect<Tool.Info>))
-              }),
-            },
-            {
-              init: Effect.gen(function* () {
-                const mod: any = yield* Effect.promise(() => import("./machine/list-processes"))
-                return yield* Tool.init(yield* (mod.ListProcessesTool as Effect.Effect<Tool.Info>))
-              }),
-            },
-            {
-              init: Effect.gen(function* () {
-                const mod: any = yield* Effect.promise(() => import("./machine/kill-process"))
-                return yield* Tool.init(yield* (mod.KillProcessTool as Effect.Effect<Tool.Info>))
-              }),
-            },
-            {
-              init: Effect.gen(function* () {
-                const mod: any = yield* Effect.promise(() => import("./machine/http-request"))
-                return yield* Tool.init(yield* (mod.HttpRequestTool as Effect.Effect<Tool.Info>))
-              }),
-            },
-            {
-              init: Effect.gen(function* () {
-                const mod: any = yield* Effect.promise(() => import("./machine/screenshot"))
-                return yield* Tool.init(yield* (mod.ScreenshotTool as Effect.Effect<Tool.Info>))
-              }),
-            },
-            {
-              init: Effect.gen(function* () {
-                const mod: any = yield* Effect.promise(() => import("./machine/clipboard"))
-                return yield* Tool.init(yield* (mod.ClipboardReadTool as Effect.Effect<Tool.Info>))
-              }),
-            },
-            {
-              init: Effect.gen(function* () {
-                const mod: any = yield* Effect.promise(() => import("./machine/clipboard"))
-                return yield* Tool.init(yield* (mod.ClipboardWriteTool as Effect.Effect<Tool.Info>))
-              }),
-            },
-            {
-              init: Effect.gen(function* () {
-                const mod: any = yield* Effect.promise(() => import("./machine/watch-file"))
-                return yield* Tool.init(yield* (mod.WatchFileTool as Effect.Effect<Tool.Info>))
-              }),
-            },
-            {
-              init: Effect.gen(function* () {
-                const mod: any = yield* Effect.promise(() => import("./machine/open-url"))
-                return yield* Tool.init(yield* (mod.OpenUrlTool as Effect.Effect<Tool.Info>))
-              }),
-            },
-            {
-              init: Effect.gen(function* () {
-                const mod: any = yield* Effect.promise(() => import("./machine/glob-search"))
-                return yield* Tool.init(yield* (mod.GlobSearchTool as Effect.Effect<Tool.Info>))
-              }),
-            },
-          ].concat(
+          {
+            init: Effect.gen(function* () {
+              const mod: any = yield* Effect.promise(() => import("./skill"))
+              const info = yield* mod.SkillTool as Effect.Effect<Tool.Info>
+              return yield* Tool.init(info)
+            }),
+          },
+          {
+            init: Effect.gen(function* () {
+              const mod: any = yield* Effect.promise(() => import("./apply_patch"))
+              const info = yield* mod.ApplyPatchTool as Effect.Effect<Tool.Info>
+              return yield* Tool.init(info)
+            }),
+          },
+          // P6 machine tools — lazy-loaded so the ChildProcessSpawner /
+          // FSUtil / Ripgrep service deps stay scoped to each tool's init
+          // and don't widen the registry's state-initializer R type.
+          {
+            init: Effect.gen(function* () {
+              const mod: any = yield* Effect.promise(() => import("./machine/notify"))
+              return yield* Tool.init(yield* mod.NotifyTool as Effect.Effect<Tool.Info>)
+            }),
+          },
+          {
+            init: Effect.gen(function* () {
+              const mod: any = yield* Effect.promise(() => import("./machine/system-info"))
+              return yield* Tool.init(yield* mod.SystemInfoTool as Effect.Effect<Tool.Info>)
+            }),
+          },
+          {
+            init: Effect.gen(function* () {
+              const mod: any = yield* Effect.promise(() => import("./machine/list-processes"))
+              return yield* Tool.init(yield* mod.ListProcessesTool as Effect.Effect<Tool.Info>)
+            }),
+          },
+          {
+            init: Effect.gen(function* () {
+              const mod: any = yield* Effect.promise(() => import("./machine/kill-process"))
+              return yield* Tool.init(yield* mod.KillProcessTool as Effect.Effect<Tool.Info>)
+            }),
+          },
+          {
+            init: Effect.gen(function* () {
+              const mod: any = yield* Effect.promise(() => import("./machine/http-request"))
+              return yield* Tool.init(yield* mod.HttpRequestTool as Effect.Effect<Tool.Info>)
+            }),
+          },
+          {
+            init: Effect.gen(function* () {
+              const mod: any = yield* Effect.promise(() => import("./machine/screenshot"))
+              return yield* Tool.init(yield* mod.ScreenshotTool as Effect.Effect<Tool.Info>)
+            }),
+          },
+          {
+            init: Effect.gen(function* () {
+              const mod: any = yield* Effect.promise(() => import("./machine/clipboard"))
+              return yield* Tool.init(yield* mod.ClipboardReadTool as Effect.Effect<Tool.Info>)
+            }),
+          },
+          {
+            init: Effect.gen(function* () {
+              const mod: any = yield* Effect.promise(() => import("./machine/clipboard"))
+              return yield* Tool.init(yield* mod.ClipboardWriteTool as Effect.Effect<Tool.Info>)
+            }),
+          },
+          {
+            init: Effect.gen(function* () {
+              const mod: any = yield* Effect.promise(() => import("./machine/watch-file"))
+              return yield* Tool.init(yield* mod.WatchFileTool as Effect.Effect<Tool.Info>)
+            }),
+          },
+          {
+            init: Effect.gen(function* () {
+              const mod: any = yield* Effect.promise(() => import("./machine/open-url"))
+              return yield* Tool.init(yield* mod.OpenUrlTool as Effect.Effect<Tool.Info>)
+            }),
+          },
+          {
+            init: Effect.gen(function* () {
+              const mod: any = yield* Effect.promise(() => import("./machine/glob-search"))
+              return yield* Tool.init(yield* mod.GlobSearchTool as Effect.Effect<Tool.Info>)
+            }),
+          },
+        ]
+          .concat(
             flags.experimentalLspTool
               ? [
                   {
                     init: Effect.gen(function* () {
                       const mod: any = yield* Effect.promise(() => import("./lsp"))
-                      const info = yield* (mod.LspTool as Effect.Effect<Tool.Info>)
+                      const info = yield* mod.LspTool as Effect.Effect<Tool.Info>
                       return yield* Tool.init(info)
                     }),
                   },
                 ]
               : [],
-          ).concat(
+          )
+          .concat(
             flags.experimentalPlanMode && flags.client === "cli"
               ? [
                   {
                     init: Effect.gen(function* () {
                       const mod: any = yield* Effect.promise(() => import("./plan"))
-                      const info = yield* (mod.PlanExitTool as Effect.Effect<Tool.Info>)
+                      const info = yield* mod.PlanExitTool as Effect.Effect<Tool.Info>
                       return yield* Tool.init(info)
                     }),
                   },
                 ]
               : [],
-          ).concat(
+          )
+          .concat(
             // Targeted Learning book tools — lazy-loaded so @diveeoi/learning
             // stays scoped to each tool's init. Only loaded when the
             // learning feature flag is on.
@@ -446,19 +449,19 @@ export const layer = Layer.effect(
                   {
                     init: Effect.gen(function* () {
                       const mod: any = yield* Effect.promise(() => import("./learning/book-outline"))
-                      return yield* Tool.init(yield* (mod.BookOutlineTool as Effect.Effect<Tool.Info>))
+                      return yield* Tool.init(yield* mod.BookOutlineTool as Effect.Effect<Tool.Info>)
                     }),
                   },
                   {
                     init: Effect.gen(function* () {
                       const mod: any = yield* Effect.promise(() => import("./learning/book-search"))
-                      return yield* Tool.init(yield* (mod.BookSearchTool as Effect.Effect<Tool.Info>))
+                      return yield* Tool.init(yield* mod.BookSearchTool as Effect.Effect<Tool.Info>)
                     }),
                   },
                   {
                     init: Effect.gen(function* () {
                       const mod: any = yield* Effect.promise(() => import("./learning/book-read-section"))
-                      return yield* Tool.init(yield* (mod.BookReadSectionTool as Effect.Effect<Tool.Info>))
+                      return yield* Tool.init(yield* mod.BookReadSectionTool as Effect.Effect<Tool.Info>)
                     }),
                   },
                   {
@@ -494,25 +497,25 @@ export const layer = Layer.effect(
                   {
                     init: Effect.gen(function* () {
                       const mod: any = yield* Effect.promise(() => import("./learning/memory-tools"))
-                      return yield* Tool.init(yield* (mod.StudentMemoryReadTool as Effect.Effect<Tool.Info>))
+                      return yield* Tool.init(yield* mod.StudentMemoryReadTool as Effect.Effect<Tool.Info>)
                     }),
                   },
                   {
                     init: Effect.gen(function* () {
                       const mod: any = yield* Effect.promise(() => import("./learning/memory-tools"))
-                      return yield* Tool.init(yield* (mod.StudentMemoryWriteTool as Effect.Effect<Tool.Info>))
+                      return yield* Tool.init(yield* mod.StudentMemoryWriteTool as Effect.Effect<Tool.Info>)
                     }),
                   },
                   {
                     init: Effect.gen(function* () {
                       const mod: any = yield* Effect.promise(() => import("./learning/memory-tools"))
-                      return yield* Tool.init(yield* (mod.BookNoteReadTool as Effect.Effect<Tool.Info>))
+                      return yield* Tool.init(yield* mod.BookNoteReadTool as Effect.Effect<Tool.Info>)
                     }),
                   },
                   {
                     init: Effect.gen(function* () {
                       const mod: any = yield* Effect.promise(() => import("./learning/memory-tools"))
-                      return yield* Tool.init(yield* (mod.BookNoteWriteTool as Effect.Effect<Tool.Info>))
+                      return yield* Tool.init(yield* mod.BookNoteWriteTool as Effect.Effect<Tool.Info>)
                     }),
                   },
                 ]
@@ -626,7 +629,7 @@ export const defaultLayer = Layer.suspend(() =>
       Layer.provide(Provider.defaultLayer),
       Layer.provide(LSP.defaultLayer),
       Layer.provide(Instruction.defaultLayer),
-      Layer.provide(FSUtil.defaultLayer),
+      Layer.provide(RemoteFS.defaultLayer),
       Layer.provide(EventV2Bridge.defaultLayer),
       Layer.provide(FetchHttpClient.layer),
       Layer.provide(Format.defaultLayer),
@@ -743,7 +746,8 @@ export const node = LayerNode.make(layer, [
   Provider.node,
   LSP.node,
   Instruction.node,
-  FSUtil.node,
+  RemoteFS.node,
+  RemoteSession.node,
   EventV2Bridge.node,
   httpClient,
   CrossSpawnSpawner.node,

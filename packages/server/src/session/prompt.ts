@@ -48,6 +48,9 @@ import { LLM } from "./llm"
 import { Shell } from "@diveeoi/db/shell"
 import { ShellID } from "@/tool/shell/id"
 import { FSUtil } from "@diveeoi/db/fs-util"
+import { RemoteFS } from "@/ssh-client/remote-fs"
+import { RemoteSession } from "@/ssh-client"
+import { makeSSHSpawner } from "@/ssh-client/ssh-spawner"
 import { Truncate } from "@/tool/truncate"
 import { Image } from "@/image/image"
 import { decodeDataUrl } from "@/util/data-url"
@@ -180,6 +183,7 @@ export const layer = Layer.effect(
     const truncate = yield* Truncate.Service
     const image = yield* Image.Service
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+    const remoteSession = yield* RemoteSession.Service
     const scope = yield* Scope.Scope
     const instruction = yield* Instruction.Service
     const state = yield* SessionRunState.Service
@@ -524,7 +528,7 @@ export const layer = Layer.effect(
       return yield* Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
           const markReady = ready ? ready.open.pipe(Effect.asVoid) : Effect.void
-          const { msg, part, cwd } = yield* Effect.gen(function* () {
+          const { msg, part, cwd, remote } = yield* Effect.gen(function* () {
             const ctx = yield* InstanceState.context
             const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
             if (session.revert) {
@@ -597,7 +601,7 @@ export const layer = Layer.effect(
                 command: input.command,
               })
             }
-            return { msg, part, cwd: ctx.directory }
+            return { msg, part, cwd: ctx.directory, remote: ctx.remote }
           }).pipe(Effect.ensuring(markReady))
 
           const cfg = yield* config.get()
@@ -652,7 +656,8 @@ export const layer = Layer.effect(
                 stdin: "ignore",
                 forceKillAfter: "3 seconds",
               })
-              const handle = yield* spawner.spawn(cmd)
+              const activeSpawner = remote ? makeSSHSpawner(yield* remoteSession.acquire(remote)) : spawner
+              const handle = yield* activeSpawner.spawn(cmd)
               yield* Stream.runForEach(Stream.decodeText(handle.all), (chunk) =>
                 Effect.gen(function* () {
                   output += chunk
@@ -1311,699 +1316,699 @@ export const layer = Layer.effect(
     })
 
     const runLoop = Effect.fn("SessionPrompt.run")(function* (sessionID: SessionID) {
-        const ctx = yield* InstanceState.context
-        let structured: unknown
-        let step = 0
-        let groundingRetryPrompt: string | undefined
-        let groundingRetryUsed = false
-        // Consecutive steps that ended in the same repetition diagnosis (draft-10 P3).
-        let loopStrikes = 0
-        let loopDiagnosis: LoopDiagnosis | undefined
-        // P9: tracks the last injected todo-nudge signature so a pending set that
-        // has not changed since the last nudge does not produce a duplicate nudge.
-        let lastTodoNudgeKey: string | undefined
-        // P9: completion-gate nudge counter; capped at 3 per session so an agent
-        // that ignores the gate cannot loop forever.
-        let todoNudgeCount: number | undefined
-        // P3: per-run watchdog state. Touches on every LLM event + persisted
+      const ctx = yield* InstanceState.context
+      let structured: unknown
+      let step = 0
+      let groundingRetryPrompt: string | undefined
+      let groundingRetryUsed = false
+      // Consecutive steps that ended in the same repetition diagnosis (draft-10 P3).
+      let loopStrikes = 0
+      let loopDiagnosis: LoopDiagnosis | undefined
+      // P9: tracks the last injected todo-nudge signature so a pending set that
+      // has not changed since the last nudge does not produce a duplicate nudge.
+      let lastTodoNudgeKey: string | undefined
+      // P9: completion-gate nudge counter; capped at 3 per session so an agent
+      // that ignores the gate cannot loop forever.
+      let todoNudgeCount: number | undefined
+      // P3: per-run watchdog state. Touches on every LLM event + persisted
       // part so the scoped supervisor can detect no-progress stalls. It logs
       // stalls but does not interrupt/restart a run without the run fiber ID.
-        const watchdog = new WatchdogState()
-        const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
-        const memory = yield* SessionMemoryIntegration.Service
-        const targetedMode =
-          (session.metadata?.["targetedLearning"] as { mode?: string } | undefined)?.mode === "targeted"
+      const watchdog = new WatchdogState()
+      const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
+      const memory = yield* SessionMemoryIntegration.Service
+      const targetedMode =
+        (session.metadata?.["targetedLearning"] as { mode?: string } | undefined)?.mode === "targeted"
 
-        // P3: Fork the watchdog supervisor fiber. It wakes on
-        // heartbeatIntervalMs (adaptive: 60s/45s/30s by tier), checks
-        // isStalled(stallMs), and if so logs the stall. The supervisor
-        // does NOT interrupt the run yet — that requires the run fiber's
-        // FiberId, which we don't have at this point. The stall is logged
-        // so the operator can see it; the watchdog state + touch calls
-        // are the foundation for the full interrupt-and-restart path.
+      // P3: Fork the watchdog supervisor fiber. It wakes on
+      // heartbeatIntervalMs (adaptive: 60s/45s/30s by tier), checks
+      // isStalled(stallMs), and if so logs the stall. The supervisor
+      // does NOT interrupt the run yet — that requires the run fiber's
+      // FiberId, which we don't have at this point. The stall is logged
+      // so the operator can see it; the watchdog state + touch calls
+      // are the foundation for the full interrupt-and-restart path.
       yield* Effect.forkScoped(
-          Effect.gen(function* () {
-            const thresholds = yield* Watchdog.adaptiveThresholds()
-            yield* Effect.forever(
-              Effect.gen(function* () {
-                yield* Effect.sleep(thresholds.heartbeatMs)
-                if (watchdog.isStalled(thresholds.stallMs)) {
-                  const stalledMs = watchdog.stalledFor()
-                  yield* Effect.logWarning("watchdog.stall.detected", {
-                    sessionID,
-                    stalledMs,
-                    stallThreshold: thresholds.stallMs,
-                    restartCount: watchdog.getRestartCount(),
-                  })
-                  if (targetedMode) {
-                    yield* Effect.sync(() =>
-                      logDiagnostic(
-                        "session",
-                        "watchdog.stall.detected",
-                        {
-                          sessionId: sessionID,
-                          stalledMs,
-                          stallThresholdMs: thresholds.stallMs,
-                          restartCount: watchdog.getRestartCount(),
-                        },
-                        "warn",
-                      ),
-                    )
-                  }
-                }
-              }).pipe(Effect.catchCause(() => Effect.void)),
-            )
-          }),
-        )
-        // Bounded so a provider that refuses every candidate still terminates the run.
-        let rotations = 0
-
-        while (true) {
-          yield* status.set(sessionID, { type: "busy" })
-          yield* Tracer.info("session.loop.step", { sessionID, step })
-
-          let msgs = yield* MessageV2.filterCompactedEffect(sessionID).pipe(
-            Effect.provideService(Database.Service, database),
-          )
-
-          const { user: lastUser, assistant: lastAssistant, finished: lastFinished, tasks } = MessageV2.latest(msgs)
-
-          if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
-
-          const lastAssistantMsg = msgs.findLast(
-            (msg) => msg.info.role === "assistant" && msg.info.id === lastAssistant?.id,
-          )
-          // Some providers return "stop" even when the assistant message contains
-          // tool calls. Keep the loop running so tool results can be sent back to
-          // the model, but ignore cleanup-marked interrupted orphans.
-          const hasToolCalls =
-            lastAssistantMsg?.parts.some(
-              (part) => part.type === "tool" && !part.metadata?.providerExecuted && !isOrphanedInterruptedTool(part),
-            ) ?? false
-
-          if (
-            lastAssistant?.finish &&
-            !["tool-calls"].includes(lastAssistant.finish) &&
-            !hasToolCalls &&
-            lastUser.id < lastAssistant.id
-          ) {
-            const orphan = lastAssistantMsg?.parts.find(
-              (part): part is SessionV1.ToolPart => part.type === "tool" && isOrphanedInterruptedTool(part),
-            )
-            if (orphan) {
-              yield* Effect.logWarning("loop exit with orphaned interrupted tool", {
-                "session.id": sessionID,
-                messageID: lastAssistant.id,
-                tool: orphan.tool,
-                callID: orphan.callID,
-              })
-            }
-            yield* Tracer.info("session.loop.exit", { sessionID })
-            // P9 completion gate: if the agent is finishing with pending todos,
-            // honor `todo.completion_gate` (default nudge). `nudge` continues the
-            // loop — the next iteration's system block already includes the static
-            // open_todos block plus the dynamic nudge that fires every N tool
-            // calls, so the model is forced to see them again before finishing.
-            // `off` does nothing; `block` is reserved for auto-run tasks (P4) and
-            // behaves like nudge in interactive sessions. Cap at 3 nudges per
-            // session so an agent that ignores the gate cannot loop forever —
-            // the 4th attempt surfaces a session.error and breaks.
-            const todosAtExit = yield* todoService.get(sessionID).pipe(Effect.catch(() => Effect.succeed([])))
-          const pendingAtExit = todosAtExit.filter((t) => t.status === "pending" || t.status === "in_progress")
-            if (pendingAtExit.length > 0) {
-              const cfg = yield* config.get().pipe(Effect.catch(() => Effect.succeed(undefined)))
-              const gate = (cfg as any)?.todo?.completion_gate ?? "nudge"
-              if (gate !== "off") {
-                todoNudgeCount = (todoNudgeCount ?? 0) + 1
-                if (todoNudgeCount > 3) {
-                  yield* events.publish(Session.Event.Error, {
-                    sessionID,
-                    error: new NamedError.Unknown({
-                      message: `Task paused: ${pendingAtExit.length} todos remain unresolved after 3 nudges. Complete, cancel with reason, or defer explicitly.`,
-                    }).toObject(),
-                  })
-                } else {
-                  // Re-enter the loop instead of breaking — the next iteration's
-                  // system block re-renders the open_todos static block plus the
-                  // dynamic nudge (every N tool calls), forcing the agent to see
-                  // them again before any future finish attempt.
-                  step++
-                  continue
+        Effect.gen(function* () {
+          const thresholds = yield* Watchdog.adaptiveThresholds()
+          yield* Effect.forever(
+            Effect.gen(function* () {
+              yield* Effect.sleep(thresholds.heartbeatMs)
+              if (watchdog.isStalled(thresholds.stallMs)) {
+                const stalledMs = watchdog.stalledFor()
+                yield* Effect.logWarning("watchdog.stall.detected", {
+                  sessionID,
+                  stalledMs,
+                  stallThreshold: thresholds.stallMs,
+                  restartCount: watchdog.getRestartCount(),
+                })
+                if (targetedMode) {
+                  yield* Effect.sync(() =>
+                    logDiagnostic(
+                      "session",
+                      "watchdog.stall.detected",
+                      {
+                        sessionId: sessionID,
+                        stalledMs,
+                        stallThresholdMs: thresholds.stallMs,
+                        restartCount: watchdog.getRestartCount(),
+                      },
+                      "warn",
+                    ),
+                  )
                 }
               }
+            }).pipe(Effect.catchCause(() => Effect.void)),
+          )
+        }),
+      )
+      // Bounded so a provider that refuses every candidate still terminates the run.
+      let rotations = 0
+
+      while (true) {
+        yield* status.set(sessionID, { type: "busy" })
+        yield* Tracer.info("session.loop.step", { sessionID, step })
+
+        let msgs = yield* MessageV2.filterCompactedEffect(sessionID).pipe(
+          Effect.provideService(Database.Service, database),
+        )
+
+        const { user: lastUser, assistant: lastAssistant, finished: lastFinished, tasks } = MessageV2.latest(msgs)
+
+        if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
+
+        const lastAssistantMsg = msgs.findLast(
+          (msg) => msg.info.role === "assistant" && msg.info.id === lastAssistant?.id,
+        )
+        // Some providers return "stop" even when the assistant message contains
+        // tool calls. Keep the loop running so tool results can be sent back to
+        // the model, but ignore cleanup-marked interrupted orphans.
+        const hasToolCalls =
+          lastAssistantMsg?.parts.some(
+            (part) => part.type === "tool" && !part.metadata?.providerExecuted && !isOrphanedInterruptedTool(part),
+          ) ?? false
+
+        if (
+          lastAssistant?.finish &&
+          !["tool-calls"].includes(lastAssistant.finish) &&
+          !hasToolCalls &&
+          lastUser.id < lastAssistant.id
+        ) {
+          const orphan = lastAssistantMsg?.parts.find(
+            (part): part is SessionV1.ToolPart => part.type === "tool" && isOrphanedInterruptedTool(part),
+          )
+          if (orphan) {
+            yield* Effect.logWarning("loop exit with orphaned interrupted tool", {
+              "session.id": sessionID,
+              messageID: lastAssistant.id,
+              tool: orphan.tool,
+              callID: orphan.callID,
+            })
+          }
+          yield* Tracer.info("session.loop.exit", { sessionID })
+          // P9 completion gate: if the agent is finishing with pending todos,
+          // honor `todo.completion_gate` (default nudge). `nudge` continues the
+          // loop — the next iteration's system block already includes the static
+          // open_todos block plus the dynamic nudge that fires every N tool
+          // calls, so the model is forced to see them again before finishing.
+          // `off` does nothing; `block` is reserved for auto-run tasks (P4) and
+          // behaves like nudge in interactive sessions. Cap at 3 nudges per
+          // session so an agent that ignores the gate cannot loop forever —
+          // the 4th attempt surfaces a session.error and breaks.
+          const todosAtExit = yield* todoService.get(sessionID).pipe(Effect.catch(() => Effect.succeed([])))
+          const pendingAtExit = todosAtExit.filter((t) => t.status === "pending" || t.status === "in_progress")
+          if (pendingAtExit.length > 0) {
+            const cfg = yield* config.get().pipe(Effect.catch(() => Effect.succeed(undefined)))
+            const gate = (cfg as any)?.todo?.completion_gate ?? "nudge"
+            if (gate !== "off") {
+              todoNudgeCount = (todoNudgeCount ?? 0) + 1
+              if (todoNudgeCount > 3) {
+                yield* events.publish(Session.Event.Error, {
+                  sessionID,
+                  error: new NamedError.Unknown({
+                    message: `Task paused: ${pendingAtExit.length} todos remain unresolved after 3 nudges. Complete, cancel with reason, or defer explicitly.`,
+                  }).toObject(),
+                })
+              } else {
+                // Re-enter the loop instead of breaking — the next iteration's
+                // system block re-renders the open_todos static block plus the
+                // dynamic nudge (every N tool calls), forcing the agent to see
+                // them again before any future finish attempt.
+                step++
+                continue
+              }
             }
-            // Extract session memory on exit (fire and forget)
-            yield* Effect.forkDetach(
+          }
+          // Extract session memory on exit (fire and forget)
+          yield* Effect.forkDetach(
             memory
               .extractSessionMemory(sessionID, msgs as any)
               .pipe(
                 Effect.catch((err) => Effect.logError("Session memory extraction failed", { sessionID, error: err })),
               ),
-            )
-            break
-          }
+          )
+          break
+        }
 
-          step++
+        step++
 
-          // P3: touch the watchdog at the start of each step — a new loop
-          // iteration is itself a progress signal.
-          watchdog.touchEvent()
+        // P3: touch the watchdog at the start of each step — a new loop
+        // iteration is itself a progress signal.
+        watchdog.touchEvent()
 
-          const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
-          const cfg = yield* config.get()
-          msgs = applyTokenWindow(msgs, overflow.usable({ cfg, model }))
-          const task = tasks.pop()
+        const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
+        const cfg = yield* config.get()
+        msgs = applyTokenWindow(msgs, overflow.usable({ cfg, model }))
+        const task = tasks.pop()
 
-          if (task?.type === "subtask") {
-            yield* handleSubtask({ task, model, lastUser, sessionID, session, msgs })
-            continue
-          }
+        if (task?.type === "subtask") {
+          yield* handleSubtask({ task, model, lastUser, sessionID, session, msgs })
+          continue
+        }
 
-          if (task?.type === "compaction") {
-            const result = yield* compaction.process({
-              messages: msgs,
-              parentID: lastUser.id,
-              sessionID,
-              auto: task.auto,
-              overflow: task.overflow,
-            })
-            if (result === "stop") {
-              // Extract session memory on compaction stop (fire and forget)
-              yield* Effect.forkDetach(
+        if (task?.type === "compaction") {
+          const result = yield* compaction.process({
+            messages: msgs,
+            parentID: lastUser.id,
+            sessionID,
+            auto: task.auto,
+            overflow: task.overflow,
+          })
+          if (result === "stop") {
+            // Extract session memory on compaction stop (fire and forget)
+            yield* Effect.forkDetach(
               memory
                 .extractSessionMemory(sessionID, msgs as any)
                 .pipe(
                   Effect.catch((err) => Effect.logError("Session memory extraction failed", { sessionID, error: err })),
                 ),
-              )
-              break
-            }
-            continue
-          }
-
-          if (
-            lastFinished &&
-            lastFinished.summary !== true &&
-            (yield* compaction.isOverflow({ tokens: lastFinished.tokens, model }))
-          ) {
-            yield* compaction.create({ sessionID, agent: lastUser.agent, model: lastUser.model, auto: true })
-            continue
-          }
-
-          const agent = yield* agents.get(lastUser.agent)
-          if (!agent) {
-            const available = (yield* agents.list()).filter((a) => !a.hidden).map((a) => a.name)
-            const hint = available.length ? ` Available agents: ${available.join(", ")}` : ""
-            const error = new NamedError.Unknown({ message: `Agent not found: "${lastUser.agent}".${hint}` })
-            yield* events.publish(Session.Event.Error, { sessionID, error: error.toObject() })
-            throw error
-          }
-          const maxSteps = agent.steps ?? Infinity
-          const isLastStep = step >= maxSteps
-          const msg: SessionV1.Assistant = {
-            id: MessageID.ascending(),
-            parentID: lastUser.id,
-            role: "assistant",
-            mode: agent.name,
-            agent: agent.name,
-            variant: lastUser.model.variant,
-            path: { cwd: ctx.directory, root: ctx.worktree },
-            cost: 0,
-            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-            modelID: model.id,
-            providerID: model.providerID,
-            time: { created: Date.now() },
-            sessionID,
-          }
-          yield* sessions.updateMessage(msg)
-
-          const finalizeInterruptedAssistant = Effect.gen(function* () {
-            if (msg.time.completed) return
-            msg.error ??= MessageV2.fromError(new DOMException("Aborted", "AbortError"), {
-              providerID: msg.providerID,
-              aborted: true,
-            })
-            msg.time.completed = Date.now()
-            yield* sessions.updateMessage(msg)
-          })
-
-          const handle = yield* processor
-            .create({
-              assistantMessage: msg,
-              sessionID,
-              model,
-            })
-            .pipe(Effect.onInterrupt(() => finalizeInterruptedAssistant))
-
-          const outcome: "break" | "continue" = yield* Effect.gen(function* () {
-            const lastUserMsg = msgs.findLast((m) => m.info.role === "user")
-            const bypassAgentCheck = lastUserMsg?.parts.some((p) => p.type === "agent") ?? false
-            const promptOps = yield* ops()
-
-            const tools = yield* SessionTools.resolve({
-              agent,
-              session,
-              model,
-              processor: handle,
-              bypassAgentCheck,
-              messages: msgs,
-              promptOps,
-            }).pipe(
-              Effect.provideService(Plugin.Service, plugin),
-              Effect.provideService(Permission.Service, permission),
-              Effect.provideService(ToolRegistry.Service, registry),
-              Effect.provideService(MCP.Service, mcp),
-              Effect.provideService(Truncate.Service, truncate),
             )
-
-            if (lastUser.format?.type === "json_schema") {
-              tools["StructuredOutput"] = createStructuredOutputTool({
-                schema: lastUser.format.schema,
-                onSuccess(output) {
-                  structured = output
-                },
-              })
-            }
-
-            if (step === 1)
-              yield* summary.summarize({ sessionID, messageID: lastUser.id }).pipe(Effect.ignore, Effect.forkIn(scope))
-
-            yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
-
-            const legacyMsgs = msgs.map((m) => ({
-              info: { role: String(m.info.role) },
-              parts: m.parts.map((p) => ({ text: "text" in p ? p.text : undefined })),
-            }))
-
-            const [assembly, instructions, modelMsgs] = yield* Effect.all([
-              sys.system(model, agent, legacyMsgs, sessionID),
-              instruction.system().pipe(Effect.orDie),
-              MessageV2.toModelMessagesEffect(msgs, model),
-            ])
-            const system = [...assembly.parts, ...instructions]
-
-            // Targeted Learning: retrieve from the attached books and apply the gate BEFORE the
-            // model is called. A refused gate answers with the hardcoded message and no LLM call.
-            const tlSession = session.metadata?.["targetedLearning"] as
-              | { mode?: string; bookIds?: string[]; books?: unknown[]; missing?: string[] }
-              | undefined
-            if (tlSession?.mode === "targeted") {
-              const userTexts = msgs
-                .filter((m) => m.info.role === "user")
-                .map((m) =>
-                  m.parts
-                    .filter((p) => p.type === "text" && !(p as { synthetic?: boolean }).synthetic)
-                    .map((p) => (p as { text: string }).text)
-                    .join("\n")
-                    .replace(/@book:(?:"[^"]+"|'[^']+'|id:[\w-]+|[\w-]+)/g, "")
-                    .trim(),
-                )
-                .filter((t) => t.length > 0)
-              const turn = yield* Effect.promise(async () => {
-                try {
-                  const mod = await import("@diveeoi/learning/session/turn")
-                  const rt = await import("@diveeoi/learning/runtime")
-                  rt.setUserSettings((cfg as { targetedLearning?: Record<string, unknown> }).targetedLearning)
-                  return await mod.prepareTargetedTurn({
-                    sessionId: sessionID,
-                    meta: tlSession as never,
-                    query: userTexts[userTexts.length - 1] ?? "",
-                    recentUserTurns: userTexts.slice(-3, -1),
-                    settings: (cfg as { targetedLearning?: Record<string, unknown> }).targetedLearning,
-                  })
-                } catch (err) {
-                  return {
-                    system: [] as string[],
-                    refusal: `Targeted Learning could not prepare this answer (${String(err).slice(0, 120)}).`,
-                    decision: "not-ready" as const,
-                  }
-                }
-              })
-              yield* Effect.sync(() =>
-                logDiagnostic(
-                  "session",
-                  "targeted-turn.decision",
-                  {
-                    sessionId: sessionID,
-                    decision: turn.decision,
-                    bookCount: tlSession.bookIds?.length ?? 0,
-                    systemBlockCount: turn.system.length,
-                    systemChars: turn.system.reduce((total, block) => total + block.length, 0),
-                    refused: Boolean(turn.refusal),
-                  },
-                  turn.refusal ? "warn" : "info",
-                ),
-              )
-              if (turn.refusal) {
-                const now = Date.now()
-                yield* sessions.updatePart({
-                  id: PartID.ascending(),
-                  messageID: msg.id,
-                  sessionID,
-                  type: "text",
-                  text: turn.refusal,
-                  time: { start: now, end: now },
-                } as never)
-                msg.finish = "stop"
-                msg.time.completed = now
-                yield* sessions.updateMessage(msg)
-                return "break" as const
-              }
-              system.push(...turn.system)
-            }
-            const format = lastUser.format ?? { type: "text" as const }
-            if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
-            const isToon = (cfg.llm?.format ?? cfg.tool?.format ?? "toon") !== "json"
-            if (isToon) {
-              system.push(`When calling tools, format tool call arguments in TOON format:
-Tool: {name}
-  Args:
-    | {key}: {value}`)
-            }
-            // Repetition guard: a stuck model re-issues the same call forever, which burns
-            // free-tier quota until the provider rate-limits. Diagnose from the persisted tool
-            // history, tell the model once, and stop the run if it ignores that.
-            const diagnosis = diagnoseLoop(msgs)
-            loopStrikes = diagnosis && loopDiagnosis?.hash === diagnosis.hash ? loopStrikes + 1 : diagnosis ? 1 : 0
-            loopDiagnosis = diagnosis
-            if (diagnosis) {
-              yield* Effect.logWarning("session.loop.repetition", {
-                "session.id": sessionID,
-                tool: diagnosis.tool,
-                consecutive: diagnosis.consecutive,
-                window: diagnosis.window,
-                strikes: loopStrikes,
-              })
-              if (loopStrikes >= LOOP_FATAL_AFTER) {
-                system.push(loopMessage(diagnosis), LOOP_STOP_NOTICE)
-                yield* events.publish(Session.Event.Error, {
-                  sessionID,
-                  error: new NamedError.Unknown({
-                    message: `Stopped: \`${diagnosis.tool}\` repeated ${diagnosis.consecutive} times with identical arguments and did not change approach.`,
-                  }).toObject(),
-                })
-                return "break" as const
-              }
-              system.push(loopMessage(diagnosis))
-            }
-
-            // P9 in-turn todo nudge: every `todoReminderEveryToolCalls` (tier-scaled
-            // 10/8/6) tool calls, re-inject a one-line reminder of pending todos. The
-            // static block in the system prompt is the durable version; this dynamic
-            // nudge is what keeps the agent honest mid-turn — todos get forgotten
-            // between tool results otherwise. Skipped when no pending todos exist or
-            // when the pending set has not changed since the last nudge (no spam).
-            const nudgeEvery = yield* useAdaptiveTargets((t) => Effect.succeed(t.todoReminderEveryToolCalls))
-            const completedToolCalls = msgs.reduce(
-              (acc, m) =>
-                acc +
-                m.parts.filter(
-                  (p) =>
-                    p.type === "tool" &&
-                    typeof p.state === "object" &&
-                    p.state !== null &&
-                    (p.state.status === "completed" || p.state.status === "error"),
-                ).length,
-              0,
-            )
-            if (nudgeEvery > 0 && completedToolCalls > 0 && completedToolCalls % nudgeEvery === 0) {
-              const todos = yield* todoService.get(sessionID).pipe(Effect.catch(() => Effect.succeed([])))
-              const pending = todos.filter((t) => t.status === "pending" || t.status === "in_progress")
-              if (pending.length > 0) {
-                const lastNudgeKey = `__todoNudge_${pending.length}_${pending.map((t) => t.content).join("|")}__`
-                if (lastTodoNudgeKey !== lastNudgeKey) {
-                  lastTodoNudgeKey = lastNudgeKey
-                const lines = pending.map((t) => `  ${t.status === "in_progress" ? "[~]" : "[ ]"} ${t.content}`)
-                  system.push(
-                    `<system-reminder>Reminder: ${pending.length} todo${pending.length === 1 ? "" : "s"} still pending:\n${lines.join("\n")}\nComplete, cancel with a stated reason, or explicitly defer before finishing.</system-reminder>`,
-                  )
-                }
-              }
-            }
-
-            if (groundingRetryPrompt) {
-              system.push(`<grounding-retry>\n${groundingRetryPrompt}\n</grounding-retry>`)
-              groundingRetryPrompt = undefined
-            }
-
-            const modelInput: LLM.StreamInput = {
-              user: lastUser,
-              agent,
-              permission: session.permission,
-              sessionID,
-              parentSessionID: session.parentID,
-              system,
-            messages: [...modelMsgs, ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS }] : [])],
-              tools,
-              model,
-              toolChoice: format.type === "json_schema" ? "required" : undefined,
-            }
-            const modelOperation =
-              tlSession?.mode === "targeted" && diagnosticsEnabled("session")
-                ? startDiagnosticOperation("session", "model-response", {
-                    sessionId: sessionID,
-                    messageId: msg.id,
-                    providerId: model.providerID,
-                    modelId: model.id,
-                    step,
-                    bookCount: tlSession.bookIds?.length ?? 0,
-                  })
-                : undefined
-            let streamEventsSinceLog = 0
-            let lastStreamProgressAt = Date.now()
-            const onStreamProgress = modelOperation
-              ? (eventType: string, fields: Record<string, unknown> = {}) => {
-                  streamEventsSinceLog += 1
-                  const now = Date.now()
-                  const terminal = /(?:end|finish|error|tool-call|tool-result)$/.test(eventType)
-                  if (terminal || now - lastStreamProgressAt >= 1_000) {
-                    modelOperation.progress(`stream.${eventType}`, {
-                      streamEventCount: streamEventsSinceLog,
-                      ...fields,
-                    })
-                    streamEventsSinceLog = 0
-                    lastStreamProgressAt = now
-                  }
-                }
-              : undefined
-            const modelEffect = handle.process(modelInput, onStreamProgress)
-          const result = yield* modelOperation
-                ? modelEffect.pipe(
-                    Effect.onExit((exit) =>
-                      Effect.sync(() => {
-                        if (Exit.isSuccess(exit)) {
-                          modelOperation.complete({
-                            result: exit.value,
-                            finish: handle.message.finish ?? "unknown",
-                            hasError: handle.message.error !== undefined,
-                          })
-                        } else if (Cause.hasInterruptsOnly(exit.cause)) {
-                          modelOperation.cancel("interrupted")
-                        } else {
-                          modelOperation.fail(Cause.pretty(exit.cause), {
-                            providerId: model.providerID,
-                            modelId: model.id,
-                          })
-                        }
-                      }),
-                    ),
-                  )
-                : modelEffect
-
-            // P3: the LLM stream returned — that's a progress signal. touchEvent
-            // resets the no-progress stall timer so the watchdog doesn't trip
-            // on a long-but-productive step.
-            watchdog.touchEvent()
-            watchdog.touchPart()
-
-            if (structured !== undefined) {
-              handle.message.structured = structured
-              handle.message.finish = handle.message.finish ?? "stop"
-              yield* sessions.updateMessage(handle.message)
-              return "break" as const
-            }
-
-            // A free-price model can still be refused by the gateway (needs a key, or retired
-            // upstream) while it remains listed in the catalog. Dying there loses the whole turn,
-            // so record the refusal and retry this step on a model that answers. Bounded, so a
-            // provider that refuses every candidate still terminates. See @/provider/free-tier.
-            if (
-              rotations < MAX_FREE_TIER_ROTATIONS &&
-              handle.message.error !== undefined &&
-              !Composer.isComposer(handle.message.providerID as any, handle.message.modelID as any) &&
-              ProviderFreeTier.classify(handle.message.error) !== undefined &&
-              handle.message.providerID &&
-              handle.message.modelID
-            ) {
-              const failed = { providerID: handle.message.providerID, modelID: handle.message.modelID }
-              ProviderFreeTier.markKeyRequired(failed.providerID, failed.modelID)
-              const replacement = yield* provider
-                .getSmallModel(failed.providerID as never)
-                .pipe(Effect.catch(() => Effect.succeed(undefined)))
-              if (replacement && replacement.id !== failed.modelID) {
-                rotations++
-                yield* Effect.logWarning("free tier refused the model, rotating", {
-                  "session.id": sessionID,
-                  from: `${failed.providerID}/${failed.modelID}`,
-                  to: `${replacement.providerID}/${replacement.id}`,
-                  attempt: rotations,
-                })
-                yield* events.publish(Session.Event.Error, {
-                  sessionID,
-                  error: new NamedError.Unknown({
-                    message: `${failed.providerID}/${failed.modelID} is not available on the free tier. Continuing with ${replacement.providerID}/${replacement.id}.`,
-                  }).toObject(),
-                })
-                return "continue" as const
-              }
-            }
-
-            // P2: model fallback chain + circuit breaker. On a classified
-            // stream failure (rate_limit / server / network / timeout), the
-            // breaker records the failure; if it's now open OR we've exhausted
-            // the within-model retries, rotate to the next non-open model.
-            // The breaker lives on the LLM service (per-process). When the
-            // chain is fully exhausted, fall through to the normal error path
-            // — the run will surface the failure as a session error.
-            if (handle.message.error !== undefined && handle.message.providerID && handle.message.modelID) {
-              const category = ModelFallback.classify(handle.message.error)
-              if (
-                category === "rate_limit" ||
-                category === "server" ||
-                category === "network" ||
-                category === "timeout"
-              ) {
-                const breaker = llm.breaker
-                if (breaker) {
-                  breaker.recordFailure(handle.message.providerID, handle.message.modelID)
-                  const primary = { providerID: handle.message.providerID, modelID: handle.message.modelID }
-                  const next = ModelFallback.pickNext({
-                    primary,
-                    breaker,
-                    deriveFromCatalog: () => [], // no live catalog rotation yet — single-model fallback
-                  })
-                  if (next && (next.providerID !== primary.providerID || next.modelID !== primary.modelID)) {
-                    rotations++
-                    yield* Effect.logWarning("model_fallback rotating", {
-                      "session.id": sessionID,
-                      from: `${primary.providerID}/${primary.modelID}`,
-                      to: `${next.providerID}/${next.modelID}`,
-                      reason: category,
-                    })
-                    yield* events.publish(Session.Event.Error, {
-                      sessionID,
-                      error: new NamedError.Unknown({
-                        message: `Model ${primary.providerID}/${primary.modelID} failed (${category}). The circuit breaker will skip it for 5 minutes; continuing with ${next.providerID}/${next.modelID}.`,
-                      }).toObject(),
-                    })
-                    // The breaker's open state prevents re-selection of the
-                    // failed model on subsequent calls — pickNext already
-                    // skips it. The model swap takes effect on the next
-                    // loop iteration when getModel resolves the model
-                    // from the user's configured provider/model. If the
-                    // failed model is the user's configured default, the
-                    // breaker ensures the fallback is chosen instead
-                    // until the cooldown elapses (5 min) and the model
-                    // is re-tried (half-open state).
-                  }
-                }
-              }
-            }
-
-            // Targeted Learning: verify citations before accepting the final answer. Retry mode
-            // removes the unverified draft and asks the model once more with the failed citations.
-            if (
-              tlSession?.mode === "targeted" &&
-              handle.message.finish &&
-              !["tool-calls", "unknown"].includes(handle.message.finish) &&
-              !handle.message.error
-            ) {
-            const answerParts = yield* MessageV2.parts(handle.message.id).pipe(
-              Effect.catch(() => Effect.succeed([] as any[])),
-            )
-              const answer = (answerParts as { type: string; text?: string; synthetic?: boolean }[])
-                .filter((p) => p.type === "text" && !p.synthetic)
-                .map((p) => p.text ?? "")
-                .join("\n")
-              const verification = yield* Effect.promise(async () => {
-                try {
-                  const post = await import("@diveeoi/learning/grounding/post")
-                  return await post.verifyAnswer({
-                    sessionId: sessionID,
-                    answer,
-                    settings: (cfg as { targetedLearning?: Record<string, unknown> }).targetedLearning,
-                    allowRetry: !groundingRetryUsed,
-                  })
-                } catch {
-                  return { verified: true as const, note: undefined, retryPrompt: undefined }
-                }
-              })
-              if (verification.retryPrompt && !groundingRetryUsed) {
-                groundingRetryUsed = true
-                groundingRetryPrompt = verification.retryPrompt
-                yield* Effect.logWarning("targeted-learning grounding retry", { sessionID, messageID: handle.message.id })
-                yield* sessions.removeMessage({ sessionID, messageID: handle.message.id })
-                return "continue" as const
-              }
-              if (verification.note) {
-                const now = Date.now()
-                yield* sessions.updatePart({
-                  id: PartID.ascending(),
-                  messageID: handle.message.id,
-                  sessionID,
-                  type: "text",
-                  text: `\n\n${verification.note}`,
-                  time: { start: now, end: now },
-                } as never)
-              }
-            }
-
-            const finished = handle.message.finish && !["tool-calls", "unknown"].includes(handle.message.finish)
-            if (finished && !handle.message.error) {
-              // Surface any content-filter finish (e.g. Anthropic stop_reason:
-              // refusal) as an error. These turns may have produced no visible
-              // output at all — previously the session went idle silently — or
-              // partial text that was cut off by the provider's filter.
-              if (handle.message.finish === "content-filter") {
-                handle.message.error = new SessionV1.ContentFilterError({
-                  message: "The response was blocked by the provider's content filter",
-                }).toObject()
-                yield* sessions.updateMessage(handle.message)
-                yield* events.publish(Session.Event.Error, { sessionID, error: handle.message.error })
-                return "break" as const
-              }
-              if (format.type === "json_schema") {
-                handle.message.error = new SessionV1.StructuredOutputError({
-                  message: "Model did not produce structured output",
-                  retries: 0,
-                }).toObject()
-                yield* sessions.updateMessage(handle.message)
-                return "break" as const
-              }
-            }
-
-            if (result === "stop") return "break" as const
-            if (result === "compact") {
-              yield* compaction.create({
-                sessionID,
-                agent: lastUser.agent,
-                model: lastUser.model,
-                auto: true,
-                overflow: !handle.message.finish,
-              })
-            }
-            return "continue" as const
-          }).pipe(
-            Effect.ensuring(instruction.clear(handle.message.id)),
-            Effect.onInterrupt(() => finalizeInterruptedAssistant),
-          )
-          if (outcome === "break") break
-
+            break
+          }
           continue
         }
 
-        yield* compaction.prune({ sessionID }).pipe(Effect.ignore, Effect.forkIn(scope))
-        return yield* lastAssistant(sessionID)
+        if (
+          lastFinished &&
+          lastFinished.summary !== true &&
+          (yield* compaction.isOverflow({ tokens: lastFinished.tokens, model }))
+        ) {
+          yield* compaction.create({ sessionID, agent: lastUser.agent, model: lastUser.model, auto: true })
+          continue
+        }
+
+        const agent = yield* agents.get(lastUser.agent)
+        if (!agent) {
+          const available = (yield* agents.list()).filter((a) => !a.hidden).map((a) => a.name)
+          const hint = available.length ? ` Available agents: ${available.join(", ")}` : ""
+          const error = new NamedError.Unknown({ message: `Agent not found: "${lastUser.agent}".${hint}` })
+          yield* events.publish(Session.Event.Error, { sessionID, error: error.toObject() })
+          throw error
+        }
+        const maxSteps = agent.steps ?? Infinity
+        const isLastStep = step >= maxSteps
+        const msg: SessionV1.Assistant = {
+          id: MessageID.ascending(),
+          parentID: lastUser.id,
+          role: "assistant",
+          mode: agent.name,
+          agent: agent.name,
+          variant: lastUser.model.variant,
+          path: { cwd: ctx.directory, root: ctx.worktree },
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          modelID: model.id,
+          providerID: model.providerID,
+          time: { created: Date.now() },
+          sessionID,
+        }
+        yield* sessions.updateMessage(msg)
+
+        const finalizeInterruptedAssistant = Effect.gen(function* () {
+          if (msg.time.completed) return
+          msg.error ??= MessageV2.fromError(new DOMException("Aborted", "AbortError"), {
+            providerID: msg.providerID,
+            aborted: true,
+          })
+          msg.time.completed = Date.now()
+          yield* sessions.updateMessage(msg)
+        })
+
+        const handle = yield* processor
+          .create({
+            assistantMessage: msg,
+            sessionID,
+            model,
+          })
+          .pipe(Effect.onInterrupt(() => finalizeInterruptedAssistant))
+
+        const outcome: "break" | "continue" = yield* Effect.gen(function* () {
+          const lastUserMsg = msgs.findLast((m) => m.info.role === "user")
+          const bypassAgentCheck = lastUserMsg?.parts.some((p) => p.type === "agent") ?? false
+          const promptOps = yield* ops()
+
+          const tools = yield* SessionTools.resolve({
+            agent,
+            session,
+            model,
+            processor: handle,
+            bypassAgentCheck,
+            messages: msgs,
+            promptOps,
+          }).pipe(
+            Effect.provideService(Plugin.Service, plugin),
+            Effect.provideService(Permission.Service, permission),
+            Effect.provideService(ToolRegistry.Service, registry),
+            Effect.provideService(MCP.Service, mcp),
+            Effect.provideService(Truncate.Service, truncate),
+          )
+
+          if (lastUser.format?.type === "json_schema") {
+            tools["StructuredOutput"] = createStructuredOutputTool({
+              schema: lastUser.format.schema,
+              onSuccess(output) {
+                structured = output
+              },
+            })
+          }
+
+          if (step === 1)
+            yield* summary.summarize({ sessionID, messageID: lastUser.id }).pipe(Effect.ignore, Effect.forkIn(scope))
+
+          yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
+
+          const legacyMsgs = msgs.map((m) => ({
+            info: { role: String(m.info.role) },
+            parts: m.parts.map((p) => ({ text: "text" in p ? p.text : undefined })),
+          }))
+
+          const [assembly, instructions, modelMsgs] = yield* Effect.all([
+            sys.system(model, agent, legacyMsgs, sessionID),
+            instruction.system().pipe(Effect.orDie),
+            MessageV2.toModelMessagesEffect(msgs, model),
+          ])
+          const system = [...assembly.parts, ...instructions]
+
+          // Targeted Learning: retrieve from the attached books and apply the gate BEFORE the
+          // model is called. A refused gate answers with the hardcoded message and no LLM call.
+          const tlSession = session.metadata?.["targetedLearning"] as
+            | { mode?: string; bookIds?: string[]; books?: unknown[]; missing?: string[] }
+            | undefined
+          if (tlSession?.mode === "targeted") {
+            const userTexts = msgs
+              .filter((m) => m.info.role === "user")
+              .map((m) =>
+                m.parts
+                  .filter((p) => p.type === "text" && !(p as { synthetic?: boolean }).synthetic)
+                  .map((p) => (p as { text: string }).text)
+                  .join("\n")
+                  .replace(/@book:(?:"[^"]+"|'[^']+'|id:[\w-]+|[\w-]+)/g, "")
+                  .trim(),
+              )
+              .filter((t) => t.length > 0)
+            const turn = yield* Effect.promise(async () => {
+              try {
+                const mod = await import("@diveeoi/learning/session/turn")
+                const rt = await import("@diveeoi/learning/runtime")
+                rt.setUserSettings((cfg as { targetedLearning?: Record<string, unknown> }).targetedLearning)
+                return await mod.prepareTargetedTurn({
+                  sessionId: sessionID,
+                  meta: tlSession as never,
+                  query: userTexts[userTexts.length - 1] ?? "",
+                  recentUserTurns: userTexts.slice(-3, -1),
+                  settings: (cfg as { targetedLearning?: Record<string, unknown> }).targetedLearning,
+                })
+              } catch (err) {
+                return {
+                  system: [] as string[],
+                  refusal: `Targeted Learning could not prepare this answer (${String(err).slice(0, 120)}).`,
+                  decision: "not-ready" as const,
+                }
+              }
+            })
+            yield* Effect.sync(() =>
+              logDiagnostic(
+                "session",
+                "targeted-turn.decision",
+                {
+                  sessionId: sessionID,
+                  decision: turn.decision,
+                  bookCount: tlSession.bookIds?.length ?? 0,
+                  systemBlockCount: turn.system.length,
+                  systemChars: turn.system.reduce((total, block) => total + block.length, 0),
+                  refused: Boolean(turn.refusal),
+                },
+                turn.refusal ? "warn" : "info",
+              ),
+            )
+            if (turn.refusal) {
+              const now = Date.now()
+              yield* sessions.updatePart({
+                id: PartID.ascending(),
+                messageID: msg.id,
+                sessionID,
+                type: "text",
+                text: turn.refusal,
+                time: { start: now, end: now },
+              } as never)
+              msg.finish = "stop"
+              msg.time.completed = now
+              yield* sessions.updateMessage(msg)
+              return "break" as const
+            }
+            system.push(...turn.system)
+          }
+          const format = lastUser.format ?? { type: "text" as const }
+          if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
+          const isToon = (cfg.llm?.format ?? cfg.tool?.format ?? "toon") !== "json"
+          if (isToon) {
+            system.push(`When calling tools, format tool call arguments in TOON format:
+Tool: {name}
+  Args:
+    | {key}: {value}`)
+          }
+          // Repetition guard: a stuck model re-issues the same call forever, which burns
+          // free-tier quota until the provider rate-limits. Diagnose from the persisted tool
+          // history, tell the model once, and stop the run if it ignores that.
+          const diagnosis = diagnoseLoop(msgs)
+          loopStrikes = diagnosis && loopDiagnosis?.hash === diagnosis.hash ? loopStrikes + 1 : diagnosis ? 1 : 0
+          loopDiagnosis = diagnosis
+          if (diagnosis) {
+            yield* Effect.logWarning("session.loop.repetition", {
+              "session.id": sessionID,
+              tool: diagnosis.tool,
+              consecutive: diagnosis.consecutive,
+              window: diagnosis.window,
+              strikes: loopStrikes,
+            })
+            if (loopStrikes >= LOOP_FATAL_AFTER) {
+              system.push(loopMessage(diagnosis), LOOP_STOP_NOTICE)
+              yield* events.publish(Session.Event.Error, {
+                sessionID,
+                error: new NamedError.Unknown({
+                  message: `Stopped: \`${diagnosis.tool}\` repeated ${diagnosis.consecutive} times with identical arguments and did not change approach.`,
+                }).toObject(),
+              })
+              return "break" as const
+            }
+            system.push(loopMessage(diagnosis))
+          }
+
+          // P9 in-turn todo nudge: every `todoReminderEveryToolCalls` (tier-scaled
+          // 10/8/6) tool calls, re-inject a one-line reminder of pending todos. The
+          // static block in the system prompt is the durable version; this dynamic
+          // nudge is what keeps the agent honest mid-turn — todos get forgotten
+          // between tool results otherwise. Skipped when no pending todos exist or
+          // when the pending set has not changed since the last nudge (no spam).
+          const nudgeEvery = yield* useAdaptiveTargets((t) => Effect.succeed(t.todoReminderEveryToolCalls))
+          const completedToolCalls = msgs.reduce(
+            (acc, m) =>
+              acc +
+              m.parts.filter(
+                (p) =>
+                  p.type === "tool" &&
+                  typeof p.state === "object" &&
+                  p.state !== null &&
+                  (p.state.status === "completed" || p.state.status === "error"),
+              ).length,
+            0,
+          )
+          if (nudgeEvery > 0 && completedToolCalls > 0 && completedToolCalls % nudgeEvery === 0) {
+            const todos = yield* todoService.get(sessionID).pipe(Effect.catch(() => Effect.succeed([])))
+            const pending = todos.filter((t) => t.status === "pending" || t.status === "in_progress")
+            if (pending.length > 0) {
+              const lastNudgeKey = `__todoNudge_${pending.length}_${pending.map((t) => t.content).join("|")}__`
+              if (lastTodoNudgeKey !== lastNudgeKey) {
+                lastTodoNudgeKey = lastNudgeKey
+                const lines = pending.map((t) => `  ${t.status === "in_progress" ? "[~]" : "[ ]"} ${t.content}`)
+                system.push(
+                  `<system-reminder>Reminder: ${pending.length} todo${pending.length === 1 ? "" : "s"} still pending:\n${lines.join("\n")}\nComplete, cancel with a stated reason, or explicitly defer before finishing.</system-reminder>`,
+                )
+              }
+            }
+          }
+
+          if (groundingRetryPrompt) {
+            system.push(`<grounding-retry>\n${groundingRetryPrompt}\n</grounding-retry>`)
+            groundingRetryPrompt = undefined
+          }
+
+          const modelInput: LLM.StreamInput = {
+            user: lastUser,
+            agent,
+            permission: session.permission,
+            sessionID,
+            parentSessionID: session.parentID,
+            system,
+            messages: [...modelMsgs, ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS }] : [])],
+            tools,
+            model,
+            toolChoice: format.type === "json_schema" ? "required" : undefined,
+          }
+          const modelOperation =
+            tlSession?.mode === "targeted" && diagnosticsEnabled("session")
+              ? startDiagnosticOperation("session", "model-response", {
+                  sessionId: sessionID,
+                  messageId: msg.id,
+                  providerId: model.providerID,
+                  modelId: model.id,
+                  step,
+                  bookCount: tlSession.bookIds?.length ?? 0,
+                })
+              : undefined
+          let streamEventsSinceLog = 0
+          let lastStreamProgressAt = Date.now()
+          const onStreamProgress = modelOperation
+            ? (eventType: string, fields: Record<string, unknown> = {}) => {
+                streamEventsSinceLog += 1
+                const now = Date.now()
+                const terminal = /(?:end|finish|error|tool-call|tool-result)$/.test(eventType)
+                if (terminal || now - lastStreamProgressAt >= 1_000) {
+                  modelOperation.progress(`stream.${eventType}`, {
+                    streamEventCount: streamEventsSinceLog,
+                    ...fields,
+                  })
+                  streamEventsSinceLog = 0
+                  lastStreamProgressAt = now
+                }
+              }
+            : undefined
+          const modelEffect = handle.process(modelInput, onStreamProgress)
+          const result = yield* modelOperation
+            ? modelEffect.pipe(
+                Effect.onExit((exit) =>
+                  Effect.sync(() => {
+                    if (Exit.isSuccess(exit)) {
+                      modelOperation.complete({
+                        result: exit.value,
+                        finish: handle.message.finish ?? "unknown",
+                        hasError: handle.message.error !== undefined,
+                      })
+                    } else if (Cause.hasInterruptsOnly(exit.cause)) {
+                      modelOperation.cancel("interrupted")
+                    } else {
+                      modelOperation.fail(Cause.pretty(exit.cause), {
+                        providerId: model.providerID,
+                        modelId: model.id,
+                      })
+                    }
+                  }),
+                ),
+              )
+            : modelEffect
+
+          // P3: the LLM stream returned — that's a progress signal. touchEvent
+          // resets the no-progress stall timer so the watchdog doesn't trip
+          // on a long-but-productive step.
+          watchdog.touchEvent()
+          watchdog.touchPart()
+
+          if (structured !== undefined) {
+            handle.message.structured = structured
+            handle.message.finish = handle.message.finish ?? "stop"
+            yield* sessions.updateMessage(handle.message)
+            return "break" as const
+          }
+
+          // A free-price model can still be refused by the gateway (needs a key, or retired
+          // upstream) while it remains listed in the catalog. Dying there loses the whole turn,
+          // so record the refusal and retry this step on a model that answers. Bounded, so a
+          // provider that refuses every candidate still terminates. See @/provider/free-tier.
+          if (
+            rotations < MAX_FREE_TIER_ROTATIONS &&
+            handle.message.error !== undefined &&
+            !Composer.isComposer(handle.message.providerID as any, handle.message.modelID as any) &&
+            ProviderFreeTier.classify(handle.message.error) !== undefined &&
+            handle.message.providerID &&
+            handle.message.modelID
+          ) {
+            const failed = { providerID: handle.message.providerID, modelID: handle.message.modelID }
+            ProviderFreeTier.markKeyRequired(failed.providerID, failed.modelID)
+            const replacement = yield* provider
+              .getSmallModel(failed.providerID as never)
+              .pipe(Effect.catch(() => Effect.succeed(undefined)))
+            if (replacement && replacement.id !== failed.modelID) {
+              rotations++
+              yield* Effect.logWarning("free tier refused the model, rotating", {
+                "session.id": sessionID,
+                from: `${failed.providerID}/${failed.modelID}`,
+                to: `${replacement.providerID}/${replacement.id}`,
+                attempt: rotations,
+              })
+              yield* events.publish(Session.Event.Error, {
+                sessionID,
+                error: new NamedError.Unknown({
+                  message: `${failed.providerID}/${failed.modelID} is not available on the free tier. Continuing with ${replacement.providerID}/${replacement.id}.`,
+                }).toObject(),
+              })
+              return "continue" as const
+            }
+          }
+
+          // P2: model fallback chain + circuit breaker. On a classified
+          // stream failure (rate_limit / server / network / timeout), the
+          // breaker records the failure; if it's now open OR we've exhausted
+          // the within-model retries, rotate to the next non-open model.
+          // The breaker lives on the LLM service (per-process). When the
+          // chain is fully exhausted, fall through to the normal error path
+          // — the run will surface the failure as a session error.
+          if (handle.message.error !== undefined && handle.message.providerID && handle.message.modelID) {
+            const category = ModelFallback.classify(handle.message.error)
+            if (
+              category === "rate_limit" ||
+              category === "server" ||
+              category === "network" ||
+              category === "timeout"
+            ) {
+              const breaker = llm.breaker
+              if (breaker) {
+                breaker.recordFailure(handle.message.providerID, handle.message.modelID)
+                const primary = { providerID: handle.message.providerID, modelID: handle.message.modelID }
+                const next = ModelFallback.pickNext({
+                  primary,
+                  breaker,
+                  deriveFromCatalog: () => [], // no live catalog rotation yet — single-model fallback
+                })
+                if (next && (next.providerID !== primary.providerID || next.modelID !== primary.modelID)) {
+                  rotations++
+                  yield* Effect.logWarning("model_fallback rotating", {
+                    "session.id": sessionID,
+                    from: `${primary.providerID}/${primary.modelID}`,
+                    to: `${next.providerID}/${next.modelID}`,
+                    reason: category,
+                  })
+                  yield* events.publish(Session.Event.Error, {
+                    sessionID,
+                    error: new NamedError.Unknown({
+                      message: `Model ${primary.providerID}/${primary.modelID} failed (${category}). The circuit breaker will skip it for 5 minutes; continuing with ${next.providerID}/${next.modelID}.`,
+                    }).toObject(),
+                  })
+                  // The breaker's open state prevents re-selection of the
+                  // failed model on subsequent calls — pickNext already
+                  // skips it. The model swap takes effect on the next
+                  // loop iteration when getModel resolves the model
+                  // from the user's configured provider/model. If the
+                  // failed model is the user's configured default, the
+                  // breaker ensures the fallback is chosen instead
+                  // until the cooldown elapses (5 min) and the model
+                  // is re-tried (half-open state).
+                }
+              }
+            }
+          }
+
+          // Targeted Learning: verify citations before accepting the final answer. Retry mode
+          // removes the unverified draft and asks the model once more with the failed citations.
+          if (
+            tlSession?.mode === "targeted" &&
+            handle.message.finish &&
+            !["tool-calls", "unknown"].includes(handle.message.finish) &&
+            !handle.message.error
+          ) {
+            const answerParts = yield* MessageV2.parts(handle.message.id).pipe(
+              Effect.catch(() => Effect.succeed([] as any[])),
+            )
+            const answer = (answerParts as { type: string; text?: string; synthetic?: boolean }[])
+              .filter((p) => p.type === "text" && !p.synthetic)
+              .map((p) => p.text ?? "")
+              .join("\n")
+            const verification = yield* Effect.promise(async () => {
+              try {
+                const post = await import("@diveeoi/learning/grounding/post")
+                return await post.verifyAnswer({
+                  sessionId: sessionID,
+                  answer,
+                  settings: (cfg as { targetedLearning?: Record<string, unknown> }).targetedLearning,
+                  allowRetry: !groundingRetryUsed,
+                })
+              } catch {
+                return { verified: true as const, note: undefined, retryPrompt: undefined }
+              }
+            })
+            if (verification.retryPrompt && !groundingRetryUsed) {
+              groundingRetryUsed = true
+              groundingRetryPrompt = verification.retryPrompt
+              yield* Effect.logWarning("targeted-learning grounding retry", { sessionID, messageID: handle.message.id })
+              yield* sessions.removeMessage({ sessionID, messageID: handle.message.id })
+              return "continue" as const
+            }
+            if (verification.note) {
+              const now = Date.now()
+              yield* sessions.updatePart({
+                id: PartID.ascending(),
+                messageID: handle.message.id,
+                sessionID,
+                type: "text",
+                text: `\n\n${verification.note}`,
+                time: { start: now, end: now },
+              } as never)
+            }
+          }
+
+          const finished = handle.message.finish && !["tool-calls", "unknown"].includes(handle.message.finish)
+          if (finished && !handle.message.error) {
+            // Surface any content-filter finish (e.g. Anthropic stop_reason:
+            // refusal) as an error. These turns may have produced no visible
+            // output at all — previously the session went idle silently — or
+            // partial text that was cut off by the provider's filter.
+            if (handle.message.finish === "content-filter") {
+              handle.message.error = new SessionV1.ContentFilterError({
+                message: "The response was blocked by the provider's content filter",
+              }).toObject()
+              yield* sessions.updateMessage(handle.message)
+              yield* events.publish(Session.Event.Error, { sessionID, error: handle.message.error })
+              return "break" as const
+            }
+            if (format.type === "json_schema") {
+              handle.message.error = new SessionV1.StructuredOutputError({
+                message: "Model did not produce structured output",
+                retries: 0,
+              }).toObject()
+              yield* sessions.updateMessage(handle.message)
+              return "break" as const
+            }
+          }
+
+          if (result === "stop") return "break" as const
+          if (result === "compact") {
+            yield* compaction.create({
+              sessionID,
+              agent: lastUser.agent,
+              model: lastUser.model,
+              auto: true,
+              overflow: !handle.message.finish,
+            })
+          }
+          return "continue" as const
+        }).pipe(
+          Effect.ensuring(instruction.clear(handle.message.id)),
+          Effect.onInterrupt(() => finalizeInterruptedAssistant),
+        )
+        if (outcome === "break") break
+
+        continue
+      }
+
+      yield* compaction.prune({ sessionID }).pipe(Effect.ignore, Effect.forkIn(scope))
+      return yield* lastAssistant(sessionID)
     })
 
     const ensureInstanceRef = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
@@ -2185,7 +2190,7 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(Provider.defaultLayer),
     Layer.provide(Config.defaultLayer),
     Layer.provide(Instruction.defaultLayer),
-    Layer.provide(FSUtil.defaultLayer),
+    Layer.provide(RemoteFS.defaultLayer),
     Layer.provide(Plugin.defaultLayer),
     Layer.provide(Session.defaultLayer),
     Layer.provide(SessionRevert.defaultLayer),
@@ -2339,7 +2344,8 @@ export const node = LayerNode.make(layer, [
   Command.node,
   Config.node,
   Permission.node,
-  FSUtil.node,
+  RemoteFS.node,
+  RemoteSession.node,
   MCP.node,
   LSP.node,
   ToolRegistry.node,
