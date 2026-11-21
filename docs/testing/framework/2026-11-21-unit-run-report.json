@@ -1,0 +1,149 @@
+{
+  "timestamp": "2026-11-21T23:17:07.031Z",
+  "bunVersion": "1.3.14",
+  "gitSha": "c0951df",
+  "requested": "unit",
+  "timeoutMs": 240000,
+  "suites": [
+    {
+      "name": "unit",
+      "results": [
+        {
+          "suite": "unit",
+          "pkg": "api",
+          "label": "bun test",
+          "command": "bun test  (cwd: packages/api)",
+          "exitCode": 0,
+          "durationMs": 12,
+          "logFile": "/home/z/my-project/DiveeOI/tests/framework/logs/unit-01-api.log",
+          "status": "pass"
+        },
+        {
+          "suite": "unit",
+          "pkg": "app",
+          "label": "bun run test (bun run test:unit && bun run test:virtualizer)",
+          "command": "bun run test  (cwd: packages/app)",
+          "exitCode": 0,
+          "durationMs": 3110,
+          "logFile": "/home/z/my-project/DiveeOI/tests/framework/logs/unit-02-app.log",
+          "status": "pass"
+        },
+        {
+          "suite": "unit",
+          "pkg": "coenx-video",
+          "label": "bun run test (bun test)",
+          "command": "bun run test  (cwd: packages/coenx-video)",
+          "exitCode": 0,
+          "durationMs": 628,
+          "logFile": "/home/z/my-project/DiveeOI/tests/framework/logs/unit-03-coenx-video.log",
+          "status": "pass"
+        },
+        {
+          "suite": "unit",
+          "pkg": "db",
+          "label": "bun run test (bun test --only-failures)",
+          "command": "bun run test  (cwd: packages/db)",
+          "exitCode": 1,
+          "durationMs": 42613,
+          "logFile": "/home/z/my-project/DiveeOI/tests/framework/logs/unit-04-db.log",
+          "status": "fail",
+          "detail": "PRE-EXISTING: db unit suite fails at the current tree (LocationServiceMap isolation test, reproduced standalone) — PRE-EXISTING, packages/db untouched by this sprint"
+        },
+        {
+          "suite": "unit",
+          "pkg": "effect-drizzle-sqlite",
+          "label": "bun run test (bun test --timeout 30000 --only-failures)",
+          "command": "bun run test  (cwd: packages/effect-drizzle-sqlite)",
+          "exitCode": 0,
+          "durationMs": 265,
+          "logFile": "/home/z/my-project/DiveeOI/tests/framework/logs/unit-05-effect-drizzle-sqlite.log",
+          "status": "pass"
+        },
+        {
+          "suite": "unit",
+          "pkg": "http-recorder",
+          "label": "bun run test (bun test --timeout 30000 --only-failures)",
+          "command": "bun run test  (cwd: packages/http-recorder)",
+          "exitCode": 0,
+          "durationMs": 440,
+          "logFile": "/home/z/my-project/DiveeOI/tests/framework/logs/unit-06-http-recorder.log",
+          "status": "pass"
+        },
+        {
+          "suite": "unit",
+          "pkg": "learning",
+          "label": "bun run test (SKIP_LIVE_EMBED=1 bun test)",
+          "command": "bun run test  (cwd: packages/learning)",
+          "exitCode": 0,
+          "durationMs": 7980,
+          "logFile": "/home/z/my-project/DiveeOI/tests/framework/logs/unit-07-learning.log",
+          "status": "pass"
+        },
+        {
+          "suite": "unit",
+          "pkg": "llm",
+          "label": "bun run test (bun test --timeout 30000 --only-failures)",
+          "command": "bun run test  (cwd: packages/llm)",
+          "exitCode": 0,
+          "durationMs": 1181,
+          "logFile": "/home/z/my-project/DiveeOI/tests/framework/logs/unit-08-llm.log",
+          "status": "pass"
+        },
+        {
+          "suite": "unit",
+          "pkg": "memory",
+          "label": "bun run test (bun test)",
+          "command": "bun run test  (cwd: packages/memory)",
+          "exitCode": 0,
+          "durationMs": 818,
+          "logFile": "/home/z/my-project/DiveeOI/tests/framework/logs/unit-09-memory.log",
+          "status": "pass"
+        },
+        {
+          "suite": "unit",
+          "pkg": "profiler",
+          "label": "bun run test (bun test --isolate)",
+          "command": "bun run test  (cwd: packages/profiler)",
+          "exitCode": 0,
+          "durationMs": 54,
+          "logFile": "/home/z/my-project/DiveeOI/tests/framework/logs/unit-10-profiler.log",
+          "status": "pass"
+        },
+        {
+          "suite": "unit",
+          "pkg": "server",
+          "label": "bun run test (bun test --timeout 30000 --only-failures)",
+          "command": "bun run test  (cwd: packages/server)",
+          "exitCode": null,
+          "durationMs": 240256,
+          "logFile": "/home/z/my-project/DiveeOI/tests/framework/logs/unit-11-server.log",
+          "status": "timeout",
+          "detail": "exceeded FW_TIMEOUT_MS=240000 · PRE-EXISTING: server unit suite was already RED at sprint baseline HEAD c0951df (loop/HttpApi suites, 246 failures) — PRE-EXISTING, not caused by this framework"
+        },
+        {
+          "suite": "unit",
+          "pkg": "ui",
+          "label": "bun run test (bun test --conditions=browser --preload ../app/happydom.ts src --only-failures)",
+          "command": "bun run test  (cwd: packages/ui)",
+          "exitCode": 0,
+          "durationMs": 769,
+          "logFile": "/home/z/my-project/DiveeOI/tests/framework/logs/unit-12-ui.log",
+          "status": "pass"
+        }
+      ]
+    }
+  ],
+  "totals": {
+    "pass": 10,
+    "fail": 1,
+    "skip": 0,
+    "timeout": 1
+  },
+  "verdict": "RED",
+  "durationMs": 298138,
+  "notes": [
+    "unit discovery skipped (no test files): effect-sqlite-node (no test files), identity (no package.json), mcp (no package.json), plugin (no test files), plugins (no package.json), script (no test files), sdk (no test files)",
+    "unit/db: failures labeled PRE-EXISTING (see PREEXISTING_UNIT_FAILURES in runner.ts)",
+    "unit/server: failures labeled PRE-EXISTING (see PREEXISTING_UNIT_FAILURES in runner.ts)"
+  ]
+}
