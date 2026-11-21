@@ -75,3 +75,6 @@ packages/app/dist/
 /DiveeOI_RESUME_PLAN.md
 /DiveeOI_Scientific_Research.docx
 /DiveeOI_Scientific_Research.pdf
+
+# Rust build outputs
+**/target/
