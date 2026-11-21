@@ -1,5 +1,5 @@
 import { Effect, Layer, Context, Option, Array as Arr, Schedule } from "effect"
-import { MemoryNode, MemoryNodeID, MemoryLink, MemoryType, ConsolidationInput, ConsolidationResult, MemoryError, NodeNotFoundError } from "./schema"
+import { MemoryNode, MemoryNodeID, MemoryLink, MemoryType, LinkType, ConsolidationInput, ConsolidationResult, MemoryError, NodeNotFoundError } from "./schema"
 import { MemoryService } from "./memory"
 import { IndexerService } from "./indexer"
 import { MemoryConfig, defaultMemoryConfig } from "./config"
@@ -88,23 +88,36 @@ const makeConsolidationService = Effect.gen(function* () {
         const primary = group[0]
         const duplicates = group.slice(1)
         
-        const mergedNode = yield* mergeNodes(primary.id, duplicates.map(d => d.id))
+        const { node: mergedNode, redirectLinks } = yield* mergeNodesDetailed(primary.id, duplicates.map(d => d.id))
         merged.push(...duplicates.map(d => d.id))
         updated.push(mergedNode)
+        linksAdded.push(...redirectLinks)
       }
 
-      // Strengthen connections for all nodes (with concurrency limit)
+      // Strengthen connections for all nodes (with concurrency limit), collecting the real links created
       const connectionResults = yield* Effect.forEach(nodes, (node) => 
-        strengthenConnections(node.id), 
+        strengthenConnectionsDetailed(node.id), 
         { concurrency: 10 }
       )
-      const totalLinks = Arr.reduce(connectionResults, 0, (sum, n) => sum + n)
+      for (const links of connectionResults) {
+        linksAdded.push(...links)
+      }
+
+      // Deduplicate by sourceId→targetId→type: the same link row can be reported twice
+      // (e.g. several members of one duplicate group whose backlinks all redirect onto the same primary)
+      const seen = new Set<string>()
+      const uniqueLinksAdded = linksAdded.filter((link) => {
+        const key = `${link.sourceId}→${link.targetId}→${link.type}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
 
       return ConsolidationResult.make({
         merged,
         created: [],
         updated,
-        linksAdded: [] // TODO: track actual links added
+        linksAdded: uniqueLinksAdded
       })
     })
 
@@ -191,7 +204,21 @@ const makeConsolidationService = Effect.gen(function* () {
     return score
   }
 
-  const mergeNodes = (primaryId: MemoryNodeID, duplicateIds: MemoryNodeID[]): Effect.Effect<MemoryNode, MemoryError | NodeNotFoundError> =>
+  // Upsert a link and return the REAL stored link, read back from the index (upsertLink
+  // itself returns void). This keeps linksAdded grounded in what was actually persisted
+  // instead of fabricating MemoryLink instances.
+  const upsertLinkReturning = (sourceId: MemoryNodeID, targetId: MemoryNodeID, type: LinkType): Effect.Effect<MemoryLink, MemoryError> =>
+    Effect.gen(function* () {
+      yield* indexer.upsertLink(sourceId, targetId, type)
+      const stored = yield* indexer.getLinks(sourceId)
+      const link = stored.find(l => l.targetId === targetId)
+      if (link === undefined) {
+        return yield* Effect.fail(new MemoryError({ cause: `Link ${sourceId} -> ${targetId} (${type}) missing after upsert` }))
+      }
+      return link
+    })
+
+  const mergeNodesDetailed = (primaryId: MemoryNodeID, duplicateIds: MemoryNodeID[]): Effect.Effect<{ node: MemoryNode; redirectLinks: MemoryLink[] }, MemoryError | NodeNotFoundError> =>
     Effect.gen(function* () {
       // Verify all nodes still exist
       const primary = yield* memory.getNode(primaryId)
@@ -206,8 +233,11 @@ const makeConsolidationService = Effect.gen(function* () {
       // Filter to only existing duplicates
       const existingDuplicates = duplicates.filter(Option.isSome).map(d => d.value)
       if (existingDuplicates.length === 0) {
-        return primary.value // Nothing to merge
+        return { node: primary.value, redirectLinks: [] } // Nothing to merge
       }
+
+      // Redirect links re-created onto the primary (collected for linksAdded)
+      const redirectLinks: MemoryLink[] = []
 
       // Merge content with semantic awareness
       let mergedContent = primary.value.content
@@ -240,7 +270,8 @@ const makeConsolidationService = Effect.gen(function* () {
         const inLinks = yield* indexer.getBacklinks(dup.id)
         for (const link of inLinks) {
           yield* indexer.deleteLink(link.sourceId, dup.id)
-          yield* indexer.upsertLink(link.sourceId, primaryId, link.type)
+          const redirect = yield* upsertLinkReturning(link.sourceId, primaryId, link.type)
+          redirectLinks.push(redirect)
         }
 
         // Delete duplicate
@@ -261,17 +292,20 @@ const makeConsolidationService = Effect.gen(function* () {
         confidence: maxConfidence
       })
 
-      return updated
+      return { node: updated, redirectLinks }
     })
 
-  const strengthenConnections = (nodeId: MemoryNodeID): Effect.Effect<number, MemoryError> =>
+  const mergeNodes = (primaryId: MemoryNodeID, duplicateIds: MemoryNodeID[]): Effect.Effect<MemoryNode, MemoryError | NodeNotFoundError> =>
+    Effect.map(mergeNodesDetailed(primaryId, duplicateIds), (result) => result.node)
+
+  const strengthenConnectionsDetailed = (nodeId: MemoryNodeID): Effect.Effect<MemoryLink[], MemoryError> =>
     Effect.gen(function* () {
       const node = yield* memory.getNode(nodeId)
-      if (Option.isNone(node)) return 0
+      if (Option.isNone(node)) return []
 
       // Find related nodes: same type + tag overlap
       const candidates = yield* indexer.getNodesByType(node.value.type)
-      let newLinks = 0
+      const createdLinks: MemoryLink[] = []
 
       for (const candidate of candidates) {
         if (candidate.id === nodeId) continue
@@ -288,14 +322,17 @@ const makeConsolidationService = Effect.gen(function* () {
           
           if (!hasLink) {
             const linkType = similarity > 0.85 ? "references" : "see_also"
-            yield* indexer.upsertLink(nodeId, candidate.id, linkType)
-            newLinks++
+            const stored = yield* upsertLinkReturning(nodeId, candidate.id, linkType)
+            createdLinks.push(stored)
           }
         }
       }
 
-      return newLinks
+      return createdLinks
     })
+
+  const strengthenConnections = (nodeId: MemoryNodeID): Effect.Effect<number, MemoryError> =>
+    Effect.map(strengthenConnectionsDetailed(nodeId), (links) => links.length)
 
   const runMaintenance = (): Effect.Effect<void, MemoryError | NodeNotFoundError> =>
     Effect.gen(function* () {
