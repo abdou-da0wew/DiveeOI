@@ -95,6 +95,17 @@
         "vite-plugin-solid": "catalog:",
       },
     },
+    "packages/coenx-video": {
+      "name": "@diveeoi/coenx-video",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@tsconfig/bun": "catalog:",
+        "@types/bun": "catalog:",
+        "@types/node": "catalog:",
+        "@typescript/native-preview": "catalog:",
+        "prettier": "3.6.2",
+      },
+    },
     "packages/db": {
       "name": "@diveeoi/db",
       "version": "1.17.8",
@@ -120,6 +131,7 @@
         "@ai-sdk/vercel": "2.0.39",
         "@ai-sdk/xai": "3.0.82",
         "@aws-sdk/credential-providers": "3.1057.0",
+        "@diveeoi/coenx-video": "workspace:*",
         "@diveeoi/effect-drizzle-sqlite": "workspace:*",
         "@diveeoi/effect-sqlite-node": "workspace:*",
         "@diveeoi/llm": "workspace:*",
@@ -829,6 +841,8 @@
     "@diveeoi/api": ["@diveeoi/api@workspace:packages/api"],
 
     "@diveeoi/app": ["@diveeoi/app@workspace:packages/app"],
+
+    "@diveeoi/coenx-video": ["@diveeoi/coenx-video@workspace:packages/coenx-video"],
 
     "@diveeoi/db": ["@diveeoi/db@workspace:packages/db"],
 

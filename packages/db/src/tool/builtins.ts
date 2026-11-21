@@ -2,6 +2,7 @@ export * as BuiltInTools from "./builtins"
 
 import { Layer } from "effect"
 import { BashTool } from "./bash"
+import { CoenxVideoTool } from "./coenx-video"
 import { ApplyPatchTool } from "./apply-patch"
 import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
@@ -30,6 +31,7 @@ import { WriteTool } from "./write"
  */
 export const locationLayer = Layer.mergeAll(
   ApplyPatchTool.layer,
+  CoenxVideoTool.layer,
   BashTool.layer,
   EditTool.layer,
   GlobTool.layer,

@@ -124,7 +124,8 @@
     "xdg-basedir": "5.1.0",
     "bcryptjs": "^2.4.3",
     "zod": "catalog:",
-    "nodemailer": "^6.9.16"
+    "nodemailer": "^6.9.16",
+    "@diveeoi/coenx-video": "workspace:*"
   },
   "overrides": {
     "drizzle-orm": "catalog:"
