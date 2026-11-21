@@ -1,0 +1,3 @@
+[submodule "third_party/motion-graphics"]
+	path = third_party/motion-graphics
+	url = https://github.com/Barty-Bart/motion-graphics.git
