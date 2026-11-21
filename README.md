@@ -140,6 +140,7 @@ DiveeOI/
 │   ├── api/                    # Effect HttpApi contracts
 │   ├── app/                    # SolidJS application
 │   ├── ui/                     # Shared UI components and theme system
+│   ├── coenx-video/            # Code-authored standard video + interactive lesson engine
 │   ├── learning/               # Targeted Learning, retrieval, ingestion, training
 │   │   ├── native/retrieval/   # Rust BM25 + dense + RRF engine
 │   │   └── training/           # Offline corpus and student-encoder toolkit
@@ -163,6 +164,9 @@ DiveeOI/
 ```
 
 ## Documentation
+
+- [coenx-video architecture and agent skills](docs/coenx-video.md)
+- [Motion-graphics research archive and licenses](docs/research/motion-graphics/README.md)
 
 | Start here | Use it for |
 |---|---|

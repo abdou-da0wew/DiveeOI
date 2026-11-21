@@ -106,6 +106,7 @@ DiveeOI/
     ├── sdk/                    # @diveeoi/sdk    - API client SDK (v1/v2)
     ├── plugin/                 # @diveeoi/plugin - Plugin SDK
     ├── memory/                 # @diveeoi/memory - Knowledge graph memory system
+    ├── coenx-video/           # @diveeoi/coenx-video - code-authored MP4 and interactive video engine
     ├── learning/               # @diveeoi/learning - Targeted Learning, ingestion, retrieval, student memory
     ├── effect-drizzle-sqlite/  # Drizzle ORM + Effect SQLite adapter
     ├── effect-sqlite-node/     # Effect SQLite for Node.js bridge

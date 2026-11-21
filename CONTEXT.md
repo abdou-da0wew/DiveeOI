@@ -19,6 +19,14 @@ This file is the current source and verification hand-off. `WORKLOG.md` remains 
 - The app's Vite/Playwright proxy defaults to backend port `4097` and uses `VITE_DIVEEOI_SERVER_HOST` / `VITE_DIVEEOI_SERVER_PORT`.
 - The commit series is published on `origin/dev`. No production deployment, database migration, or service restart was performed; never infer deployment from local source or build output.
 
+## Video generation and motion-graphics skill research
+
+- The code-first video engine foundation lives in `packages/coenx-video/`; package architecture and current boundaries are documented in `docs/coenx-video.md`. It has distinct standard MP4 and interactive-project exports. It must not be described as fully product-integrated merely because the package and skill files exist.
+- Project skills are discoverable under `.agents/skills/`, including the core authoring guide, renderer/validation guidance, visual styles, explainer variants, motion inserts, optional object separation, typography, physics, accessibility, and sound design. The server's existing Skill service scans project `.agents/skills/**/SKILL.md`. The database tool registry exposes capability discovery and composition validation; preview/render/export tools, a product authoring UI, and a Targeted Learning route remain future integration work.
+- `third_party/motion-graphics/` is a git submodule pinned at `3d83d987d658601d8a1269eb691622bdcd427335` from `Barty-Bart/motion-graphics` (MIT). Original upstream skill/source files are kept unchanged; DiveeOI-specific rewrites live in `.agents/skills/`.
+- `docs/research/motion-graphics/` archives the Awesome Claude page, its downloaded skill and page assets, all 17 full prompt templates, and an additional coenx compatibility map. The page's own FAQ permits copying its prompt templates; the archive retains the source URL/update date rather than inventing an SPDX license. Upstream fonts, icons, SFX and music have separate license/credit notices that must remain with any redistributed assets.
+- Focused Coenx package, DB tool, and Rust native test suites passed; project skill frontmatters and the source archive were checked, the JSON prompt archive contains 17 styles, and the upstream repository is pinned as a submodule. A full workspace typecheck, FFmpeg output render, browser playback E2E, and Targeted Learning-specific route integration were not part of this pass.
+
 ## Targeted Learning — current implementation
 
 - The feature lives in `packages/learning`; the server mounts its API under `/targeted-learning`, and the SDK exposes the configuration contract.

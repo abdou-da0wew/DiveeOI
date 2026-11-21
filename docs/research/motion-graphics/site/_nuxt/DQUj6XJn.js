@@ -1,0 +1,1 @@
+import{r as l,y as n}from"./BdDiYQ8m.js";const c=()=>{const e=l(null);let t=null;const o=async(r,a)=>{try{await navigator.clipboard.writeText(r),e.value=a,clearTimeout(t),t=setTimeout(()=>e.value=null,1500)}catch{}};return n(()=>clearTimeout(t)),{copied:e,copy:o}};export{c as u};

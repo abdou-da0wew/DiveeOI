@@ -19,6 +19,7 @@ Use this index to find the right document for the task. The root [README](../REA
 | [Optimization](optimization.md) | Adaptive resources, memory, performance measurement |
 | [Contributing](contributing.md) | Contribution workflow and review checklist |
 | [Skills](skills.md) | Embedded skill metadata and authoring |
+| [coenx-video](coenx-video.md) | Code-authored standard MP4, interactive playback, Rust sidecar and agent skills |
 
 ## Project references
 
@@ -49,6 +50,7 @@ The generated PDFs are maintained from the canonical scripts in `scripts/`:
 - **Targeted Learning work:** [Targeted Learning](targeted-learning.md) → [package README](../packages/learning/README.md) → [Retrieval V2 plan](../packages/learning/RETRIEVAL_V2_PLAN.md) → [training README](../packages/learning/training/README.md).
 - **API integration:** [API Reference](api.md) + `packages/api/README.md` + `packages/sdk/README.md`.
 - **Performance work:** [Optimization](optimization.md) + `packages/db/src/adaptive` + [Targeted Learning](targeted-learning.md).
+- **Video generation:** [coenx-video](coenx-video.md) → [package README](../packages/coenx-video/README.md) → [motion-graphics research archive](research/motion-graphics/README.md).
 
 ## Documentation conventions
 

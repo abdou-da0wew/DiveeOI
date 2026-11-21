@@ -36,3 +36,9 @@ The permission system remains the security boundary. `allowed-tools` does not en
 ## Validation
 
 Run the narrow database/server/API tests and SDK generation/typecheck when Bun dependencies are installed. Check that each reference named by a bundled `SKILL.md` exists in its resource map, and verify at least one skill end-to-end through list, prompt availability, slash-command registration, tool loading, and materialized companion files. A manual test should also confirm that a local same-name skill overrides the built-in skill and that disabling model invocation does not disable explicit user invocation.
+
+## Project-level coenx-video skills
+
+The server skill loader also discovers Markdown skills beneath the project `.agents/skills/` directory. DiveeOI's video-production skills live there: `coenx-video` is the entry point, with style, explainer, B-roll, optional object-separation, sound-design, validation and renderer/capability companions. The `coenx-video-rendering` skill teaches the model to call `coenx_video_capabilities` and `coenx_video_validate` before selecting a backend or exporting. These skills call only documented package APIs and explicitly disclose features the current renderer does not implement. The bundled skill catalogue currently includes 20 Coenx skills, including the new backend-capability and validation workflow.
+
+The upstream research and license trail is documented in `docs/research/motion-graphics/README.md`; the adapted architecture and skill map are in `docs/coenx-video.md`. Keep sourceRepository/sourceRevision metadata when adding future adaptations, preserve license notices and do not add model/assets downloads to automatic skill setup.

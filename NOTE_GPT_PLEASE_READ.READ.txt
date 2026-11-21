@@ -1,7 +1,0 @@
-aah, im just telling you without interupting, can you please git commit and push with a very comperhinsive and detailed commit message that juicy as fuck, and make it multiplel commits for each part and section and catagory of edits and modifactions to the codebase, okay? and make sure you keep track of evey update AND make a commit-msg hook that makes this email: 270451464+DiveeAgent@users.noreply.github.com be a co-author in every commit, okay? 
-
-
-
-
-IF YOU READ THIS FILE, PLEASE CONFIRM IT BY CHANGE THE FILE NAME TO REFLECT THAT.
-

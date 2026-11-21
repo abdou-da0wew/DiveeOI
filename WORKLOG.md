@@ -139,6 +139,7 @@ Built `packages/learning` skeleton, settings schema, download/state-machine, sto
 - **Licensing gate:** the upstream `abdou-da0wew/zcode-skills` repository has no root license. Authorization to redistribute the remaining adapted content is unresolved, so [PR #6](https://github.com/abdou-da0wew/DiveeOI/pull/6) is draft only and must not be merged or released before clearance.
 
 ## 2026-10-30 — sync + review of new code (local commits ef595e5, 0846c25, not yet pushed)
+
 - Remote `dev` history was rewritten (no common ancestor with earlier local history; content incl. all TL work preserved). Synced local `dev` to `origin/dev` (614bfcc); old local state kept as branch `local-before-sync`.
 - Typecheck (server/app/db) on the new code: fixed Effect v3-only calls in `db/src/database/database.ts` (`zipRight`→`andThen`, `tapErrorCause`→`tapCause`), cgroup fallback type, `authorization.ts` middleware return type, two app fetch wrappers (`preconnect`).
 - Adaptive resources: every `Effect.provide(defaultLayer)` built a new service with its own 90 s updater fiber (VDS log showed duplicate "Adaptive targets updated"). Added `db/src/adaptive/shared.ts` (`sharedAdaptive`, process singleton unless a caller provides one); `useAdaptiveTargets`/`withAdaptiveConfig`/`makeAdaptiveLayer` no longer leak `AdaptiveResourceService` into R (fixed ~20 type errors); main/monitor/runner use the shared instance.
@@ -148,9 +149,11 @@ Built `packages/learning` skeleton, settings schema, download/state-machine, sto
 - Push to GitHub not done this session (no credentials available); changes delivered as a patch.
 
 ## 2026-10-30 (later) — shared-session concurrency
+
 - Pushed to dev. `workersPerBook` now means concurrent batches on one shared embedder (no model duplication); Worker threads opt-in only. New test `shared-session.test.ts` (3 in flight, each passage embedded once). learning 179 pass / 1 expected (live model); learning tsc clean. Not run against real ORT.
 
 ## 2026-11-01 — VDS verification (real bge-m3) + fixes (commits 8f7bb73, d2fb262, 3de4231)
+
 - Server binds from env: `HOST` (default 0.0.0.0) and `PORT` (default 4097); if the port is taken it scans upward (`listenWithFallback`). The VDS shell env has `PORT=3333 HOST=127.0.0.1` (the production `diveeoi.service` runs behind cloudflared on loopback), which is why a server started from that shell bound 127.0.0.1:3334. With `PORT=4097 HOST=0.0.0.0` it binds `0.0.0.0:4097` and answers on the public IP (401 without credentials, 200 with Basic auth).
 - **Critical bug fixed:** `PRAGMA quick_check` returns column `quick_check`, code read `integrity_check` → every start treated a healthy `books.db` as corrupt and moved it aside (45 `.corrupt-*` copies on the VDS; library emptied on every restart). Test `store-reopen.test.ts` (fails on old code). Now only the 3 newest quarantined copies are kept.
 - Inspector `/targeted-learning/search` failed to encode (undefined fields) → plain JSON.
@@ -189,7 +192,6 @@ Built `packages/learning` skeleton, settings schema, download/state-machine, sto
 - Created `COMPOSER_INCIDENT_HANDOFF.md` with exact causes, files, production/working-tree distinction, verification state, and a recommended repair order for Claude. Updated `CONTEXT.md`, `PROJECT_GUIDE.md`, root agent rules, all tracked `AGENTS.md` files, `.cursorrules`, and `.zcoderules` to point agents at that handoff.
 - **Not committed, not pushed, not built, and not deployed:** all recovery edits and the documentation changes in this handoff session. Re-run tests, app/server typechecks, production build, browser V1/V2 checks, authenticated provider requests, and quota-cooldown tests before deployment.
 
-
 ## 2026-11-02 — Composer/provider recovery continuation and verification
 
 - Reviewed the full current working diff and the root/package agent instructions before editing. Preserved all existing uncommitted changes; no reset/clean operation was performed.
@@ -205,7 +207,6 @@ Built `packages/learning` skeleton, settings schema, download/state-machine, sto
 - Full app/SDK/DB/server typechecks and a fresh production build remain unrun because the repository requires `divee_typecheck_build` on Colab and that helper is not available in the VDS session. Browser verification and live authenticated OpenRouter/AgentRouter requests also remain outstanding.
 - No commit, push, build, restart, or deploy was performed. The recovery changes remain local and are not live in production.
 
-
 ## 2026-11-02 — manual browser QA and repository commit hook
 
 - Ran the VDS `agent-browser` core and dogfood workflow against the current working-tree app/server. Used a named session and an isolated local backend (`127.0.0.1:4097`) plus Vite (`127.0.0.1:4173`), with fresh XDG data/config/state directories under `/tmp/diveeoi-browser-qa`. No production config, database, or provider credentials were used.
@@ -217,7 +218,6 @@ Built `packages/learning` skeleton, settings schema, download/state-machine, sto
 - Added `.githooks/commit-msg`; set local `core.hooksPath=.githooks`. The hook adds the DiveeAgent co-author trailer once, using `git interpret-trailers --parse` to avoid false matches from body text. Verified append, idempotency, coexistence with another trailer, an actual temporary-repo commit, and `--amend`.
 - Documented hook setup and mandatory manual VDS browser QA in `PROJECT_GUIDE.md`, root/app `AGENTS.md`, `CONTEXT.md`, and this handoff. Updated stale references to the original five-file recovery inventory.
 - No project commit, push, production build, service restart, or deployment was performed. Full package typechecks and fresh build remain outstanding; the VDS Colab build helper is not available in this session.
-
 
 ## 2026-11-03 — follow-up browser validation and commit-msg hook verification
 
@@ -280,7 +280,6 @@ Built `packages/learning` skeleton, settings schema, download/state-machine, sto
 - Verification: app/UI typecheck 2/2 packages; app tests 429 pass; UI tests 68 pass; app Vite build pass; lint error-only scan pass; `git diff --check` pass.
 - Used only a temporary backend with fresh XDG directories and disposable Basic auth. No production data, credentials, API keys, or service restart were used. No commit or push.
 
-
 ## 2026-11-06 — Documentation and PDF refresh
 
 - Audited the clean `dev` checkout at `2868dc79b1ab28216048dd2667885785cda65176` (matching `origin/dev`) and indexed the workspace before broad content review.
@@ -292,7 +291,6 @@ Built `packages/learning` skeleton, settings schema, download/state-machine, sto
 - PDF validation: all 9 deliverable files have extractable text, no text spans outside page bounds, and no stale single-database/shared-password claims. The root/video overview and technical copies are SHA-256 identical. The two PDFs under `packages/learning/test/fixtures/` were intentionally preserved as test inputs.
 - Documentation QA: 333 internal Markdown links checked across 397 maintained Markdown files with 0 missing targets (vendored resources and test/fixture skill content excluded); all five PDF generator/entrypoint modules pass `node --check`; `git diff --check` passes. The full current-HEAD monorepo build/typecheck/test matrix was not rerun because this was a documentation-only change.
 - Documentation refresh only: no service restart, production deployment, DB migration, commit, push, or cleanup.
-
 
 ## 2026-11-19 — SSH Remote Sessions completion
 
@@ -316,3 +314,41 @@ Built `packages/learning` skeleton, settings schema, download/state-machine, sto
 - Browser verification boundary: a direct one-worker Playwright invocation of both Remote Sessions specs passed **2/2** earlier. The later package-script retry using the isolated port `3044` did not return a verifiable completion result, so the package-script path is not claimed as confirmed.
 - Build verification boundary: the native Linux x64 single-target server build had passed in an earlier run, before the final verification refinements. The app production Vite build did not complete; it remained in transformation and was terminated. No final app production build pass is claimed.
 - All source and documentation changes were committed on `dev` and published to `origin/dev`. No production deployment, DB migration, or service restart was performed.
+
+## 2026-11-20 — motion-graphics sources and coenx-video skill adaptation
+
+- Cloned `git@github.com:Barty-Bart/motion-graphics.git` into `third_party/motion-graphics/` and registered it as a git submodule. Pinned upstream `main` commit: `3d83d987d658601d8a1269eb691622bdcd427335` (2026-10-13). The original clone remains clean and preserves all six upstream skills, scripts, examples, demo GIFs, fonts and sound assets.
+- Verified the upstream repository's MIT license. Preserved its separate Geist OFL, Lucide ISC and sound/music license/credit files. The clone is not flattened into copied files; future updates can be reviewed as submodule revisions.
+- Downloaded the Awesome Claude motion-graphics page HTML, its CSS/JS page bundles, downloadable generic `SKILL.md`, and a local site snapshot. Extracted all 17 complete prompts and original style metadata from the page's compiled style data, then created JSON/Markdown archives and a coenx capability/adaptation mapping. Source page update date: 2026-10-21.
+- Added eight project-discoverable `.agents/skills/` skills: coenx-video entry point, 17-style library, default/engaging/high-energy explainers, transcript-led B-roll, optional object separation and sound design. Six Barty-derived skills carry the immutable upstream revision in frontmatter; the style library retains Awesome Claude attribution and update date.
+- Adaptations explicitly account for the current engine API and resource limits. They do not claim source-video compositing, transparent ProRes, arbitrary HTML/GSAP capture, path morphs, custom shaders, motion blur, watercolor brushes, PBR materials or SAM2 integration inside the renderer. Segmentation remains opt-in and local.
+- Updated `AGENTS.md`, `PROJECT_GUIDE.md`, `README.md`, `docs/README.md`, `docs/skills.md`, `packages/coenx-video/README.md`, `docs/coenx-video.md`, `CONTEXT.md`, `DECISIONS.md` and `CHANGELOG.md`.
+- Validation: 8 unique project skill frontmatters verified; archived JSON parses with 17 full style prompts; local page resource snapshot and source submodule inventory checked. No full TypeScript/package build, actual MP4 render, interactive browser E2E, service restart, production deployment, commit or push was performed in this pass.
+
+## 2026-11-20: Coenx video language, fonts and bundled agent skills
+
+- Added the CML source tree parser, safe CSS subset, and declarative CoenxScript parser/compiler under packages/coenx-video/src/format/.
+- Added a local 16-family typography catalogue with 28 WOFF2 assets, Arabic/Latin subsets, SIL OFL notices, an embedded resource registry, browser font-face embedding and temporary Fontconfig font staging for MP4.
+- Extended the shared node model so the same font-family/size/weight values reach SVG/Canvas and accessible controls.
+- Registered 19 Coenx guidance skills in DiveeOI's built-in skill resource catalogue, including the adapted motion-graphics skill set, 17 style prompts, interactive Canvas, SVG motion, typography, accessibility, Targeted Learning, physics, storyboard and validation references.
+- Added CML/stylesheet/script and font catalogue tests; package tests, package typecheck and DB typecheck passed. Bun builds passed for the package and built-in skill bundle. A short H.264 MP4 render and an interactive export were smoke-tested. Browser interaction E2E and full-size production render remain unverified.
+
+## 2026-11-21: Native Coenx renderer and SVG interactive stage
+
+- Added a Rust/Cairo raster backend with Pango/PangoCairo text layout for proper complex-script shaping and local Fontconfig font discovery.
+- Added the native render_frame JSON-line operation alongside the existing Rust physics simulation operation.
+- Added a persistent TypeScript native process client and a native MP4 path that evaluates keyframes, streams PNG frames to FFmpeg, mixes the existing audio timeline and verifies H.264/AAC output with FFprobe.
+- Exposed renderer: native through renderStandardVideo and the CLI --renderer native flag. Kept the SVG/ImageMagick renderer as the default and fallback for unsupported native node kinds.
+- Added an SVG interactive stage renderer option alongside Canvas. It builds SVG elements with DOM APIs and textContent, retains the real HTML control overlay, and uses the same composition/timeline/interaction engine.
+- Added Rust frame raster tests, native MP4 tests and interactive engine state/branch/timer tests. Native path smoke tests produced verified MP4 output with H.264 and AAC.
+- Native v1 still lacks image decoding, mesh3d rasterization, select visuals, SVG paths/filters/masks/gradients and complete transition compositing. Full browser E2E and production-scale performance/quality validation remain pending.
+
+## 2026-11-21: Coenx 3D shading, morphing, physics and native mesh path
+
+- Added reusable 3D vector math, vertex-normal generation, flat/smooth mesh shading, ambient/directional/point lighting, specular response and material controls.
+- Added morph targets and frame-keyed 3D position/rotation/scale/morph-weight tracks to the shared animation evaluator.
+- Added deterministic 3D physics with gravity, sphere/AABB collisions, friction, restitution, angular velocity, fixed substeps and optional world bounds. Export and interactive playback reuse precomputed compact pose buffers.
+- Extended scene entrance transitions with zoom, wipe and flip-3D alongside fade/slide in SVG, Canvas/SVG playback and Cairo native export.
+- Added native Cairo polygon rendering and projected shaded 3D faces, including morph animation, physics and transition clip rectangles. Images and selects remain unsupported in the native path.
+- Added regression tests and a real native 3D MP4 smoke test.
+- Renderer decision: retain ImageMagick as the compatibility rasterizer and keep the current Cairo/Pango native baseline. Added a pinned Linux x64/arm64 Q8 vendor installer for ImageMagick 7.1.2-36 (8-bit output avoids unnecessary Q16/HDRI memory overhead) with SHA-256 checks, SVG/complex-text delegate verification, shared-library validation and atomic replacement. The runtime resolver prefers explicit configuration, then the packaged binary, then PATH. The portable x64 binary was tested against a real Coenx 3D MP4 render; it depends on host glibc and libgomp. Evaluate Skia as a future native 2D replacement only after comparing build size, CPU throughput, memory, text quality and distribution complexity. The future 3D scene graph remains a separate Three.js milestone.
