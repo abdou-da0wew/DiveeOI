@@ -1,0 +1,358 @@
+{
+  "version": 1,
+  "licensePolicy": "Each family is independently licensed under SIL OFL 1.1. Preserve the matching license file when redistributing that family.",
+  "families": [
+    {
+      "family": "Geist",
+      "slug": "geist",
+      "style": "Variable neo-grotesk",
+      "recommendedFor": "Modern product UI, neutral titles, clean body copy",
+      "tags": [
+        "ui",
+        "body",
+        "headline"
+      ],
+      "scripts": [
+        "latin"
+      ],
+      "weights": "100 900",
+      "files": [
+        "geist-latin-100-900.woff2"
+      ],
+      "license": "licenses/geist-OFL.txt",
+      "licenseId": "SIL-OFL-1.1",
+      "source": "Google Fonts"
+    },
+    {
+      "family": "Geist Mono",
+      "slug": "geistmono",
+      "style": "Variable technical monospace",
+      "recommendedFor": "Code labels, counters, data, technical UI",
+      "tags": [
+        "code",
+        "data",
+        "technical"
+      ],
+      "scripts": [
+        "latin"
+      ],
+      "weights": "100 900",
+      "files": [
+        "geistmono-latin-100-900.woff2"
+      ],
+      "license": "licenses/geistmono-OFL.txt",
+      "licenseId": "SIL-OFL-1.1",
+      "source": "Google Fonts"
+    },
+    {
+      "family": "Space Grotesk",
+      "slug": "spacegrotesk",
+      "style": "Geometric sans",
+      "recommendedFor": "Tech explainers, bold UI headlines, contemporary product stories",
+      "tags": [
+        "headline",
+        "tech",
+        "ui"
+      ],
+      "scripts": [
+        "latin"
+      ],
+      "weights": "300 700",
+      "files": [
+        "spacegrotesk-latin-300-700.woff2"
+      ],
+      "license": "licenses/spacegrotesk-OFL.txt",
+      "licenseId": "SIL-OFL-1.1",
+      "source": "Google Fonts"
+    },
+    {
+      "family": "Space Mono",
+      "slug": "spacemono",
+      "style": "Display monospace",
+      "recommendedFor": "Terminal visuals, labels, retro technical accents",
+      "tags": [
+        "code",
+        "terminal",
+        "accent"
+      ],
+      "scripts": [
+        "latin"
+      ],
+      "weights": "400 700",
+      "files": [
+        "spacemono-latin-400.woff2",
+        "spacemono-latin-700.woff2"
+      ],
+      "license": "licenses/spacemono-OFL.txt",
+      "licenseId": "SIL-OFL-1.1",
+      "source": "Google Fonts"
+    },
+    {
+      "family": "Manrope",
+      "slug": "manrope",
+      "style": "Geometric sans",
+      "recommendedFor": "Polished UI, long-form captions, friendly product explainers",
+      "tags": [
+        "ui",
+        "body",
+        "caption"
+      ],
+      "scripts": [
+        "latin"
+      ],
+      "weights": "200 800",
+      "files": [
+        "manrope-latin-200-800.woff2"
+      ],
+      "license": "licenses/manrope-OFL.txt",
+      "licenseId": "SIL-OFL-1.1",
+      "source": "Google Fonts"
+    },
+    {
+      "family": "DM Sans",
+      "slug": "dmsans",
+      "style": "Humanist sans",
+      "recommendedFor": "Versatile body copy, educational text and readable captions",
+      "tags": [
+        "body",
+        "ui",
+        "caption"
+      ],
+      "scripts": [
+        "latin"
+      ],
+      "weights": "400 1000",
+      "files": [
+        "dmsans-latin-400-1000.woff2"
+      ],
+      "license": "licenses/dmsans-OFL.txt",
+      "licenseId": "SIL-OFL-1.1",
+      "source": "Google Fonts"
+    },
+    {
+      "family": "DM Mono",
+      "slug": "dmmono",
+      "style": "Monospace",
+      "recommendedFor": "Small metrics, timestamps, code and data annotations",
+      "tags": [
+        "code",
+        "data",
+        "caption"
+      ],
+      "scripts": [
+        "latin"
+      ],
+      "weights": "400 500",
+      "files": [
+        "dmmono-latin-400.woff2",
+        "dmmono-latin-500.woff2"
+      ],
+      "license": "licenses/dmmono-OFL.txt",
+      "licenseId": "SIL-OFL-1.1",
+      "source": "Google Fonts"
+    },
+    {
+      "family": "Fraunces",
+      "slug": "fraunces",
+      "style": "Soft display serif",
+      "recommendedFor": "Editorial stories, quotes, literary and premium titles",
+      "tags": [
+        "editorial",
+        "serif",
+        "headline"
+      ],
+      "scripts": [
+        "latin"
+      ],
+      "weights": "100 900",
+      "files": [
+        "fraunces-latin-100-900.woff2"
+      ],
+      "license": "licenses/fraunces-OFL.txt",
+      "licenseId": "SIL-OFL-1.1",
+      "source": "Google Fonts"
+    },
+    {
+      "family": "Bricolage Grotesque",
+      "slug": "bricolagegrotesque",
+      "style": "Expressive variable grotesque",
+      "recommendedFor": "Playful campaign titles, expressive visual explainers",
+      "tags": [
+        "display",
+        "headline",
+        "playful"
+      ],
+      "scripts": [
+        "latin"
+      ],
+      "weights": "200 800",
+      "files": [
+        "bricolagegrotesque-latin-200-800.woff2"
+      ],
+      "license": "licenses/bricolagegrotesque-OFL.txt",
+      "licenseId": "SIL-OFL-1.1",
+      "source": "Google Fonts"
+    },
+    {
+      "family": "IBM Plex Sans",
+      "slug": "ibmplexsans",
+      "style": "Technical grotesque",
+      "recommendedFor": "Scientific content, diagrams, structured data and UI",
+      "tags": [
+        "technical",
+        "body",
+        "ui"
+      ],
+      "scripts": [
+        "latin"
+      ],
+      "weights": "100 700",
+      "files": [
+        "ibmplexsans-latin-100-700.woff2"
+      ],
+      "license": "licenses/ibmplexsans-OFL.txt",
+      "licenseId": "SIL-OFL-1.1",
+      "source": "Google Fonts"
+    },
+    {
+      "family": "JetBrains Mono",
+      "slug": "jetbrainsmono",
+      "style": "Developer monospace",
+      "recommendedFor": "Code, debugging, terminal and precise numeric labels",
+      "tags": [
+        "code",
+        "terminal",
+        "data"
+      ],
+      "scripts": [
+        "latin"
+      ],
+      "weights": "100 800",
+      "files": [
+        "jetbrainsmono-latin-100-800.woff2"
+      ],
+      "license": "licenses/jetbrainsmono-OFL.txt",
+      "licenseId": "SIL-OFL-1.1",
+      "source": "Google Fonts"
+    },
+    {
+      "family": "Bebas Neue",
+      "slug": "bebasneue",
+      "style": "Condensed display sans",
+      "recommendedFor": "Short high-impact titles and poster-like motion graphics",
+      "tags": [
+        "display",
+        "poster",
+        "headline"
+      ],
+      "scripts": [
+        "latin"
+      ],
+      "weights": "400",
+      "files": [
+        "bebasneue-latin-400.woff2"
+      ],
+      "license": "licenses/bebasneue-OFL.txt",
+      "licenseId": "SIL-OFL-1.1",
+      "source": "Google Fonts"
+    },
+    {
+      "family": "Cairo",
+      "slug": "cairo",
+      "style": "Arabic-first geometric sans",
+      "recommendedFor": "Arabic UI, readable Arabic captions, educational headings",
+      "tags": [
+        "arabic",
+        "ui",
+        "body"
+      ],
+      "scripts": [
+        "arabic",
+        "latin"
+      ],
+      "weights": "200 1000",
+      "files": [
+        "cairo-arabic-200-1000.woff2",
+        "cairo-latin-200-1000.woff2"
+      ],
+      "license": "licenses/cairo-OFL.txt",
+      "licenseId": "SIL-OFL-1.1",
+      "source": "Google Fonts"
+    },
+    {
+      "family": "Tajawal",
+      "slug": "tajawal",
+      "style": "Arabic geometric sans",
+      "recommendedFor": "Friendly Arabic product UI, body copy and clear captions",
+      "tags": [
+        "arabic",
+        "ui",
+        "body"
+      ],
+      "scripts": [
+        "arabic",
+        "latin"
+      ],
+      "weights": "400 700",
+      "files": [
+        "tajawal-arabic-400.woff2",
+        "tajawal-arabic-500.woff2",
+        "tajawal-arabic-700.woff2",
+        "tajawal-latin-400.woff2",
+        "tajawal-latin-500.woff2",
+        "tajawal-latin-700.woff2"
+      ],
+      "license": "licenses/tajawal-OFL.txt",
+      "licenseId": "SIL-OFL-1.1",
+      "source": "Google Fonts"
+    },
+    {
+      "family": "Amiri",
+      "slug": "amiri",
+      "style": "Arabic Naskh serif",
+      "recommendedFor": "Arabic quotations, literary titles, heritage and editorial scenes",
+      "tags": [
+        "arabic",
+        "serif",
+        "editorial"
+      ],
+      "scripts": [
+        "arabic",
+        "latin"
+      ],
+      "weights": "400 700",
+      "files": [
+        "amiri-arabic-400.woff2",
+        "amiri-arabic-700.woff2",
+        "amiri-latin-400.woff2",
+        "amiri-latin-700.woff2"
+      ],
+      "license": "licenses/amiri-OFL.txt",
+      "licenseId": "SIL-OFL-1.1",
+      "source": "Google Fonts"
+    },
+    {
+      "family": "Noto Sans Arabic",
+      "slug": "notosansarabic",
+      "style": "Neutral Arabic sans",
+      "recommendedFor": "Dense Arabic educational text, neutral UI and broad script coverage",
+      "tags": [
+        "arabic",
+        "body",
+        "ui"
+      ],
+      "scripts": [
+        "arabic",
+        "latin"
+      ],
+      "weights": "100 900",
+      "files": [
+        "notosansarabic-arabic-100-900.woff2",
+        "notosansarabic-latin-100-900.woff2"
+      ],
+      "license": "licenses/notosansarabic-OFL.txt",
+      "licenseId": "SIL-OFL-1.1",
+      "source": "Google Fonts"
+    }
+  ]
+}

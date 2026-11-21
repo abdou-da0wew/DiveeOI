@@ -1,0 +1,26 @@
+.eyebrow {
+  font-family: "Geist Mono";
+  font-size: 18;
+  color: #83b5ff;
+  font-weight: 600;
+}
+.title {
+  font-family: "Space Grotesk";
+  font-size: 58;
+  color: #f5f7fb;
+  font-weight: 700;
+}
+.answer {
+  font-family: "Manrope";
+  font-size: 28;
+  font-weight: 700;
+  fill: #17263e;
+  stroke: #46648d;
+  border-radius: 18;
+  color: #f5f7fb;
+}
+.result {
+  font-family: "Cairo";
+  font-size: 25;
+  color: #c8d5e7;
+}

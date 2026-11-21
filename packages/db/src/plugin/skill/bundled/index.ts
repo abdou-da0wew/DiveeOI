@@ -1,4 +1,5 @@
 /** Text-only, reviewed resources for the built-in skill catalog. */
+import { COENX_VIDEO_SKILLS } from "./coenx-video/index"
 import resource0 from "./coding-agent/SKILL.md" with { type: "text" }
 import resource1 from "./coding-agent/criteria.md" with { type: "text" }
 import resource2 from "./coding-agent/execution.md" with { type: "text" }
@@ -301,4 +302,5 @@ export const BUNDLED_SKILLS: readonly BundledSkill[] = [
       "SKILL.md": resource84,
     },
   },
+  ...COENX_VIDEO_SKILLS,
 ]

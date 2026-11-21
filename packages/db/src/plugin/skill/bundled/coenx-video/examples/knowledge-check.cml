@@ -1,0 +1,11 @@
+<coenx id="science-check" title="Quick science check" width="1280" height="720" fps="30" background="#0b1220">
+  <scene id="question" duration="12s">
+    <text id="eyebrow" class="eyebrow" x="640" y="130" width="900" height="40">QUICK KNOWLEDGE CHECK</text>
+    <text id="question-title" class="title" x="640" y="245" width="1000" height="110"
+      >Which unit measures electric current?</text
+    >
+    <button id="answer-volt" class="answer" x="390" y="420" width="360" height="84">Volt</button>
+    <button id="answer-ampere" class="answer" x="890" y="420" width="360" height="84">Ampere</button>
+    <text id="result" class="result" x="640" y="575" width="900" height="64">Choose an answer</text>
+  </scene>
+</coenx>
