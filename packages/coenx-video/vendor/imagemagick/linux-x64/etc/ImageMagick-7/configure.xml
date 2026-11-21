@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE configuremap [
+  <!ELEMENT configuremap (configure)+>
+  <!ATTLIST configuremap xmlns CDATA #FIXED ''>
+  <!ELEMENT configure EMPTY>
+  <!ATTLIST configure xmlns CDATA #FIXED '' name NMTOKEN #REQUIRED
+    value CDATA #REQUIRED>
+]>
+<!--
+  ImageMagick build configuration.
+-->
+<configuremap>
+  <configure name="CC" value="gcc"/>
+  <configure name="CFLAGS" value="-I/tmp/dependencies/include/libxml2 -I/tmp/dependencies/include -I/tmp/dependencies/include/webp -I/tmp/dependencies/include -I/tmp/dependencies/include/webp -I/tmp/dependencies/include -pthread -I/tmp/dependencies/include/libxml2 -I/tmp/dependencies/include/freetype2 -I/tmp/dependencies/include/libpng16 -I/tmp/dependencies/include -I/tmp/dependencies/include/cairo -I/tmp/dependencies/include -I/tmp/dependencies/include/pixman-1 -pthread -I/tmp/dependencies/include/librsvg-2.0 -I/tmp/dependencies/include -I/tmp/dependencies/include/libpng16 -I/tmp/dependencies/include/libxml2 -I/tmp/dependencies/include/freetype2 -I/tmp/dependencies/include -I/tmp/dependencies/include/gdk-pixbuf-2.0 -I/tmp/dependencies/include -I/tmp/dependencies/include/glib-2.0 -I/tmp/dependencies/lib/x86_64-linux-gnu/glib-2.0/include -I/tmp/dependencies/include/cairo -I/tmp/dependencies/include -I/tmp/dependencies/include/pixman-1 -I/tmp/dependencies/include/libraw -I/tmp/dependencies/include -I/tmp/dependencies/include/libpng16 -I/tmp/dependencies/include -pthread -DFRIBIDI_LIB_STATIC -pthread -I/tmp/dependencies/include -I/tmp/dependencies/include/fribidi -I/tmp/dependencies/include/libpng16 -I/tmp/dependencies/include/libxml2 -I/tmp/dependencies/include/freetype2 -I/tmp/dependencies/include -I/tmp/dependencies/include/pango-1.0 -I/tmp/dependencies/include -I/tmp/dependencies/include/harfbuzz -I/tmp/dependencies/include/glib-2.0 -I/tmp/dependencies/lib/x86_64-linux-gnu/glib-2.0/include -I/tmp/dependencies/include/cairo -I/tmp/dependencies/include -I/tmp/dependencies/include/pixman-1 -pthread -D_FILE_OFFSET_BITS=64 -I/tmp/dependencies/include -I/tmp/dependencies/include/OpenEXR -I/tmp/dependencies/include -I/tmp/dependencies/include/Imath -I/tmp/dependencies/include -pthread -I/tmp/dependencies/include/lqr-1 -I/tmp/dependencies/include/glib-2.0 -I/tmp/dependencies/lib/x86_64-linux-gnu/glib-2.0/include -I/tmp/dependencies/include/openjpeg-2.5 -I/tmp/dependencies/include -DHWY_STATIC_DEFINE -I/tmp/dependencies/include -pthread -I/tmp/dependencies/include -I/tmp/dependencies/include/webp -I/tmp/dependencies/include -pthread -DFRIBIDI_LIB_STATIC -I/tmp/dependencies/include/freetype2 -I/tmp/dependencies/include -I/tmp/dependencies/include/fribidi -I/tmp/dependencies/include -I/tmp/dependencies/include/harfbuzz -I/tmp/dependencies/include/glib-2.0 -I/tmp/dependencies/lib/x86_64-linux-gnu/glib-2.0/include -I/tmp/dependencies/include/freetype2 -I/tmp/dependencies/include -pthread -I/tmp/dependencies/include/freetype2 -I/tmp/dependencies/include -I/tmp/dependencies/include/libxml2 -I/tmp/dependencies/include -I/tmp/dependencies/include -I/tmp/dependencies/include -fopenmp -Wall -O3 -mtune=amdfam10 -fexceptions -pthread -DMAGICKCORE_HDRI_ENABLE=0 -DMAGICKCORE_QUANTUM_DEPTH=8 -I/tmp/dependencies/include -DMAGICKCORE_CHANNEL_MASK_DEPTH=32"/>
+  <configure name="CHANNEL_MASK_DEPTH" value="32"/>
+  <configure name="CODER_PATH" value="/usr/lib/ImageMagick-7.1.2/modules-Q8/coders"/>
+  <configure name="CONFIGURE_PATH" value="/usr/etc/ImageMagick-7/"/>
+  <configure name="CONFIGURE" value="./configure  '--prefix=/usr' '--disable-installed' '--disable-shared' '--enable-static' '--without-modules' '--without-magick-plus-plus' '--without-perl' '--without-x' '--with-rsvg' '--with-quantum-depth=8' '--enable-hdri=no' 'CC=gcc' 'CFLAGS=-O3' 'LDFLAGS=-L/tmp/dependencies/lib -L/tmp/dependencies/lib/x86_64-linux-gnu -static-libstdc++ -static-libgcc' 'CPPFLAGS=-I/tmp/dependencies/include' 'CXX=g++' 'CXXFLAGS=-O3' 'PKG_CONFIG=pkg-config --static' 'PKG_CONFIG_LIBDIR=/tmp/dependencies/lib/pkgconfig:/tmp/dependencies/lib/x86_64-linux-gnu/pkgconfig'"/>
+  <configure name="COPYRIGHT" value="Copyright (C) 1999 ImageMagick Studio LLC"/>
+  <configure name="CPPFLAGS" value="-I/usr/include/ImageMagick-7"/>
+  <configure name="CXXFLAGS" value="-O3 -pthread"/>
+  <configure name="CXX" value="g++"/>
+  <configure name="DEFS" value="-DHAVE_CONFIG_H"/>
+  <configure name="DELEGATES" value="bzlib cairo fontconfig freetype heic jng jp2 jpeg jxl lcms lqr lzma openexr pangocairo png raqm raw rsvg tiff webp xml zip zlib zstd"/>
+  <configure name="DISTCHECK_CONFIG_FLAGS" value="'CC=gcc' 'CFLAGS=-O3' 'CPPFLAGS=-I/tmp/dependencies/include' 'CXX=g++' 'LDFLAGS=-L/tmp/dependencies/lib -L/tmp/dependencies/lib/x86_64-linux-gnu -static-libstdc++ -static-libgcc'  --disable-deprecated  --disable-installed  --with-jemalloc=no  --with-umem=no  --with-autotrace=no  --with-dps=no  --with-fftw=no  --with-flif=no  --with-fpx=no  --with-gslib=no  --with-uhdr=no  --with-wmf=no  --with-perl=no "/>
+  <configure name="DOCUMENTATION_PATH" value="/usr/share/doc/ImageMagick-7"/>
+  <configure name="EXEC-PREFIX" value="/usr"/>
+  <configure name="EXECUTABLE_PATH" value="/usr/bin"/>
+  <configure name="FEATURES" value="Channel-masks(32-bit) Cipher DPC OpenMP"/>
+  <configure name="FILTER_PATH" value="/usr/lib/ImageMagick-7.1.2/modules-Q8/filters"/>
+  <configure name="GIT_REVISION" value="983df25e4:20261116" />
+  <configure name="HOST" value="x86_64-pc-linux-gnu"/>
+  <configure name="INCLUDE_PATH" value="/usr/include/ImageMagick-7"/>
+  <configure name="LDFLAGS" value="-L/usr/lib -L/tmp/dependencies/lib -L/tmp/dependencies/lib/x86_64-linux-gnu -static-libstdc++ -static-libgcc"/>
+  <configure name="LIBRARY_ABSOLUTE_PATH" value="/usr/lib/ImageMagick-7.1.2"/>
+  <configure name="LIBS" value="  -L/tmp/dependencies/lib -llcms2 -lm -lpthread  -L/tmp/dependencies/lib -ltiff -lzstd -llzma -ljpeg -lz -lm -lzstd -llzma -pthread -lpthread -ljpeg -lz -L/tmp/dependencies/lib -lfreetype -lz -L/tmp/dependencies/lib -L/tmp/dependencies/lib/x86_64-linux-gnu -lraqm -lharfbuzz -pthread -lm -lfreetype -lz -lglib-2.0 -pthread -lfribidi -L/tmp/dependencies/lib -ljpeg -L/tmp/dependencies/lib -ljxl -lm -lstdc++ -lhwy -lbrotlienc -lbrotlidec -lbrotlicommon -lm -ljxl_cms -lm -lstdc++ -ljxl_threads -lm  -L/tmp/dependencies/lib/x86_64-linux-gnu -llqr-1 -lglib-2.0 -pthread -L/tmp/dependencies/lib -lpng16 -lm -lz -lm -lz      -L/tmp/dependencies/lib -L/tmp/dependencies/lib/x86_64-linux-gnu -lfontconfig -pthread -lm -lfreetype -lz -lxml2 -lpthread -lm -ldl -L/tmp/dependencies/lib -L/tmp/dependencies/lib/x86_64-linux-gnu -lheif -lstdc++ -lde265 -lstdc++ -lpthread -lm -lopenh264 -pthread -lm -laom -lm -lsharpyuv -lm -pthread -L/tmp/dependencies/lib -lwebpmux -lm -lwebpdemux -lwebp -lm -pthread -lsharpyuv -lm -pthread -L/tmp/dependencies/lib -lwebp -lm -pthread -lsharpyuv -lm -pthread       -L/tmp/dependencies/lib -llzma -pthread -lpthread -lbz2 -L/tmp/dependencies/lib -pthread -lOpenEXR-3_5 -lOpenEXRUtil-3_5 -lOpenEXRCore-3_5 -lIex-3_5 -lIlmThread-3_5 -lopenjph -lzstd -lImath-3_2 -L/tmp/dependencies/lib -lopenjp2 -lm -lpthread -L/tmp/dependencies/lib/../lib -L/tmp/dependencies/lib -L/tmp/dependencies/lib/x86_64-linux-gnu -lpangocairo-1.0 -lm -lpangoft2-1.0 -lm -lpango-1.0 -lm -lgio-2.0 -ldl -pthread -lresolv -lgobject-2.0 -pthread -lffi -lgmodule-2.0 -pthread -ldl -lfribidi -lharfbuzz -pthread -lm -lglib-2.0 -pthread -lcairo -lm -ldl -lpng16 -lm -lz -lm -lfontconfig -pthread -lm -lxml2 -lpthread -lm -ldl -lfreetype -lz -lpixman-1 -lm -pthread -L/tmp/dependencies/lib -lraw_r -lstdc++ -ljpeg -llcms2 -lm -lpthread -L/tmp/dependencies/lib -L/tmp/dependencies/lib/../lib -L/tmp/dependencies/lib -L/tmp/dependencies/lib/x86_64-linux-gnu -lrsvg-2 -lm -lgdk_pixbuf-2.0 -lm -ltiff -lzstd -llzma -ljpeg -lz -lm -lzstd -llzma -pthread -lpthread -ljpeg -lgio-2.0 -ldl -pthread -lresolv -lgobject-2.0 -pthread -lffi -lgmodule-2.0 -pthread -ldl -lglib-2.0 -pthread -lcairo -lm -ldl -lpng16 -lm -lz -lm -lfontconfig -pthread -lm -lxml2 -lpthread -lm -ldl -lfreetype -lz -lpixman-1 -lm -pthread -L/tmp/dependencies/lib -lxml2 -lpthread -lm -ldl  -L/tmp/dependencies/lib -lz -L/tmp/dependencies/lib -lzip -lz -lbz2 -llzma -lzstd    -lm    -lpthread    -lgomp"/>
+  <configure name="LIB_VERSION_NUMBER" value="7,1,2,36"/>
+  <configure name="LIB_VERSION" value="0x712"/>
+  <configure name="NAME" value="ImageMagick"/>
+  <configure name="PCFLAGS" value="-fopenmp -DMAGICKCORE_HDRI_ENABLE=0 -DMAGICKCORE_QUANTUM_DEPTH=8 -DMAGICKCORE_CHANNEL_MASK_DEPTH=32"/>
+  <configure name="PREFIX" value="/usr"/>
+  <configure name="QuantumDepth" value="8"/>
+  <configure name="RELEASE_DATE" value="2026-11-16"/>
+  <configure name="SECURITY_POLICY" value="open"/>
+  <configure name="SHAREARCH_PATH" value="/usr/lib/ImageMagick-7.1.2/config-Q8"/>
+  <configure name="SHARE_PATH" value="/usr/share/ImageMagick-7"/>
+  <configure name="TARGET_CPU" value="x86_64"/>
+  <configure name="TARGET_OS" value="linux-gnu"/>
+  <configure name="TARGET_VENDOR" value="pc"/>
+  <configure name="VERSION" value="7.1.2"/>
+  <configure name="WEBSITE" value="https://imagemagick.org"/>
+</configuremap>

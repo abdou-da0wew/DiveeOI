@@ -1,0 +1,33 @@
+{
+  "name": "@diveeoi/coenx-video",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts",
+    "./model": "./src/model/types.ts",
+    "./authoring": "./src/authoring/composition.ts",
+    "./runtime": "./src/runtime/player.ts",
+    "./format": "./src/format/index.ts",
+    "./fonts": "./src/fonts/index.ts",
+    "./capabilities": "./src/capabilities.ts",
+    "./validation": "./src/validation.ts"
+  },
+  "scripts": {
+    "typecheck": "tsgo --noEmit",
+    "test": "bun test",
+    "build:native": "cargo build --manifest-path native/coenx-video-native/Cargo.toml --release",
+    "fmt:native": "cargo fmt --manifest-path native/coenx-video-native/Cargo.toml --all -- --check",
+    "lint": "oxlint src test scripts",
+    "vendor:imagemagick": "bun scripts/vendor-imagemagick.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@tsconfig/bun": "catalog:",
+    "@types/bun": "catalog:",
+    "@typescript/native-preview": "catalog:",
+    "prettier": "3.6.2",
+    "@types/node": "catalog:"
+  }
+}
