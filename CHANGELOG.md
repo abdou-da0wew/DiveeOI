@@ -49,6 +49,10 @@ Notable changes to DiveeOI are recorded here. Unreleased work remains under **Un
 
 ### Fixed
 
+- Fixed the "New session" banner CTA doing nothing when no project was open yet (no navigation, no network call): the button now falls back to the directory picker and starts a session on the picked project, and the session-group headers always wire the handler.
+- Fixed the composer Send button being dead while Enter worked: both submit icon buttons now submit explicitly on click instead of relying on the implicit form-submission chain through the Kobalte button + tooltip trigger.
+- Fixed the `@` mention popup losing book options whenever the `/targeted-learning/health` call failed (stale-cookie 401, 503 during bootstrap, non-JSON error) with no retry: a resilient loader now retries transient `/books` failures, only an authoritative `booksDbAvailable: false` short-circuits, and stale loads are dropped.
+- Fixed citation verification falsely reporting "not shown to the model this turn" for passages retrieved in earlier turns: grounding turn-state now keeps a sliding window of the last 10 turns (bounded at 20k chunk ids per session, oldest evicted first) instead of a per-turn flat set wiped at every turn boundary.
 - Shell execution now quotes remote working directories and environment values as POSIX shell arguments instead of using JSON string quoting.
 - Remote connection cache identities include the selected profile/authentication identity, preventing stale connection reuse after profile edits.
 - Playwright's app proxy configuration now uses the backend's actual default port (`4097`) and the `VITE_DIVEEOI_SERVER_*` variables.
