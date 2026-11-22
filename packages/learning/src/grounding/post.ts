@@ -1,8 +1,9 @@
 // packages/learning/src/grounding/post.ts
 //
 // After-answer verification (plan §9.6). Checks every [chunk_id] citation in the model's final
-// reply: the passage exists and was shown to the model this turn. Retry mode returns one repair
-// prompt; the session loop removes the unverified draft before asking again.
+// reply: the passage exists and was shown to the model within the recent-turns window
+// (grounding/turn-state.ts — #9/#15). Retry mode returns one repair prompt; the session loop
+// removes the unverified draft before asking again.
 
 import { Effect } from "effect"
 import { getRuntime } from "../runtime"
@@ -81,7 +82,8 @@ const verifyAnswerImpl = async (input: {
         ? "⚠ لا تحتوي هذه الإجابة على مراجع من الكتاب، لذا لم يمكن التحقق منها."
         : "⚠ This answer cites no passages from the book, so it could not be verified."
       : undefined
-    clearRetrieved(input.sessionId)
+    // No end-of-turn clear here: the recent-turns window must survive so later turns can
+    // still cite passages shown in previous turns (#9/#15). Bounded by the window + TTL.
     return { verified: note === undefined, note }
   }
 
@@ -106,14 +108,13 @@ const verifyAnswerImpl = async (input: {
     allVerified ? "info" : "warn",
   )
   if (allVerified) {
-    clearRetrieved(input.sessionId)
+    // Keep the recent-turns window: later turns may cite these passages (#9/#15).
     return { verified: true }
   }
 
   if (mode === "retry" && input.allowRetry !== false) {
     return { verified: false, retryPrompt: buildRetryPrompt(failures) }
   }
-  clearRetrieved(input.sessionId)
   return { verified: false, note: noteForFailures(failures, ar) }
 }
 
