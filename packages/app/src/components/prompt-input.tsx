@@ -53,6 +53,7 @@ import { usePlatform } from "@/context/platform"
 import { createSessionTabs } from "@/pages/session/helpers"
 import { createTextFragment, getCursorPosition, setCursorPosition, setRangeEdge } from "./prompt-input/editor-dom"
 import { createPromptAttachments } from "./prompt-input/attachments"
+import { listBookOptions } from "./prompt-input/book-options"
 import { ACCEPTED_FILE_TYPES, pickAttachmentFiles } from "./prompt-input/files"
 import {
   canNavigateHistoryAtCursor,
@@ -668,25 +669,21 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       .map((agent): AtOption => ({ type: "agent", name: agent.name, display: agent.name })),
   )
 
-  // Targeted Learning: fetch available books for @book: autocomplete.
+  // Targeted Learning: fetch available books for @book: autocomplete (#7).
+  // Resilient loader: a failing /health call (stale cookie 401, 503 bootstrap)
+  // must not block the /books fetch; transient failures are retried and stale
+  // loads (server/directory switched mid-flight) are dropped.
   const [bookOptions, setBookOptions] = createSignal<AtOption[]>([])
+  let bookRequestId = 0
   createEffect(() => {
     const base = serverSDK().url
-    authFetch(`${base}/targeted-learning/health`, { headers: { "content-type": "application/json" } })
-      .then((r) => r.json())
-      .then((health: { booksDbAvailable?: boolean }) => {
-        if (!health.booksDbAvailable) { setBookOptions([]); return }
-        return authFetch(`${base}/targeted-learning/books`, { headers: { "content-type": "application/json" } })
-      })
-      .then((r) => (r && r.ok ? r.json() : { books: [] }))
-      .then((data: { books?: Array<{ id: string; slug: string; title: string; author?: string }> }) => {
-        setBookOptions(
-          (data.books ?? []).map((b): AtOption => ({
-            type: "book", bookId: b.id, slug: b.slug, title: b.title, author: b.author, display: `@book:${b.slug}`,
-          })),
-        )
-      })
-      .catch(() => setBookOptions([]))
+    const requestID = ++bookRequestId
+    void listBookOptions({ fetch: authFetch, baseUrl: base, isStale: () => requestID !== bookRequestId }).then(
+      (options) => {
+        if (requestID !== bookRequestId) return
+        setBookOptions(options)
+      },
+    )
   })
 
   const handleAtSelect = (option: AtOption | undefined) => {
@@ -1748,6 +1745,14 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   <IconButton
                     data-action="prompt-submit"
                     type="submit"
+                    onClick={(event) => {
+                      // Direct click path: some browser/Kobalte combos never fire the
+                      // form's submit event for this button (#6), so submit explicitly.
+                      // preventDefault stops the implicit submission that would double-fire.
+                      event.preventDefault()
+                      event.stopPropagation()
+                      void handleSubmit(event)
+                    }}
                     disabled={!working() && blank()}
                     tabIndex={store.mode === "normal" ? undefined : -1}
                     icon={stopping() ? "stop" : store.mode === "shell" ? "arrow-undo-down" : "arrow-up"}
@@ -1891,6 +1896,14 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     <IconButton
                       data-action="prompt-submit"
                       type="submit"
+                      onClick={(event) => {
+                        // Direct click path: some browser/Kobalte combos never fire the
+                        // form's submit event for this button (#6), so submit explicitly.
+                        // preventDefault stops the implicit submission that would double-fire.
+                        event.preventDefault()
+                        event.stopPropagation()
+                        void handleSubmit(event)
+                      }}
                       disabled={!working() && blank()}
                       tabIndex={store.mode === "normal" ? undefined : -1}
                       icon={stopping() ? "stop" : store.mode === "shell" ? "arrow-undo-down" : "arrow-up"}

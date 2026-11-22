@@ -267,8 +267,16 @@ function HomeDesign() {
 
   function openNewSession() {
     const conn = focusedServer()
+    if (!conn) return
     const project = newSessionProject()
-    if (!conn || !project) return
+    if (!project) {
+      // Picker fallback (#5): with no open project this CTA used to die silently.
+      // Open the directory picker, then start the session on the picked project.
+      chooseProject(conn, (directory) => {
+        if (directory) openProjectNewSession(conn, directory)
+      })
+      return
+    }
     openProjectNewSession(conn, project.worktree)
   }
 
@@ -318,9 +326,11 @@ function HomeDesign() {
     navigateOnServer(conn, `/${base64Encode(session.directory)}/session/${session.id}`)
   }
 
-  function chooseProject(conn: ServerConnection.Any) {
+  function chooseProject(conn: ServerConnection.Any, after?: (directory: string | undefined) => void) {
     function resolve(result: string | string[] | null) {
-      addProjects(conn, homeProjectDirectories(result))
+      const directories = homeProjectDirectories(result)
+      addProjects(conn, directories)
+      after?.(directories[0])
     }
 
     const server = global.createServerCtx(conn)
@@ -399,7 +409,7 @@ function HomeDesign() {
                     <div class="flex min-w-0 flex-col gap-4">
                       <HomeSessionGroupHeader
                         title={language.t("home.sessions.empty")}
-                        onNewSession={newSessionProject() ? openNewSession : undefined}
+                        onNewSession={openNewSession}
                       />
                     </div>
                   }
@@ -409,7 +419,7 @@ function HomeDesign() {
                       <div class="flex min-w-0 flex-col gap-4">
                         <HomeSessionGroupHeader
                           title={group.title}
-                          onNewSession={index() === 0 && newSessionProject() ? openNewSession : undefined}
+                          onNewSession={index() === 0 ? openNewSession : undefined}
                         />
                         <div class="flex min-w-0 flex-col gap-px">
                           <For each={group.sessions}>
