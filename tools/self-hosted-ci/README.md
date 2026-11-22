@@ -38,6 +38,8 @@ go build -trimpath -o ./bin/diveeoi-ci ./cmd/diveeoi-ci
 
 `make test`, `make build`, and `make fmt` are also available. Building downloads the single YAML dependency declared in `go.mod`.
 
+Verified clean on 2026-11-22 with Go 1.27.4: `go vet ./...` (0 findings) and `go test ./...` (7 packages `ok`, 36 tests, 0 failures, 2 packages without test files) both pass; `go build -trimpath -o ./bin/diveeoi-ci ./cmd/diveeoi-ci` produces a working `diveeoi-ci version` binary.
+
 ## Configure repositories and refs
 
 Start from `examples/config.json`. The current example watches the public DiveeOI repository's `dev` branch and `v*` tags and expects `.diveeoi/pipeline.yml` at the checked-out commit. Adjust it for your own repositories and refs before starting the service.

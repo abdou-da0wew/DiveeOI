@@ -46,6 +46,12 @@ RUN bun install --frozen-lockfile --production
 # Build the server
 RUN bun run build:current
 
+# Promote the compiled single-platform binary (packages/server/dist/@diveeoi/<target>/bin/diveeoi)
+# to a fixed path for the runtime CMD below. `cp` fails the build if
+# `build:current` did not produce a binary (e.g. a low-memory build host made
+# the build script skip binary compilation), instead of failing at container start.
+RUN cp "$(find packages/server/dist -type f -name diveeoi | head -n 1)" /usr/local/bin/diveeoi
+
 # ---- Optional: pre-seed the model ----
 FROM base AS model-seed
 ARG SEED_MODEL=0
@@ -86,5 +92,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 # Volume for persistent data (books.db, model, uploads, setup.json)
 VOLUME ["/data"]
 
-# Start the server
-CMD ["bun", "run", "--cwd", "packages/server", "dev"]
+# Start the server: run the compiled production binary built above (bundles the
+# server code and embeds the Web UI). Plain exec form hands PID 1 signals
+# (SIGTERM shutdown) straight to the server process.
+CMD ["/usr/local/bin/diveeoi"]
