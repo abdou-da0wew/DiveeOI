@@ -289,7 +289,11 @@ commits). One claim from the exploration pass (a "broken `const ealth]` declarat
 - [ ] Frontend next pass: luxon (259 KB) eager via `context/models.tsx`, kobalte (235 KB) eager via `ui` DialogProvider/toast; optional splash for the marked-chunk gap; `ConnectionGate` timeout-loop nuance.
 - [ ] Run the server `tsgo` typecheck on a machine with more memory (this 4 GB sandbox OOM-kills it; runtime graph-boot tests cover the sprint's server change).
 - [ ] httpapi-instance "missing projects" test still runs on bun's 5s default timeout (~3.6s typical — bump to 20s like its siblings if it ever flakes).
-- [ ] `/favicon-light.svg` 404 (discovered during §8 favicon work): `packages/app/index.html:8` references it but it is missing from `packages/app/public/` AND from the server `PUBLIC_UI_PATHS` allowlist (`src/server/shared/public-ui.ts`) — copy the canonical file from `packages/ui/src/assets/favicon/` AND add the allowlist entry (or drop the `<link>`).
+- [x] **DONE 2026-11-22** `/favicon-light.svg` 404 fixed (discovered during §8 favicon work): the canonical
+      `packages/ui/src/assets/favicon/favicon-light.svg` is now copied byte-identical into
+      `packages/app/public/` AND `/favicon-light.svg` is allowlisted in the server `PUBLIC_UI_PATHS`
+      (`src/server/shared/public-ui.ts`, next to `/favicon.svg`). `isPublicUIPath` sanity-checked
+      (GET true / POST false / unknown false); smoke 5/0, server TL 26/0, instance 7/7 re-run green.
 - [ ] Combined single-process server-test run (`bun test test/server/httpapi-targeted-learning.test.ts test/server/httpapi-instance.test.ts`) shows inter-file contamination (TL's `/tmp/tl-routes-test-*` log path) — run the files separately (both green per-file); consider a test-isolation fix.
 - [ ] Run one `docker build && docker run` smoke of the new production CMD (`/usr/local/bin/diveeoi`) on a host with a Docker daemon — the dev sandbox has none; the Dockerfile change was verified by construction only (build.ts emits a single compiled Bun executable; `find` pattern matches exactly one file).
 - [ ] `pacote@21.5.1`: the deleted 21.5.0 patch fixed a git-tarball fallback bug still present upstream — re-derive as a 21.5.1 patch only if a tarball fallback failure ever shows up.

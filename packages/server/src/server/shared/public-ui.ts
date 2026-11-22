@@ -11,6 +11,7 @@ export const PUBLIC_UI_PATHS = new Set<string>([
   "/apple-touch-icon.png",
   "/apple-touch-icon-v3.png",
   "/favicon.svg",
+  "/favicon-light.svg",
   "/favicon-v3.svg",
   "/favicon.ico",
   "/favicon-v3.ico",
