@@ -1,7 +1,7 @@
 // packages/learning/src/eval/index.ts
-// @ts-nocheck — Effect v4-beta type-narrowing issues; runtime verified by 157 passing tests
 //
-// Eval harness (plan §15).
+// Eval harness (plan §15) + the offline `tl:eval` corpus-evaluation harness
+// (TODO.md §4 / RETRIEVAL_V2_PLAN.md §10).
 //
 // A golden set per book with:
 //   - In-book questions and their expected section or page
@@ -10,39 +10,74 @@
 //   - Off-topic questions that MUST be refused
 //
 // Metrics:
-//   - recall@k (BM25, dense, fused)
-//   - MRR (Mean Reciprocal Rank)
+//   - recall@k (BM25, dense, fused), MRR@10, nDCG@10
 //   - gate precision and recall
 //   - refusal rate on off-topic
 //   - false-refusal rate on in-book
+//   - p50/p95 latency and peak RSS
 //
-// The eval harness calibrates the gate thresholds (plan §8.3) and compares
-// int8 against fp32 (plan §4.2).
+// The eval harness calibrates the gate thresholds (plan §8.3), compares query
+// encoders (student vs teacher) through the same complete retrieval path, and
+// evaluates the promotion gates of RETRIEVAL_V2_PLAN.md §7 (promote.py
+// semantics). See ./types.ts, ./run.ts, ./gates.ts, ./report.ts.
+//
+// This file keeps the original legacy API (`runEval` / `runQuestion` /
+// `calibrateThresholds` — used by scripts/rag-e2e.ts) and re-exports the new
+// harness. It carries NO `@ts-nocheck`: the old file needed it for an
+// Effect v4-beta narrowing pattern (matchEffect-then-narrow) that no longer
+// appears here; the legacy entry points are plain async cores wrapped in
+// Effect.promise, which tsgo handles without narrowing help.
 
 import { Effect, Schema } from "effect"
 import type { BooksDbHandle } from "../store"
 import { retrieve, type RetrievalOptions, type RetrievalResult } from "../retrieve/hybrid"
-import { embed } from "../embed/pipeline"
+import { embed as pipelineEmbed } from "../embed/pipeline"
+import type { GoldenQuestion, QuestionKind, ResolvedQuestion } from "./types"
 
 // ---------------------------------------------------------------------------
-// Golden set types
+// Re-exports: the v2 golden-set schema, the harness, and its pieces
 // ---------------------------------------------------------------------------
 
-export const GoldenQuestion = Schema.Struct({
-  id: Schema.String,
-  bookId: Schema.String,
-  query: Schema.String,
-  language: Schema.Literals(["ar", "en"]),
-  expectedChunkIds: Schema.Array(Schema.String),
-  expectedPageRange: Schema.optional(
-    Schema.Struct({
-      start: Schema.Number,
-      end: Schema.Number,
-    }),
-  ),
-  kind: Schema.Literals(["in-book", "paraphrased", "cross-lingual", "follow-up", "off-topic"]),
-})
-export type GoldenQuestion = Schema.Schema.Type<typeof GoldenQuestion>
+export {
+  GoldenQuestion,
+  GoldenSetFile,
+  GoldenSetRole,
+  QuestionKind,
+  QuestionLanguage,
+} from "./types"
+export type {
+  EvalEmbedder,
+  ResolvedQuestion,
+  RunResult,
+  RunMetrics,
+  QuestionRow,
+  GateCheck,
+  GateReport,
+  GateVerdict,
+  ComparisonTable,
+  HarnessOutput,
+  HarnessConfigEcho,
+} from "./types"
+export { GoldenSetError, parseGoldenSet, buildCorpusIndex, resolveGoldenSets, resolveQuestion } from "./golden"
+export type { CorpusIndex, ResolvedGoldenSet } from "./golden"
+export {
+  standinEmbed,
+  makeStandinEmbedder,
+  makeDegradedStandinEmbedder,
+  makeEmbedderFromSpec,
+  makeRealTeacherEmbedder,
+  makeStudentEmbedder,
+  ensureEvalRuntime,
+} from "./embedder"
+export { recallAt, reciprocalRankAt, ndcgAt, percentile, aggregateRun } from "./metrics"
+export { evaluatePromotionGates, PROMOTION_THRESHOLDS, hnswDecision } from "./gates"
+export { renderMarkdown, writeReportFiles } from "./report"
+export { runHarness } from "./run"
+export type { HarnessConfig, HarnessRunArtifacts } from "./run"
+
+// ---------------------------------------------------------------------------
+// Legacy eval result/report schemas (unchanged shape, used by rag-e2e.ts)
+// ---------------------------------------------------------------------------
 
 export const EvalResult = Schema.Struct({
   questionId: Schema.String,
@@ -74,31 +109,64 @@ export const EvalReport = Schema.Struct({
 export type EvalReport = Schema.Schema.Type<typeof EvalReport>
 
 // ---------------------------------------------------------------------------
-// Run a single question through the retriever
+// Legacy question shape: the v2 GoldenQuestion with bookId and
+// expectedChunkIds mandatory (the original pre-v2 contract).
 // ---------------------------------------------------------------------------
 
-const runQuestion = (
-  db: BooksDbHandle,
-  question: GoldenQuestion,
-  options: Omit<RetrievalOptions, "bookIds" | "query" | "recentUserTurns" | "gate"> & { gate: RetrievalOptions["gate"] },
-): Effect.Effect<EvalResult, never> =>
-  Effect.gen(function* () {
-    const queryVec = yield* embed(question.query).pipe(
-      Effect.matchEffect({
-        onFailure: () => Effect.succeed(null as Float32Array | null),
-        onSuccess: (v) => Effect.succeed(v as Float32Array | null),
-      }),
-    )
+export type LegacyGoldenQuestion = GoldenQuestion & {
+  bookId: string
+  expectedChunkIds: string[]
+}
 
-    const result: RetrievalResult = yield* retrieve(
-      db,
-      {
-        ...options,
-        bookIds: [question.bookId],
-        query: question.query,
-        recentUserTurns: [],
-      },
-      queryVec,
+export type LegacyEmbedFn = (text: string) => Promise<Float32Array | null>
+
+/** The production pipeline, degrading to a vectorless (BM25-only) leg when it
+ * is not initialized — exactly like a chat turn without a loaded model. */
+export const defaultLegacyEmbed: LegacyEmbedFn = async (text) =>
+  await Effect.runPromise(pipelineEmbed(text).pipe(Effect.orElseSucceed(() => null as Float32Array | null)))
+
+export type LegacyRetrievalOptions = Omit<RetrievalOptions, "bookIds" | "query" | "recentUserTurns" | "debug">
+
+const legacyOptions = (options: LegacyRetrievalOptions): Omit<RetrievalOptions, "bookIds" | "query" | "recentUserTurns"> => ({
+  bm25TopK: options.bm25TopK,
+  denseTopK: options.denseTopK,
+  rrfK: options.rrfK,
+  weightBm25: options.weightBm25,
+  weightDense: options.weightDense,
+  autoWeightByLanguage: options.autoWeightByLanguage,
+  finalTopK: options.finalTopK,
+  parentExpansion: options.parentExpansion,
+  parentContextMaxTokens: options.parentContextMaxTokens,
+  queryRewrite: options.queryRewrite,
+  rewriteTurns: options.rewriteTurns,
+  gate: options.gate,
+  debug: false,
+})
+
+// ---------------------------------------------------------------------------
+// Run a single question through the retriever (legacy shape)
+// ---------------------------------------------------------------------------
+
+export const runQuestion = (
+  db: BooksDbHandle,
+  question: LegacyGoldenQuestion,
+  options: LegacyRetrievalOptions,
+  embedFn: LegacyEmbedFn = defaultLegacyEmbed,
+): Effect.Effect<EvalResult, never> =>
+  Effect.promise(async () => {
+    const queryVec = await embedFn(question.query)
+
+    const result: RetrievalResult = await Effect.runPromise(
+      retrieve(
+        db,
+        {
+          ...legacyOptions(options),
+          bookIds: [question.bookId],
+          query: question.query,
+          recentUserTurns: [],
+        },
+        queryVec,
+      ),
     )
 
     const retrievedChunkIds = result.candidates.map((c) => c.chunkId)
@@ -139,26 +207,26 @@ const runQuestion = (
   })
 
 // ---------------------------------------------------------------------------
-// Run the full eval suite
+// Run the full eval suite (legacy shape)
 // ---------------------------------------------------------------------------
 
 export const runEval = (
   db: BooksDbHandle,
-  questions: GoldenQuestion[],
-  options: Omit<RetrievalOptions, "bookIds" | "query" | "recentUserTurns" | "gate"> & { gate: RetrievalOptions["gate"] },
+  questions: LegacyGoldenQuestion[],
+  options: LegacyRetrievalOptions,
+  embedFn: LegacyEmbedFn = defaultLegacyEmbed,
 ): Effect.Effect<EvalReport, never> =>
-  Effect.gen(function* () {
+  Effect.promise(async () => {
     const results: EvalResult[] = []
     for (const q of questions) {
-      const r = yield* runQuestion(db, q, options)
-      results.push(r)
+      results.push(await Effect.runPromise(runQuestion(db, q, options, embedFn)))
     }
 
     const total = results.length
     const inBook = results.filter((r) => r.kind !== "off-topic")
     const offTopic = results.filter((r) => r.kind === "off-topic")
 
-    const recallAt = (k: number) => {
+    const recallAtK = (k: number) => {
       if (inBook.length === 0) return 0
       const hits = inBook.filter((r) => r.hitAtK !== undefined && r.hitAtK <= k).length
       return hits / inBook.length
@@ -180,10 +248,10 @@ export const runEval = (
     return EvalReport.make({
       totalQuestions: total,
       passed,
-      recallAt1: recallAt(1),
-      recallAt3: recallAt(3),
-      recallAt5: recallAt(5),
-      recallAt8: recallAt(8),
+      recallAt1: recallAtK(1),
+      recallAt3: recallAtK(3),
+      recallAt5: recallAtK(5),
+      recallAt8: recallAtK(8),
       mrr,
       gatePrecision,
       gateRecall,
@@ -208,14 +276,15 @@ export interface CalibratedThresholds {
  */
 export const calibrateThresholds = (
   db: BooksDbHandle,
-  questions: GoldenQuestion[],
-  options: Omit<RetrievalOptions, "bookIds" | "query" | "recentUserTurns" | "gate"> & { gate: RetrievalOptions["gate"] },
+  questions: LegacyGoldenQuestion[],
+  options: LegacyRetrievalOptions,
   sweep: { denseSteps: number[]; fusedSteps: number[] } = {
     denseSteps: [0.1, 0.2, 0.3, 0.35, 0.4, 0.5, 0.6],
     fusedSteps: [0.01, 0.05, 0.1, 0.15, 0.2, 0.3],
   },
+  embedFn: LegacyEmbedFn = defaultLegacyEmbed,
 ): Effect.Effect<CalibratedThresholds, never> =>
-  Effect.gen(function* () {
+  Effect.promise(async () => {
     let best: CalibratedThresholds = {
       minDenseScore: 0.3,
       minFusedScore: 0.1,
@@ -224,14 +293,21 @@ export const calibrateThresholds = (
 
     for (const dense of sweep.denseSteps) {
       for (const fused of sweep.fusedSteps) {
-        const report = yield* runEval(db, questions, {
-          ...options,
-          gate: {
-            ...options.gate,
-            minDenseScore: dense,
-            minFusedScore: fused,
-          },
-        })
+        const report = await Effect.runPromise(
+          runEval(
+            db,
+            questions,
+            {
+              ...options,
+              gate: {
+                ...options.gate,
+                minDenseScore: dense,
+                minFusedScore: fused,
+              },
+            },
+            embedFn,
+          ),
+        )
         const precision = report.gatePrecision
         const recall = report.gateRecall
         const f1 = precision + recall === 0 ? 0 : (2 * precision * recall) / (precision + recall)
@@ -243,3 +319,17 @@ export const calibrateThresholds = (
 
     return best
   })
+
+// ---------------------------------------------------------------------------
+// Bridge: resolved v2 question → legacy question (for runEval reuse)
+// ---------------------------------------------------------------------------
+
+export const toLegacyQuestion = (q: ResolvedQuestion): LegacyGoldenQuestion => ({
+  id: q.id,
+  bookId: q.bookId,
+  query: q.query,
+  language: q.language,
+  kind: q.kind as QuestionKind,
+  expectedChunkIds: [...q.expectedChunkIds],
+  ...(q.expectedPageRange ? { expectedPageRange: q.expectedPageRange } : {}),
+})

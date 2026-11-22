@@ -1,0 +1,128 @@
+{
+  "schemaVersion": 2,
+  "name": "biology-basics golden set",
+  "description": "Synthetic 12-question golden set for the biology-basics mini book. Demonstrates every question kind of the tl:eval golden-set schema. The 'teacher' role labels this set as the reference (held-out) question set for the role comparison table; in a real corpus the role should reflect the question provenance.",
+  "role": "teacher",
+  "questions": [
+    {
+      "id": "bio-in-1",
+      "bookSlug": "biology-basics",
+      "query": "chlorophyll inside the chloroplasts absorbs sunlight",
+      "language": "en",
+      "kind": "in-book",
+      "expectedChunkIds": ["biology-basics-c0"],
+      "note": "keyword-style: every term occurs in the target chunk, so BM25 AND-matches"
+    },
+    {
+      "id": "bio-par-1",
+      "bookSlug": "biology-basics",
+      "query": "how green plants convert light into chemical energy during photosynthesis",
+      "language": "en",
+      "kind": "paraphrased",
+      "expectedChunkIds": ["biology-basics-c0"],
+      "note": "paraphrase: 'how' keeps BM25's AND-match from firing, dense cosine must carry it"
+    },
+    {
+      "id": "bio-in-2",
+      "bookSlug": "biology-basics",
+      "query": "the calvin cycle happens in the stroma and uses atp and nadph",
+      "language": "en",
+      "kind": "in-book",
+      "expectedChunkIds": ["biology-basics-c1"]
+    },
+    {
+      "id": "bio-in-3",
+      "bookSlug": "biology-basics",
+      "query": "farmers add greenhouse lighting in winter so their crops keep producing sugars",
+      "language": "en",
+      "kind": "in-book",
+      "expectedChunkIds": ["biology-basics-c2"]
+    },
+    {
+      "id": "bio-sec-1",
+      "bookSlug": "biology-basics",
+      "query": "mitosis produces two identical daughter cells",
+      "language": "en",
+      "kind": "in-book",
+      "expectedSectionTitles": ["Cell Division"],
+      "note": "section-title expectation: resolves to every chunk of the section"
+    },
+    {
+      "id": "bio-in-5",
+      "bookSlug": "biology-basics",
+      "query": "crossing over during meiosis shuffles genes and creates genetic variation",
+      "language": "en",
+      "kind": "in-book",
+      "expectedChunkIds": ["biology-basics-c3"]
+    },
+    {
+      "id": "bio-in-4",
+      "bookSlug": "biology-basics",
+      "query": "الجينات تنتقل عبر الكروموسومات إلى الأبناء",
+      "language": "ar",
+      "kind": "in-book",
+      "expectedChunkIds": ["biology-basics-c4"]
+    },
+    {
+      "id": "bio-page-1",
+      "bookSlug": "biology-basics",
+      "query": "الجينات وحدات الوراثة التي تنتقل من الآباء إلى الأبناء",
+      "language": "ar",
+      "kind": "in-book",
+      "expectedPageRange": { "start": 5, "end": 5 },
+      "note": "page-range expectation: synthetic chunk pages are chunkIndex+1, so page 5 is chunk c4"
+    },
+    {
+      "id": "bio-par-ar",
+      "bookSlug": "biology-basics",
+      "query": "الصفات المتنحية تحتاج إلى نسختين من الجين",
+      "language": "ar",
+      "kind": "paraphrased",
+      "expectedChunkIds": ["biology-basics-c5"]
+    },
+    {
+      "id": "bio-xl-ar-en",
+      "bookSlug": "biology-basics",
+      "query": "ما هي عملية البناء الضوئي في النبات",
+      "language": "ar",
+      "kind": "cross-lingual",
+      "expectedChunkIds": ["biology-basics-c0"],
+      "note": "Arabic question about content that exists ONLY in the ENGLISH chunk: needs a multilingual encoder (bge-m3); the hash standin honestly fails it"
+    },
+    {
+      "id": "bio-xl-en-ar",
+      "bookSlug": "biology-basics",
+      "query": "why do children inherit eye color from their parents",
+      "language": "en",
+      "kind": "cross-lingual",
+      "expectedChunkIds": ["biology-basics-c4"],
+      "note": "English question about content that exists ONLY in the ARABIC chunk"
+    },
+    {
+      "id": "bio-follow-1",
+      "bookSlug": "biology-basics",
+      "query": "explain more about the calvin cycle in the stroma",
+      "language": "en",
+      "kind": "follow-up",
+      "followUpOf": "bio-in-2",
+      "expectedChunkIds": ["biology-basics-c1"],
+      "note": "anaphoric: the harness feeds the parent query through the production heuristic rewriter; the dense leg scores the RAW query exactly like production does"
+    },
+    {
+      "id": "bio-off-1",
+      "bookSlug": "biology-basics",
+      "query": "hamlet denmark playwright william shakespeare",
+      "language": "en",
+      "kind": "off-topic",
+      "note": "off-topic probe (eval.py style: deliberately unrelated, zero lexical overlap with the book): MUST be refused by the gate"
+    },
+    {
+      "id": "bio-off-2",
+      "bookSlug": "biology-basics",
+      "query": "عاصمة فرنسا",
+      "language": "ar",
+      "kind": "off-topic",
+      "note": "Arabic off-topic probe: MUST be refused by the gate"
+    }
+  ]
+}

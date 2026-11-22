@@ -10,7 +10,8 @@
     "test:live": "bun test test/embed-pipeline.test.ts",
     "typecheck": "tsgo --noEmit",
     "tl:manifest": "bun src/manifest/cli.ts",
-    "tl:selftest:freeze": "bun scripts/freeze-selftest.ts"
+    "tl:selftest:freeze": "bun scripts/freeze-selftest.ts",
+    "tl:eval": "bun scripts/eval-corpus.ts"
   },
   "exports": {
     ".": "./src/index.ts",
@@ -35,7 +36,6 @@
     "./embed": "./src/embed/index.ts",
     "./embed/pipeline": "./src/embed/pipeline.ts",
     "./ingest": "./src/ingest/index.ts",
-    "./ingest/pool": "./src/ingest/pool.ts",
     "./ingest/jobs": "./src/ingest/jobs.ts",
     "./retrieve": "./src/retrieve/index.ts",
     "./retrieve/hybrid": "./src/retrieve/hybrid.ts",

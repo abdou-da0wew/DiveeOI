@@ -16,6 +16,7 @@
 
 import { Effect, Schema } from "effect"
 import type { ParseResult, OutlineEntry } from "../parsers"
+import { normalizeForSearch } from "../lang/arabic"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -90,9 +91,28 @@ export const setTokenizer = (tokenizer: { encode: (text: string) => { length: nu
 // Sentence splitter — handles Arabic and English punctuation.
 // ---------------------------------------------------------------------------
 
+// Digits that can appear inside a numeric run (Latin + Arabic-Indic +
+// Extended Arabic-Indic). A "." between two digits is a decimal point,
+// never a sentence boundary.
+const DIGIT_RUN = "0-9\u0660-\u0669\u06F0-\u06F9"
+
 const splitSentences = (text: string): string[] => {
   // Match sentences ending in . ! ? ؟ 。 plus Arabic full stop variants.
-  const sentences = text.match(/[^.!?؟。\n]+[.!?؟。\n]+["'”»)]*\s*/g)
+  // Bug #11: a "." inside a digit run ("3.5", "v3.5.1", an Arabic-Indic
+  // decimal OCR'd with a Latin dot) must NOT end the sentence — the naive
+  // splitter cut the number into "3." + "5", mangling the figure in the
+  // extracted chunk and feeding wrong numbers into Arabic numeric answers.
+  //   1. body runs may be resumed across digit-attached dots:  body (\.(?=digit) body)*
+  //   2. the closing terminator run is only consumed when NOT followed by a
+  //      digit, or when it contains a real boundary char (؟ ! 。 newline);
+  //      it is optional so an unterminated trailing sentence is kept
+  //      (the old regex silently DROPPED trailing text without a final ".").
+  const sentences = text.match(
+    new RegExp(
+      `[^.!?؟。\\n]+(?:\\.(?=[${DIGIT_RUN}])[^.!?؟。\\n]+)*(?:[.!?؟。\\n]+(?![${DIGIT_RUN}])|[!?؟。\\n]+(?=[${DIGIT_RUN}]))?["'”»)]*\\s*`,
+      "g",
+    ),
+  )
   if (!sentences) return text.trim() ? [text] : []
   return sentences.map((s) => s.trim()).filter(Boolean)
 }
@@ -119,11 +139,12 @@ interface SectionText {
 }
 
 const buildSectionsFromOutline = (parseResult: ParseResult): SectionText[] => {
+  const pages = parseResult.pages
   if (parseResult.outline.length === 0) {
     return [
       {
         entry: { title: undefined, page: 1, level: 1 } as unknown as OutlineEntry,
-        text: parseResult.pages.map((p) => p.text).join("\n\n"),
+        text: pages.map((p) => p.text).join("\n\n"),
         pageStart: 1,
         pageEnd: parseResult.metadata.pages,
         ancestors: [],
@@ -131,14 +152,96 @@ const buildSectionsFromOutline = (parseResult: ParseResult): SectionText[] => {
     ]
   }
 
-  // Sort outline by page then by level (parent before child).
-  const sorted = [...parseResult.outline].sort((a, b) => a.page - b.page || a.level - b.level)
+  // Absolute character offset of each page's text inside the page stream (the
+  // same "\n\n" join used to build section text below). Offsets are what let
+  // same-page outline entries split the page text BETWEEN headings instead of
+  // each claiming the whole page (Bug #2, 2026-11-09 RSS → 15.8 GB).
+  const pageStarts: number[] = []
+  let streamEnd = 0
+  for (const page of pages) {
+    pageStarts.push(streamEnd)
+    streamEnd += page.text.length
+  }
+  const pageStartAbs = (pageNo: number): number | null =>
+    pageNo >= 1 && pageNo <= pages.length ? pageStarts[pageNo - 1]! : null
+  const pageEndAbs = (pageNo: number): number | null =>
+    pageNo >= 1 && pageNo <= pages.length ? pageStarts[pageNo - 1]! + pages[pageNo - 1]!.text.length : null
+
+  // Locate a heading on its own page: exact match first, then whitespace-flexible
+  // (PDF/DOCX headings wrap across lines, so a bookmark like "Chapter 3 Advanced
+  // Topics" may be extracted as "Chapter 3\nAdvanced Topics"). Returns null when
+  // the heading text cannot be located — the caller then keeps the legacy
+  // whole-page range for that boundary (safe: real TXT/DOCX headings are exact
+  // trimmed lines, so the unfindable case is bounded to odd PDF bookmarks).
+  const findHeadingOnPage = (
+    title: string,
+    pageNo: number,
+    fromAbs: number,
+  ): { index: number; length: number } | null => {
+    const trimmed = title.trim()
+    if (!trimmed) return null
+    const idx = pageNo - 1
+    if (idx < 0 || idx >= pages.length) return null
+    const pageText = pages[idx]!.text
+    const localFrom = Math.max(0, Math.min(fromAbs - pageStarts[idx]!, pageText.length))
+    const exact = pageText.indexOf(trimmed, localFrom)
+    if (exact >= 0) return { index: pageStarts[idx]! + exact, length: trimmed.length }
+    const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+")
+    if (!escaped) return null
+    const re = new RegExp(escaped, "g")
+    re.lastIndex = localFrom
+    const match = re.exec(pageText)
+    if (match && match[0].length > 0) return { index: pageStarts[idx]! + match.index, length: match[0].length }
+    return null
+  }
+
+  // Sort by page only (stable sort — same-page entries keep their document
+  // order). Splitting a page between headings needs monotonic document order;
+  // the previous `a.level - b.level` tiebreak regrouped same-page entries by
+  // level, which made heading offsets non-monotonic for hierarchical DOCX
+  // outlines (h2 sections interleaved between h1 siblings) and broke tiling.
+  const sorted = [...parseResult.outline].sort((a, b) => a.page - b.page)
+
+  // Pass 1: absolute offset of every heading. The search floor advances past
+  // each located heading so duplicate titles (TOC lines, repeated headings)
+  // walk forward instead of re-matching the same occurrence.
+  const headingAt: (number | null)[] = []
+  let searchFloor = 0
+  for (const entry of sorted) {
+    const ownPage = Math.max(1, entry.page)
+    const pageStart = pageStartAbs(ownPage)
+    if (pageStart === null) {
+      headingAt.push(null)
+      continue
+    }
+    const found = findHeadingOnPage(entry.title, ownPage, Math.max(pageStart, searchFloor))
+    headingAt.push(found ? found.index : null)
+    if (found) searchFloor = found.index + Math.max(1, found.length)
+  }
+
+  // Concatenate page text over an absolute [startAbs, endAbs) range, joining
+  // whole and partial pages with "\n\n" exactly like the previous whole-page
+  // slice(...).map(p => p.text).join("\n\n") did — ranges aligned to page
+  // boundaries produce byte-identical text to the old implementation.
+  const textOverRange = (startAbs: number, endAbs: number): string => {
+    if (endAbs <= startAbs) return ""
+    const parts: string[] = []
+    for (let i = 0; i < pages.length; i++) {
+      const start = pageStarts[i]!
+      const end = start + pages[i]!.text.length
+      if (end <= startAbs) continue
+      if (start >= endAbs) break
+      parts.push(pages[i]!.text.slice(Math.max(startAbs, start) - start, Math.min(endAbs, end) - start))
+    }
+    return parts.join("\n\n")
+  }
+
   const sections: SectionText[] = []
 
   for (let i = 0; i < sorted.length; i++) {
     const entry = sorted[i]!
-    const ancestors: OutlineEntry[] = []
     // Walk backwards to find ancestors (entries with lower level on the same or earlier page).
+    const ancestors: OutlineEntry[] = []
     for (let j = i - 1; j >= 0; j--) {
       const prev = sorted[j]!
       if (prev.level < entry.level) {
@@ -148,17 +251,56 @@ const buildSectionsFromOutline = (parseResult: ParseResult): SectionText[] => {
       }
     }
     // Text between this entry's page and the next entry at the same or lower level.
-    const nextEntry = sorted
-      .slice(i + 1)
-      .find((e) => e.level <= entry.level)
+    let boundIdx = -1
+    for (let j = i + 1; j < sorted.length; j++) {
+      if (sorted[j]!.level <= entry.level) {
+        boundIdx = j
+        break
+      }
+    }
+    const nextEntry = boundIdx >= 0 ? sorted[boundIdx] : undefined
     const pageEnd = nextEntry?.page ?? parseResult.metadata.pages
-    const text = parseResult.pages
-      .slice(Math.max(0, entry.page - 1), pageEnd)
-      .map((p) => p.text)
-      .join("\n\n")
+
+    // pageStart/pageEnd keep their whole-page meaning (they feed the section
+    // rows). The default text range is the same page span this function always
+    // produced, so genuine multi-page PDF outlines are byte-identical.
+    const ownPage = Math.max(1, entry.page)
+    const startAbs = pageStartAbs(ownPage)
+    let textStart: number
+    let textEnd: number
+    if (startAbs === null) {
+      // Outline page beyond the parsed pages: the old slice() yielded "".
+      textStart = streamEnd
+      textEnd = streamEnd
+    } else {
+      textStart = startAbs
+      textEnd =
+        pageEnd >= 1 && pageEnd <= pages.length
+          ? pageEndAbs(pageEnd)!
+          : pageEnd > pages.length
+            ? streamEnd
+            : textStart // pageEnd < 1 → empty range, like slice(x, ≤0)
+      // Bug #2 fix: outlines whose entries share one page (TXT/DOCX parsers
+      // stamp every heading with `page: 1` on a single whole-book page) used to
+      // hand the ENTIRE page to EVERY heading — O(headings × bookSize) section
+      // text, the RSS-spike profile. When a boundary heading sits on the same
+      // page as this entry, split the page text BETWEEN the two headings:
+      // heading i owns the text from its own position to the next bounding
+      // heading's position. Unfindable headings keep the legacy page range.
+      const ownHeading = headingAt[i]!
+      if (i > 0 && sorted[i - 1]!.page === entry.page && ownHeading !== null && ownHeading > textStart) {
+        textStart = ownHeading
+      }
+      if (nextEntry && nextEntry.page === entry.page) {
+        const boundHeading = headingAt[boundIdx]!
+        if (boundHeading !== null && boundHeading > textStart) textEnd = boundHeading
+      }
+      if (textEnd < textStart) textEnd = textStart
+    }
+
     sections.push({
       entry,
-      text,
+      text: textOverRange(textStart, textEnd),
       pageStart: entry.page,
       pageEnd,
       ancestors,
@@ -186,8 +328,8 @@ const splitIntoChildren = (
   let currentTokens = 0
   let ord = startOrd
 
-  const flush = (page?: number) => {
-    if (currentTokens >= options.minChunkTokens) {
+  const flush = (page?: number, force = false) => {
+    if (currentTokens >= options.minChunkTokens || (force && currentTokens > 0)) {
       const trimmed = current.trim()
       out.push({
         id: `${sectionId}-c${ord}`,
@@ -196,7 +338,14 @@ const splitIntoChildren = (
         ord,
         page,
         text: trimmed,
-        textNorm: trimmed, // Phase 2: caller will run normalizeForSearch
+        // text_norm feeds chunks_fts (store/schema.ts triggers) and FTS5 BM25.
+        // The search layer (retrieve/hybrid.ts) normalizes queries through
+        // normalizeForSearch, so the index MUST hold the same normalized form
+        // (diacritics/tatweel stripped, alef/ya/ta-marbuta unified) or Arabic
+        // queries never lexically match (#11 → #4). Display text above stays
+        // byte-identical to the source; the reversed-run repair, when enabled,
+        // belongs to this search norm only, never to `text`.
+        textNorm: normalizeForSearch(trimmed),
         tokenCount: currentTokens,
         headingPath: options.prependHeadingPath ? headingPath : undefined,
       })
@@ -217,7 +366,16 @@ const splitIntoChildren = (
       flush()
     }
   }
-  if (currentTokens > 0) flush()
+  if (currentTokens > 0) {
+    // A non-empty section must yield at least one child chunk: minChunkTokens
+    // guards against micro-fragments when SPLITTING long text, not against a
+    // section's only content. With the Bug #2 fix a short chapter is its own
+    // section — silently dropping it made small outline-driven books fail to
+    // ingest ("The book produced no indexable passages"). The rescue only
+    // applies when nothing was emitted yet; trailing runts of already-chunked
+    // sections are still dropped as before.
+    flush(undefined, out.length === 0)
+  }
   return out
 }
 

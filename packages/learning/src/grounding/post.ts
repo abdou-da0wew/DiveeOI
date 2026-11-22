@@ -34,9 +34,13 @@ const noteForFailures = (failures: VerifiedCitation[], arabic: boolean) => {
         ? arabic
           ? "لم يُعرض هذا الدور"
           : "not shown to the model this turn"
-        : arabic
-          ? "الاقتباس لا يطابق النص"
-          : "quoted text does not match"
+        : failure.numericClaimsGrounded === false
+          ? arabic
+            ? `الرقم ${(failure.ungroundedFigures ?? []).join("، ")} غير موجود في المقتبس`
+            : `figure${(failure.ungroundedFigures ?? []).length === 1 ? "" : "s"} ${(failure.ungroundedFigures ?? []).join(", ")} not found in the cited passage`
+          : arabic
+            ? "الاقتباس لا يطابق النص"
+            : "quoted text does not match"
     return `[${failure.citation.chunkId}] (${reason})`
   })
   return arabic
@@ -86,7 +90,7 @@ const verifyAnswerImpl = async (input: {
   const chunksByText = new Map(rows.map((row) => [row.id, row.text]))
   const citations: Citation[] = cited.map((chunkId) => ({ chunkId }))
   const { results, allVerified } = await Effect.runPromise(
-    verify({ citations, retrievedChunkIds: getRetrieved(input.sessionId), chunksByText, mode: "flag" }),
+    verify({ citations, retrievedChunkIds: getRetrieved(input.sessionId), chunksByText, mode: "flag", answerText: input.answer }),
   )
   const failures = results.filter((result) => !result.verified)
   logDiagnostic(

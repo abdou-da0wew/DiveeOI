@@ -129,6 +129,25 @@ interface Bm25Hit {
   bm25Score: number
 }
 
+/**
+ * The heuristic rewriter (retrieve/rewrite.ts) appends ` (re: <last user turn>)` to
+ * anaphoric follow-ups. The suffix is provenance metadata, not search terms: the FTS5
+ * leg quotes every whitespace token and joins them with an implicit AND, so the
+ * marker's own tokens (`"(re:"`, `"light?)"`) can never match a chunk and the whole
+ * lexical leg stays at 0 hits for EVERY rewritten follow-up (4-g finding, reproduced
+ * against a live FTS5 table). Strip the suffix before building the match expression.
+ * Unaffected by design:
+ * - the dense leg: the query vector is embedded from the raw query upstream
+ *   (session/turn.ts), never from the rewritten string;
+ * - the native engine: its Rust `fts_expression` OR-joins terms and drops stopwords,
+ *   so the marker is a harmless dead branch there and its last-turn terms stay useful;
+ * - `RetrievalResult.rewrittenQuery` keeps the full string for the inspector.
+ */
+const REWRITE_MARKER_SUFFIX = /\s+\(re:\s[\s\S]*\)$/
+
+/** Remove a trailing ` (re: …)` rewrite marker; anything else passes through unchanged. */
+export const stripRewriteMarker = (query: string): string => query.replace(REWRITE_MARKER_SUFFIX, "").trim()
+
 const runBm25 = (
   db: BooksDbHandle,
   bookIds: string[],
@@ -138,9 +157,10 @@ const runBm25 = (
   Effect.gen(function* () {
     if (bookIds.length === 0 || !normalizedQuery) return []
 
-    // Sanitize the query for FTS5: split into terms, wrap each in quotes
-    // to avoid MATCH syntax errors from punctuation.
-    const terms = normalizedQuery
+    // Strip the rewriter's ` (re: …)` marker, then sanitize the query for FTS5:
+    // split into terms, wrap each in quotes to avoid MATCH syntax errors from
+    // punctuation.
+    const terms = stripRewriteMarker(normalizedQuery)
       .split(/\s+/)
       .filter((t) => t.length > 0)
       .map((t) => `"${t.replace(/"/g, "")}"`)
@@ -159,6 +179,8 @@ const runBm25 = (
       LIMIT ?
     `
     const params = [terms, ...bookIds, topK] as unknown[]
+    // A BM25 query failure must not masquerade as "no lexical hits": record the real cause
+    // (warn) and fall back to an empty hit list, never a silent null in the error channel.
     const rawRows = yield* Effect.tryPromise({
       try: () =>
         db.all<{
@@ -169,8 +191,13 @@ const runBm25 = (
           text: string
           score: number
         }>(sql, ...params),
-      catch: () => [] as Record<string, unknown>[],
-    }).pipe(Effect.orElseSucceed(() => [] as Record<string, unknown>[]))
+      catch: (cause) => ({ bm25Failure: cause }),
+    }).pipe(
+      Effect.tapError((failure) =>
+        Effect.sync(() => logDiagnostic("retrieval", "bm25.queryFailed", { error: failure.bm25Failure }, "warn")),
+      ),
+      Effect.orElseSucceed(() => [] as Record<string, unknown>[]),
+    )
     const rows = (rawRows ?? []) as { id: string; book_id: string; section_id: string; page: number | null; text: string; score: number }[]
     return rows.map((r) => ({
       chunkId: r.id,
@@ -231,14 +258,40 @@ const runDense = (
       LEFT JOIN chunk_vecs_blob b ON b.chunk_id = c.id
       WHERE c.book_id IN (${placeholders})
     `
-    const readRows = (sql: string) =>
+    // A failing dense leg must not vanish silently: the blob leg failing is the EXPECTED
+    // path on non-compacted libraries (trace), but if both legs fail, dense search silently
+    // disappears and the gate starts refusing with no evidence of the real cause (warn).
+    const readRows = (sql: string, leg: "blob" | "plain") =>
       Effect.tryPromise({
         try: () => db.all<DenseRow>(sql, ...bookIds),
-        catch: () => null,
-      }).pipe(Effect.orElseSucceed(() => null))
-    const rows = (yield* readRows(blobSql)) ?? (yield* readRows(plainSql)) ?? []
+        catch: (cause) => ({ leg, denseFailure: cause }),
+      }).pipe(
+        Effect.tapError((failure) =>
+          Effect.sync(() =>
+            logDiagnostic(
+              "retrieval",
+              "dense.legFailed",
+              { leg, expected: leg === "blob", error: failure.denseFailure },
+              leg === "blob" ? "trace" : "warn",
+            ),
+          ),
+        ),
+        Effect.orElseSucceed(() => null as DenseRow[] | null),
+      )
+    const rows = (yield* readRows(blobSql, "blob")) ?? (yield* readRows(plainSql, "plain"))
+    if (!rows) {
+      yield* Effect.sync(() =>
+        logDiagnostic(
+          "retrieval",
+          "dense.unavailable",
+          { bookCount: bookIds.length, vectorDimensions: queryVector.length },
+          "warn",
+        ),
+      )
+    }
+    const denseRows = rows ?? []
 
-    const scored = rows.map((r) => {
+    const scored = denseRows.map((r) => {
       const vec = r.blob && r.blob.byteLength > 0 ? blobToVector(r.blob) : b64ToVector(r.vec ?? "")
       const score = vec.length === queryVector.length ? cosine(queryVector, vec) : 0
       return {
@@ -275,11 +328,18 @@ const expandParents = (
 
     const placeholders = sectionIds.map(() => "?").join(",")
     const sql = `SELECT id, text, heading_path FROM sections WHERE id IN (${placeholders})`
+    // Parent expansion is enhancement, not evidence: a failure drops the parent context but
+    // must be recorded, not swallowed silently into an empty row list.
     const rows = yield* Effect.tryPromise({
       try: () =>
         db.all<{ id: string; text: string; heading_path: string | null }>(sql, ...sectionIds),
-      catch: () => [] as Record<string, unknown>[],
-    }).pipe(Effect.orElseSucceed(() => [] as Record<string, unknown>[]))
+      catch: (cause) => ({ parentExpansionFailure: cause }),
+    }).pipe(
+      Effect.tapError((failure) =>
+        Effect.sync(() => logDiagnostic("retrieval", "parentExpansion.queryFailed", { error: failure.parentExpansionFailure }, "warn")),
+      ),
+      Effect.orElseSucceed(() => [] as Record<string, unknown>[]),
+    )
     const safeRows = (rows ?? []) as { id: string; text: string; heading_path: string | null }[]
     const sectionMap = new Map(safeRows.map((r) => [r.id, r]))
 
@@ -347,6 +407,9 @@ export const retrieve = (
 
     // The Rust engine owns the hot path (BM25 + cosine + RRF) when it is available; the
     // TypeScript pipeline below stays as the always-correct fallback (RETRIEVAL_V2_PLAN.md §3.6).
+    // queryNativeEngine already reports its internal fallbacks via diagnostics; this guard
+    // records the residual case where the engine client itself throws, instead of silently
+    // downgrading to the TypeScript pipeline with the cause lost.
     const native = yield* Effect.promise(() =>
       queryNativeEngine(
         {
@@ -361,7 +424,10 @@ export const retrieve = (
           denseWeight: options.weightDense,
         },
         { engine: options.engine ?? "auto", dbPath: options.nativeDbPath },
-      ).catch(() => null),
+      ).catch((error) => {
+        logDiagnostic("retrieval", "native.engineError", { error }, "warn")
+        return null
+      }),
     )
 
     const candidateMap = new Map<string, Candidate>()

@@ -1,0 +1,15 @@
+# biology-basics | Biology Basics | en
+%% Photosynthesis
+Photosynthesis is the process by which green plants convert light energy into chemical energy. Chlorophyll inside the chloroplasts absorbs sunlight during daylight hours. Water and carbon dioxide are the raw materials that leaves take in from the air and the soil.
+
+The light dependent reactions happen inside the thylakoid membranes where sunlight excites electrons. The Calvin cycle happens in the stroma and uses ATP and NADPH to fix carbon dioxide into glucose. Oxygen leaves the leaf as a byproduct of splitting water molecules.
+
+The rate of photosynthesis rises with brighter light and warmer temperatures until the enzymes overheat. Farmers add greenhouse lighting in winter so their crops keep producing sugars through the darker months.
+
+%% Cell Division
+Mitosis is the process of cell division that produces two identical daughter cells from one parent cell. During mitosis the chromosomes are copied and separated into two equal sets before the cell splits its membrane. Meiosis produces gametes with half the chromosome number of the parent cell, and crossing over during meiosis shuffles genes and creates genetic variation between offspring.
+
+%% الوراثة والصفات
+الجينات وحدات الوراثة التي تنتقل من الآباء إلى الأبناء عبر الكروموسومات. تحمل الكروموسومات التعليمات التي تحدد صفات الكائن الحي مثل لون العينين وطول القامة.
+
+الصفات السائدة تظهر عندما يكون هناك نسخة واحدة من الجين بينما تحتاج الصفات المتنحية إلى نسختين. تدرس علم الوراثة كيف تختلط الصفات عبر الأجيال المتعاقبة.

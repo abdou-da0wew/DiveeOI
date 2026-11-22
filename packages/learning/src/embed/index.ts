@@ -1,23 +1,18 @@
 // packages/learning/src/embed/index.ts
 //
-// Bun Worker entry point for embedding (plan §7.7).
+// Embedding module entry. Re-exports the Transformers.js pipeline for
+// non-worker use (self-test, query encoding, the in-process ingest fallback).
 //
-// Worker model (plan §7.7):
-//   - Worker A parses and chunks, streaming batches to the main thread.
-//   - Worker B loads the model while A is parsing.
-//   - Embedding batches go to BOTH workers from a shared work queue.
-//   - Chunks are bucketed by length to avoid padding waste.
-//   - The MAIN THREAD is the only SQLite writer. Workers return results as messages.
-//   - A checkpoint is written after each batch.
-//
-// This file is the Worker entry — it receives chunk batches via postMessage,
-// runs the embed pipeline, and posts back the vectors. It does NOT touch
-// the database.
-//
-// Phase 1 ships the message protocol. Phase 2 implements the worker pool
-// in ingest/pool.ts that spawns these.
+// Reality check — the plan §7.7 sketch in the old header is not what shipped:
+//   - The worker pool lives in ingest/embed-pool.ts (createEmbedWorkerPool):
+//     N Bun Workers, each loading the model from embed/worker.entry.ts, fed
+//     from a queue by ingest/run.ts.
+//   - In-process embedding via embedBatch (re-exported below) is the DEFAULT
+//     path; separate worker threads are opt-in (DIVEEOI_TL_WORKER_THREADS=1 or
+//     the workerUrl test seam).
+//   - The main thread is the only SQLite writer; workers only return vectors.
+//   - The former Phase-1 stub ingest/pool.ts (empty makePool/PoolStatus) was
+//     deleted — it had no importers and no HTTP pool-status endpoint ever
+//     existed; job progress is served from ingest_jobs via ingest/run.ts.
 
-export {}
-// Bun Worker entry is a separate file: embed/worker.entry.ts.
-// This file re-exports the pipeline for non-worker use (e.g. self-test).
 export * from "./pipeline"

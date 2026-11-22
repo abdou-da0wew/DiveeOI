@@ -10,10 +10,23 @@ export interface EmbedWorkerInit {
   options: Record<string, unknown>
 }
 
+export interface EmbedPoolStats {
+  /** Configured worker count. */
+  workers: number
+  /** Workers that have not crashed. */
+  alive: number
+  /** Workers currently embedding a batch. */
+  busy: number
+  /** Batches waiting for a free worker (caller-bounded; run.ts never exceeds its wave size). */
+  queued: number
+}
+
 export interface EmbedWorkerPool {
   readonly size: number
   embed: (texts: string[]) => Promise<Float32Array[]>
   close: () => Promise<void>
+  /** Point-in-time snapshot of the bounded internal structures (queue + worker states). */
+  stats: () => EmbedPoolStats
 }
 
 interface Job {
@@ -117,6 +130,12 @@ export const createEmbedWorkerPool = (input: {
 
   return {
     size,
+    stats: () => ({
+      workers: workers.length,
+      alive: workers.reduce((n, w) => n + (w.alive ? 1 : 0), 0),
+      busy: workers.reduce((n, w) => n + (w.busy ? 1 : 0), 0),
+      queued: queue.length,
+    }),
     embed: (texts) =>
       new Promise<Float32Array[]>((resolve, reject) => {
         if (closed) return reject(new Error("pool is closed"))

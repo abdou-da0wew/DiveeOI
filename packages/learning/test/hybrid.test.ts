@@ -5,12 +5,14 @@
 
 import { expect, test, describe, beforeEach, afterEach } from "bun:test"
 import { Effect } from "effect"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { Database as BunDatabase } from "bun:sqlite"
 import { SCHEMA_SQL } from "../src/store/schema"
 import { retrieve, type RetrievalOptions } from "../src/retrieve/hybrid"
+import { shutdownNativeEngine } from "../src/retrieve/native-engine"
+import { flushDiagnostics } from "../src/diagnostics"
 
 let tempDir: string
 let db: BunDatabase
@@ -245,5 +247,145 @@ describe("hybrid retrieval", () => {
     )
     expect(result.rewrittenQuery).toBeDefined()
     expect(result.rewrittenQuery).toContain("photosynthesis")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Error hardening (sprint 2, T5): a failing retrieval leg must never vanish
+// silently into a null. The fallbacks stay (they are load-bearing for
+// availability), but each one now records a `retrieval` diagnostic carrying
+// the real cause first. These tests force the failures and assert through the
+// diagnostics JSONL log — the same mechanism the code uses.
+// ---------------------------------------------------------------------------
+
+describe("retrieval error hardening", () => {
+  let diagDir = ""
+  const envBackup = new Map<string, string | undefined>()
+  const diagFile = () => join(diagDir, "retrieval-debug.jsonl")
+
+  /** Wrap the real db handle so a specific SQL fragment (a retrieval leg) rejects. */
+  const dbWithFailingLeg = (failingFragment: string) => {
+    const base = wrapDb(db)
+    return {
+      ...base,
+      all: <T>(sql: string, ...params: unknown[]) =>
+        sql.includes(failingFragment)
+          ? Promise.reject(new Error(`simulated ${failingFragment} failure`))
+          : base.all<T>(sql, ...params),
+    }
+  }
+
+  beforeEach(() => {
+    diagDir = mkdtempSync(join(tmpdir(), "tl-hybrid-hardening-"))
+    for (const key of [
+      "DIVEEOI_TL_DEBUG",
+      "DIVEEOI_TL_DEBUG_LEVEL",
+      "DIVEEOI_TL_DEBUG_FILE",
+      "DIVEEOI_TL_DEBUG_CONTENT",
+      "DIVEEOI_TL_DEBUG_CONSOLE",
+    ]) {
+      envBackup.set(key, process.env[key])
+    }
+    process.env.DIVEEOI_TL_DEBUG = "retrieval"
+    process.env.DIVEEOI_TL_DEBUG_FILE = diagFile()
+    delete process.env.DIVEEOI_TL_DEBUG_LEVEL
+    process.env.DIVEEOI_TL_DEBUG_CONTENT = "1"
+    delete process.env.DIVEEOI_TL_DEBUG_CONSOLE
+  })
+
+  afterEach(async () => {
+    await flushDiagnostics()
+    for (const [key, value] of envBackup) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+    rmSync(diagDir, { recursive: true, force: true })
+  })
+
+  test("a failing blob leg is recorded and dense search falls back to the plain leg", async () => {
+    const queryVec = new Float32Array([0.85, 0.15, 0.0, 0.0])
+    const result = await Effect.runPromise(
+      retrieve(dbWithFailingLeg("chunk_vecs_blob"), { ...baseOptions, query: "irrelevant" }, queryVec),
+    )
+    // The plain TEXT leg served the turn: fallback behavior is unchanged...
+    expect(result.denseTopK).toBeGreaterThan(0)
+    // ...but the blob-leg failure was recorded, with its cause.
+    await flushDiagnostics()
+    const text = readFileSync(diagFile(), "utf8")
+    expect(text).toContain("dense.legFailed")
+    expect(text).toContain('"leg":"blob"')
+    expect(text).toContain("simulated chunk_vecs_blob failure")
+  })
+
+  test("both dense legs failing is recorded as dense.unavailable while BM25 still answers", async () => {
+    const queryVec = new Float32Array([0.85, 0.15, 0.0, 0.0])
+    const result = await Effect.runPromise(
+      retrieve(dbWithFailingLeg("chunk_vecs"), { ...baseOptions, query: "photosynthesis" }, queryVec),
+    )
+    expect(result.bm25TopK).toBeGreaterThan(0)
+    expect(result.denseTopK).toBe(0)
+    await flushDiagnostics()
+    const text = readFileSync(diagFile(), "utf8")
+    expect(text).toContain("dense.legFailed")
+    expect(text).toContain('"leg":"plain"')
+    expect(text).toContain("dense.unavailable")
+    expect(text).toContain("simulated chunk_vecs failure")
+  })
+
+  test("a failing BM25 query is recorded instead of masquerading as zero hits", async () => {
+    const result = await Effect.runPromise(
+      retrieve(dbWithFailingLeg("chunks_fts"), { ...baseOptions, query: "photosynthesis" }, null),
+    )
+    expect(result.bm25TopK).toBe(0)
+    await flushDiagnostics()
+    const text = readFileSync(diagFile(), "utf8")
+    expect(text).toContain("bm25.queryFailed")
+    expect(text).toContain("simulated chunks_fts failure")
+  })
+
+  test("a failing parent-expansion query is recorded instead of silently dropping parents", async () => {
+    const result = await Effect.runPromise(
+      retrieve(dbWithFailingLeg("FROM sections"), { ...baseOptions, query: "photosynthesis" }, null),
+    )
+    // Retrieval still answers, but without parent expansion.
+    expect(result.bm25TopK).toBeGreaterThan(0)
+    expect(result.candidates.length).toBeGreaterThan(0)
+    expect(result.candidates.every((c) => c.parent === undefined)).toBe(true)
+    await flushDiagnostics()
+    const text = readFileSync(diagFile(), "utf8")
+    expect(text).toContain("parentExpansion.queryFailed")
+    expect(text).toContain("simulated FROM sections failure")
+  })
+
+  test("a native-engine client throw is recorded and the TypeScript pipeline still answers", async () => {
+    shutdownNativeEngine() // reset the cached binary lookup + cooldown so the env override applies
+    const bin = join(diagDir, "fake-divee-retrieval")
+    writeFileSync(bin, "#!/bin/sh\nsleep 30\n", { mode: 0o755 })
+    const previousBin = process.env.DIVEEOI_RETRIEVAL_BIN
+    process.env.DIVEEOI_RETRIEVAL_BIN = bin
+    // A detached buffer makes encodeVector throw inside queryNativeEngine's payload
+    // construction (outside its internal try/catch), so the promise rejects — exactly the
+    // residual-failure case the `.catch` guard in retrieve() exists for.
+    const detached = new Float32Array([0.85, 0.15, 0.0, 0.0])
+    structuredClone(detached, { transfer: [detached.buffer as ArrayBuffer] })
+    try {
+      const result = await Effect.runPromise(
+        // nativeDbPath is required so queryNativeEngine reaches payload construction
+        // (otherwise it returns null before the failure can happen).
+        retrieve(wrapDb(db), { ...baseOptions, nativeDbPath: join(tempDir, "books.db") }, detached),
+      )
+      // The TypeScript pipeline served the turn (fallback unchanged)...
+      expect(result.bm25TopK).toBeGreaterThan(0)
+      expect(result.candidates.length).toBeGreaterThan(0)
+      // ...and the engine failure was recorded with its cause, not swallowed.
+      await flushDiagnostics()
+      const text = readFileSync(diagFile(), "utf8")
+      expect(text).toContain("native.engineError")
+      expect(text).toContain("already detached")
+    } finally {
+      shutdownNativeEngine()
+      if (previousBin === undefined) delete process.env.DIVEEOI_RETRIEVAL_BIN
+      else process.env.DIVEEOI_RETRIEVAL_BIN = previousBin
+    }
   })
 })

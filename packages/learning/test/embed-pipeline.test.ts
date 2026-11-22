@@ -8,7 +8,7 @@
 // SPIKE-VERIFICATION test, not a unit test. Skip in CI by setting
 // SKIP_LIVE_EMBED=1.
 
-import { expect, test, describe, beforeAll, afterAll } from "bun:test"
+import { expect, test, describe, beforeAll, afterAll, beforeEach, afterEach } from "bun:test"
 import { Effect } from "effect"
 import { mkdtempSync, rmSync, existsSync } from "node:fs"
 import { join } from "node:path"
@@ -99,4 +99,75 @@ describe.skipIf(SKIP)("embed pipeline (live)", () => {
     await Effect.runPromise(Pipeline.unload())
     expect(Pipeline.currentConfig()).toBeNull()
   }, 60_000) // 60s timeout for model download + inference
+})
+
+// ---------------------------------------------------------------------------
+// Error surfacing (sprint 2, T5): pipeline failures must reach the caller as
+// typed EmbedErrors — the embed error channel is what the ingest job persists
+// as the book error, so a silent null here becomes an "error":"null" record
+// in the UI (the 2026-11-09 incident). These tests run offline; they do not
+// need the model fixture.
+// ---------------------------------------------------------------------------
+
+describe("embed pipeline error surfacing", () => {
+  const transformersEnv = async () => (await import("@huggingface/transformers")).env
+  const ENV_KEYS = ["allowRemoteModels", "allowLocalModels", "localModelPath"] as const
+  let savedEnv: Record<string, unknown> = {}
+  let emptyModelDir = ""
+
+  beforeEach(async () => {
+    const env = await transformersEnv()
+    savedEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, (env as Record<string, unknown>)[key]]))
+    emptyModelDir = mkdtempSync(join(tmpdir(), "tl-embed-hardening-"))
+  })
+
+  afterEach(async () => {
+    await Effect.runPromise(Pipeline.unload()) // leave the module state clean for other tests
+    const env = await transformersEnv()
+    for (const key of ENV_KEYS) (env as Record<string, unknown>)[key] = savedEnv[key]
+    rmSync(emptyModelDir, { recursive: true, force: true })
+  })
+
+  test("embed before init fails with a typed EmbedError (never a silent null)", async () => {
+    await Effect.runPromise(Pipeline.unload())
+    expect(Pipeline.currentConfig()).toBeNull()
+    try {
+      await Effect.runPromise(Pipeline.embed("hello world"))
+      expect.unreachable()
+    } catch (err) {
+      const e = err as { _tag?: string; message?: string }
+      expect(e._tag).toBe("TargetedLearning.EmbedError")
+      expect(e.message).toContain("not initialized")
+    }
+  })
+
+  test("embedBatch before init fails with a typed EmbedError", async () => {
+    await Effect.runPromise(Pipeline.unload())
+    try {
+      await Effect.runPromise(Pipeline.embedBatch(["a", "b"]))
+      expect.unreachable()
+    } catch (err) {
+      const e = err as { _tag?: string; message?: string }
+      expect(e._tag).toBe("TargetedLearning.EmbedError")
+      expect(e.message).toContain("not initialized")
+    }
+  })
+
+  test("init with a missing local model fails with a typed EmbedError carrying the cause", async () => {
+    // allowRemoteModels=false keeps this fully offline: the pipeline factory fails because
+    // the model is not present in the (empty) local model dir, and that failure must
+    // surface as EmbedError("pipeline init failed: …") rather than a null.
+    const env = await transformersEnv()
+    env.allowRemoteModels = false
+    env.allowLocalModels = true
+    env.localModelPath = emptyModelDir
+    try {
+      await Effect.runPromise(Pipeline.init(emptyModelDir, SIGNATURE, OPTIONS))
+      expect.unreachable()
+    } catch (err) {
+      const e = err as { _tag?: string; message?: string }
+      expect(e._tag).toBe("TargetedLearning.EmbedError")
+      expect(e.message).toContain("pipeline init failed")
+    }
+  }, 30_000)
 })

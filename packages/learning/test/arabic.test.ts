@@ -94,4 +94,34 @@ describe("arabic normalizer", () => {
     const result = normalizeForSearch(input, ALL_ON)
     expect(result).toBe("The word \u0643\u062A\u0627\u0628 means book")
   })
+
+  test("normalization preserves logical word order of mixed RTL/LTR text (bug #11)", () => {
+    const input =
+      "في عام \u0661\u0669\u0666\u0669 بلغ عدد سكان المدينة 3.5 بالمئة، The term photosynthesis يعني ذلك؛ سؤال: متى؟ 75٪."
+    const result = normalizeForSearch(input, ALL_ON)
+    const words = input.trim().split(/\s+/).filter(Boolean)
+    // Normalizing the text as a whole must equal normalizing each word
+    // independently and keeping their sequence: the normalizer never
+    // reorders, drops, or merges tokens across word boundaries.
+    const perWord = words.map((w) => normalizeForSearch(w, ALL_ON)).join(" ")
+    expect(result).toBe(perWord)
+    expect(result.trim().split(/\s+/).filter(Boolean).length).toBe(words.length)
+  })
+
+  test("digit runs survive normalization verbatim", () => {
+    const input = "نما 12345.67 و 3.5 و v3.5.1 و \u0661\u0662\u0663\u0664\u0665 بالمئة."
+    const result = normalizeForSearch(input, ALL_ON)
+    for (const run of ["12345.67", "3.5", "v3.5.1", "\u0661\u0662\u0663\u0664\u0665"]) {
+      expect(result).toContain(run)
+    }
+  })
+
+  test("display is byte-identical even with fixReversedRuns enabled (repair is search-only)", () => {
+    const input = "\u0627\u0644\u0642\u0650\u0631\u0627\u0621\u0629\u064F \u0643\u064F\u062A\u064F\u0628 The photosynthesis \u0663.\u0665"
+    for (const mode of ["auto", "on", "off"] as const) {
+      const { display, norm } = normalize(input, { ...ALL_ON, fixReversedRuns: mode })
+      expect(display).toBe(input) // display text is never touched by the repair
+      expect(norm).toBe(normalizeForSearch(input, { ...ALL_ON, fixReversedRuns: mode }))
+    }
+  })
 })

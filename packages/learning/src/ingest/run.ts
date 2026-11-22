@@ -15,7 +15,7 @@ import util from "node:util"
 import { Effect } from "effect"
 import type { BooksDbHandle } from "../store"
 import { parse, type ParseResult } from "../parsers"
-import { chunk as chunkBook } from "../chunk"
+import { chunk as chunkBook, type ChunkResult } from "../chunk"
 import { embedBatch } from "../embed/pipeline"
 import { checkModelFiles, ensureEmbedder, loadTokenizerForChunking } from "../embed/ensure"
 import { releaseTeacherAfterIndexing } from "../embed/query-encoder"
@@ -657,7 +657,7 @@ const runIngest = async (input: RunInput): Promise<void> => {
 
     await setStage("chunking", "chunk", 15)
     const chunking = (input.settings.chunking ?? {}) as Tree
-    const chunked = await Effect.runPromise(
+    let chunked: ChunkResult | null = await Effect.runPromise(
       chunkBook(parsed, bookId, {
         childTargetTokens: Number(chunking.childTargetTokens ?? 150),
         childMaxTokens: Number(chunking.childMaxTokens ?? 220),
@@ -669,6 +669,7 @@ const runIngest = async (input: RunInput): Promise<void> => {
       }),
     )
     if (chunked.chunks.length === 0) throw new Error("The book produced no indexable passages.")
+    const sectionCount = chunked.sections.length
 
     for (const s of chunked.sections) {
       await waitForControl(control)
@@ -687,14 +688,36 @@ const runIngest = async (input: RunInput): Promise<void> => {
       )
     }
 
+    // Snapshot the small book facts the final summary needs, then release the
+    // full page texts: parsed.pages is the largest allocation in the pipeline
+    // (one string per page) and keeping it alive through the whole embed phase
+    // held O(book) memory for the entire run (the Bug #2 RSS-spike profile).
+    // After this point only the chunk rows carry text.
+    const summaryFacts = (() => {
+      const sample = parsed.pages.slice(0, 5).map((p) => p.text).join(" ")
+      return {
+        lang: parsed.language ?? (arabicRatio(sample) > 0.5 ? "ar" : "en"),
+        outline: parsed.outline.slice(0, 40).map((o) => o.title),
+        pages: parsed.metadata.pages,
+        author: parsed.metadata.author ?? null,
+        textCoverage: parsed.textDensity,
+        pagesWithoutText: parsed.pages.filter((p) => p.text.trim().length < SCANNED_PAGE_MIN_CHARS).length,
+        intro: sample.slice(0, 400),
+      }
+    })()
+    parsed = { ...parsed, pages: [], outline: [] }
+
     const batchSize = Math.max(1, Number(((input.settings.embedding ?? {}) as Tree).batchSize ?? 16))
-    const total = chunked.chunks.length
+    const total = chunked!.chunks.length
     // Sort by length so each batch pads to a similar size (padding to the longest wastes compute).
-    const items = chunked.chunks
+    const items = chunked!.chunks
       .map((c) => ({ c, text: c.headingPath ? `${c.headingPath}\n${c.text}` : c.text }))
       .sort((x, y) => x.text.length - y.text.length)
     const batches: (typeof items)[] = []
     for (let i = 0; i < items.length; i += batchSize) batches.push(items.slice(i, i + batchSize))
+    // Batches reference the chunk rows themselves; the parent sections (full
+    // parent texts, already persisted above) are dead weight during embedding.
+    chunked = null
     const concurrency = pool && !poolBroken ? pool.size : configured
     let done = 0
     for (let w = 0; w < batches.length; w += concurrency) {
@@ -724,15 +747,13 @@ const runIngest = async (input: RunInput): Promise<void> => {
     await pool?.close()
     await setStage("summarizing", "summary", 96)
 
-    const sample = parsed.pages.slice(0, 5).map((p) => p.text).join(" ")
-    const lang = parsed.language ?? (arabicRatio(sample) > 0.5 ? "ar" : "en")
     const summary = {
-      outline: parsed.outline.slice(0, 40).map((o) => o.title),
-      pages: parsed.metadata.pages,
-      textCoverage: parsed.textDensity,
+      outline: summaryFacts.outline,
+      pages: summaryFacts.pages,
+      textCoverage: summaryFacts.textCoverage,
       ocrPages,
-      pagesWithoutText: parsed.pages.filter((p) => p.text.trim().length < SCANNED_PAGE_MIN_CHARS).length,
-      intro: sample.slice(0, 400),
+      pagesWithoutText: summaryFacts.pagesWithoutText,
+      intro: summaryFacts.intro,
     }
     const sig = runtime
       ? JSON.stringify({ repo: runtime.manifest.repo, revision: runtime.manifest.revision, dtype: String(((input.settings.embedding ?? {}) as Tree).dtype ?? "int8") })
@@ -743,10 +764,10 @@ const runIngest = async (input: RunInput): Promise<void> => {
     control.finishing = true
     await db.run(
       "UPDATE books SET status = 'ready', lang = ?, pages = ?, author = ?, parent_count = ?, chunk_count = ?, embed_signature = ?, indexed_at = ?, summary_json = ?, error = NULL WHERE id = ?",
-      lang,
-      parsed.metadata.pages,
-      parsed.metadata.author ?? null,
-      chunked.sections.length,
+      summaryFacts.lang,
+      summaryFacts.pages,
+      summaryFacts.author,
+      sectionCount,
       total,
       sig,
       Date.now(),
@@ -757,11 +778,11 @@ const runIngest = async (input: RunInput): Promise<void> => {
     diagnostic.complete({
       bookId,
       jobId,
-      pages: parsed.metadata.pages,
+      pages: summaryFacts.pages,
       chunks: total,
-      sections: chunked.sections.length,
+      sections: sectionCount,
       ocrPages,
-      language: lang,
+      language: summaryFacts.lang,
     })
   } catch (err) {
     const cancelled = err instanceof IngestCancelledError || control.cancelled

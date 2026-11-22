@@ -1,0 +1,15 @@
+# astronomy-essentials | Astronomy Essentials | en
+%% The Solar System
+The solar system contains eight planets orbiting the sun. Mercury Venus Earth and Mars are rocky planets while Jupiter and Saturn are gas giants. Uranus and Neptune are ice giants far from the sun.
+
+Earth completes one orbit around the sun every year and rotates on its axis every day. The moon orbits Earth roughly once each month and causes ocean tides through its gravity.
+
+Asteroids and comets are small bodies left over from the formation of the solar system. Comets grow long tails of gas and dust when their icy surfaces evaporate near the sun.
+
+%% Stellar Life Cycle
+Stars form inside giant clouds of gas and dust called nebulae where gravity pulls the material together until hydrogen fusion ignites. A star spends most of its life fusing hydrogen into helium on the main sequence, and when the hydrogen runs out the star swells into a red giant before shedding its outer layers.
+
+%% القمر ومراحله
+القمر يدور حول الأرض فيحصل ضوء الشمس على أجزاء مختلفة منه فتظهر المراحل القمرية. تبدأ الدورة بالمحاق ثم يظهر الهلال وتكتمل البدر في منتصف الشهر القمري.
+
+يستغرق الدوران الكامل للقمر حول الأرض نحو تسعة وعشرين يوما ونصف. تسبب جاذبية القمر المد والجزر في محيطات الأرض مرتين يوميا.

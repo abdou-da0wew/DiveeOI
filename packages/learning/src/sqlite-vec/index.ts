@@ -27,6 +27,7 @@
 
 import { Effect, Schema } from "effect"
 import type { BooksDbHandle } from "../store"
+import { logDiagnostic } from "../diagnostics"
 
 export class SqliteVecError extends Schema.TaggedErrorClass<SqliteVecError>()(
   "TargetedLearning.SqliteVecError",
@@ -110,8 +111,10 @@ const ensureExtension = async (db: BooksDbHandle, config?: SqliteVecConfig): Pro
   if (!(await vecVersion(db)) && config?.extensionPath && typeof raw.loadExtension === "function") {
     try {
       raw.loadExtension(config.extensionPath)
-    } catch {
-      // caller gets the null return below with a clear error on first use.
+    } catch (error) {
+      // A configured-but-broken extension path is actionable (misconfiguration), so it is
+      // recorded instead of silently degrading to the null return below.
+      logDiagnostic("sqlite-vec", "extension.loadFailed", { path: config.extensionPath, error }, "warn")
     }
   }
 
@@ -126,10 +129,18 @@ const ensureExtension = async (db: BooksDbHandle, config?: SqliteVecConfig): Pro
  */
 export const isAvailable = (db: BooksDbHandle, config?: SqliteVecConfig): Effect.Effect<boolean, never> =>
   Effect.gen(function* () {
+    // An availability probe is best-effort by nature: it returns false when the extension
+    // is absent (the normal path — no diagnostic) and records a warn diagnostic when the
+    // probe itself throws unexpectedly, instead of swallowing the error as a silent null.
     const version = yield* Effect.tryPromise({
       try: () => ensureExtension(db, config),
-      catch: () => null,
-    }).pipe(Effect.orElseSucceed(() => null))
+      catch: (cause) => ({ probeFailure: cause }),
+    }).pipe(
+      Effect.tapError((failure) =>
+        Effect.sync(() => logDiagnostic("sqlite-vec", "availability.probeFailed", { error: failure.probeFailure }, "warn")),
+      ),
+      Effect.orElseSucceed(() => null),
+    )
     return typeof version === "string" && version.length > 0
   })
 

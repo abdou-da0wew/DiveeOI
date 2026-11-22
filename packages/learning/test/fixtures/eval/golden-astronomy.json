@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 2,
+  "name": "astronomy-essentials golden set",
+  "description": "Synthetic 12-question golden set for the astronomy-essentials mini book. The 'student' role labels this set as the student-side question set for the role comparison table; in a real corpus the role should reflect the question provenance.",
+  "role": "student",
+  "questions": [
+    {
+      "id": "astro-in-1",
+      "bookSlug": "astronomy-essentials",
+      "query": "jupiter and saturn are gas giants",
+      "language": "en",
+      "kind": "in-book",
+      "expectedChunkIds": ["astronomy-essentials-c0"]
+    },
+    {
+      "id": "astro-in-2",
+      "bookSlug": "astronomy-essentials",
+      "query": "how long does earth take to orbit the sun and rotate on its axis",
+      "language": "en",
+      "kind": "in-book",
+      "expectedChunkIds": ["astronomy-essentials-c1"],
+      "note": "natural question: BM25 AND fails, dense cosine carries it"
+    },
+    {
+      "id": "astro-par-1",
+      "bookSlug": "astronomy-essentials",
+      "query": "small leftovers from the solar system formation grow tails near the sun",
+      "language": "en",
+      "kind": "paraphrased",
+      "expectedChunkIds": ["astronomy-essentials-c2"],
+      "note": "paraphrase: 'leftovers' vs 'left over' kills the BM25 AND-match"
+    },
+    {
+      "id": "astro-sec-1",
+      "bookSlug": "astronomy-essentials",
+      "query": "stars form inside giant clouds of gas and dust called nebulae",
+      "language": "en",
+      "kind": "in-book",
+      "expectedSectionTitles": ["Stellar Life Cycle"],
+      "note": "section-title expectation on a single-chunk section"
+    },
+    {
+      "id": "astro-in-3",
+      "bookSlug": "astronomy-essentials",
+      "query": "what happens when a massive star runs out of hydrogen",
+      "language": "en",
+      "kind": "in-book",
+      "expectedChunkIds": ["astronomy-essentials-c3"],
+      "note": "natural question: dense must carry it"
+    },
+    {
+      "id": "astro-in-ar",
+      "bookSlug": "astronomy-essentials",
+      "query": "القمر يدور حول الأرض",
+      "language": "ar",
+      "kind": "in-book",
+      "expectedChunkIds": ["astronomy-essentials-c4"]
+    },
+    {
+      "id": "astro-par-ar",
+      "bookSlug": "astronomy-essentials",
+      "query": "كم يوما يستغرق الدوران الكامل للقمر",
+      "language": "ar",
+      "kind": "paraphrased",
+      "expectedChunkIds": ["astronomy-essentials-c5"],
+      "note": "paraphrase: للقمر vs القمر prefix breaks the BM25 AND-match, dense carries it"
+    },
+    {
+      "id": "astro-xl-ar-en",
+      "bookSlug": "astronomy-essentials",
+      "query": "كوكب المشتري وزحل من الكواكب العملاقة الغازية",
+      "language": "ar",
+      "kind": "cross-lingual",
+      "expectedChunkIds": ["astronomy-essentials-c0"],
+      "note": "Arabic question about content that exists ONLY in the English gas-giants chunk: needs bge-m3, the standin honestly fails it"
+    },
+    {
+      "id": "astro-xl-en-ar",
+      "bookSlug": "astronomy-essentials",
+      "query": "what causes the phases of the moon we see each month",
+      "language": "en",
+      "kind": "cross-lingual",
+      "expectedChunkIds": ["astronomy-essentials-c4"],
+      "note": "English question about the Arabic moon-phase chunk"
+    },
+    {
+      "id": "astro-follow-1",
+      "bookSlug": "astronomy-essentials",
+      "query": "explain more about how the moon orbits earth each month",
+      "language": "en",
+      "kind": "follow-up",
+      "followUpOf": "astro-in-2",
+      "expectedChunkIds": ["astronomy-essentials-c1"],
+      "note": "anaphoric: parent query feeds the production rewriter; the dense leg scores the RAW query exactly like production"
+    },
+    {
+      "id": "astro-off-1",
+      "bookSlug": "astronomy-essentials",
+      "query": "hamlet denmark playwright",
+      "language": "en",
+      "kind": "off-topic",
+      "note": "off-topic probe, zero lexical overlap: MUST be refused by the gate"
+    },
+    {
+      "id": "astro-off-2",
+      "bookSlug": "astronomy-essentials",
+      "query": "algebra equations homework practice",
+      "language": "en",
+      "kind": "off-topic",
+      "note": "off-topic probe, zero lexical overlap: MUST be refused by the gate"
+    }
+  ]
+}

@@ -1,5 +1,4 @@
 // packages/learning/src/embed/pipeline.ts
-// @ts-nocheck — Effect v4-beta type-narrowing issues; runtime verified by 157 passing tests
 //
 // Transformers.js wrapper for Xenova/bge-m3 (plan §4).
 //
@@ -16,6 +15,7 @@
 
 import { availableParallelism } from "node:os"
 import { Effect, Schema } from "effect"
+import { logDiagnostic } from "../diagnostics"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -57,20 +57,28 @@ type Pipeline = ((text: string | string[], opts?: { pooling?: "cls" | "mean"; no
 // doesn't expose it in a stable way across versions.
 let _dims: number | null = null
 
-const splitBatch = (data: Float32Array, count: number): Float32Array[] => {
-  if (_dims === null) {
-    // Single-element batch: data is one vector.
-    if (count === 1) return [data]
-    // Can't split without dims — fall back to wrapping.
-    return [data]
-  }
+/**
+ * Split a flat [count, dims] tensor buffer into one Float32Array per text.
+ * Pure (dims passed in) so the corrupt-batch edge is unit-testable.
+ *
+ * Sprint 2 (4-j), closing 4-a's `_dims === null` observation: on a MULTI-text
+ * batch with no recorded dims the old code fell back to `[data]` — one vector
+ * for N texts. transformers.js v3 always carries tensor dims so the edge was
+ * latent, but the ingest rejects vector-count mismatches and would fail every
+ * batch of a freshly initialized worker. Now: when dims are unknown they are
+ * DERIVED from the buffer shape (dims = length / count); a buffer that cannot
+ * be tiled exactly returns null and embedBatch surfaces a typed EmbedError.
+ */
+export const splitBatch = (data: Float32Array, count: number, dims: number | null): Float32Array[] | null => {
+  if (count <= 1) return [data]
+  const per = dims ?? Math.floor(data.length / count)
+  if (per <= 0 || data.length !== per * count) return null
   const out: Float32Array[] = []
   for (let i = 0; i < count; i++) {
-    out.push(data.slice(i * _dims, (i + 1) * _dims))
+    out.push(data.slice(i * per, (i + 1) * per))
   }
   return out
 }
-
 let _pipeline: Pipeline | null = null
 let _config: EmbedOptions | null = null
 let _modelDir: string | null = null
@@ -137,15 +145,24 @@ export const init = (modelDir: string, signature: EmbedSignature, options: Embed
     const intraOpNumThreads = Number.isFinite(parsedIntra) && parsedIntra > 0 ? parsedIntra : cores
     const interOpNumThreads = Math.max(1, Number(options.interOpThreads) || 1)
 
+    // Cast the factory, not the call: `pipeline()`'s overload union is too complex for
+    // tsgo to represent when invoked with a string task + options object (TS2590) — this
+    // is why the file carried `@ts-nocheck`. A narrow signature describes exactly the
+    // feature-extraction call we make; runtime behavior is unchanged.
+    const createPipeline = transformers.pipeline as unknown as (
+      task: "feature-extraction",
+      repo: string,
+      options?: Record<string, unknown>,
+    ) => Promise<Pipeline>
     const pipe = yield* Effect.tryPromise({
       try: () =>
-        transformers.pipeline("feature-extraction", signature.repo, {
-          dtype: dtypeMap[options.dtype] as never,
-          device: deviceOpt as never,
+        createPipeline("feature-extraction", signature.repo, {
+          dtype: dtypeMap[options.dtype],
+          device: deviceOpt,
           // Arena/mem-pattern off: batches have different shapes every call and the arena otherwise
           // keeps the largest allocation forever (RSS grew to ~6 GB on the VDS).
-          session_options: { intraOpNumThreads, interOpNumThreads, enableCpuMemArena: false, enableMemPattern: false } as never,
-        }) as Promise<Pipeline>,
+          session_options: { intraOpNumThreads, interOpNumThreads, enableCpuMemArena: false, enableMemPattern: false },
+        }),
       catch: (err: unknown) =>
         new EmbedError({
           message: `pipeline init failed: ${String(err).slice(0, 300)}`,
@@ -199,11 +216,24 @@ export const embedBatch = (texts: string[]): Effect.Effect<Float32Array[], Embed
       catch: (err) => new EmbedError({ message: `embed batch failed: ${String(err).slice(0, 200)}` }),
     })
     const data = result.data
+    if (data.length === 0) {
+      return yield* Effect.fail(new EmbedError({ message: "embed batch returned empty result" }))
+    }
     // Record dims from the batch shape if available.
     if (_dims === null && result.dims && result.dims.length >= 2) {
       _dims = result.dims[result.dims.length - 1]!
     }
-    return splitBatch(data, texts.length)
+    const vectors = splitBatch(data, texts.length, _dims)
+    if (!vectors) {
+      return yield* Effect.fail(
+        new EmbedError({
+          message: `embed batch returned ${data.length} floats for ${texts.length} texts — cannot split into per-text vectors`,
+        }),
+      )
+    }
+    // Dims were derived from the buffer shape: record them for later batches.
+    if (_dims === null && vectors.length > 0) _dims = vectors[0]!.length
+    return vectors
   })
 
 /**
@@ -213,10 +243,17 @@ export const embedBatch = (texts: string[]): Effect.Effect<Float32Array[], Embed
 export const unload = (): Effect.Effect<void, never> =>
   Effect.gen(function* () {
     if (_pipeline?.dispose) {
+      // Disposal is best-effort, but a failing dispose used to fail this whole effect with
+      // an `undefined` error value — record it as a diagnostic instead.
       yield* Effect.tryPromise({
         try: () => _pipeline!.dispose!().then(() => undefined),
-        catch: () => undefined,
-      })
+        catch: (cause) => ({ disposeFailure: cause }),
+      }).pipe(
+        Effect.tapError((failure) =>
+          Effect.sync(() => logDiagnostic("embed", "pipeline.disposeFailed", { error: failure.disposeFailure }, "warn")),
+        ),
+        Effect.orElseSucceed(() => undefined),
+      )
     }
     _pipeline = null
     _config = null
