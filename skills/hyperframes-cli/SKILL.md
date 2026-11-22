@@ -27,19 +27,6 @@ Run commands as `npx hyperframes ...` unless project instructions provide a wrap
 8. **Render only after approval:** use `--quality draft` while iterating, `--quality looks` for the first real encode (the CLI default), and `--quality delivery` for final delivery.
 9. **Verify the output:** confirm the file exists and is non-empty. Read the render summary's second line (`beginframe` vs `screenshot`, GPU, stage timings). `screenshot` + `software gpu` on Linux is the slow path. `ffprobe -v error -show_format -show_streams` and compare duration (and fps if the brief set it) to the root `data-duration`.
 
-<!-- history (trial): remove this block together with the command -->
-
-### Project history in your turn
-
-Every write to the project is kept as an entry that can be undone. Use it at two moments only, never on every step:
-
-- **Start of a turn:** `npx hyperframes history begin --who <your-name> --label "<what you are about to do>"`, then `npx hyperframes history --since mine --who <your-name>` to see what the person changed since your last turn. Build on their edits; never overwrite them.
-- **A check failed, or the person says it got worse:** `npx hyperframes history undo --who <your-name>` undoes your newest turn and leaves the person's edits alone. Do not hand-edit back. On a conflict it exits 2 and prints both choices.
-
-End each turn with `npx hyperframes history end`, so your writes read as yours, not as "Changed outside the app". While a turn is open, every write to the project counts as yours until 10 minutes pass without one; after that the turn has ended by itself.
-
-<!-- /history (trial) -->
-
 ## Mandatory creator-edit cross-references
 
 - Before authoring or diagnosing a zoom, punch-in/punch-out, reframe, camera
