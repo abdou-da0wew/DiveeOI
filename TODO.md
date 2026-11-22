@@ -29,9 +29,7 @@ say this explicitly — do not inherit the Nov 3 test counts by implication.
 - [ ] **Bug #14 (🔴, 2026-11-09): prompt-execution stall** — all sessions stopped producing tokens (~22:20 UTC).
       Diagnosed as the LLM dispatch/bootstrap layer, not Targeted Learning. No doc records a confirmed fix; verify on
       the rebuilt binary (`docs/testing/2026-11-09-ui-test/docs/DiveeOI_ManualTest_Report_2026-11-09.md` (doc)).
-- [ ] **Bug #2 (🔴, 2026-11-09): server crash under ingest memory spike** (RSS → 15.8 GB). Adaptive resource budgets
-      were tightened on Nov 19–20 (`d9ce5bc perf(learning): tune adaptive resource budgets and grounding`), but a
-      deliberate ingest-under-load re-test is still needed (doc).
+- [x] **DONE 2026-11-22** **Bug #2 (🔴, 2026-11-09): server crash under ingest memory spike** (RSS → 15.8 GB) — ROOT CAUSE FOUND AND FIXED: TXT/DOCX parsers stamped every outline entry `page: 1`, so `buildSectionsFromOutline` duplicated the ENTIRE book text once per heading (O(headings × bookSize)); sections now tile page text between headings via character offsets (120-heading 277 KB book: Σ section text 33.0 MB → 0.277 MB; chunk-stage RSS 380 → 108 MB). Ingest-time page/outline retention also pruned. Automated ingest-under-load stress test added (`test/ingest-load.test.ts`: bounded in-flight vectors, per-wave checkpointing, post-completion cleanup). A deliberate re-test on deployment hardware remains an ops action.
 - [ ] **Recover the lost "Mathematics (English) - Part 1" book** (Bug #12 🟠) — re-upload via UI or restore from the
       67 MB corpus backup; candidates identified in `docs/testing/2026-11-09-ui-test/docs/mathbook_hunt.md` (doc).
       The golden math exam question is blocked on this.
@@ -58,11 +56,11 @@ Source: `docs/testing/2026-11-09-ui-test/docs/DiveeOI_ManualTest_Report_2026-11-
 - [ ] #7 (🟡) `@` mention popup lists agents/files but **not books** (regression vs earlier build).
 - [ ] #8 (🟡) Sessions list shows "No sessions found"; console shows `SSE failed: 401` and 503 bootstrap errors.
 - [ ] #9/#15 (⚪) Citation-verify warnings fire when the model cites chunks from *earlier* turns ("not shown to the model this turn") — grounding turn-state bounds.
-- [ ] #10 (⚪) First paint ~25–35 s — frontend performance work.
-- [ ] #11 (🟠) Arabic RTL word-order garbling in chunk extraction (feeds #4: pre-retrieval figures leaking into Arabic numeric answers).
-- [ ] #4 (🟠) Grounding enforcement should **require term-verification for numeric claims**.
-- [ ] #13 (🔴) Targeted Learning settings UI missing in the new/v2 layout ("library management is API-only until the tab returns") — confirm current state of `settings-v2/targeted-learning.tsx` mounting.
-- [ ] Ingest error UI shows only `null` — render the real error message in the library tooltip.
+- [x] **DONE 2026-11-22** #10 (⚪) First paint ~25–35 s — first-load entry JS reduced **−49.6%** (1793.7 KB → 904.1 KB; gzip 536 → 273 KB) by lazy-loading the markdown/kaTeX/Shiki provider and the file viewer and removing the Effect runtime from the entry path (effective bytes-before-paint incl. the marked chunk: −32.5%). Remaining eager weight (luxon, kobalte) noted for a future pass.
+- [x] **DONE 2026-11-22** #11 (🟠) Arabic RTL word-order garbling in chunk extraction — root causes fixed: (a) sentence splitting treated `.` as a terminator, mangling figures like `3.5` (digit-aware regex now); (b) chunks stored raw display text in `text_norm` so FTS never matched retrieval normalization (chunker now emits `normalizeForSearch`; display `text` untouched). ⚠️ Pre-fix books were chunked with old boundaries/normalization → **re-ingest required after upgrade** (a NORMALIZER_VERSION bump is intentionally deferred until the migration-job runner exists).
+- [x] **DONE 2026-11-22** #4 (🟠) Grounding requires term-verification for numeric claims — verifier check #3: figures in the answer/citations (Latin + Arabic-Indic digits ٠-٩/۰-۹/０-۹, thousand/decimal separators incl. Arabic `٫`/`٬`, percent, zero-trimming) must appear in the cited chunk; ungrounded figures are named per citation and in retry prompts; `off`/`flag`/`retry` modes preserved. 19 new tests.
+- [x] **DONE 2026-11-22** #13 (🔴) Targeted Learning settings UI in the v2 layout — VERIFIED MOUNTED (no wiring fix needed): `dialog-settings-v2.tsx` declares the `learning` trigger and mounts `SettingsTargetedLearningV2`, reachable via the layout's dynamic-imported settings dialog; v1 fallback intact. Library management is available in both layouts.
+- [x] **DONE 2026-11-22** Ingest error UI — hardened: `displayBookError` helper trims the backend error and falls back to a translated message (`targetedLearning.library.errorUnavailable`, added to all 18 locales) when null/empty/literal-"null"; full error exposed via tooltip title; the failed-book row no longer requires a truthy error to render.
 
 ## 3. coenx-video renderer roadmap
 
@@ -101,26 +99,20 @@ Authoritative sources: `docs/handoffs/coenx-video-renderer-handoff-2026-11-21.md
       `RewriteInput`) with a strict fallback contract (any LLM failure/throw/empty/oversized/missing client
       → heuristic rewrite; `Effect.isEffect` guards non-Effect client returns). 21 unit tests. NOT yet wired
       to a real LLM service — wiring is the remaining step when a consumer exists.
-- [ ] Resolve the dead worker-pool stub `packages/learning/src/ingest/pool.ts` — `makePool` returns a Phase-1 no-op
-      (status() = empty pool, pause/resume/cancel no-ops) while the real path is `src/ingest/embed-pool.ts`.
-      Either finish it or delete it so the HTTP pool-status endpoint stops reporting fiction. (code)
-- [ ] Harden every `catch: () => null` mapper in the learning pipeline (`pipeline.ts`, `parsers/index.ts` ×5,
-      `hybrid.ts`, `store`, …) so failures surface instead of becoming silent `null`s (doc: 2026-11-09 report §6).
-- [ ] Real-corpus student evaluation + promotion (`packages/learning/RETRIEVAL_V2_PLAN.md` §10 (doc)): held-out
-      eval against a finished real-book corpus; student-vs-teacher comparison through the same retrieval path;
-      measure p50/p95 latency + steady-state RSS on deployment hardware; promote only after all gates pass.
-      Until then `auto` correctly keeps BGE-M3.
-- [ ] Decide on approximate search (HNSW) **only if** measured library-scale p95 justifies it (doc).
+- [x] **DONE 2026-11-22** Dead worker-pool stub resolved by DELETION — `packages/learning/src/ingest/pool.ts` removed (verified: `makePool`/`IngestPool` had zero real importers and no HTTP pool-status endpoint ever existed; repo-wide + `git log -S` searches). Barrel re-export, stale comment and the dangling `./ingest/pool` package export removed; a regression test guards against reintroduction.
+- [x] **DONE 2026-11-22** Hardened the silent `catch: () => null` mappers in the learning pipeline — all 9 verified sites fixed (parsers ×6, sqlite-vec ×1, hybrid ×2) plus adjacent same-class catches; failures now surface as typed errors or recorded diagnostics (`parse.*`, `availability.probeFailed`, `dense.legFailed`, `native.engineError`, …). Empirically confirmed the old pattern short-circuited Effect generators with null errors — the 2026-11-09 `error:"null"` incident mechanism.
+- [ ] REMAINING (same treatment, next pass): `packages/learning/src/store/index.ts` silent catch mappers (~132/229/246) and `sqlite-vec/index.ts:198,207` pre-existing `.catch(() => undefined)` metric inserts.
+- [x] **TOOLING DONE 2026-11-22** Real-corpus student evaluation + promotion — the offline-runnable `tl:eval` CLI exists (`packages/learning/scripts/eval-corpus.ts`): pluggable embedder (`real` fails fast without the model / `standin` deterministic for CI / `student`), golden-set schema v2 + synthetic fixtures, recall@k (BM25/dense/fused), MRR, nDCG, gate precision/recall, refusal + false-refusal, p50/p95 latency, peak RSS, student-vs-teacher comparison, promotion-gate PASS/FAIL verdicts matching promote.py thresholds. The LIVE run against a finished real-book corpus on deployment hardware stays open (no GPU/weights in the dev sandbox): `bun run tl:eval --embedder real --corpus … --golden …`.
+- [ ] (still open) Execute the live real-corpus eval + promotion decision on the model host.
+- [ ] Decide on approximate search (HNSW) **only if** measured library-scale p95 justifies it (doc) — decision tooling ready: `tl:eval` reports p50/p95 latency + peak RSS per run; measure on the real corpus, then decide.
 - [ ] Freeze and review golden vectors on a host with the pinned BGE-M3 model (`tl:selftest:freeze`); golden
-      vectors historically shipped empty. Build eval golden sets of 10–20 questions per book (doc).
+      vectors historically shipped empty. **Tooling done 2026-11-22**: golden-set schema v2 (in-book/paraphrased/cross-lingual/follow-up/off-topic questions, portable expectations) + 2-book synthetic fixture + harness; the actual freeze still requires the pinned-model host.
 - [ ] Live-model runs were never executed in CI sandboxes: `tl:selftest:freeze`, live-embedding selftest,
       Retrieval-V2 training (needs GPU + weights) (doc: audit §8, WORKLOG 2026-11-03).
-- [ ] Wire the full OCR pipeline for scanned books (embedded-image OCR per-page exists; end-to-end wiring + ops
-      coverage was still listed open in the 2026-11-09 docs) (doc).
+- [x] **DONE 2026-11-22** OCR pipeline end-to-end — verified the ingest OCR branch (scanned pages below `SCANNED_PAGE_MIN_CHARS` → `ocrPdfPages`) with a REAL offline run: pinned `eng.traineddata` (sha256-matched) runs tesseract.js WASM in the test sandbox; scanned PDF → OCR text → chunks → searchable. Mock-pack fallback mode also covered (`TL_OCR_E2E_MODE=mock`). Non-eng languages still need a host carrying their tessdata.
 - [ ] `@book:` mention chip rendering + citation chips into the timeline `PART_MAPPING` (requires SDK regen) (doc).
-- [ ] Clean up 3 `@ts-nocheck` files when Effect v4-beta typing stabilizes: `packages/learning/src/parsers/index.ts:2`,
-      `src/embed/pipeline.ts:2`, `src/eval/index.ts:2` (code).
-- [ ] Complete monorepo-route integration testing for TL-specific routes (`CONTEXT.md` verification boundary) (doc).
+- [x] **DONE 2026-11-22** All 3 `@ts-nocheck` directives removed (`parsers/index.ts`, `embed/pipeline.ts`, `eval/index.ts`) — learning `tsgo --noEmit` exits 0; the only blocker (transformers.js `pipeline()` overload union, TS2590) was resolved with a narrow single-callsite factory cast.
+- [x] **DONE 2026-11-22** TL route integration testing — 26 route-level tests run the FULL production `HttpApiApp.routes` tree offline (basic-auth + temp XDG root): books list/health/setup-status, settings get+schema+presets+PATCH deep-merge, memory/debug/probe, upload/import 3 paths + 400 shapes, jobs list/pause/resume/cancel/retry, delete, auth + no-404 contract. Documented gaps: HTTP-level successful indexing needs a live embed model (covered at service level by the OCR e2e); setup/start needs network. Also fixed en route: the route graph could not resolve `@diveeoi/RemoteSession` (every authenticated instance request died "Service not found"; pre-existing httpapi-instance suite 0/7 → 7/7).
 
 ## 5. Memory system
 
@@ -128,8 +120,7 @@ Authoritative sources: `docs/handoffs/coenx-video-renderer-handoff-2026-11-21.md
       `ConsolidationResult.linksAdded` is now populated with the real, deduplicated `MemoryLink` objects created
       by both the strengthen-connections path and the `mergeNodes` backlink-redirect path (read-back via the
       indexer). 4 new tests in `packages/memory/test/consolidation.test.ts` (6/6 suite green).
-- [ ] Fix non-transactional `mergeNodes` + naive `String.includes` duplicate detection in
-      `packages/memory/src/consolidation.ts:194-265` (doc: audit; code-verified — still open).
+- [x] **DONE 2026-11-22** Non-transactional `mergeNodes` + naive duplicate detection fixed — merges run as plan-then-single-SQLite-transaction (link redirects + duplicate deletions + primary update + outgoing-link rebuild + in-transaction verification with rollback) via additive `IndexerService.runInTransaction`; filesystem-mirror writes happen after commit (documented limitation: stale/orphan .md files possible on post-commit fs failure). `String.includes` duplicate-content detection replaced with normalized containment (NFKC/lowercase/punctuation-strip/Arabic-harakat folding). Failure-injection + content-detection tests; 10/10 suite green ×3.
 - [ ] The scheduler **does not** call `ConsolidationService.runMaintenance()` — daily consolidation from the original
       plan is not implemented. Decide whether it is still required; if yes, wire it
       (`plans/MemoryPlan/MEMORY_SERVER_INTEGRATION_PLAN.md` (doc)).
@@ -256,3 +247,17 @@ natives), all `docs/` (excluding binary screenshots/PDFs/HARs), root hand-off an
 (10 skills), `.agents/skills/` (19 coenx skills), `tools/`, `scripts/`, `tests/`, `brand/`, git history (236
 commits). One claim from the exploration pass (a "broken `const ealth]` declaration" in the TL settings tabs) was
 **rejected after source verification** — both files are correct in the current HEAD.
+
+## 11. Sprint-2 follow-ups (discovered 2026-11-22, all non-blocking, recorded during the swarm's verification)
+
+- [ ] `packages/learning/src/store/index.ts` silent catch mappers (~132/229/246) + `sqlite-vec/index.ts:198,207` `.catch(() => undefined)` metric inserts — same treatment as the §4 hardening item.
+- [ ] Add a retained-heap assertion to `test/ingest-load.test.ts` so the `run.ts` `parsed`/`chunked` pruning fix is test-pinned (a plain revert currently passes the suite).
+- [ ] Pre-fix books: re-ingest required after upgrade (chunk boundaries + `text_norm` changed); land the mismatch→re-ingest job (or document the ops step) before bumping `NORMALIZER_VERSION` — a bump today is inert because nothing reads it yet.
+- [ ] Docs sweep: `WHATS_DONE.md`, `TARGETED_LEARNING_WORKLOG.md`, `docs/audit/2026-10-31-comprehensive-findings.md` and the `learning/src/index.ts` header still reference the deleted pool stub / old behavior.
+- [ ] Unify the two 400 body shapes in the TL route group (handler `_tag` vs schema-decode `Payload`) and decide the no-404 contract (currently `200 false` / SPA catch-all; pinned by tests).
+- [ ] `IndexerService.runInTransaction` Phase C: add an orphan-file cleanup hook for post-commit filesystem failures (stale duplicate .md files possible).
+- [ ] Chunking refinements: TOC-page heading strings can anchor a section start at the TOC occurrence; pre-existing ~2× whole-page overlap at cross-page PDF bounds is preserved by design — reconsider both.
+- [ ] Deep lexical handling of rewritten follow-ups in the Rust engine (`fts_expression` one-liner option) and the `src/eval` export-map decision.
+- [ ] Frontend next pass: luxon (259 KB) eager via `context/models.tsx`, kobalte (235 KB) eager via `ui` DialogProvider/toast; optional splash for the marked-chunk gap; `ConnectionGate` timeout-loop nuance.
+- [ ] Run the server `tsgo` typecheck on a machine with more memory (this 4 GB sandbox OOM-kills it; runtime graph-boot tests cover the sprint's server change).
+- [ ] httpapi-instance "missing projects" test still runs on bun's 5s default timeout (~3.6s typical — bump to 20s like its siblings if it ever flakes).

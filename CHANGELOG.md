@@ -23,6 +23,10 @@ Notable changes to DiveeOI are recorded here. Unreleased work remains under **Un
 - Added a Rust/Cairo/Pango native frame renderer and an opt-in TypeScript-to-FFmpeg native MP4 pipeline with animation evaluation and audio muxing.
 - Added an SVG DOM renderer option to the interactive player alongside the Canvas renderer.
 - Expanded CPU 3D composition support with configurable lights/material shading, morph targets, keyframed 3D transforms, deterministic 3D physics, additional scene transitions and projected-mesh support in the opt-in Cairo native MP4 renderer.
+- Added an offline-runnable Targeted Learning evaluation CLI (`tl:eval`) with a pluggable embedder (real/stand-in/student), golden-set schema v2 and synthetic fixtures, recall@k/MRR/nDCG/gate/refusal metrics, p50/p95 latency and peak-RSS measurement, student-vs-teacher comparison, and promotion-gate verdicts matching the Retrieval-V2 plan thresholds.
+- Added route-level integration tests for the Targeted Learning HTTP group that boot the full production route tree offline, plus an end-to-end OCR ingest test running the real pinned tessdata pack offline with a mocked-pack fallback mode.
+- Added numeric-claim grounding verification: figures in answers and citations (Latin and Arabic-Indic digits, thousand/decimal separators including Arabic `٫`/`٬`, percent) must appear in the cited chunk, with ungrounded figures reported per citation and named in retry prompts.
+- Added an ingest-under-load stress test pinning bounded in-flight vectors, per-wave checkpointing, monotonic progress and post-completion cleanup, and regression tests pinning the outline-tiling fix.
 
 ### Improved
 
@@ -31,6 +35,10 @@ Notable changes to DiveeOI are recorded here. Unreleased work remains under **Un
 - Improved Arabic and English grounding instructions and the Targeted Learning embedding/query-encoding path.
 - Made server packaging more resilient by allowing reuse of an existing Web UI distribution and serving a file-backed UI asset directory when the embedded module is unavailable.
 - Added Oxlint and Biome as root development tools, a focused remote test configuration, and explicit Playwright port/backend configuration.
+- Reduced the app's first-load JavaScript by roughly half (1793.7 KB → 904.1 KB entry, gzip 536 → 273 KB) by lazy-loading the markdown/kaTeX/Shiki provider and the file viewer and removing the Effect runtime from the entry path.
+- Pruned ingest-time page/outline/chunk structures after use so large-book ingests no longer retain whole-book text through the embedding phase.
+- Hardened silent `catch: () => null` mappers across the learning pipeline (parsers, sqlite-vec availability probe, hybrid retrieval legs) so failures surface as typed errors or recorded diagnostics instead of nulls, and removed `@ts-nocheck` from the learning parser, embed pipeline and eval modules.
+- Made memory-graph consolidation merges transactional (single SQLite transaction with in-transaction verification and rollback via a new `IndexerService.runInTransaction`) and replaced naive substring duplicate-content detection with normalized containment (NFKC, case, punctuation, Arabic-harakat folding).
 
 ### Fixed
 
@@ -38,3 +46,9 @@ Notable changes to DiveeOI are recorded here. Unreleased work remains under **Un
 - Remote connection cache identities include the selected profile/authentication identity, preventing stale connection reuse after profile edits.
 - Playwright's app proxy configuration now uses the backend's actual default port (`4097`) and the `VITE_DIVEEOI_SERVER_*` variables.
 - Unsupported lower-level SFTP operations fail explicitly rather than silently claiming to succeed with incomplete behavior.
+- Fixed the 2026-11-09 ingest memory-spike root cause: TXT/DOCX outlines stamped every heading with page 1, duplicating the entire book text once per heading; sections now tile page text between headings via character offsets (O(headings) instead of O(headings × book size)) while genuine multi-page PDF outlines keep their legacy ranges.
+- Fixed Arabic sentence splitting treating decimal points as sentence terminators (figures such as `3.5` were mangled in extracted chunks), and chunks now persist search-normalized text in `text_norm` so FTS queries match retrieval normalization.
+- Fixed the production route graph failing to resolve `@diveeoi/RemoteSession`, which made every authenticated instance request (including Targeted Learning routes) fail with "Service not found".
+- Fixed BM25 retrieval of heuristic-rewritten follow-up queries by stripping the `(re: …)` marker before building the FTS match expression, while the dense path keeps embedding the raw query.
+- The library UI no longer renders a literal `null` for books that fail indexing: a display helper trims the backend error, falls back to a translated message when absent, and exposes the full error in a tooltip.
+- Removed the dead Phase-1 worker-pool stub (`packages/learning/src/ingest/pool.ts`) and its dangling package export; the real pool remains `ingest/embed-pool.ts`.
