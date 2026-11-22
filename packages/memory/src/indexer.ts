@@ -101,6 +101,21 @@ export interface IndexerService {
   readonly countLinks: () => Effect.Effect<number, MemoryError>
   readonly countSessions: () => Effect.Effect<number, MemoryError>
   readonly rebuildIndex: () => Effect.Effect<void, MemoryError>
+  /**
+   * Run `effect` inside a single SQLite transaction on the indexer's connection
+   * (`BEGIN ... COMMIT`, or a SAVEPOINT when already inside a transaction).
+   *
+   * Every indexer data method called within `effect` joins the same transaction:
+   * their statements route to the transaction connection via the SQL client's
+   * transaction service, and their own per-method `db.transaction` wrappers
+   * become savepoints. If `effect` fails (or is interrupted), the whole
+   * transaction is rolled back — either everything commits or nothing does.
+   *
+   * This is the only way multi-step index mutations (e.g. the consolidation
+   * merge) can be made atomic; the per-method transactions alone cannot span
+   * several calls.
+   */
+  readonly runInTransaction: <A, E>(effect: Effect.Effect<A, E>) => Effect.Effect<A, E | MemoryError>
   // Multi-project methods
   readonly registerProject: (rootPath: string, memoryDir: string, name?: string) => Effect.Effect<ProjectInfo, MemoryError>
   readonly listProjects: () => Effect.Effect<ProjectInfo[], MemoryError>
@@ -544,6 +559,9 @@ const getLinkedNodes = (nodeId: MemoryNodeID, depth: number): Effect.Effect<Memo
     countLinks: () => afterReady(countLinks()),
     countSessions: () => afterReady(countSessions()),
     rebuildIndex: () => afterReady(rebuildIndex()),
+    // Generic transaction runner: see interface doc. Reads/writes issued through
+    // this service inside `effect` execute on the transaction connection.
+    runInTransaction: (effect) => afterReady(withTransaction(effect)),
     // Multi-project
     registerProject: (rootPath, memoryDir, name) => afterReady(registerProject(rootPath, memoryDir, name)),
     listProjects: () => afterReady(listProjects()),

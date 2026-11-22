@@ -1,9 +1,12 @@
 import { describe, it, expect } from "bun:test"
-import { Effect, Option } from "effect"
+import { Effect, Exit, Layer, Option } from "effect"
 import { MemoryLayer } from "../src/index"
 import { MemoryService } from "../src/memory"
-import { ConsolidationService } from "../src/consolidation"
-import { CreateNodeInput } from "../src/schema"
+import { ConsolidationService, ConsolidationLive, normalizeText } from "../src/consolidation"
+import { IndexerService, IndexerLive } from "../src/indexer"
+import { MemoryConfig } from "../src/config"
+import { Database } from "@diveeoi/db/database/database"
+import { CreateNodeInput, MemoryNode, MemoryError, MemoryNodeID } from "../src/schema"
 
 // Dedupe key used by consolidateNodes: sourceId→targetId→type
 const linkKey = (l: { sourceId: string; targetId: string; type: string }) =>
@@ -256,5 +259,275 @@ describe("Consolidation Service", () => {
     // Redirect keys stay unique
     const keys = result.linksAdded.map(linkKey)
     expect(new Set(keys).size).toBe(keys.length)
+  })
+})
+
+describe("Consolidation Service — transactional mergeNodes + normalized duplicate-content detection (T13)", () => {
+  const runTest = <A, E>(effect: Effect.Effect<A, E>) =>
+    Effect.runPromise(effect.pipe(Effect.provide(MemoryLayer)))
+
+  /**
+   * Injection harness: a real IndexerLive wrapped so one store step
+   * (`upsertNode` of the primary, the last write of the merge transaction)
+   * fails while the injection is armed. Everything else passes through.
+   * MemoryService is a stub that only forwards reads to the (wrapped) indexer
+   * and DIEs on the Phase-C filesystem paths — so if the merge ever reached
+   * the post-commit phase after a failure, the test would die loudly.
+   */
+  const makeInjectionHarness = () => {
+    const injection = { failUpsertOf: null as MemoryNodeID | null }
+
+    const unused = (name: string) => Effect.die(new Error(`injection stub: MemoryService.${name} must not be called`))
+
+    // Build ONE wrapped IndexerService instance (memoized by reference inside the
+    // build), then expose it as IndexerService and — via the read-only stub — as
+    // MemoryService.
+    const wrappedIndexerLayer = Layer.effect(IndexerService, Effect.gen(function* () {
+      const real = yield* IndexerService
+      yield* real.initialize() // idempotent schema init for this fresh instance
+      const wrapped: typeof real = {
+        ...real,
+        upsertNode: (node) =>
+          injection.failUpsertOf !== null && node.id === injection.failUpsertOf
+            ? Effect.fail(new MemoryError({ cause: `injected upsertNode failure for ${node.id}` }))
+            : real.upsertNode(node),
+      }
+      return wrapped
+    })).pipe(Layer.provide(IndexerLive))
+
+    const stubMemoryLayer = Layer.effect(MemoryService, Effect.gen(function* () {
+      const indexer = yield* IndexerService // = the wrapped instance
+      return {
+        createNode: () => unused("createNode"),
+        getNode: indexer.getNode,
+        updateNode: () => unused("updateNode"),
+        deleteNode: () => unused("deleteNode"),
+        addLink: () => unused("addLink"),
+        removeLink: () => unused("removeLink"),
+        getBacklinks: indexer.getBacklinks,
+        recall: () => unused("recall"),
+        getSessionMemory: () => unused("getSessionMemory"),
+        bindSessionMemory: () => unused("bindSessionMemory"),
+        createSessionRoot: () => unused("createSessionRoot"),
+        loadSessionContext: () => unused("loadSessionContext"),
+        extractFromSession: () => unused("extractFromSession"),
+        extractFromMessages: () => unused("extractFromMessages"),
+        consolidate: () => unused("consolidate"),
+        search: () => unused("search"),
+        getRecent: () => unused("getRecent"),
+        getStats: () => unused("getStats"),
+        waitForIndexer: indexer.waitForReady,
+        isIndexerReady: indexer.isReady,
+      }
+    }))
+
+    // provideMerge (not provide): the test effect itself needs the wrapped
+    // IndexerService (setup/arm/asserts) in the same scope as ConsolidationService.
+    const layer = ConsolidationLive.pipe(
+      Layer.provideMerge(Layer.mergeAll(stubMemoryLayer, wrappedIndexerLayer).pipe(Layer.provide(wrappedIndexerLayer))),
+      Layer.provide(MemoryConfig.defaultLayer),
+      Layer.provide(Database.defaultLayer),
+    )
+
+    return { injection, layer }
+  }
+
+  it("failure injection: a store step failing mid-merge rolls back — NO partial state (primary unchanged, duplicate not deleted, links intact)", async () => {
+    const { injection, layer } = makeInjectionHarness()
+    const runId = crypto.randomUUID().slice(0, 8)
+    const sessionId = `ses_txinj_${runId}` as any
+
+    const outcome = await Effect.runPromise(
+      Effect.gen(function* () {
+        const indexer = yield* IndexerService
+        const consolidation = yield* ConsolidationService
+
+        const makeNode = (suffix: string, title: string, content: string, tags: string[]): MemoryNode =>
+          MemoryNode.make({
+            id: `mem_${runId}_${suffix}_${crypto.randomUUID().slice(0, 8)}` as MemoryNodeID,
+            type: "fact",
+            title,
+            content,
+            tags,
+            sessionId,
+            created: Date.now(),
+            updated: Date.now(),
+            confidence: 1,
+            path: "" as any,
+          })
+
+        const primary = makeNode("primary", "Transactional merge primary", "Primary body about Postgres row level locking.", [`tx-${runId}`])
+        const dup = makeNode("dup", "Transactional merge primary", "Duplicate body about Postgres row level locking.", [`tx-${runId}`])
+        const linker = makeNode("linker", "Linking node", "A node that points at the duplicate.", [`tx-link-${runId}`])
+
+        yield* indexer.upsertNode(primary)
+        yield* indexer.upsertNode(dup)
+        yield* indexer.upsertNode(linker)
+        yield* indexer.upsertLink(linker.id, dup.id, "references")
+
+        // Arm the injection: inside the merge transaction the primary's
+        // upsertNode — the write that runs AFTER the link redirects and the
+        // duplicate deletions — fails, forcing a full rollback.
+        injection.failUpsertOf = primary.id
+        const exit = yield* Effect.exit(consolidation.mergeNodes(primary.id, [dup.id]))
+        injection.failUpsertOf = null
+
+        const primaryAfter = yield* indexer.getNode(primary.id)
+        const dupAfter = yield* indexer.getNode(dup.id)
+        const dupBacklinks = yield* indexer.getBacklinks(dup.id)
+        const linkerLinks = yield* indexer.getLinks(linker.id)
+        const primaryLinksFromLinker = (yield* indexer.getBacklinks(primary.id)).filter(l => l.sourceId === linker.id)
+
+        return { exit, primaryAfter, dupAfter, dupBacklinks, linkerLinks, primaryLinksFromLinker, primary, dup, linker }
+      }).pipe(Effect.provide(layer))
+    )
+
+    // The merge failed...
+    expect(Exit.isFailure(outcome.exit)).toBe(true)
+
+    // ...and the transaction rolled back completely — NO partial state:
+    // primary row untouched (content not merged, tags/confidence unchanged)
+    expect(Option.isSome(outcome.primaryAfter)).toBe(true)
+    expect(outcome.primaryAfter.value!.content).toBe("Primary body about Postgres row level locking.")
+    expect(outcome.primaryAfter.value!.tags).toEqual([`tx-${runId}`])
+    expect(outcome.primaryAfter.value!.confidence).toBe(1)
+
+    // duplicate NOT deleted
+    expect(Option.isSome(outcome.dupAfter)).toBe(true)
+
+    // the linker's original backlink onto the duplicate is intact...
+    expect(outcome.dupBacklinks.some(l => l.sourceId === outcome.linker.id)).toBe(true)
+    // ...and no half-created redirect onto the primary exists
+    expect(outcome.linkerLinks.some(l => l.targetId === outcome.primary.id)).toBe(false)
+    expect(outcome.primaryLinksFromLinker.length).toBe(0)
+  })
+
+  it("near-duplicate content (same text, different case/whitespace/punctuation) is still deduped", async () => {
+    const sessionId = `ses_consol_tx1_${crypto.randomUUID()}`
+    const run = crypto.randomUUID().slice(0, 8)
+    const tag = `tx-near-${run}`
+
+    const { merged, primaryContent, dupId } = await runTest(
+      Effect.gen(function* () {
+        const memory = yield* MemoryService
+        const consolidation = yield* ConsolidationService
+
+        const primaryContent = "Redis Cache Invalidation: prefer write-through caching with explicit TTL bounds."
+        const primary = yield* memory.createNode(CreateNodeInput.make({
+          type: "fact",
+          title: `Near-dup normalization check ${run}`,
+          content: primaryContent,
+          tags: [tag],
+          sessionId: sessionId as any,
+        }))
+        const dup = yield* memory.createNode(CreateNodeInput.make({
+          type: "fact",
+          title: `Near-dup normalization check ${run}`,
+          content: "redis   CACHE\ninvalidation...   prefer WRITE-through  caching, with explicit ttl BOUNDS!!",
+          tags: [tag],
+          sessionId: sessionId as any,
+        }))
+
+        const merged = yield* consolidation.mergeNodes(primary.id, [dup.id])
+        return { merged, primaryContent, dupId: dup.id }
+      })
+    )
+
+    // The near-duplicate was detected via normalized containment:
+    // nothing appended, no separator, content exactly the primary's
+    expect(merged.content).toBe(primaryContent)
+    expect(merged.content).not.toContain("\n\n---\n\n")
+    expect(merged.tags).toContain(tag)
+    // ...and the duplicate really was merged away
+    const dupAfter = await runTest(Effect.gen(function* () {
+      const memory = yield* MemoryService
+      return yield* memory.getNode(dupId)
+    }))
+    expect(Option.isNone(dupAfter)).toBe(true)
+  })
+
+  it("distinct content sharing the first-100-chars prefix with existing content is NOT dropped", async () => {
+    const sessionId = `ses_consol_tx2_${crypto.randomUUID()}`
+    const run = crypto.randomUUID().slice(0, 8)
+    const tag = `tx-prefix-${run}`
+
+    // Both contents are > 200 chars and share their first 100+ chars verbatim —
+    // the old `mergedContent.includes(dup.content.substring(0, 100))` check
+    // dropped the duplicate's unique tail entirely.
+    const sharedPrefix =
+      "The deployment pipeline builds the container image, runs the integration suite, and promotes the artifact "
+    const primaryContent = sharedPrefix +
+      "across staging environments before any production rollout is allowed to begin, and every change must carry a linked rollback plan."
+    const dupContent = sharedPrefix +
+      "only after a manual sign-off from the on-call release captain has been recorded in the incident tool and the changelog entry is public."
+
+    const { merged } = await runTest(
+      Effect.gen(function* () {
+        const memory = yield* MemoryService
+        const consolidation = yield* ConsolidationService
+
+        const primary = yield* memory.createNode(CreateNodeInput.make({
+          type: "fact",
+          title: `Shared prefix check ${run}`,
+          content: primaryContent,
+          tags: [tag],
+          sessionId: sessionId as any,
+        }))
+        const dup = yield* memory.createNode(CreateNodeInput.make({
+          type: "fact",
+          title: `Shared prefix check ${run}`,
+          content: dupContent,
+          tags: [tag],
+          sessionId: sessionId as any,
+        }))
+
+        return { merged: yield* consolidation.mergeNodes(primary.id, [dup.id]) }
+      })
+    )
+
+    // The genuinely new tail of the duplicate survived the merge
+    expect(merged.content).toBe(primaryContent + "\n\n---\n\n" + dupContent)
+    expect(merged.content).toContain("on-call release captain")
+  })
+
+  it("normalized containment folds Arabic diacritics (and strips punctuation/case) when detecting duplicate content", async () => {
+    // Direct normalizer assertions
+    expect(normalizeText("مُحَمَّد")).toBe(normalizeText("محمد"))
+    expect(normalizeText("Hello,  WORLD!")).toBe(normalizeText("hello world"))
+
+    const sessionId = `ses_consol_tx3_${crypto.randomUUID()}`
+    const run = crypto.randomUUID().slice(0, 8)
+    const tag = `tx-ar-${run}`
+
+    const plain = "خطة النشر: بناء تدريجي مع اختبارات آلية في كل مرحلة"
+    const vocalized = "خَطَّةُ النَّشْرِ: بناءٌ تدريجيٌّ مع اختباراتٍ آليَّةٍ في كلِّ مرحلةٍ"
+
+    const { merged } = await runTest(
+      Effect.gen(function* () {
+        const memory = yield* MemoryService
+        const consolidation = yield* ConsolidationService
+
+        const primary = yield* memory.createNode(CreateNodeInput.make({
+          type: "fact",
+          title: `Arabic folding check ${run}`,
+          content: plain,
+          tags: [tag],
+          sessionId: sessionId as any,
+        }))
+        const dup = yield* memory.createNode(CreateNodeInput.make({
+          type: "fact",
+          title: `Arabic folding check ${run}`,
+          content: vocalized,
+          tags: [tag],
+          sessionId: sessionId as any,
+        }))
+
+        return { merged: yield* consolidation.mergeNodes(primary.id, [dup.id]) }
+      })
+    )
+
+    // The diacritics-bearing duplicate is the same text once folded: deduped
+    expect(merged.content).toBe(plain)
+    expect(merged.content).not.toContain("\n\n---\n\n")
   })
 })

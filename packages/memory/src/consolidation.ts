@@ -2,6 +2,7 @@ import { Effect, Layer, Context, Option, Array as Arr, Schedule } from "effect"
 import { MemoryNode, MemoryNodeID, MemoryLink, MemoryType, LinkType, ConsolidationInput, ConsolidationResult, MemoryError, NodeNotFoundError } from "./schema"
 import { MemoryService } from "./memory"
 import { IndexerService } from "./indexer"
+import { extractWikilinks } from "./node"
 import { MemoryConfig, defaultMemoryConfig } from "./config"
 
 /**
@@ -18,6 +19,43 @@ export interface ConsolidationService {
 }
 
 export const ConsolidationService = Context.Service<ConsolidationService, ConsolidationService>()("@diveeoi/memory/ConsolidationService")
+
+// --- Duplicate-content detection (normalized containment) ---------------------
+
+// Arabic vocalization (harakat U+064B-U+0652, superscript alef U+0670) and the
+// tatweel stretch character (U+0640) carry no lexical meaning here and are folded
+// away so Arabic text compares independent of diacritics.
+const ARABIC_DIACRITICS = /[\u064B-\u0652\u0670\u0640]/gu
+
+/**
+ * Normalized form used for duplicate-content comparison: NFKC, lowercase,
+ * Arabic diacritic folding, punctuation/symbols replaced by spaces, whitespace
+ * collapsed. Two texts with the same normalized form carry the same words, so
+ * they count as the same content regardless of case, spacing or punctuation.
+ */
+export const normalizeText = (text: string): string =>
+  text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(ARABIC_DIACRITICS, "")
+    .replace(/[\p{P}\p{S}]/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim()
+
+/**
+ * True when `candidate` (normalized) is already contained in `merged`, i.e. the
+ * duplicate adds no new words and must not be appended to the merged content.
+ *
+ * Replaces the old raw `mergedContent.includes(dup.content.substring(0, 100))`
+ * check, which dropped genuinely new content whenever its first 100 chars
+ * happened to appear elsewhere, and failed to dedupe near-identical text that
+ * differed only in case, whitespace or punctuation.
+ */
+const containsDuplicateContent = (merged: string, candidate: string): boolean => {
+  const normalizedCandidate = normalizeText(candidate)
+  if (normalizedCandidate.length === 0) return true
+  return normalizeText(merged).includes(normalizedCandidate)
+}
 
 const makeConsolidationService = Effect.gen(function* () {
   const memory = yield* MemoryService
@@ -218,9 +256,30 @@ const makeConsolidationService = Effect.gen(function* () {
       return link
     })
 
+  /**
+   * Merge duplicates into the primary node.
+   *
+   * Executed in three phases with failure-safe ordering:
+   *
+   *   Phase A — read + plan (no writes). Computes the merged content/tags/confidence
+   *     and the link-redirect plan in memory; any failure here leaves the store
+   *     completely untouched.
+   *   Phase B — one SQLite transaction for the whole index-side merge. Link
+   *     redirects, duplicate node-row deletions, the primary content/tags/confidence
+   *     update and the primary's outgoing-link rebuild all commit together or not at
+   *     all (`indexer.runInTransaction`); per-step verification inside the transaction
+   *     fails it (and rolls everything back) if the persisted state does not match
+   *     the plan.
+   *   Phase C — filesystem mirror sync, AFTER the transaction commits. The primary
+   *     file is rewritten first (non-destructive), duplicate files are deleted last
+   *     (destructive). SQLite cannot roll back file writes, so these cannot join the
+   *     transaction; the index is the read path (`getNode` is indexer-first), so a
+   *     Phase C failure leaves a complete, consistent index with at worst stale/orphan
+   *     markdown files.
+   */
   const mergeNodesDetailed = (primaryId: MemoryNodeID, duplicateIds: MemoryNodeID[]): Effect.Effect<{ node: MemoryNode; redirectLinks: MemoryLink[] }, MemoryError | NodeNotFoundError> =>
     Effect.gen(function* () {
-      // Verify all nodes still exist
+      // Phase A — verify all nodes still exist (reads only, no writes yet)
       const primary = yield* memory.getNode(primaryId)
       if (Option.isNone(primary)) {
         return yield* Effect.fail(new MemoryError({ cause: "Primary node not found" }))
@@ -235,47 +294,25 @@ const makeConsolidationService = Effect.gen(function* () {
       if (existingDuplicates.length === 0) {
         return { node: primary.value, redirectLinks: [] } // Nothing to merge
       }
+      const duplicateIdSet = new Set(existingDuplicates.map(d => d.id))
 
-      // Redirect links re-created onto the primary (collected for linksAdded)
-      const redirectLinks: MemoryLink[] = []
-
-      // Merge content with semantic awareness
+      // In-memory merge plan (still no writes). Duplicate content is detected by
+      // normalized containment, not the old first-100-chars raw substring check.
       let mergedContent = primary.value.content
       let mergedTags = [...primary.value.tags]
       let maxConfidence = primary.value.confidence
 
       for (const dup of existingDuplicates) {
-        // Semantic merge: use LLM to merge if content is substantial
-        if (dup.content.length > 200 && primary.value.content.length > 200) {
-          // For large content, append with clear separator
-          if (!mergedContent.includes(dup.content.substring(0, 100))) {
-            mergedContent += "\n\n---\n\n" + dup.content
-          }
-        } else {
-          // For small content, simple append if not duplicate
-          const dupSummary = dup.content.substring(0, 200)
-          if (!mergedContent.includes(dupSummary)) {
-            mergedContent += "\n\n---\n\n" + dup.content
-          }
+        if (!containsDuplicateContent(mergedContent, dup.content)) {
+          mergedContent += "\n\n---\n\n" + dup.content
         }
-        
+
         // Merge tags
         for (const tag of dup.tags) {
           if (!mergedTags.includes(tag)) mergedTags.push(tag)
         }
         // Take max confidence
         maxConfidence = Math.max(maxConfidence, dup.confidence)
-        
-        // Redirect links from duplicate to primary (in transaction)
-        const inLinks = yield* indexer.getBacklinks(dup.id)
-        for (const link of inLinks) {
-          yield* indexer.deleteLink(link.sourceId, dup.id)
-          const redirect = yield* upsertLinkReturning(link.sourceId, primaryId, link.type)
-          redirectLinks.push(redirect)
-        }
-
-        // Delete duplicate
-        yield* memory.deleteNode(dup.id)
       }
 
       const updated = MemoryNode.make({
@@ -286,11 +323,80 @@ const makeConsolidationService = Effect.gen(function* () {
         updated: Date.now()
       })
 
+      // Redirect links re-created onto the primary (collected for linksAdded)
+      const redirectLinks: MemoryLink[] = []
+
+      // Phase B — the whole index-side merge in ONE SQLite transaction
+      yield* indexer.runInTransaction(Effect.gen(function* () {
+        for (const dup of existingDuplicates) {
+          // Redirect links from duplicate to primary. Read lazily, per duplicate,
+          // so the link set matches the interleaved redirect/delete sequence.
+          const inLinks = yield* indexer.getBacklinks(dup.id)
+          for (const link of inLinks) {
+            // Links sourced from another node in this merge group (incl. self-links)
+            // are destroyed together with their source node — redirecting them would
+            // immediately create a dangling entry in linksAdded.
+            if (duplicateIdSet.has(link.sourceId)) continue
+            yield* indexer.deleteLink(link.sourceId, dup.id)
+            const redirect = yield* upsertLinkReturning(link.sourceId, primaryId, link.type)
+            redirectLinks.push(redirect)
+          }
+
+          // Delete duplicate from the index (destructive, but inside the
+          // transaction — rolled back if any later step fails)
+          yield* indexer.deleteNode(dup.id)
+        }
+
+        // Primary content/tags/confidence update
+        yield* indexer.upsertNode(updated)
+
+        // Rebuild the primary's outgoing links exactly as memory.updateNode does for
+        // a content patch: remove old ones, re-derive from wikilinks in the content.
+        const oldLinks = yield* indexer.getLinks(primaryId)
+        for (const link of oldLinks) {
+          yield* indexer.deleteLink(primaryId, link.targetId)
+        }
+        for (const linkId of extractWikilinks(mergedContent)) {
+          yield* indexer.upsertLink(primaryId, linkId.target as MemoryNodeID, "references")
+        }
+
+        // Per-step verification inside the transaction: a mismatch fails the
+        // transaction and rolls back every write above.
+        for (const dup of existingDuplicates) {
+          const gone = yield* indexer.getNode(dup.id)
+          if (Option.isSome(gone)) {
+            return yield* Effect.fail(new MemoryError({ cause: `merge verification failed: duplicate ${dup.id} still present after merge` }))
+          }
+        }
+        const primaryAfter = yield* indexer.getNode(primaryId)
+        if (
+          Option.isNone(primaryAfter) ||
+          primaryAfter.value.content !== mergedContent ||
+          primaryAfter.value.confidence !== maxConfidence ||
+          JSON.stringify(primaryAfter.value.tags) !== JSON.stringify(mergedTags)
+        ) {
+          return yield* Effect.fail(new MemoryError({ cause: "merge verification failed: primary node not updated with merged content" }))
+        }
+        for (const redirect of redirectLinks) {
+          const links = yield* indexer.getLinks(redirect.sourceId)
+          if (!links.some(l => l.targetId === redirect.targetId)) {
+            return yield* Effect.fail(new MemoryError({ cause: `merge verification failed: redirect ${redirect.sourceId} -> ${redirect.targetId} missing after merge` }))
+          }
+        }
+      }))
+
+      // Phase C — filesystem mirror sync (post-commit; primary write first,
+      // destructive duplicate deletes last). The public memory.* paths keep the
+      // old behavior (they re-run the idempotent index updates on top of the
+      // committed transaction state).
       yield* memory.updateNode(primaryId, {
         content: mergedContent,
         tags: mergedTags,
         confidence: maxConfidence
       })
+      for (const dup of existingDuplicates) {
+        yield* memory.deleteNode(dup.id)
+      }
 
       return { node: updated, redirectLinks }
     })
