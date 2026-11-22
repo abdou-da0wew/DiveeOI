@@ -75,6 +75,7 @@ import { PtyTicket } from "@diveeoi/db/pty/ticket"
 import { Ripgrep } from "@diveeoi/db/ripgrep"
 import { SessionProjector } from "@diveeoi/db/session/projector"
 import { RemoteFS } from "@/ssh-client/remote-fs"
+import { RemoteSession } from "@/ssh-client"
 import { Memory } from "@diveeoi/memory"
 import { node as enabledLearningNode, disabledNode as disabledLearningNode } from "@diveeoi/learning/node"
 
@@ -103,6 +104,14 @@ export const serviceNodes = [
   Global.node,
   Npm.node,
   RemoteFS.node,
+  // RemoteSession must be a DIRECT member of the group, not only a dependency of
+  // RemoteFS/ToolRegistry/SessionPrompt: LayerNode.buildLayer provides a node's
+  // dependencies INTO its implementation (Layer.provide), so dependency outputs never
+  // surface to the surrounding context. The instance-context middleware
+  // (middleware/instance-context.ts) reads RemoteSession.Service from the ambient
+  // request context, and without this member every request through it died with
+  // "Service not found: @diveeoi/RemoteSession".
+  RemoteSession.node,
   Database.node,
   Auth.node,
   Account.node,

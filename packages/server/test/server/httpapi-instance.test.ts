@@ -56,21 +56,27 @@ const handlerContext = Context.empty() as Context.Context<unknown>
 const directoryHeader = (dir: string) => HttpClientRequest.setHeader("x-opencode-directory", dir)
 
 describe("instance HttpApi", () => {
-  it.live("serves the OpenAPI document", () =>
-    Effect.gen(function* () {
-      const response = yield* HttpClient.get("/doc")
+  // Heavyweight in this sandbox: the first /doc hit pays the deferred
+  // OpenApi.fromApi(PublicApi) build (~6 s here) — above bun's 5 s default
+  // per-test timeout. Requests themselves are fast; the limit is boot/build cost.
+  it.live(
+    "serves the OpenAPI document",
+    () =>
+      Effect.gen(function* () {
+        const response = yield* HttpClient.get("/doc")
 
-      expect(response.status).toBe(200)
-      expect(response.headers["content-type"]).toContain("application/json")
-      expect(yield* response.json).toMatchObject({
-        openapi: expect.any(String),
-        info: expect.any(Object),
-        paths: expect.objectContaining({
-          "/global/health": expect.any(Object),
-          "/session": expect.any(Object),
-        }),
-      })
-    }),
+        expect(response.status).toBe(200)
+        expect(response.headers["content-type"]).toContain("application/json")
+        expect(yield* response.json).toMatchObject({
+          openapi: expect.any(String),
+          info: expect.any(Object),
+          paths: expect.objectContaining({
+            "/global/health": expect.any(Object),
+            "/session": expect.any(Object),
+          }),
+        })
+      }),
+    20_000,
   )
 
   it.live("emits a sync fence header for fixed-workspace mutations", () =>
@@ -120,38 +126,43 @@ describe("instance HttpApi", () => {
     }),
   )
 
-  it.live("rejects malformed permission and question request ids", () =>
-    Effect.gen(function* () {
-      const dir = yield* tmpdirScoped({ git: true })
-      const request = (path: string, init?: RequestInit) =>
-        Effect.promise(() =>
-          HttpApiApp.webHandler().handler(
-            new Request(`http://localhost${path}`, {
-              ...init,
-              headers: { "x-opencode-directory": dir, "content-type": "application/json", ...init?.headers },
+  // Same sandbox reality as the /doc test: per-test layer rebuild + git-init
+  // fixture exceed bun's 5 s default here, while the actual requests take ~100 ms.
+  it.live(
+    "rejects malformed permission and question request ids",
+    () =>
+      Effect.gen(function* () {
+        const dir = yield* tmpdirScoped({ git: true })
+        const request = (path: string, init?: RequestInit) =>
+          Effect.promise(() =>
+            HttpApiApp.webHandler().handler(
+              new Request(`http://localhost${path}`, {
+                ...init,
+                headers: { "x-opencode-directory": dir, "content-type": "application/json", ...init?.headers },
+              }),
+              handlerContext,
+            ),
+          )
+        const [permission, questionReply, questionReject] = yield* Effect.all(
+          [
+            request("/permission/invalid-permission-id/reply", {
+              method: "POST",
+              body: JSON.stringify({ reply: "once" }),
             }),
-            handlerContext,
-          ),
+            request("/question/invalid-question-id/reply", {
+              method: "POST",
+              body: JSON.stringify({ answers: [["Yes"]] }),
+            }),
+            request("/question/invalid-question-id/reject", { method: "POST" }),
+          ],
+          { concurrency: "unbounded" },
         )
-      const [permission, questionReply, questionReject] = yield* Effect.all(
-        [
-          request("/permission/invalid-permission-id/reply", {
-            method: "POST",
-            body: JSON.stringify({ reply: "once" }),
-          }),
-          request("/question/invalid-question-id/reply", {
-            method: "POST",
-            body: JSON.stringify({ answers: [["Yes"]] }),
-          }),
-          request("/question/invalid-question-id/reject", { method: "POST" }),
-        ],
-        { concurrency: "unbounded" },
-      )
 
-      expect(permission.status).toBe(400)
-      expect(questionReply.status).toBe(400)
-      expect(questionReject.status).toBe(400)
-    }),
+        expect(permission.status).toBe(400)
+        expect(questionReply.status).toBe(400)
+        expect(questionReject.status).toBe(400)
+      }),
+    20_000,
   )
 
   it.live("returns typed not found bodies for missing permission and question requests", () =>
@@ -261,5 +272,7 @@ describe("instance HttpApi", () => {
         expect.objectContaining({ file: "changed.txt", additions: 1, status: "added" }),
       )
     }),
+    // Heavyweight: multiple tmp project boots under load can exceed bun's 5s default (see the two bumps above).
+    20_000,
   )
 })
