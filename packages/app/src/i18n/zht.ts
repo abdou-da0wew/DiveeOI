@@ -1024,6 +1024,7 @@ export const dict = {
   "targetedLearning.library.indexing": "已開始建立索引。這可能需要幾分鐘。",
   "targetedLearning.library.tooLarge": '"{{title}}" 過大（最大 {{max}} MB）。',
   "targetedLearning.library.deleteFailed": "無法刪除該書。",
+  "targetedLearning.library.errorUnavailable": "索引失敗。未回報任何錯誤詳情。",
   "targetedLearning.library.pages": "{{count}} 頁",
   "targetedLearning.library.passages": "{{count}} 個段落",
   "targetedLearning.library.jobRequested": "已請求擷取任務 {{action}}。",

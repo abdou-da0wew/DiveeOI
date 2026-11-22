@@ -1046,6 +1046,7 @@ export const dict = {
   "targetedLearning.library.indexing": "Индексация запущена. Это может занять несколько минут.",
   "targetedLearning.library.tooLarge": 'Файл "{{title}}" слишком велик (максимум {{max}} MB).',
   "targetedLearning.library.deleteFailed": "Не удалось удалить книгу.",
+  "targetedLearning.library.errorUnavailable": "Не удалось выполнить индексацию. Сведения об ошибке не поступили.",
   "targetedLearning.library.pages": "{{count}} стр.",
   "targetedLearning.library.passages": "{{count}} фрагментов",
   "targetedLearning.library.jobRequested": "Запрошена задача обработки {{action}}.",

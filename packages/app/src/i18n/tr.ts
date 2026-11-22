@@ -1052,6 +1052,7 @@ export const dict = {
   "targetedLearning.library.indexing": "İndeksleme başladı. Bu birkaç dakika sürebilir.",
   "targetedLearning.library.tooLarge": '"{{title}}" çok büyük (en fazla {{max}} MB).',
   "targetedLearning.library.deleteFailed": "Kitap silinemedi.",
+  "targetedLearning.library.errorUnavailable": "Dizinleme başarısız oldu. Hata ayrıntısı bildirilmedi.",
   "targetedLearning.library.pages": "{{count}} sayfa",
   "targetedLearning.library.passages": "{{count}} pasaj",
   "targetedLearning.library.jobRequested": "Alım görevi {{action}} istendi.",

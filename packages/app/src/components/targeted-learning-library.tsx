@@ -7,6 +7,7 @@ import { Component, For, Show, createResource, createSignal, onCleanup } from "s
 import { useServerSDK } from "@/context/server-sdk"
 import { useLanguage } from "@/context/language"
 import { authFetch } from "@/utils/auth-client"
+import { displayBookError } from "./targeted-learning-library-helpers"
 
 interface Book {
   id: string
@@ -16,7 +17,7 @@ interface Book {
   status: string
   pages?: number
   chunkCount: number
-  error?: string
+  error?: string | null
   jobId?: string
   jobStatus?: string
   progress?: number
@@ -56,6 +57,11 @@ export const TargetedLearningLibrary: Component<{ ready: boolean }> = (props) =>
   const [busy, setBusy] = createSignal(false)
   const [busyJob, setBusyJob] = createSignal<string | null>(null)
   const [message, setMessage] = createSignal("")
+
+  // Failed books always show an error line: the real backend error when present,
+  // otherwise a translated fallback — never a literal "null". The same text is
+  // exposed via title/tooltip so long errors stay readable.
+  const errorText = (book: Book) => displayBookError(book, t("targetedLearning.library.errorUnavailable"))
 
   const controlJob = async (book: Book, action: "pause" | "resume" | "cancel" | "retry") => {
     if (!book.jobId) return
@@ -167,8 +173,10 @@ export const TargetedLearningLibrary: Component<{ ready: boolean }> = (props) =>
                     {book.pages ? ` · ${t("targetedLearning.library.pages", { count: book.pages })}` : ""}
                     {book.status === "ready" ? ` · ${t("targetedLearning.library.passages", { count: book.chunkCount })}` : ""}
                   </span>
-                  <Show when={book.status === "failed" && book.error}>
-                    <span class="text-12-regular text-[var(--warning-fg)]">{book.error}</span>
+                  <Show when={book.status === "failed"}>
+                    <span class="text-12-regular text-[var(--warning-fg)]" title={errorText(book)}>
+                      {errorText(book)}
+                    </span>
                   </Show>
                 </div>
                 <div class="flex items-center gap-3 shrink-0">

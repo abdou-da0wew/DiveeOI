@@ -8,7 +8,6 @@ import { LocalProvider } from "@/context/local"
 import { SDKProvider } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { decode64 } from "@/utils/base64"
-import { Schema } from "effect"
 
 export function DirectoryDataProvider(props: ParentProps<{ directory: string; draftID?: string }>) {
   const location = useLocation()
@@ -46,13 +45,19 @@ export function DirectoryDataProvider(props: ParentProps<{ directory: string; dr
   )
 }
 
-export const ProjectDirString = Schema.String.pipe(Schema.brand("ProjectDirString"))
-export type ProjectDirString = Schema.Schema.Type<typeof ProjectDirString>
+// The brand is kept as a plain TypeScript branded type. It previously pulled
+// `Schema` from `effect`, which dragged the whole effect runtime into the
+// first-load entry chunk (Bug #10 first paint). No runtime consumer imports the
+// `ProjectDirString` value (verified across the app), so a tiny factory + type
+// is a drop-in replacement with identical runtime behavior.
+declare const ProjectDirBrand: unique symbol
+export type ProjectDirString = string & { readonly [ProjectDirBrand]: "ProjectDirString" }
+export const ProjectDirString = (value: string) => value as ProjectDirString
 
 export function decodeDirectory(dir: string): ProjectDirString | undefined {
   const decoded = decode64(dir)
   if (!decoded) return
-  return ProjectDirString.make(decoded)
+  return ProjectDirString(decoded)
 }
 
 export default function Layout(props: ParentProps) {

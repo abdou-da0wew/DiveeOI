@@ -1075,6 +1075,7 @@ export const dict = {
   "targetedLearning.library.indexing": "Індексування розпочато. Це може тривати кілька хвилин.",
   "targetedLearning.library.tooLarge": 'Файл "{{title}}" завеликий (максимум {{max}} MB).',
   "targetedLearning.library.deleteFailed": "Не вдалося видалити книгу.",
+  "targetedLearning.library.errorUnavailable": "Індексацію не вдалося виконати. Відомостей про помилку не надійшло.",
   "targetedLearning.library.pages": "{{count}} стор.",
   "targetedLearning.library.passages": "{{count}} фрагментів",
   "targetedLearning.library.jobRequested": "Запрошено завдання обробки {{action}}.",

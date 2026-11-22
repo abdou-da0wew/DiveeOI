@@ -961,6 +961,7 @@ export const dict = {
   "targetedLearning.library.indexing": "インデックス作成を開始しました。数分かかることがあります。",
   "targetedLearning.library.tooLarge": '"{{title}}" は大きすぎます (最大 {{max}} MB)。',
   "targetedLearning.library.deleteFailed": "本を削除できませんでした。",
+  "targetedLearning.library.errorUnavailable": "インデックスの作成に失敗しました。エラーの詳細は報告されていません。",
   "targetedLearning.library.pages": "{{count}} ページ",
   "targetedLearning.library.passages": "{{count}} パッセージ",
   "targetedLearning.library.jobRequested": "取り込みジョブ {{action}} を要求しました。",

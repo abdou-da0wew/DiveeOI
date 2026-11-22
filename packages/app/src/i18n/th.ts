@@ -1033,6 +1033,7 @@ export const dict = {
   "targetedLearning.library.indexing": "เริ่มจัดดัชนีแล้ว อาจใช้เวลาสักครู่",
   "targetedLearning.library.tooLarge": '"{{title}}" ใหญ่เกินไป (สูงสุด {{max}} MB)',
   "targetedLearning.library.deleteFailed": "ลบหนังสือไม่สำเร็จ",
+  "targetedLearning.library.errorUnavailable": "การจัดทำดัชนีล้มเหลว ไม่มีรายงานรายละเอียดข้อผิดพลาด",
   "targetedLearning.library.pages": "{{count}} หน้า",
   "targetedLearning.library.passages": "{{count}} ตอน",
   "targetedLearning.library.jobRequested": "ของานนำเข้า {{action}} แล้ว",

@@ -967,6 +967,7 @@ export const dict = {
   "targetedLearning.library.indexing": "Indexação iniciada. Isso pode levar alguns minutos.",
   "targetedLearning.library.tooLarge": '"{{title}}" é muito grande (máximo de {{max}} MB).',
   "targetedLearning.library.deleteFailed": "Não foi possível excluir o livro.",
+  "targetedLearning.library.errorUnavailable": "Falha na indexação. Nenhum detalhe do erro foi informado.",
   "targetedLearning.library.pages": "{{count}} páginas",
   "targetedLearning.library.passages": "{{count}} trechos",
   "targetedLearning.library.jobRequested": "Tarefa de ingestão {{action}} solicitada.",

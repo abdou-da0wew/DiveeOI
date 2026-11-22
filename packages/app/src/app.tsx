@@ -3,8 +3,6 @@ import * as Sentry from "@sentry/solid"
 import { I18nProvider } from "@diveeoi/ui/context"
 import { DialogProvider } from "@diveeoi/ui/context/dialog"
 import { FileComponentProvider } from "@diveeoi/ui/context/file"
-import { MarkedProvider } from "@diveeoi/ui/context/marked"
-import { File } from "@diveeoi/ui/file"
 import { Font } from "@diveeoi/ui/font"
 import { Splash } from "@diveeoi/ui/logo"
 import { ThemeProvider, useTheme } from "@diveeoi/ui/theme/context"
@@ -12,7 +10,6 @@ import type { DesktopTheme } from "@diveeoi/ui/theme/types"
 import { MetaProvider } from "@solidjs/meta"
 import { type BaseRouterProps, Navigate, Route, Router, useParams, useSearchParams } from "@solidjs/router"
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
-import { Effect } from "effect"
 import {
   type Component,
   createEffect,
@@ -61,6 +58,24 @@ const Session = lazy(() => import("@/pages/session"))
 const NewSession = lazy(() => import("@/pages/new-session"))
 const LoginPage = lazy(() => import("@/pages/login"))
 const RegisterPage = lazy(() => import("@/pages/register"))
+
+// The markdown pipeline (marked + katex + marked-shiki + the shiki core it pulls in)
+// and the pierre file viewer (@pierre/diffs) are only needed once markdown or file
+// views actually render, so both providers are lazy: this keeps those libraries out
+// of the first-load entry chunk (Bug #10 first paint). The modules load in parallel
+// with the lazy route chunks, so behavior is unchanged — only the initial paint
+// no longer waits for them.
+const MarkedProvider = lazy(() => import("@diveeoi/ui/context/marked").then((m) => ({ default: m.MarkedProvider })))
+const FileViewer = lazy(async () => {
+  // The pierre file viewer highlights code with the "OpenCode" theme, which is
+  // registered by a module side effect in the marked context module (the only
+  // registerCustomTheme call site in the app). Awaiting it here keeps the
+  // registration order deterministic no matter which lazy chunk lands first.
+  await import("@diveeoi/ui/context/marked")
+  return { default: (await import("@diveeoi/ui/file")).File }
+})
+
+const HEALTH_CHECK_TIMEOUT_MS = 10_000
 
 const SessionRoute = Object.assign(
   () => {
@@ -289,7 +304,7 @@ export function AppBaseProviders(props: ParentProps<{ locale?: Locale }>) {
                 <WslServersProvider>
                   <DialogProvider>
                     <MarkedProvider>
-                      <FileComponentProvider component={File}>{props.children}</FileComponentProvider>
+                      <FileComponentProvider component={FileViewer}>{props.children}</FileComponentProvider>
                     </MarkedProvider>
                   </DialogProvider>
                 </WslServersProvider>
@@ -309,24 +324,38 @@ function ConnectionGate(props: ParentProps<{ disableHealthCheck?: boolean }>) {
   const [checkMode, setCheckMode] = createSignal<"blocking" | "background">("blocking")
 
   // performs repeated health check with a grace period for
-  // non-http connections, otherwise fails instantly
-  const [startupHealthCheck, healthCheckActions] = createResource(() =>
-    props.disableHealthCheck
-      ? true
-      : Effect.gen(function* () {
-          if (!server.current) return true
-          const { http, type } = server.current
+  // non-http connections, otherwise fails instantly.
+  // Plain-async equivalent of the previous Effect.gen pipeline with identical
+  // semantics (same loop, same 10 s timeout, checkMode always flipped to
+  // "background" afterwards); written without `effect` so the effect runtime
+  // stays out of the first-load entry chunk (Bug #10 first paint).
+  const runStartupHealthCheck = async (): Promise<boolean> => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(false), HEALTH_CHECK_TIMEOUT_MS)
+    })
+    const check = async (): Promise<boolean> => {
+      if (!server.current) return true
+      const { http, type } = server.current
 
-          while (true) {
-            const res = yield* Effect.promise(() => checkServerHealth(http))
-            if (res.healthy) return true
-            if (checkMode() === "background" || type === "http") return false
-          }
-        }).pipe(
-          Effect.timeoutOrElse({ duration: "10 seconds", orElse: () => Effect.succeed(false) }),
-          Effect.ensuring(Effect.sync(() => setCheckMode("background"))),
-          Effect.runPromise,
-        ),
+      while (true) {
+        const res = await checkServerHealth(http)
+        if (res.healthy) return true
+        if (checkMode() === "background" || type === "http") return false
+      }
+    }
+    try {
+      return await Promise.race([check(), timeout])
+    } catch {
+      return false
+    } finally {
+      clearTimeout(timer)
+      setCheckMode("background")
+    }
+  }
+
+  const [startupHealthCheck, healthCheckActions] = createResource(() =>
+    props.disableHealthCheck ? true : runStartupHealthCheck(),
   )
   const checking = createMemo(
     () => checkMode() === "blocking" && ["unresolved", "pending"].includes(startupHealthCheck.state),

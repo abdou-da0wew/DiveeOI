@@ -1258,6 +1258,7 @@ export const dict = {
   "targetedLearning.library.indexing": "Indexing started. This can take a few minutes.",
   "targetedLearning.library.tooLarge": "\"{{title}}\" is too large (max {{max}} MB).",
   "targetedLearning.library.deleteFailed": "Could not delete the book.",
+  "targetedLearning.library.errorUnavailable": "Indexing failed. No error details were reported.",
   "targetedLearning.library.pages": "{{count}} pages",
   "targetedLearning.library.passages": "{{count}} passages",
   "targetedLearning.library.jobRequested": "Ingest job {{action}} requested.",

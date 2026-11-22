@@ -956,6 +956,7 @@ export const dict = {
   "targetedLearning.library.indexing": "인덱싱을 시작했습니다. 몇 분 걸릴 수 있습니다.",
   "targetedLearning.library.tooLarge": '"{{title}}" 책이 너무 큽니다 (최대 {{max}} MB).',
   "targetedLearning.library.deleteFailed": "책을 삭제하지 못했습니다.",
+  "targetedLearning.library.errorUnavailable": "인덱싱에 실패했습니다. 오류 세부 정보가 보고되지 않았습니다.",
   "targetedLearning.library.pages": "{{count}}페이지",
   "targetedLearning.library.passages": "{{count}}개 단락",
   "targetedLearning.library.jobRequested": "수집 작업 {{action}} 요청됨",

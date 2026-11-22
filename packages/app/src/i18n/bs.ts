@@ -1043,6 +1043,7 @@ export const dict = {
   "targetedLearning.library.indexing": "Indeksiranje je počelo. Ovo može potrajati nekoliko minuta.",
   "targetedLearning.library.tooLarge": '"{{title}}" je prevelika (maks. {{max}} MB).',
   "targetedLearning.library.deleteFailed": "Brisanje knjige nije uspjelo.",
+  "targetedLearning.library.errorUnavailable": "Indeksiranje nije uspjelo. Nijedan detalj greške nije prijavljen.",
   "targetedLearning.library.pages": "{{count}} stranica",
   "targetedLearning.library.passages": "{{count}} odlomaka",
   "targetedLearning.library.jobRequested": "Posao unošenja {{action}} je zatražen.",

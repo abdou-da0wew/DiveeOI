@@ -1037,6 +1037,7 @@ export const dict = {
   "targetedLearning.library.indexing": "Indeksering startet. Det kan tage et par minutter.",
   "targetedLearning.library.tooLarge": '"{{title}}" er for stor (maks. {{max}} MB).',
   "targetedLearning.library.deleteFailed": "Kunne ikke slette bogen.",
+  "targetedLearning.library.errorUnavailable": "Indeksering mislykkedes. Der blev ikke rapporteret nogen fejldetaljer.",
   "targetedLearning.library.pages": "{{count}} sider",
   "targetedLearning.library.passages": "{{count}} passager",
   "targetedLearning.library.jobRequested": "Forespørgsel på ingest-job {{action}} sendt.",
