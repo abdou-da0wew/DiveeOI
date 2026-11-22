@@ -65,7 +65,7 @@ Several dependencies are patched (in `patches/`):
 - `@pierre/trees@1.0.0-beta.4` — file-tree patch
 - `@modelcontextprotocol/sdk@1.29.0` — MCP SDK patch
 - `effect@4.0.0-beta.74` — Effect-TS patch
-- `@ff-labs/fff-bun@0.9.3` — file-system abstraction patch
+- `@ff-labs/fff-bun@0.9.4` — file-system abstraction patch
 - `@ai-sdk/xai@3.0.82`, `@ai-sdk/google@3.0.73` — AI SDK provider patches
 
 ### Catalog Dependencies

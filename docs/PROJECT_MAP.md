@@ -56,11 +56,10 @@ DiveeOI/
 ├── scripts/             build orchestrator, brand PDF generators, rag-e2e, tl-live-check
 ├── tests/fixtures/      sample apps used as fixtures (no root test runner on purpose — bunfig.toml tripwire)
 ├── brand/, packages/identity/   logo/favicon assets (Mark 02 "Frame + Cursor")
-├── .draft-01…10.md      architecture drafts; .draft-10 = the unbuilt autonomous-agent program
+├── .draft-10.md         the unbuilt autonomous-agent program roadmap (drafts 01–09 archived 2026-11-22 → docs/plans/archive/)
 ├── CONTEXT.md           current engineering hand-off (2026-11-20)
 ├── WORKLOG.md           chronological work journal (newest last)
 ├── DECISIONS.md         durable technical decisions (TL, SSH, video, UI)
-├── REMINDERS.md         empty heading only
 └── TODO.md              consolidated pending-work list (generated 2026-11-22)
 ```
 
@@ -85,8 +84,7 @@ DiveeOI/
 | `@diveeoi/effect-sqlite-node` | Node `node:sqlite` SqlClient (secondary runtime path) |
 | `@diveeoi/script` | Internal build/migration helpers (devDependency only) |
 | `@diveeoi/identity` | Brand assets only — **not** auth |
-| `packages/mcp` | Not a package: two Go MCP servers (read-only opencode.db readers), one with committed binaries |
-| `packages/plugins` | Not a package: one un-wired upstream leftover (`image-understanding.ts` imports `@opencode-ai/*`) |
+| `packages/mcp` | Not a package: Go MCP server source (read-only opencode.db reader), binaries removed from VCS 2026-11-22 — build locally with `go build` |
 
 ### 4.1 `packages/server` — the core
 

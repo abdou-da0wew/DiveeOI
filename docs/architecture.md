@@ -41,7 +41,7 @@ DiveeOI/
     plugins/                # Plugin registry / discovery
     identity/               # Brand assets
     script/                 # Internal build scripts
-  patches/                  # 9 patched deps (solid-js, effect, MCP SDK, etc.)
+  patches/                  # 12 patched deps (solid-js, effect, MCP SDK, etc.)
   docs/                     # This documentation
   PROJECT_GUIDE.md          # Exhaustive per-package directory listing
   turbo.json / bunfig.toml / tsconfig.json

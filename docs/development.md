@@ -46,7 +46,7 @@ bun --cwd packages/memory run test       # bun test
   [install] exact = true
   ```
 - Root `catalog` pins shared deps: `effect 4.0.0-beta.74`, `drizzle-orm 1.0.0-rc.2`, `ai 6.0.168`, `solid-js 1.9.10`, etc. Use `catalog:` in package deps rather than repeating versions. Never use `latest` — it pulls transient effect `beta.*` mismatches that break `Layer.Services` composition (`InstanceRef not provided`).
-- `patches/` contains 9 patches applied via `patchedDependencies` in root `package.json`. After changing a patched dep, run `bun install` and verify `bun patch` if needed.
+- `patches/` contains 12 patches applied via `patchedDependencies` in root `package.json`. After changing a patched dep, run `bun install` and verify `bun patch` if needed.
 - `turbo.json`: `app#build` depends on `sdk#build`; `server#build` depends on `app#build`.
 
 ## Targeted Learning development

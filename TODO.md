@@ -185,37 +185,65 @@ Authoritative sources: `docs/handoffs/coenx-video-renderer-handoff-2026-11-21.md
 
 ## 8. Repo hygiene / build / housekeeping
 
-- [ ] **5 orphan patch files** in `patches/` are NOT registered in `package.json#patchedDependencies` and are
-      therefore silently inert under Bun: `gcp-metadata@8.1.2`, `@npmcli/agent@4.0.2`,
-      `@silvia-odwyer/photon-node@0.3.4` (**a runtime dep of `db`+`server` — its wasm fix is likely not applied**),
-      `@standard-community/standard-openapi@0.2.9`, `pacote@21.5.0`. Register or delete. (code — verified:
-      10 registered vs 16 patch files.)
-- [ ] Version drift: `@ff-labs/fff-bun` is patched at **0.9.3** but pinned **0.9.4** (code).
-- [ ] `packages/plugins/built-in/image-understanding.ts` imports `@opencode-ai/plugin` / `@opencode-ai/sdk` —
-      package names that do not exist in this workspace; nothing wires `packages/plugins`. Un-wired upstream
-      leftover — delete or port (code).
-- [ ] `packages/mcp/built-in/opencode-db-reader/` ships **prebuilt Go binaries in git** (`ocred` = 7.7 MB) — remove
-      from VCS or add LFS; `packages/mcp` has no package.json and is unreferenced by the server (code).
-- [ ] `packages/server/migration/` is a vestigial drizzle-kit output dir; real migrations live in
-      `packages/db/src/database/migration/` (code).
-- [ ] `third_party/motion-graphics` git submodule is **never initialized** (empty dir) — init it
-      (`git submodule update --init`) or drop the `.gitmodules` entry (code).
-- [ ] **Dockerfile runs the dev script in production**: `CMD ["bun","run","--cwd","packages/server","dev"]`
-      (Dockerfile:90) despite `NODE_ENV=production` — switch to the built binary (code).
-- [ ] `REMINDERS.md` contains only the heading `# Reminders` — the reminders feature is effectively unused; either
-      populate the workflow or remove the file (code).
-- [ ] `tools/self-hosted-ci` (Go CI runner): `go test`/`go vet` were never run (no Go toolchain in the dev
-      environment) — run them, then decide document-vs-retire (doc: audit, WORKLOG 2026-10-30).
-- [ ] `tests/fixtures/` (mini-app, test-ui-lib, stale-design-md) have no automated consumer outside a README note —
-      add a consumer or document their purpose (code).
-- [ ] Single-source the favicons: `brand/generated/` and `packages/ui/src/assets/favicon/` are near-duplicates that
-      can drift (code).
-- [ ] Create `docs/plans/INDEX.md` separating live vs superseded plans; archive the `.draft-01…09` files
-      (recommendation from the 2026-10-31 audit, still unimplemented) (doc).
-- [ ] Remove the trial-flagged "history" blocks in `skills/hyperframes/SKILL.md:36-40` and
-      `skills/hyperframes-cli/SKILL.md:30-41` (`<!-- history (trial): remove this block … -->`) (code).
-- [ ] Root `skills/hyperframes-*` suite is **not wired into the product** (zero references from `packages/`) — it is
-      vendored content for the external `npx hyperframes` ecosystem; decide whether it belongs in this repo (code).
+- [x] **DONE 2026-11-22** Orphan patch files resolved — 10 registered vs 16 files. **Registered:**
+      `@silvia-odwyer/photon-node@0.3.4` (runtime dep of db+server — wasm fix now provably applied:
+      installed copy has zero `module.exports.__wbg` remnants and a runtime `new_from_base64`+`resize` probe
+      exits 0) and `@npmcli/agent@4.0.2`. **Deleted:** `gcp-metadata@8.1.2` (lock resolves 8.1.3, patch target
+      absent), `pacote@21.5.0` (lock resolves 21.5.1; note — the deleted patch fixed a tarball-fallback bug
+      still present upstream in 21.5.1, re-derive as a 21.5.1 patch only if it ever bites),
+      `@standard-community/standard-openapi@0.2.9` (absent from lock entirely). `bun install` green;
+      `bun install --frozen-lockfile --dry-run` exit 0; bun.lock diff audited hunk-by-hunk (no version churn).
+      Mutation-checked: a bogus patchedDependencies entry fails `bun install --dry-run` hard.
+- [x] **DONE 2026-11-22** `@ff-labs/fff-bun` drift fixed by re-keying the patch to **0.9.4** (patch context
+      matches 0.9.4 source exactly; applied copy verified — `FFF_LIBC` present, `createRequire` gone); patch
+      file renamed to `@ff-labs%2Ffff-bun@0.9.4.patch`; no manifest pin change needed.
+- [x] **DONE 2026-11-22** `packages/plugins` DELETED — contained only `built-in/image-understanding.ts`, which
+      imported `@opencode-ai/plugin`/`@opencode-ai/sdk` (names that exist only as transitive deps of npm auth
+      plugins, never declared anywhere); zero functional references repo-wide (code globs `ts/tsx/js/json/go/sh`
+      → 0 matches).
+- [x] **DONE 2026-11-22** Prebuilt Go binaries removed from VCS — `ocred` (7.7 MB) and `ocread` (16 KB) deleted;
+      `go.mod`/`go.sum`/`main.go` sources kept; `.gitignore` guards the rebuilt binary names;
+      `packages/mcp/README.md` documents the source-only, unreferenced-by-design status.
+- [x] **DONE 2026-11-22** Vestigial `packages/server/migration/` DELETED — its `migration.sql` duplicated the real
+      `packages/db/src/database/migration/20260511173437_session-metadata.ts` (which even has an idempotency
+      guard); the sole drizzle config outs to `packages/db/migration`, and `script/migration.ts` overrides `out`
+      to an `os.tmpdir()` scratch dir; server tsconfig already excluded the dir.
+- [x] **DONE 2026-11-22** `third_party/motion-graphics` submodule INITIALIZED — `git submodule update --init`
+      succeeded, checked out at the pinned commit `3d83d987d658601d8a1269eb691622bdcd427335` (matches the index
+      gitlink and the CONTEXT.md/WORKLOG.md pin); `.gitmodules` unchanged; superproject tree stays clean.
+- [x] **DONE 2026-11-22** Dockerfile now runs the compiled production binary — `RUN cp "$(find
+      packages/server/dist -type f -name diveeoi | head -n 1)" /usr/local/bin/diveeoi` after the existing
+      `bun run build:current` (which emits one compiled Bun standalone executable with the runtime embedded at
+      `dist/@diveeoi/server-linux-<arch>/bin/diveeoi`), and `CMD ["/usr/local/bin/diveeoi"]` exec-form (clean
+      PID 1 / SIGTERM). HEALTHCHECK, VOLUME /data, EXPOSE 4097, NODE_ENV=production preserved. A
+      `docker build && docker run` smoke on a real daemon is the recorded follow-up (sandbox has no daemon).
+- [x] **DONE 2026-11-22** `REMINDERS.md` DELETED — content was only the `# Reminders` heading; all references are
+      historical docs; the live reminders feature is DB-backed (`packages/server/src/session/reminders.ts`) and
+      never reads the file.
+- [x] **DONE 2026-11-22** `tools/self-hosted-ci` verified with Go 1.27.4 (toolchain downloaded to /tmp, never into
+      the repo): `go vet ./...` exit 0 (zero findings) and `go test ./...` 36/36 pass — **KEEP**; the README now
+      documents how to run it (`make check` / `go vet ./... && go test ./...`) and records the verified-clean
+      result.
+- [x] **DONE 2026-11-22** `tests/fixtures/` documented — `tests/fixtures/README.md` covers each fixture's purpose,
+      origin commits (verified against git log) and consumers (all three are reference material with no
+      automated consumer, stated explicitly); plus `tests/fixtures/check-fixtures.ts` integrity script (20
+      checks pass; plain Bun script because the root bunfig tripwire blocks `bun test` from repo root).
+- [x] **DONE 2026-11-22** Favicons single-sourced — `packages/ui/src/assets/favicon/` declared canonical (the
+      consumed set: `favicon.tsx` head tags, `site.webmanifest`, `app/index.html`, the byte-identical
+      `app/public/` served copies, `server/public-ui.ts` allowlist); 3 unreferenced exact duplicates deleted
+      from `brand/generated/` (sha256-verified byte-identical); the 22 kept brand variants have zero hash
+      overlap with canonical; `brand/README.md` documents the rule; `scripts/check-favicons.sh` drift checker
+      (mutation-verified: detects a re-introduced duplicate, exit 1 naming it).
+- [x] **DONE 2026-11-22** `docs/plans/INDEX.md` created — evidence-backed LIVE / SUPERSEDED / UNBUILT-ROADMAP /
+      ARCHIVED classification of all 13 plan docs (3 live, 6 superseded, 1 unbuilt roadmap, 9 archived);
+      `.draft-01…09` archived to `docs/plans/archive/` (all 9 sha256-identical to their HEAD blobs);
+      `.draft-10-autonomous-agent.md` kept at root as the live unbuilt roadmap (§9).
+- [x] **DONE 2026-11-22** Trial-flagged "history" blocks removed from `skills/hyperframes/SKILL.md` (6 lines) and
+      `skills/hyperframes-cli/SKILL.md` (13 lines); zero `history (trial)` markers remain; seams read coherently.
+- [x] **DONE 2026-11-22** `skills/hyperframes-*` decision: **KEEP** as vendored content for the external
+      `npx hyperframes` ecosystem — zero product wiring re-verified (`rg -i hyperframes` over packages/,
+      package.json, bunfig.toml, bun.lock, .github → 0 matches); documented in the new `skills/README.md`.
+      Removal/relocation stays an owner decision if the external ecosystem ever disappears.
 
 ## 9. Planned-but-unbuilt feature programs
 
@@ -261,3 +289,7 @@ commits). One claim from the exploration pass (a "broken `const ealth]` declarat
 - [ ] Frontend next pass: luxon (259 KB) eager via `context/models.tsx`, kobalte (235 KB) eager via `ui` DialogProvider/toast; optional splash for the marked-chunk gap; `ConnectionGate` timeout-loop nuance.
 - [ ] Run the server `tsgo` typecheck on a machine with more memory (this 4 GB sandbox OOM-kills it; runtime graph-boot tests cover the sprint's server change).
 - [ ] httpapi-instance "missing projects" test still runs on bun's 5s default timeout (~3.6s typical — bump to 20s like its siblings if it ever flakes).
+- [ ] `/favicon-light.svg` 404 (discovered during §8 favicon work): `packages/app/index.html:8` references it but it is missing from `packages/app/public/` AND from the server `PUBLIC_UI_PATHS` allowlist (`src/server/shared/public-ui.ts`) — copy the canonical file from `packages/ui/src/assets/favicon/` AND add the allowlist entry (or drop the `<link>`).
+- [ ] Combined single-process server-test run (`bun test test/server/httpapi-targeted-learning.test.ts test/server/httpapi-instance.test.ts`) shows inter-file contamination (TL's `/tmp/tl-routes-test-*` log path) — run the files separately (both green per-file); consider a test-isolation fix.
+- [ ] Run one `docker build && docker run` smoke of the new production CMD (`/usr/local/bin/diveeoi`) on a host with a Docker daemon — the dev sandbox has none; the Dockerfile change was verified by construction only (build.ts emits a single compiled Bun executable; `find` pattern matches exactly one file).
+- [ ] `pacote@21.5.1`: the deleted 21.5.0 patch fixed a git-tarball fallback bug still present upstream — re-derive as a 21.5.1 patch only if a tarball fallback failure ever shows up.

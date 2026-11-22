@@ -27,6 +27,9 @@ Notable changes to DiveeOI are recorded here. Unreleased work remains under **Un
 - Added route-level integration tests for the Targeted Learning HTTP group that boot the full production route tree offline, plus an end-to-end OCR ingest test running the real pinned tessdata pack offline with a mocked-pack fallback mode.
 - Added numeric-claim grounding verification: figures in answers and citations (Latin and Arabic-Indic digits, thousand/decimal separators including Arabic `٫`/`٬`, percent) must appear in the cited chunk, with ungrounded figures reported per citation and named in retry prompts.
 - Added an ingest-under-load stress test pinning bounded in-flight vectors, per-wave checkpointing, monotonic progress and post-completion cleanup, and regression tests pinning the outline-tiling fix.
+- Registered the previously-inert orphan patches (`@silvia-odwyer/photon-node@0.3.4` — the wasm fix now provably applies at runtime — and `@npmcli/agent@4.0.2`), deleted three orphan patch files whose target versions no longer resolve (`gcp-metadata@8.1.2`, `pacote@21.5.0`, `@standard-community/standard-openapi@0.2.9`), and re-keyed the `@ff-labs/fff-bun` patch to the pinned 0.9.4.
+- Added `docs/plans/INDEX.md` with an evidence-backed LIVE/SUPERSEDED/UNBUILT-ROADMAP/ARCHIVED classification of all plan documents, and archived the root `.draft-01…09` files to `docs/plans/archive/`.
+- Added `tests/fixtures/README.md` documenting each fixture's purpose, origin and consumers, with an integrity-check script, and `brand/README.md` plus a `scripts/check-favicons.sh` drift checker establishing `packages/ui/src/assets/favicon/` as the single source of app favicons.
 
 ### Improved
 
@@ -39,6 +42,10 @@ Notable changes to DiveeOI are recorded here. Unreleased work remains under **Un
 - Pruned ingest-time page/outline/chunk structures after use so large-book ingests no longer retain whole-book text through the embedding phase.
 - Hardened silent `catch: () => null` mappers across the learning pipeline (parsers, sqlite-vec availability probe, hybrid retrieval legs) so failures surface as typed errors or recorded diagnostics instead of nulls, and removed `@ts-nocheck` from the learning parser, embed pipeline and eval modules.
 - Made memory-graph consolidation merges transactional (single SQLite transaction with in-transaction verification and rollback via a new `IndexerService.runInTransaction`) and replaced naive substring duplicate-content detection with normalized containment (NFKC, case, punctuation, Arabic-harakat folding).
+- Switched the Dockerfile to run the compiled production binary (`CMD ["/usr/local/bin/diveeoi"]` after promoting the single built executable) instead of the dev script, preserving the healthcheck, data volume, port and `NODE_ENV=production`.
+- Initialized the `third_party/motion-graphics` submodule at its pinned commit so vendored references resolve.
+- Verified the `tools/self-hosted-ci` Go runner clean (Go 1.27.4: `go vet` zero findings, `go test` 36/36) and documented how to run it.
+- Documented the vendored `skills/hyperframes-*` suite as external-ecosystem content and removed the trial-flagged "history" blocks from its SKILL.md files.
 
 ### Fixed
 
@@ -52,3 +59,4 @@ Notable changes to DiveeOI are recorded here. Unreleased work remains under **Un
 - Fixed BM25 retrieval of heuristic-rewritten follow-up queries by stripping the `(re: …)` marker before building the FTS match expression, while the dense path keeps embedding the raw query.
 - The library UI no longer renders a literal `null` for books that fail indexing: a display helper trims the backend error, falls back to a translated message when absent, and exposes the full error in a tooltip.
 - Removed the dead Phase-1 worker-pool stub (`packages/learning/src/ingest/pool.ts`) and its dangling package export; the real pool remains `ingest/embed-pool.ts`.
+- Removed un-wired upstream leftovers and dead weight: `packages/plugins` (imported non-existent `@opencode-ai/*` packages), the 7.7 MB prebuilt Go binaries under `packages/mcp/built-in/opencode-db-reader/` (sources kept, rebuilds git-ignored), the vestigial `packages/server/migration/` drizzle output duplicating a real db migration, and the empty `REMINDERS.md` heading file.
