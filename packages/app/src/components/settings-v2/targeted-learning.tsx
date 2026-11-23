@@ -2,107 +2,33 @@
 //
 // Targeted Learning settings tab (Phase 5 UI, §11.5).
 //
-// Phase 1 ships a Setup-only shell. Per plan §11.5: "Before Setup is Ready,
-// only Start Setup is enabled. Everything else is visible but disabled,
-// each with a one-line reason."
-//
-// All other sections (Library, Student memory, Embedding, Chunking and
-// indexing, Retrieval, Grounding, Resources, Language, Advanced and
-// danger) render in a disabled state with their one-line reason. Phase 5
-// fills them in with real schema-driven form fields once the
-// `@diveeoi/learning/settings` schema's annotations are wired into a
-// generic form-generator component.
+// Phase 5: the setup/health state machine and the byte-identical content
+// blocks (setup steps, health snapshot) live in
+// targeted-learning-settings-state.tsx; this shell only supplies the v2
+// chrome (SettingsRowV2, ButtonV2, settings-v2.css classes) around them.
 
 import { TargetedLearningLibrary } from "../targeted-learning-library"
 import { TargetedLearningMemory } from "../targeted-learning-memory"
 import { TargetedLearningSettingsForm } from "../targeted-learning-settings-form"
-import { Component, For, Show, createEffect, createResource, createSignal, onCleanup, Suspense } from "solid-js"
+import { Component, Show, Suspense } from "solid-js"
 import { ButtonV2 } from "@diveeoi/ui/v2/button-v2"
-import { formatSetupStepLabel, TargetedLearningStatusBadge } from "../targeted-learning-status"
-import { setupIsRunning, useTlApi, type Health, type SetupStatus } from "../targeted-learning-api"
+import { TargetedLearningStatusBadge } from "../targeted-learning-status"
+import {
+  TlHealthSnapshot,
+  TlSetupStepsList,
+  setupBadgeLabel,
+  setupBadgeStatus,
+  useTlSetupState,
+} from "../targeted-learning-settings-state"
 import { useLanguage } from "@/context/language"
 import { SettingsListV2 } from "./parts/list"
 import { SettingsRowV2 } from "./parts/row"
 import "./settings-v2.css"
 
-const healthStatus = (available: boolean, setupStatus: string) => {
-  if (available) return "complete" as const
-  if (setupStatus === "not-started" || setupStatus === "in-progress") return "pending" as const
-  return "failed" as const
-}
-
-const healthLabel = (available: boolean, setupStatus: string, ready: string, unavailable: string, pending = "Pending") => {
-  if (available) return ready
-  if (setupStatus === "not-started" || setupStatus === "in-progress") return pending
-  return unavailable
-}
-
-const setupBadgeStatus = (status?: SetupStatus["status"]) => {
-  if (status === "ready") return "complete" as const
-  if (status === "in-progress") return "running" as const
-  if (status === "needs-repair" || status === "unreachable") return "failed" as const
-  return "pending" as const
-}
-
-const setupBadgeLabel = (status?: SetupStatus["status"]) => {
-  if (!status) return "Checking"
-  if (status === "ready") return "Ready"
-  if (status === "in-progress") return "Running"
-  if (status === "needs-repair") return "Needs repair"
-  if (status === "unreachable") return "Offline"
-  return "Not set up"
-}
-
 export const SettingsTargetedLearningV2: Component = () => {
   const language = useLanguage()
   const t = (key: string) => language.t(key as never)
-  const api = useTlApi()
-  const [status, { refetch }] = createResource<SetupStatus>(api.getStatus)
-  const [health] = createResource<Health>(api.getHealth)
-  const [starting, setStarting] = createSignal(false)
-
-  // Setup runs on the server in the background — poll while it is in progress so the
-  // badge and the step list advance live instead of freezing at "Running".
-  createEffect(() => {
-    if (setupIsRunning(status())) {
-      const timer = setInterval(() => void refetch(), 2500)
-      onCleanup(() => clearInterval(timer))
-    }
-  })
-
-  const start = async () => {
-    setStarting(true)
-    try {
-      await api.start(false)
-      await refetch()
-    } finally {
-      setStarting(false)
-    }
-  }
-
-  const cancel = async () => {
-    setStarting(true)
-    try {
-      await api.cancel()
-      await refetch()
-    } finally {
-      setStarting(false)
-    }
-  }
-
-  const repair = async () => {
-    setStarting(true)
-    try {
-      await api.repair()
-      await refetch()
-    } finally {
-      setStarting(false)
-    }
-  }
-
-  const isReady = () => status()?.status === "ready"
-  const needsRepair = () => status()?.status === "needs-repair"
-  const isRunning = () => setupIsRunning(status())
+  const state = useTlSetupState()
 
   return (
     <>
@@ -116,7 +42,7 @@ export const SettingsTargetedLearningV2: Component = () => {
           <Suspense fallback={<div class="settings-v2-panel-skeleton">Loading…</div>}>
             <SettingsListV2>
               {/* ---------- Backend unreachable notice ---------- */}
-              <Show when={status()?.status === "unreachable"}>
+              <Show when={state.status()?.status === "unreachable"}>
                 <SettingsRowV2
                   title={t("targetedLearning.unreachable.title")}
                   description={t("targetedLearning.unreachable.description")}
@@ -131,22 +57,22 @@ export const SettingsTargetedLearningV2: Component = () => {
                 description={t("targetedLearning.setup.description")}
               >
                 <Show
-                  when={isReady()}
+                  when={state.isReady()}
                   fallback={
                     <div class="flex flex-wrap items-center justify-end gap-2">
                       <TargetedLearningStatusBadge
-                        status={setupBadgeStatus(status()?.status)}
-                        label={setupBadgeLabel(status()?.status)}
+                        status={setupBadgeStatus(state.status()?.status)}
+                        label={setupBadgeLabel(state.status()?.status)}
                       />
                       <Show
-                        when={isRunning()}
+                        when={state.isRunning()}
                         fallback={
-                          <ButtonV2 onClick={start} disabled={starting()}>
-                            {starting() ? t("targetedLearning.setup.starting") : t("targetedLearning.setup.start")}
+                          <ButtonV2 onClick={state.start} disabled={state.starting()}>
+                            {state.starting() ? t("targetedLearning.setup.starting") : t("targetedLearning.setup.start")}
                           </ButtonV2>
                         }
                       >
-                        <ButtonV2 variant="ghost" onClick={cancel} disabled={starting()}>
+                        <ButtonV2 variant="ghost" onClick={state.cancel} disabled={state.starting()}>
                           {t("targetedLearning.setup.cancel")}
                         </ButtonV2>
                       </Show>
@@ -157,86 +83,37 @@ export const SettingsTargetedLearningV2: Component = () => {
                 </Show>
               </SettingsRowV2>
 
-              <Show when={needsRepair()}>
+              <Show when={state.needsRepair()}>
                 <SettingsRowV2
-                  title="Repair"
-                  description="Setup state is marked needs-repair. Click to clear all step statuses and re-run from probe."
+                  title={t("targetedLearning.repair")}
+                  description={t("targetedLearning.repair.description")}
                 >
-                  <ButtonV2 variant="ghost" onClick={repair} disabled={starting()}>
-                    Repair
+                  <ButtonV2 variant="ghost" onClick={state.repair} disabled={state.starting()}>
+                    {t("targetedLearning.repair")}
                   </ButtonV2>
                 </SettingsRowV2>
               </Show>
 
               {/* Setup steps */}
-              <Show when={status()?.steps.length}>
+              <Show when={state.status()?.steps.length}>
                 <div class="settings-v2-subsection">
                   <div class="settings-v2-subsection-title">{t("targetedLearning.setupSteps")}</div>
-                  <div class="tl-status-list">
-                    <For each={status()!.steps}>
-                      {(step) => (
-                        <>
-                          <div class="tl-status-row">
-                            <span class="tl-status-row-label">{formatSetupStepLabel(step.name, t)}</span>
-                            <div class="tl-status-row-meta">
-                              <TargetedLearningStatusBadge status={step.status} />
-                              <Show when={step.attempts > 1}>
-                                <span class="text-11-regular text-text-weak">×{step.attempts}</span>
-                              </Show>
-                            </div>
-                          </div>
-                          <Show when={step.status === "failed" && step.lastError}>
-                            <div class="tl-status-row-detail">{step.lastError}</div>
-                          </Show>
-                        </>
-                      )}
-                    </For>
-                  </div>
+                  <TlSetupStepsList state={state} t={t} />
                 </div>
               </Show>
 
               {/* Health snapshot */}
-              <Show when={health()}>
-                {(h) => (
-                  <div class="settings-v2-subsection">
-                    <div class="settings-v2-subsection-title">{t("targetedLearning.health")}</div>
-                    <div class="tl-status-health">
-                      <div class="tl-status-health-item">
-                        <span class="tl-status-health-label">{t("targetedLearning.health.booksDb")}</span>
-                        <TargetedLearningStatusBadge
-                          status={healthStatus(h().booksDbAvailable, h().setupStatus)}
-                          label={healthLabel(
-                            h().booksDbAvailable,
-                            h().setupStatus,
-                            t("targetedLearning.health.available"),
-                            h().booksDbReason ?? t("targetedLearning.health.unavailable"),
-                          t("targetedLearning.health.pending"),
-                          )}
-                        />
-                      </div>
-                      <div class="tl-status-health-item">
-                        <span class="tl-status-health-label">{t("targetedLearning.health.manifest")}</span>
-                        <TargetedLearningStatusBadge
-                          status={healthStatus(h().manifestLoaded, h().setupStatus)}
-                          label={healthLabel(h().manifestLoaded, h().setupStatus, t("targetedLearning.health.loaded"), t("targetedLearning.health.missing"))}
-                        />
-                      </div>
-                      <div class="tl-status-health-item">
-                        <span class="tl-status-health-label">{t("targetedLearning.health.model")}</span>
-                        <TargetedLearningStatusBadge
-                          status={healthStatus(h().modelReady, h().setupStatus)}
-                          label={healthLabel(h().modelReady, h().setupStatus, t("targetedLearning.status.ready"), t("targetedLearning.health.notReady"))}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
+              <Show when={state.health()}>
+                <div class="settings-v2-subsection">
+                  <div class="settings-v2-subsection-title">{t("targetedLearning.health")}</div>
+                  <TlHealthSnapshot state={state} t={t} />
+                </div>
               </Show>
 
-              <TargetedLearningLibrary ready={isReady()} />
+              <TargetedLearningLibrary ready={state.isReady()} />
 
-              <TargetedLearningMemory ready={isReady()} />
-              <TargetedLearningSettingsForm ready={isReady()} v2 />
+              <TargetedLearningMemory ready={state.isReady()} />
+              <TargetedLearningSettingsForm ready={state.isReady()} v2 />
             </SettingsListV2>
           </Suspense>
         </section>
