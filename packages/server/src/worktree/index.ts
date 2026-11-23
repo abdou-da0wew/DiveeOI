@@ -16,6 +16,7 @@ import { Git } from "@/git"
 import { Effect, Layer, Path, Schema, Scope, Context } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { NodePath } from "@effect/platform-node"
+import { acquireIoLane, releaseIoLane } from "@diveeoi/db/io"
 import { FSUtil } from "@diveeoi/db/fs-util"
 import { AppProcess } from "@diveeoi/db/process"
 import { InstanceState } from "@/effect/instance-state"
@@ -227,6 +228,18 @@ export const layer: Layer.Layer<
       return yield* candidate({ root, name: input?.name ? slugify(input.name) : "", detached: input?.detached })
     })
 
+    const withWorktreeLane = <A, E, R>(
+      label: string,
+      src: string,
+      dst: string | undefined,
+      effect: Effect.Effect<A, E, R>,
+    ): Effect.Effect<A, E, R> =>
+      Effect.acquireUseRelease(
+        Effect.promise(() => acquireIoLane("worktree", { src, dst, label })),
+        (ticket) => effect,
+        (ticket) => Effect.sync(() => releaseIoLane(ticket)),
+      )
+
     const setup = Effect.fnUntraced(function* (info: Info) {
       const ctx = yield* InstanceState.context
       const created = yield* git(
@@ -250,6 +263,14 @@ export const layer: Layer.Layer<
       const projectID = ctx.project.id
       const extra = startCommand?.trim()
 
+      // The checkout writes the whole branch tree into the worktree directory: gate it
+      // through the I/O governor so a worktree on a spinning disk never seeks against
+      // other heavy operations (and logs the "ssd→hdd"-style direction it ran as).
+      yield* withWorktreeLane(
+        `worktree checkout ${info.name}`,
+        ctx.worktree,
+        info.directory,
+        Effect.gen(function* () {
       const populated = yield* git(["reset", "--hard"], { cwd: info.directory })
       if (populated.code !== 0) {
         const message = populated.stderr || populated.text || "Failed to populate worktree"
@@ -292,6 +313,8 @@ export const layer: Layer.Layer<
       })
 
       yield* runStartScripts(info.directory, { projectID, extra })
+        }),
+      )
     })
 
     const createFromInfo = Effect.fn("Worktree.createFromInfo")(function* (info: Info, startCommand?: string) {
@@ -409,6 +432,11 @@ export const layer: Layer.Layer<
 
       const directory = yield* canonical(input.directory)
 
+      return yield* withWorktreeLane(
+        `worktree remove ${pathSvc.basename(directory)}`,
+        ctx.worktree,
+        directory,
+        Effect.gen(function* () {
       // Preserve the loaded path casing for the store cache; `directory` is lowercased on Windows.
       if (directory !== (yield* canonical(ctx.worktree))) yield* store.disposeDirectory(input.directory)
 
@@ -462,6 +490,8 @@ export const layer: Layer.Layer<
       }
 
       return true
+        }),
+      )
     })
 
     const gitExpect = Effect.fnUntraced(function* (
@@ -567,6 +597,14 @@ export const layer: Layer.Layer<
         return yield* new ResetFailedError({ message: "Default branch not found" })
       }
 
+      // The reset rewrites the whole worktree tree (reset --hard + clean -ffdx +
+      // submodules): heavy sequential I/O that the governor serializes against
+      // other heavy operations on the same medium.
+      return yield* withWorktreeLane(
+        `worktree reset ${pathSvc.basename(worktreePath)}`,
+        ctx.worktree,
+        worktreePath,
+        Effect.gen(function* () {
       const sep = base.ref.indexOf("/")
       if (base.ref !== base.name && sep > 0) {
         const remote = base.ref.slice(0, sep)
@@ -624,6 +662,8 @@ export const layer: Layer.Layer<
       )
 
       return true
+        }),
+      )
     })
 
     return Service.of({ makeWorktreeInfo, createFromInfo, create, list, remove, reset })

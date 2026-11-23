@@ -468,3 +468,38 @@ scenarios (8 auth, 4 prefs, 10 tasks, 3 composer-key, 2 global, 1 session anchor
   excluded by design); effect **252/252** across four chunk runs (73+79+139+31; TL-books→search re-covered) — every
   scenario passes. TL setup-start pins its download endpoint to a local 404 server so no model is downloaded; all seeds
   are XDG/DB-isolated per run.
+
+## 2026-11-23: storage-aware I/O governor — HDD-friendly file operations with device-class visibility
+
+Ask: the project's file operations must be gentle on spinning disks (no thrashing, low pressure), while still KNOWING what
+medium each operation touches (ssd→ssd / ssd→hdd / hdd→ssd / hdd→hdd / network) so pacing can speed up or calm down.
+
+**New subsystem `@diveeoi/db/io` (packages/db/src/io/):**
+- `storage.ts` — classification: path → st_dev → major:minor (new-style dev_t decode) → /sys/dev/block walk up to the whole
+  disk owning `queue/rotational` (partitions have no `queue/`); name heuristics (nvme/vd/mmcblk → ssd); network filesystems
+  via statfs magics (nfs/cifs/smb/9p/afs/ocfs2); device-mapper and loop devices report unknown. Everything cached per device;
+  everything degrades to "unknown" (conservative pacing) off Linux / in containers. `describeIo(src, dst)` → direction label
+  ("ssd→hdd") + the slowest end as the pacing input.
+- `pressure.ts` — live I/O pressure, 2s-cached: PSI /proc/pressure/io first (kernel's own stall percentages), then
+  diskstats io_ticks delta per device (classic %util), then loadavg; levels calm/busy/saturated.
+- `governor.ts` — lanes (copy/worktree/ingest/download/index): slow media (hdd/network/unknown) serialize ALL heavy lanes
+  through ONE slot per device key (seeky disks die from concurrency, not throughput); SSDs get per-lane limits (2, index 1)
+  scaled down by the adaptive resource profile (constrained ×0.5, critical → 1). Saturated pressure defers new heavy work
+  before queueing (bounded 5s, then proceeds — never spins). `pacedCopyFile` copies sequentially in 1 MiB chunks, sleeps
+  2/15ms between chunks under busy/saturated pressure, no per-chunk fsync. Nested same-slot calls run inline via an
+  AsyncLocalStorage held-slot guard (the ingest → OCR-pack-download re-entrancy deadlocked the first version — caught by
+  the learning OCR e2e suite, fixed + unit-tested). Real-time safety valve: a queued acquisition waiting >120s
+  (DIVEEOI_IO_LANE_FORCE_MS) logs a warning and forces through — deadlocks surface, never hang. Bun quirk found en route:
+  `AsyncLocalStorage.run` does not return promise-returning callback results — capture by assignment, and create the async
+  body INSIDE the callback so continuations inherit the held-slot context.
+- Wired: worktree create-boot/remove/reset lanes (the 155 MB+ checkouts), learning model downloadManifest + local model
+  import (download lane), book ingest (ingest lane), filesystem lazy index crawl (index lane, no defer — user-on-demand).
+  Adaptive service pushes its profile into the governor at init + every retarget. Off switch `DIVEEOI_IO_GOVERNOR=off`;
+  `ioGovernorStatus()` for diagnostics; every governed op logs `io[ssd→hdd] lane=… op=… done in …ms`.
+
+**Gates**: db io tests 38/38 (classification, dev_t decode, PSI/diskstats parsing, thresholds, lane limits, device-level
+serialization, profile scaling, deferral + bounded valve, nested re-entrancy, paced copy correctness + direction label);
+db adaptive/filesystem suites green; learning 328/328 in 9s (the OCR e2e that deadlocked the first governor version now
+passes); server worktree exercise scenarios 5/5 with lanes; smoke GREEN 5/0; db + learning typechecks exit 0 (server tsgo
+OOM = known 4 GB sandbox limitation). DB pragmas untouched (WAL + NORMAL + autocheckpoint already HDD-sane) — HDD-specific
+checkpoint tuning recorded as a §11 follow-up.

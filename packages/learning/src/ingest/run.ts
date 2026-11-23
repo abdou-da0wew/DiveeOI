@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFil
 import path from "node:path"
 import util from "node:util"
 import { Effect } from "effect"
+import { withIoLane } from "@diveeoi/db/io"
 import type { BooksDbHandle } from "../store"
 import { parse, type ParseResult } from "../parsers"
 import { chunk as chunkBook, type ChunkResult } from "../chunk"
@@ -513,6 +514,28 @@ export const resumePersistedIngestJobs = async (db: BooksDbHandle, dataDir: stri
 }
 
 const runIngest = async (input: RunInput): Promise<void> => {
+  console.log(`[dbg] wrapper entered ${input.bookId}`)
+  return _runIngest(input)
+}
+
+const _runIngest = async (input: RunInput): Promise<void> =>
+  // Book ingest reads the source, writes source copies and bulk-inserts chunks:
+  // hold the governor's ingest lane (serialized against worktrees, downloads and
+  // copies on the same medium; deferred while the system reports I/O saturation).
+  withIoLane(
+    "ingest",
+    { dst: input.dataDir, label: `book ingest ${input.title || input.bookId}` },
+    async (ticket) => {
+      console.log(`[dbg] lane acquired ${input.bookId} dir=${ticket.direction.label} slot=${ticket.slotKey}`)
+      const r = await runIngestPaced(input)
+      console.log(`[dbg] paced done ${input.bookId}`)
+      return r
+    },
+  )
+
+const scannedHint = (parsed: ParseResult) => parsed.pages.filter((p) => p.text.trim().length < SCANNED_PAGE_MIN_CHARS).length
+
+const runIngestPaced = async (input: RunInput): Promise<void> => {
   const { db, bookId, jobId, control } = input
   const diagnostic = startDiagnosticOperation("ingest", "run-job", {
     jobId,
@@ -623,7 +646,9 @@ const runIngest = async (input: RunInput): Promise<void> => {
     }
 
     await setStage("parsing", "parse", 2)
+    console.log("[dbg] parse start")
     let parsed: ParseResult = await Effect.runPromise(parse(input.bytes, input.format))
+    console.log(`[dbg] parse done pages=${parsed.pages.length} scanned=${scannedHint(parsed)}`)
     // Scanned pages (no text layer) → OCR when enabled (plan §7.6), else tell the student why.
     const ocr = (input.settings.ocr ?? {}) as Tree
     const scanned = parsed.pages.filter((p) => p.text.trim().length < SCANNED_PAGE_MIN_CHARS).map((p) => p.page)
@@ -633,6 +658,7 @@ const runIngest = async (input: RunInput): Promise<void> => {
         const languages = String(ocr.languages ?? "ara+eng")
         await setStage("parsing", "ocr", 5)
         await Effect.runPromise(ensureOcrPack(input.dataDir, parseLanguages(languages)))
+        console.log("[dbg] ocr start")
         const results = await ocrPdfPages(
           input.bytes,
           scanned,
@@ -645,6 +671,7 @@ const runIngest = async (input: RunInput): Promise<void> => {
           pages: parsed.pages.map((p) => (byPage.has(p.page) && byPage.get(p.page)!.trim() ? { ...p, text: byPage.get(p.page)! } : p)),
         }
         ocrPages = results.filter((r) => r.text.trim().length > 0).length
+        console.log(`[dbg] ocr done pages=${ocrPages}`)
       }
     }
     if (parsed.pages.every((p) => p.text.trim().length === 0)) {

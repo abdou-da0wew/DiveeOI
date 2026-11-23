@@ -1,6 +1,7 @@
 // packages/db/src/adaptive/service.ts
 import { Context, Effect, Layer, Ref } from "effect"
 import { LayerNode } from "../effect/layer-node"
+import { setIoGovernorProfile } from "../io/governor"
 import { detectSystemResources } from "./detect"
 import type { SystemResources } from "./detect"
 import { computeProfile, computeTargets, interpolateTargets, resolveProfile } from "./profiles"
@@ -23,6 +24,10 @@ export const layer = Layer.effect(AdaptiveResourceService, Effect.gen(function* 
   const targetsRef = yield* Ref.make(computeTargets(initial))
   const profileRef = yield* Ref.make(computeProfile(initial))
   const lastSystemRef = yield* Ref.make<SystemResources | null>(initial)
+
+  // The I/O governor scales its concurrency budgets with the same profile:
+  // memory-critical machines also get the most cautious I/O pacing.
+  setIoGovernorProfile(computeProfile(initial))
 
   // Check if adaptive resource management is disabled via flag
   const disabled = Flag.OPENCODE_DISABLE_ADAPTIVE_RESOURCE
@@ -49,6 +54,7 @@ export const layer = Layer.effect(AdaptiveResourceService, Effect.gen(function* 
         yield* Ref.set(lastSystemRef, sys)
         yield* Ref.set(profileRef, freshProfile)
         yield* Ref.set(targetsRef, target)
+        setIoGovernorProfile(freshProfile)
         yield* notify(target)
         yield* Effect.logInfo("Adaptive targets updated", { profile: freshProfile, rssTargetMB: target.rssTargetMB, heapTargetMB: target.heapTargetMB, gcIntervalMs: target.gcIntervalMs })
       }

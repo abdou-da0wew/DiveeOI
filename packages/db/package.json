@@ -17,6 +17,7 @@
     "./session/runner": "./src/session/runner/index.ts",
     "./system-context": "./src/system-context/index.ts",
     "./adaptive": "./src/adaptive/index.ts",
+    "./io": "./src/io/index.ts",
     "./*": "./src/*.ts"
   },
   "imports": {

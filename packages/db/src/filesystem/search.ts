@@ -2,6 +2,7 @@ export * as FileSystemSearch from "./search"
 
 import path from "path"
 import { Context, Effect, Fiber, Layer, Scope } from "effect"
+import { acquireIoLane, releaseIoLane } from "@diveeoi/db/io"
 import { Fff } from "./fff.bun"
 import fuzzysort from "fuzzysort"
 import { FileSystem } from "../filesystem"
@@ -47,37 +48,49 @@ export const ripgrepLayer = Layer.effect(
     const startIndex = Effect.suspend(() => {
       if (indexStarted) return Effect.void
       indexStarted = true
-      return ripgrep
-        .find({
-          cwd: location.directory,
-          pattern: "*",
-          limit: maxIndexedFiles,
-          onEntry: (entry) =>
-            Effect.sync(() => {
-              const relative = entry.path.replaceAll("\\", "/")
-              state.files.push(relative)
-              state.all.push(relative)
+      // The crawl reads the whole workspace tree through ripgrep: on a spinning
+      // disk it must not run while the governor is already serving a copy,
+      // checkout or ingest on the same medium (and vice versa). It is
+      // on-demand, so saturation deferral stays off to keep first-query latency.
+      return Effect.acquireUseRelease(
+        Effect.promise(() =>
+          acquireIoLane("index", { src: location.directory, label: "workspace index crawl", deferOnSaturated: false }),
+        ),
+        () =>
+          ripgrep
+            .find({
+              cwd: location.directory,
+              pattern: "*",
+              limit: maxIndexedFiles,
+              onEntry: (entry) =>
+                Effect.sync(() => {
+                  const relative = entry.path.replaceAll("\\", "/")
+                  state.files.push(relative)
+                  state.all.push(relative)
 
-              let end = relative.indexOf("/")
-              while (end !== -1) {
-                const directory = relative.slice(0, end + 1)
-                if (!directories.has(directory)) {
-                  directories.add(directory)
-                  state.directories.push(directory)
-                  state.all.push(directory)
-                }
-                end = relative.indexOf("/", end + 1)
-              }
-            }),
-        })
-        .pipe(
-          // Fork keeps the crawl attached to the layer scope (cancelled on
-          // teardown); joining it keeps the first find() caller correct.
-          Effect.orDie,
-          Effect.asVoid,
-          Effect.forkIn(scope),
-          Effect.flatMap((fiber) => Effect.asVoid(Fiber.join(fiber))),
-        )
+                  let end = relative.indexOf("/")
+                  while (end !== -1) {
+                    const directory = relative.slice(0, end + 1)
+                    if (!directories.has(directory)) {
+                      directories.add(directory)
+                      state.directories.push(directory)
+                      state.all.push(directory)
+                    }
+                    end = relative.indexOf("/", end + 1)
+                  }
+                }),
+            })
+            .pipe(
+              Effect.orDie,
+              Effect.asVoid,
+            ),
+        (ticket) => Effect.sync(() => releaseIoLane(ticket)),
+      ).pipe(
+        // Fork keeps the crawl attached to the layer scope (cancelled on
+        // teardown); joining it keeps the first find() caller correct.
+        Effect.forkIn(scope),
+        Effect.flatMap((fiber) => Effect.asVoid(Fiber.join(fiber))),
+      )
     })
     return Service.of({
       glob: (input) =>

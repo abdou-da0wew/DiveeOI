@@ -34,6 +34,7 @@ import {
 } from "node:fs"
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { Effect, Schema, Duration } from "effect"
+import { acquireIoLane, releaseIoLane } from "@diveeoi/db/io"
 import type { Manifest, ManifestFile } from "../manifest/types"
 import { diagnosticsEnabled, logDiagnostic, withDiagnosticEffect, type DiagnosticOperation } from "../diagnostics"
 
@@ -426,7 +427,19 @@ export const downloadManifest = (
     const dtype = options.dtype ?? "int8"
     const files = manifest.files.filter((f) => f.required || f.dtype === dtype)
     for (const file of files) {
-      yield* downloadFile(file, options.destDir, manifest, options)
+      // Model downloads write hundreds of MB: hold the I/O governor's download lane
+      // so a model fetch on a spinning disk never seeks against worktree checkouts,
+      // book ingests or other heavy file work on the same medium.
+      yield* Effect.acquireUseRelease(
+        Effect.promise(() =>
+          acquireIoLane("download", {
+            dst: join(options.destDir, file.path),
+            label: `model download ${file.path}`,
+          }),
+        ),
+        () => downloadFile(file, options.destDir, manifest, options),
+        (ticket) => Effect.sync(() => releaseIoLane(ticket)),
+      )
     }
   })
 
@@ -535,7 +548,17 @@ export const importFromLocalFolder = (
       }
 
       yield* Effect.tryPromise({
-        try: () => fsp.copyFile(src, dest),
+        try: () =>
+          // Kernel copy semantics are kept (copy_file_range/reflink when possible);
+          // the governor lane serializes bulk model imports against other heavy I/O
+          // on the same medium and logs the direction it ran as.
+          acquireIoLane("download", { src, dst: dest, label: `model import ${file.path}` }).then(async (ticket) => {
+            try {
+              await fsp.copyFile(src, dest)
+            } finally {
+              releaseIoLane(ticket)
+            }
+          }),
         catch: (err) =>
           new LocalImportError({
             file: file.path,
