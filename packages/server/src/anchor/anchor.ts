@@ -422,8 +422,8 @@ export const layer = Layer.effect(
       const tokenEstimate = Token.estimate(JSON.stringify(input.tree))
       yield* db
         .run(sql`
-        INSERT INTO session_anchor (id, session_id, epoch, root_ref, tree_json, token_estimate, degraded, time_created)
-        VALUES (${id}, ${input.sessionID}, ${input.epoch}, ${input.rootRef}, ${JSON.stringify(input.tree)}, ${tokenEstimate}, ${degraded ? 1 : 0}, ${now})
+        INSERT INTO session_anchor (id, session_id, epoch, root_ref, tree_json, token_estimate, degraded, time_created, time_updated)
+        VALUES (${id}, ${input.sessionID}, ${input.epoch}, ${input.rootRef}, ${JSON.stringify(input.tree)}, ${tokenEstimate}, ${degraded ? 1 : 0}, ${now}, ${now})
       `)
         .pipe(Effect.orDie)
 
