@@ -31,6 +31,7 @@ import type { WorkspaceAdapter } from "@/control-plane/types"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { InstallationChannel } from "@diveeoi/db/installation/version"
+import { PluginV2 } from "@diveeoi/db/plugin"
 
 type State = {
   hooks: Hooks[]
@@ -132,8 +133,18 @@ export const layer = Layer.effect(
         const hooks: Hooks[] = []
         const bridge = yield* EffectBridge.make()
 
-        function publishPluginError(message: string) {
+        // Publish on BOTH surfaces: the session error channel keeps the
+        // existing UI behavior, and the dedicated plugin.failed lifecycle event
+        // lets consumers subscribe to plugin failures structurally.
+        function publishPluginError(message: string, options?: { plugin?: string; stage?: "install" | "compatibility" | "entry" | "register" }) {
           bridge.fork(events.publish(Session.Event.Error, { error: new NamedError.Unknown({ message }).toObject() }))
+          bridge.fork(
+            events.publish(PluginV2.Event.Failed, {
+              plugin: options?.plugin ?? "unknown",
+              ...(options?.stage ? { stage: options.stage } : {}),
+              message,
+            }),
+          )
         }
 
         const { Server } = yield* Effect.promise(() => import("../server/server"))
@@ -193,21 +204,21 @@ export const layer = Layer.effect(
 
                 if (stage === "install") {
                   const parsed = parsePluginSpecifier(spec)
-                  publishPluginError(`Failed to install plugin ${parsed.pkg}@${parsed.version}: ${message}`)
+                  publishPluginError(`Failed to install plugin ${parsed.pkg}@${parsed.version}: ${message}`, { plugin: spec, stage })
                   return
                 }
 
                 if (stage === "compatibility") {
-                  publishPluginError(`Plugin ${spec} skipped: ${message}`)
+                  publishPluginError(`Plugin ${spec} skipped: ${message}`, { plugin: spec, stage })
                   return
                 }
 
                 if (stage === "entry") {
-                  publishPluginError(`Failed to load plugin ${spec}: ${message}`)
+                  publishPluginError(`Failed to load plugin ${spec}: ${message}`, { plugin: spec, stage })
                   return
                 }
 
-                publishPluginError(`Failed to load plugin ${spec}: ${message}`)
+                publishPluginError(`Failed to load plugin ${spec}: ${message}`, { plugin: spec, stage })
               },
             },
           }),
@@ -227,11 +238,8 @@ export const layer = Layer.effect(
             Effect.tapError((error) => Effect.logError("failed to load plugin", { path: load.spec, error })),
             Effect.catch((message) => {
               // Surface plugin registration failures on the plugin event
-              // channel — the same surface loader-stage failures use via
-              // publishPluginError. (A dedicated plugin.failed lifecycle event
-              // on the global bus remains a follow-up; this closes the
-              // silent-swallow TODO without inventing a new event type.)
-              publishPluginError(`Failed to load plugin ${load.spec}: ${message}`)
+              // channel AND the dedicated plugin.failed lifecycle event.
+              publishPluginError(`Failed to load plugin ${load.spec}: ${message}`, { plugin: load.spec, stage: "register" })
               return Effect.void
             }),
           )

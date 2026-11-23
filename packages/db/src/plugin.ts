@@ -18,6 +18,20 @@ export const Event = {
       id: ID,
     },
   }),
+  /**
+   * Dedicated plugin-failure lifecycle event (2026-11-23): every plugin init
+   * failure (loader install/compatibility/entry stages and hook registration)
+   * publishes here IN ADDITION to the session error channel, so consumers can
+   * subscribe to plugin lifecycle failures without parsing error strings.
+   */
+  Failed: EventV2.define({
+    type: "plugin.failed",
+    schema: {
+      plugin: Schema.String,
+      stage: Schema.optional(Schema.Literals(["install", "compatibility", "entry", "register"])),
+      message: Schema.String,
+    },
+  }),
 }
 
 type HookSpec = {
