@@ -13,7 +13,7 @@ import { MemoryConfig } from "./config"
 const WIKILINK_REGEX = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g
 
 // Valid node ID format: mem_<timestamp>_<random>
-const NODE_ID_REGEX = /^mem_[a-z0-9_]+$/
+export const NODE_ID_REGEX = /^mem_[a-z0-9_]+$/
 
 export interface ParsedNode {
   frontmatter: Record<string, unknown>

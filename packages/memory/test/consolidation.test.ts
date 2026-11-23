@@ -1,5 +1,7 @@
 import { describe, it, expect } from "bun:test"
 import { Effect, Exit, Layer, Option } from "effect"
+import { chmod, mkdir, stat, unlink, utimes, writeFile, rm } from "node:fs/promises"
+import path from "node:path"
 import { MemoryLayer } from "../src/index"
 import { MemoryService } from "../src/memory"
 import { ConsolidationService, ConsolidationLive, normalizeText } from "../src/consolidation"
@@ -529,5 +531,145 @@ describe("Consolidation Service — transactional mergeNodes + normalized duplic
     // The diacritics-bearing duplicate is the same text once folded: deduped
     expect(merged.content).toBe(plain)
     expect(merged.content).not.toContain("\n\n---\n\n")
+  })
+  it("Phase C filesystem failure runs the orphan-file cleanup hook and reports an enriched error", async () => {
+    const sessionId = `ses_consol_phc_${crypto.randomUUID()}`
+    const run = crypto.randomUUID().slice(0, 8)
+    const tag = `ph-c-${run}`
+
+    // Fixture: a near-duplicate pair (identical title + tags => similarity 1.0).
+    const setup = await runTest(
+      Effect.gen(function* () {
+        const memory = yield* MemoryService
+        const config = yield* MemoryConfig
+        const primary = yield* memory.createNode(CreateNodeInput.make({
+          type: "fact",
+          title: `Phase C failure check ${run}`,
+          content: "Primary content for the post-commit filesystem failure reconciliation test.",
+          tags: [tag],
+          sessionId: sessionId as any,
+        }))
+        const dup = yield* memory.createNode(CreateNodeInput.make({
+          type: "fact",
+          title: `Phase C failure check ${run}`,
+          content: "Duplicate content for the post-commit filesystem failure reconciliation test.",
+          tags: [tag],
+          sessionId: sessionId as any,
+        }))
+        return { primary, dup, memoryDir: config.memoryDir as string }
+      }),
+    )
+
+    const nodesDir = path.join(setup.memoryDir, "nodes")
+    // Make the nodes directory unwritable: the Phase C primary rewrite (writeFile)
+    // fails AFTER the merge transaction has committed, exercising the hook.
+    await chmod(nodesDir, 0o500)
+
+    let failure: unknown = null
+    try {
+      await runTest(
+        Effect.gen(function* () {
+          const memory = yield* MemoryService
+          const consolidation = yield* ConsolidationService
+          return yield* consolidation.mergeNodes(setup.primary.id, [setup.dup.id])
+        }),
+      )
+    } catch (err) {
+      failure = err
+    } finally {
+      await chmod(nodesDir, 0o755).catch(() => undefined)
+    }
+
+    // The merge must fail (not silently "succeed" with a stale mirror)…
+    expect(failure).toBeInstanceOf(Error)
+    const message = String((failure as { cause?: unknown }).cause ?? (failure as Error).message)
+    expect(message).toContain("filesystem sync failed after the merge transaction committed")
+    expect(message).toContain("orphan cleanup removed")
+
+    // …and the committed index stays consistent while the mirror is stale:
+    const after = await runTest(
+      Effect.gen(function* () {
+        const memory = yield* MemoryService
+        const indexer = yield* IndexerService
+        return {
+          primary: yield* memory.getNode(setup.primary.id),
+          dupRow: yield* indexer.getNode(setup.dup.id),
+        }
+      }),
+    )
+    expect(Option.isSome(after.primary)).toBe(true)
+    expect(after.primary.value.content).toContain("Primary content for the post-commit")
+    expect(after.primary.value.content).toContain("Duplicate content for the post-commit")
+    expect(Option.isNone(after.dupRow)).toBe(true)
+
+    // The stale duplicate .md file is still on disk (the directory was
+    // unwritable). After restoring permissions, the cleanup hook removes it.
+    // (Its mtime is back-dated first: a REAL stale duplicate is an old file,
+    // and the hook's age guard must skip files young enough to belong to a
+    // node whose row write is still in flight.)
+    const dupFile = path.join(nodesDir, `${setup.dup.id}.md`)
+    expect(await Bun.file(dupFile).exists()).toBe(true)
+    const aged = new Date(Date.now() - 120_000)
+    await utimes(dupFile, aged, aged)
+    const removed = await runTest(Effect.gen(function* () {
+      const indexer = yield* IndexerService
+      return yield* indexer.cleanupOrphanFiles()
+    }))
+    expect(removed).toBeGreaterThanOrEqual(1)
+    expect(await Bun.file(dupFile).exists()).toBe(false)
+
+    // Cleanup: remove the fixture nodes entirely so later runs start clean.
+    await rm(path.join(nodesDir, `${setup.primary.id}.md`), { force: true })
+  })
+
+  it("cleanupOrphanFiles removes only rowless, aged, well-named files", async () => {
+    const run = crypto.randomUUID().slice(0, 8)
+    const result = await runTest(
+      Effect.gen(function* () {
+        const memory = yield* MemoryService
+        const indexer = yield* IndexerService
+        const config = yield* MemoryConfig
+        const nodesDir = path.join(config.memoryDir as string, "nodes")
+        yield* Effect.tryPromise(() => mkdir(nodesDir, { recursive: true }))
+
+        // A real node (has a row): its file must survive.
+        const kept = yield* memory.createNode(CreateNodeInput.make({
+          type: "fact",
+          title: `Cleanup keeper ${run}`,
+          content: "This node has an index row, so its file must survive the sweep.",
+          tags: [`cleanup-keep-${run}`],
+          sessionId: `ses_cleanup_${crypto.randomUUID()}` as any,
+        }))
+
+        const orphanOld = path.join(nodesDir, `mem_cleanup_old_${run}.md`)
+        const orphanFresh = path.join(nodesDir, `mem_cleanup_fresh_${run}.md`)
+        const notANode = path.join(nodesDir, `README-${run}.md`)
+        yield* Effect.tryPromise(() => writeFile(orphanOld, "orphaned marker file, no row"))
+        yield* Effect.tryPromise(() => writeFile(orphanFresh, "fresh orphan — inside the age guard"))
+        yield* Effect.tryPromise(() => writeFile(notANode, "not a node file at all"))
+        const old = new Date(Date.now() - 120_000)
+        yield* Effect.tryPromise(() => utimes(orphanOld, old, old))
+
+        const removed = yield* indexer.cleanupOrphanFiles()
+        return { removed, keptId: kept.id, orphanOld, orphanFresh, notANode }
+      }),
+    )
+
+    expect(result.removed).toBeGreaterThanOrEqual(1)
+    expect(await Bun.file(result.orphanOld).exists()).toBe(false)
+    // Age guard: a fresh file may belong to a node whose row write is in flight.
+    expect(await Bun.file(result.orphanFresh).exists()).toBe(true)
+    // Unknown files are never data of ours.
+    expect(await Bun.file(result.notANode).exists()).toBe(true)
+    // Row-backed node file survives.
+    const keptFile = await runTest(Effect.gen(function* () {
+      const config = yield* MemoryConfig
+      return path.join(config.memoryDir as string, "nodes", `${result.keptId}.md`)
+    }))
+    expect(await Bun.file(keptFile).exists()).toBe(true)
+
+    // Cleanup of the fresh guard fixture (not rowless data of ours anymore).
+    await unlink(result.orphanFresh).catch(() => undefined)
+    await unlink(result.notANode).catch(() => undefined)
   })
 })

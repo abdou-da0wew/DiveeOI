@@ -79,9 +79,11 @@ const session = LayerNode.make(SessionLive, [memory, memoryConfig])
 const recall = LayerNode.make(RecallLive, [graph, memoryConfig])
 const consolidation = LayerNode.make(ConsolidationLive, [memory, indexer])
 
-// Main memory layer with all dependencies
+// Main memory layer with all dependencies. `indexer` is listed explicitly so the
+// composed layer also PROVIDES IndexerService (tests and the Phase C orphan-file
+// cleanup hook reach for it directly).
 export const MemoryLayer = LayerNode.buildLayer(
-  LayerNode.group([memory, session, recall, consolidation, extractor, graph, memoryConfig])
+  LayerNode.group([memory, session, recall, consolidation, extractor, graph, indexer, memoryConfig])
 )
 
 // Convenience layer for just the core services (Node, Indexer, Graph)

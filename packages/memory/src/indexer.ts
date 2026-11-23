@@ -4,6 +4,7 @@ import { Database } from "@diveeoi/db/database/database"
 import type { MemoryNode, MemoryLink, MemoryNodeID, LinkType, MemoryType, ProjectInfo, ProjectID } from "./schema"
 import { MemoryError } from "./schema"
 import { MemoryConfig } from "./config"
+import { NODE_ID_REGEX } from "./node"
 
 // SQLite schema for memory index
 export const MemoryIndexSchema = {
@@ -122,6 +123,18 @@ export interface IndexerService {
   readonly getOrphanedNodes: () => Effect.Effect<MemoryNode[], MemoryError>
   readonly verifyFileExists: (nodeId: MemoryNodeID) => Effect.Effect<boolean, MemoryError>
   readonly markOrphaned: (nodeId: MemoryNodeID) => Effect.Effect<void, MemoryError>
+  /**
+   * Remove markdown files that no longer have an index row (Phase C orphan cleanup).
+   *
+   * Scans the configured memory dir plus every registered project's `memory_dir`
+   * for `nodes/*.md` files whose basename is a valid node id with NO row in
+   * `memory_nodes` — exactly the state a post-commit filesystem failure leaves
+   * behind (e.g. a consolidation merge whose duplicate-file deletes failed).
+   * Files that do not match the node-id pattern and files modified within the
+   * last 60 seconds (possibly a concurrently-created node whose row write is
+   * still in flight) are left untouched. Returns the number of files removed.
+   */
+  readonly cleanupOrphanFiles: () => Effect.Effect<number, MemoryError>
 }
 
 export const IndexerService = Context.Service<IndexerService, IndexerService>()("@diveeoi/memory/IndexerService")
@@ -526,6 +539,58 @@ const getLinkedNodes = (nodeId: MemoryNodeID, depth: number): Effect.Effect<Memo
   const markOrphaned = (nodeId: MemoryNodeID): Effect.Effect<void, MemoryError> =>
     mapDbError(db.run(sql`UPDATE memory_nodes SET file_exists = 0 WHERE id = ${nodeId}`))
 
+  // Post-commit filesystem reconciliation (Phase C cleanup hook). A committed
+  // transaction whose file writes failed leaves .md files with no index row;
+  // this sweep removes exactly those (never touching unknown files or files
+  // young enough to belong to a node whose row write is still in flight).
+  const ORPHAN_FILE_MIN_AGE_MS = 60_000
+  const cleanupOrphanFiles = (): Effect.Effect<number, MemoryError> =>
+    Effect.gen(function* () {
+      const fs = yield* Effect.promise(() => import("node:fs/promises"))
+      const path = yield* Effect.promise(() => import("node:path"))
+      const projectRows = yield* mapDbError(
+        db.all<{ memory_dir: string | null }>(sql`SELECT memory_dir FROM memory_projects WHERE is_active = 1`),
+      )
+      const dirs = new Set<string>([config.memoryDir])
+      for (const row of projectRows) if (row.memory_dir) dirs.add(row.memory_dir)
+
+      let removed = 0
+      for (const dir of dirs) {
+        const nodesDir = path.join(dir, "nodes")
+        const files: string[] = yield* Effect.tryPromise({
+          try: () => fs.readdir(nodesDir),
+          catch: (cause) => new MemoryError({ cause }),
+        }).pipe(Effect.orElseSucceed(() => [] as string[]))
+        for (const file of files) {
+          if (!file.endsWith(".md")) continue
+          const id = file.slice(0, -3)
+          // Unknown files are never data of ours — leave them alone.
+          if (!NODE_ID_REGEX.test(id)) continue
+          const row = yield* mapDbError(db.get<{ id: string }>(sql`SELECT id FROM memory_nodes WHERE id = ${id}`))
+          if (row) continue
+          // Fresh file: could be a concurrent create whose row write has not
+          // landed yet — skip instead of racing the writer.
+          const stat = yield* Effect.tryPromise({
+            try: () => fs.stat(path.join(nodesDir, file)),
+            catch: (cause) => new MemoryError({ cause }),
+          }).pipe(Effect.orElseSucceed(() => null))
+          if (stat && Date.now() - stat.mtimeMs < ORPHAN_FILE_MIN_AGE_MS) continue
+          const deleted = yield* Effect.tryPromise({
+            try: () => fs.unlink(path.join(nodesDir, file)).then(() => 1),
+            catch: (cause) => new MemoryError({ cause }),
+          }).pipe(
+            Effect.tapError((error) => Effect.logWarning("memory indexer: orphan file could not be removed", { file: path.join(nodesDir, file), error })),
+            Effect.orElseSucceed(() => 0),
+          )
+          removed += deleted
+        }
+      }
+      if (removed > 0) {
+        yield* Effect.logWarning("memory indexer: removed orphan markdown files with no index row", { removed })
+      }
+      return removed
+    })
+
   const getOrphanedNodes = (): Effect.Effect<MemoryNode[], MemoryError> =>
     Effect.gen(function* () {
       const rows = yield* mapDbError(db.all(sql`SELECT * FROM memory_nodes WHERE file_exists = 0 ORDER BY updated DESC`))
@@ -568,6 +633,7 @@ const getLinkedNodes = (nodeId: MemoryNodeID, depth: number): Effect.Effect<Memo
     getOrphanedNodes: () => afterReady(getOrphanedNodes()),
     verifyFileExists: (nodeId) => afterReady(verifyFileExists(nodeId)),
     markOrphaned: (nodeId) => afterReady(markOrphaned(nodeId)),
+    cleanupOrphanFiles: () => afterReady(cleanupOrphanFiles()),
   }
 })
 

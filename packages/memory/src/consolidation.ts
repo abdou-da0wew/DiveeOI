@@ -389,14 +389,37 @@ const makeConsolidationService = Effect.gen(function* () {
       // destructive duplicate deletes last). The public memory.* paths keep the
       // old behavior (they re-run the idempotent index updates on top of the
       // committed transaction state).
-      yield* memory.updateNode(primaryId, {
-        content: mergedContent,
-        tags: mergedTags,
-        confidence: maxConfidence
-      })
-      for (const dup of existingDuplicates) {
-        yield* memory.deleteNode(dup.id)
-      }
+      //
+      // Post-commit filesystem failures cannot roll the transaction back, so the
+      // failure is reconciled instead of leaving silent stale duplicates: the
+      // orphan-file cleanup hook sweeps .md files that lost their index row, the
+      // primary is flagged via verifyFileExists when its rewrite failed, and the
+      // enriched error still surfaces to the caller.
+      yield* Effect.gen(function* () {
+        yield* memory.updateNode(primaryId, {
+          content: mergedContent,
+          tags: mergedTags,
+          confidence: maxConfidence
+        })
+        for (const dup of existingDuplicates) {
+          yield* memory.deleteNode(dup.id)
+        }
+      }).pipe(
+        Effect.catch((fsError: MemoryError | NodeNotFoundError) =>
+          Effect.gen(function* () {
+            yield* Effect.logWarning("memory merge: filesystem sync failed after commit — running orphan-file cleanup", {
+              primaryId,
+              duplicates: existingDuplicates.map(d => d.id),
+              error: String(fsError).slice(0, 300),
+            })
+            const removed = yield* indexer.cleanupOrphanFiles().pipe(Effect.orElseSucceed(() => 0))
+            yield* indexer.verifyFileExists(primaryId).pipe(Effect.orElseSucceed(() => false))
+            return yield* Effect.fail(new MemoryError({
+              cause: `filesystem sync failed after the merge transaction committed (index is consistent; orphan cleanup removed ${removed} stale file(s); the affected files were flagged for re-sync): ${String(fsError).slice(0, 200)}`,
+            }))
+          }),
+        ),
+      )
 
       return { node: updated, redirectLinks }
     })
