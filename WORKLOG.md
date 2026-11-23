@@ -433,3 +433,38 @@ Sandbox was recycled between sessions; repo re-cloned from origin/dev at cb93415
 **Server / core (§6):** tool.ts dead type removed; agent provider bleed → `Provider.requestCapabilities`; transform.ts surrogate fast-path; **`Env.set`/`Env.remove` were silent no-ops (unyielded `Effect.sync`) — fixed + runtime contract documented; provider Bedrock/sap-ai-core now publish keys through Env**; plugin init failures routed through `publishPluginError`; formatter `backend` alias (ruff/uv disable as a unit, config-key↔registry-key mismatch handled); workspace sync fiber now fails via `tapError` (FiberMap drops + restart allowed); api `pty.connect` gained the graceful-shutdown tracker (`pty-ws-tracker.ts` + routes.ts layer); **watchdog interrupt-and-restart finished** (per-session supervisor in the instance scope, cancel + diagnosis-injected restart, cap 3 → pause + degraded event; live test drives a hanging LLM through the full path); copilot Chunk typing made concrete (`ZodType<OpenAICompatibleErrorData>`); RECORD drift fixed (`isRecordMode()` + READMEs); opencode facade gained `layerWithDatabase` storage injection.
 - Decisions recorded in TODO.md §6: pricing stopgap stays (models.dev lacks reasoning rates); default-first-org until a choose-org UI exists; v1 stays canonical for session messages (v2 = flag-gated mirror; deleting the v2 half is the eventual pure deletion); hash-match migration fallback stays fail-loud BY DESIGN; gitlab-duo suite stays commented until rewritten against current APIs.
 - Gates: db 1082-test file set + executeStream/migration suites green (db typecheck exit 0); memory 10/0; server prompt.test 56 (1 skip), instance/registry/retry 52/0, format+control-plane+plugin 189/0, smoke 5/0 GREEN; api/db/memory/learning/effect-* typechecks exit 0 (server tsgo still OOMs in this 4 GB sandbox — §11).
+
+## 2026-11-23: TODO §1 — 58 missing HTTP API exercise scenarios written (route coverage complete)
+
+Sandbox recycled again; repo re-cloned at 5a14e92 and `bun install` re-run. Coverage mode listed exactly 58 routes without
+scenarios (8 auth, 4 prefs, 10 tasks, 3 composer-key, 2 global, 1 session anchor, 26 targeted-learning, 4 console).
+
+- **Scenarios (all 58)**: `/api/auth/*` exercise the real register→login→refresh→Bearer flow against the isolated DB (first
+  registration claims the admin role); `/api/prefs/*` set/list/delete/deleteScope (delete asserts the shipped 200-empty
+  body and documents the declared-204 drift); `/api/v1/tasks/*` seed tasks through the real create route (create paused,
+  get/update/cancel/pause/resume/run/generate/events); `/config/composer-key` ordered status→set→remove against the
+  XDG-isolated secret store; `/global/features` full shape; `/session/{id}/anchor` empty-until-compaction contract;
+  `/targeted-learning/*` setup (status/cancel/repair/import-local 400/start), settings (get/update/schema/presets),
+  system (health/debug/probe), books (list/upload/import/delete), jobs (list + pause/resume/cancel/retry on unknown ids),
+  search inspector, memory (list + student pin/delete via the real memory service + note delete via a seeded book row);
+  `/experimental/console/{login,poll,cancel,logout}` run the RFC-8628 device flow against a local fake console (login
+  asserts attemptID/userCode/verificationURL/cadence; poll reports pending; logout tolerates unknown accounts).
+- **Harness**: `ctx.request` seed helper (seeds drive real routes through the same in-process app), `protectedJwt` policy
+  (`/api/auth/*` bypasses Basic auth, so me/refresh/profile only probe the 401 leg), `onlyIn(...)` mode scoping.
+- **Two real hazards fixed in the harness**: (1) the exercise ran from inside the developer's checkout — auth-mode probes
+  carry no directory header, so fallback instance resolution hit THE REPO and worktree/workspace routes allocated full
+  repo worktrees (155 MB each, two per auth run) — the exercise now `chdir`s into its XDG-isolated root and the three
+  worktree routes decode-fail their probes; (2) `POST /global/restart` has NO payload schema, so the scenario's
+  decode-fail trick was silently ignored, the handler re-execed the exerciser itself (`childArgs()` replays argv) and
+  scheduled a real `process.exit` — fork-bombing earlier runs (that cascade also wiped `node_modules/.bun` twice via
+  install-interrupt rollbacks). The scenario is now `onlyIn(coverage, effect)` and stubs `process.exit` while pointing
+  the re-exec at a no-op script (restore via a properly-typed `Effect.addFinalizer(() => ...)` — the first version passed
+  an Effect instead of a function, which defected scope close and hung the runner).
+- **Bonus production bug found by the new coverage**: `Anchor.create` INSERT omitted the NOT NULL `time_updated` column —
+  `POST /session/{sessionID}/summarize` (compaction) returned 500 on every call with the anchor feature enabled. Fixed in
+  `packages/server/src/anchor/anchor.ts` (both timestamps written); `test/anchor` 34/34 and compaction+prompt suites
+  re-verified.
+- **Gates**: coverage **252/252, missing=0, extra=0** with `--fail-on-missing --fail-on-skip`; auth **251/251** (restart
+  excluded by design); effect **252/252** across four chunk runs (73+79+139+31; TL-books→search re-covered) — every
+  scenario passes. TL setup-start pins its download endpoint to a local 404 server so no model is downloaded; all seeds
+  are XDG/DB-isolated per run.

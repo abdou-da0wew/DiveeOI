@@ -73,8 +73,23 @@ say this explicitly — do not inherit the Nov 3 test counts by implication.
       exit 0, zero `Service not found` in a full effect-mode run). The **58 missing route scenarios are FORMALLY ACCEPTED**
       as documented coverage debt: auth mode re-verified 194/194 passing with the layer changes; coverage mode stays
       `--fail-on-missing` as the enforcement point once scenarios are written (tracked below).
-- [ ] **Write the 58 missing HTTP API route scenarios** — accepted debt from the decision above; registry lives in
-      `packages/server/test/server/httpapi-exercise/`.
+- [x] **DONE 2026-11-23** **Write the 58 missing HTTP API route scenarios** — registry `packages/server/test/server/httpapi-exercise/`.
+      All 58 routes now have scenarios: `/api/auth/*` (8: register/login/refresh/logout/me/verify-email/resend-verification/
+      profile, exercising the real JWT register→login→Bearer flow; `/api/auth/*` bypasses Basic auth so me/refresh/profile use
+      the new `protectedJwt` policy — 401 leg only), `/api/prefs/*` (4), `/api/v1/tasks/*` (10, tasks seeded through the real
+      create route), `/config/composer-key` (3, ordered status→set→remove against the XDG-isolated secret store),
+      `/global/features` + `/global/restart` (restart is `onlyIn(coverage,effect)`: the endpoint has NO payload schema, so any
+      authenticated call re-execs the process — the scenario stubs `process.exit` and redirects the re-exec to a no-op script),
+      `/session/{id}/anchor` (1), `/targeted-learning/*` (26: setup/settings/system/books/jobs/search/memory; setup-start pins
+      the download endpoint to a local 404 server so no model is downloaded), `/experimental/console/{login,poll,cancel,logout}`
+      (4, device flow against a local fake console). Harness additions: `ctx.request` seed helper, `protectedJwt` +
+      `onlyIn(...)` builder modes, and the exercise now `chdir`s into its XDG-isolated root (auth-mode probes carry no
+      directory header; without this they resolved the instance to the developer's checkout and allocated repo-scale
+      worktrees). **Bonus bug fix found by the new coverage**: `Anchor.create` INSERT omitted the NOT NULL `time_updated`
+      column — `POST /session/{id}/summarize` (compaction) 500'd on every call; fixed in `packages/server/src/anchor/anchor.ts`.
+      Gates: coverage **252/252, missing=0 extra=0** (`--fail-on-missing --fail-on-skip`); auth **251/251**; effect **252/252**
+      across four chunk runs (73+79+139+31, TL-books→search re-covered) — every scenario passes; server `test/anchor` 34/34
+      and `compaction+prompt` 107 pass/2 skip re-verified after the anchor fix.
 - [ ] **Run the FTS anchor-content migration against the live production DB** — still pending per
       `RELEASE_HANDOFF_2026-11-03.md` §2.5. → Verified 2026-11-23: migration `20261103001500_bootstrap_anchor_content_fts`
       is registered in `packages/db/src/database/migration.gen.ts:54` and rehearsed on a disposable DB copy (per doc);
