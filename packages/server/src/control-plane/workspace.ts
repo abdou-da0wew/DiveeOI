@@ -484,10 +484,12 @@ export const layer = Layer.effect(
       yield* FiberMap.run(
         syncFibers,
         space.id,
-        // TODO: look into `tapError` to set the status but still
-        // allow the fiber to fail and automatically get removed
+        // tapError records the failure (status + log) but re-fails, so the
+        // fiber exits as a failure and FiberMap drops it — a later startSync
+        // sees no live fiber and restarts the listener (the restart guard at
+        // the `status !== "error"` check above stays authoritative).
         syncWorkspaceLoop(space).pipe(
-          Effect.catch((error) =>
+          Effect.tapError((error) =>
             Effect.gen(function* () {
               setStatus(space.id, "error")
               yield* Effect.logWarning("workspace listener failed", {

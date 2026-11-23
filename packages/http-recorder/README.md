@@ -1,6 +1,6 @@
 # @diveeoi/http-recorder
 
-Effect `HttpClient` cassette recorder used by tests. Replay is the default; recording is `RECORD=1` with an allowlisted provider key set. Produces deterministic `pretty-printed JSON` cassettes with ordered `{request,response}` interactions (one file handles tool-loop multi-round flows).
+Effect `HttpClient` cassette recorder used by tests. Replay is the default; recording is `RECORD=true` (or `RECORD=1`, the historic spelling both accept) with an allowlisted provider key set. Produces deterministic `pretty-printed JSON` cassettes with ordered `{request,response}` interactions (one file handles tool-loop multi-round flows).
 
 ## What it does
 
@@ -25,7 +25,7 @@ await Effect.runPromise(MyOp.pipe(Effect.provide(layer)))
 Cassettes carry `CassetteMetadata { provider, protocol, tags, recordedAt }` for search. Matching can be filtered without deleting cassettes:
 
 ```bash
-RECORD=1 bun test                          # record all that would otherwise replay
+RECORD=true bun test                          # record all that would otherwise replay
 RECORDED_PROVIDER=openai                   # only provider:openai cases
 RECORDED_PREFIX=openai-chat                # only cassette group with that prefix
 RECORDED_TAGS=tool                         # requires all listed tags

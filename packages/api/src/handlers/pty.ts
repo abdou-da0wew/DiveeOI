@@ -12,6 +12,7 @@ import { ForbiddenError, PtyNotFoundError } from "../errors"
 import { PTY_CONNECT_TICKET_QUERY, PTY_CONNECT_TOKEN_HEADER, PTY_CONNECT_TOKEN_HEADER_VALUE } from "../groups/pty"
 import { response } from "../groups/location"
 import { PtyEnvironment } from "../pty-environment"
+import * as ApiWebSocketTracker from "./pty-ws-tracker"
 
 const ticketScope = Effect.gen(function* () {
   const location = yield* Location.Service
@@ -169,9 +170,21 @@ export const PtyHandler = HttpApiBuilder.group(Api, "server.pty", (handlers) =>
                 Effect.catch(() => Effect.void),
               )
 
+          // Graceful-shutdown tracking: while the server is closing (or at the
+          // adaptive WebSocket cap) the upgrade is refused with the server-
+          // closing close frame, and accepted sockets are removed from the
+          // tracker when the connection ends. Standalone API usage (no tracker
+          // service in scope) degrades to "allowed".
+          const registered = yield* ApiWebSocketTracker.register(
+            write(ApiWebSocketTracker.SERVER_CLOSING_EVENT()),
+          )
+          if (!registered) {
+            yield* closeAccepted(ApiWebSocketTracker.SERVER_CLOSING_EVENT())
+            return HttpServerResponse.empty()
+          }
+
           // Outbound frames flow through one queue drained by a single writer so replay, live
           // output, and the close frame keep their order.
-          // TODO: Integrate graceful-shutdown socket tracking before clients migrate to this route.
           const outbox = yield* Queue.unbounded<string | Uint8Array | Socket.CloseEvent>()
           const attachment = yield* pty
             .attach(ctx.params.ptyID, {

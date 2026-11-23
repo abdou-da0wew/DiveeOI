@@ -100,6 +100,6 @@ Dependency arrow points down; protocols don't import providers.
 
 ```bash
 bun --cwd packages/llm run typecheck
-bun --cwd packages/llm run test   # fixture-first recorded tests; RECORD=1 requires api keys
+bun --cwd packages/llm run test   # fixture-first recorded tests; RECORD=true (or RECORD=1) requires api keys
 RECORDED_PROVIDER=openai RECORDED_PREFIX=openai-chat bun test  # filtered replay/record
 ```

@@ -9,19 +9,20 @@
 //   - a task session that lost its heartbeat (a task fiber wedged without
 //     touching the session — the run-state shows busy forever)
 //
-// This module adds those two signals. One supervisor fiber per active run,
-// forked by the runner, scoped to the run, wakes on heartbeatIntervalMs
-// (adaptive: 60s/45s/30s by tier — HDD tool spawns are slow on constrained
-// boxes). On trip:
-//   - interrupt the run fiber
-//   - write a session.watchdog event with the diagnosis
-//   - restart the run from the last anchor checkpoint with an injected
-//     system-reminder part: 'Watchdog: stalled Ms / heartbeat lost. Diagnose,
-//     change approach, or call checkpoint.'
+// This module adds those two signals. One supervisor fiber per SESSION (not
+// per run — it must survive the run fiber's death to restart it), forked by
+// the prompt run loop into the instance-lifetime scope, wakes on
+// heartbeatIntervalMs (adaptive: 60s/45s/30s by tier — HDD tool spawns are
+// slow on constrained boxes). On trip:
+//   - interrupt the run fiber (via SessionRunState.cancel — the prompt caller
+//     unwinds through the standard interrupted-assistant path)
+//   - queue the diagnosis for the restarted run's system prompt
+//   - restart the run from the persisted checkpoint (the message log is the
+//     anchor state — the loop re-reads it every step)
 //
-// Cap 3 auto-restarts per session without progress; then pause + degraded
-// event. The heartbeat is also written by the runner on every persisted part
-// (P4 task liveness uses the same column).
+// Cap 3 auto-restarts per session without progress; then pause (full cancel)
+// + degraded session.error event. The heartbeat is also written by the runner
+// on every persisted part (P4 task liveness uses the same column).
 //
 // The watchdog is a pure function the runner calls into — no service/layer
 // needed. It holds its own mutable state (lastEventAt, lastPersistedPartAt,

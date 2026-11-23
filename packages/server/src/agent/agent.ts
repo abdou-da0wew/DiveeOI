@@ -455,9 +455,10 @@ export const layer = Layer.effect(
         yield* plugin.trigger("experimental.chat.system.transform", { model: resolved }, { system })
         const existing = yield* InstanceState.useEffect(state, (s) => s.list())
 
-        // TODO: clean this up so provider specific logic doesnt bleed over
-        const authInfo = yield* auth.get(model.providerID).pipe(Effect.orDie)
-        const isOpenaiOauth = model.providerID === "openai" && authInfo?.type === "oauth"
+        // Provider request-shape capabilities (e.g. the OpenAI-OAuth stateless
+        // Responses requirements) are resolved by the provider layer, so
+        // provider identity does not bleed into agent logic.
+        const caps = yield* provider.requestCapabilities(resolved)
 
         const params = {
           experimental_telemetry: {
@@ -469,7 +470,7 @@ export const layer = Layer.effect(
           },
           temperature: 0.3,
           messages: [
-            ...(isOpenaiOauth
+            ...(caps.systemViaInstructions
               ? []
               : system.map(
                   (item): ModelMessage => ({
@@ -489,7 +490,7 @@ export const layer = Layer.effect(
           ),
         } satisfies Parameters<typeof generateObject>[0]
 
-        if (isOpenaiOauth) {
+        if (caps.preferStreamingObjectGeneration) {
           return yield* Effect.promise(async () => {
             const result = streamObject({
               ...params,

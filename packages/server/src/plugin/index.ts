@@ -225,13 +225,13 @@ export const layer = Layer.effect(
             },
           }).pipe(
             Effect.tapError((error) => Effect.logError("failed to load plugin", { path: load.spec, error })),
-            Effect.catch(() => {
-              // TODO: make proper events for this
-              // events.publish(Session.Event.Error, {
-              //   error: new NamedError.Unknown({
-              //     message: `Failed to load plugin ${load.spec}: ${message}`,
-              //   }).toObject(),
-              // })
+            Effect.catch((message) => {
+              // Surface plugin registration failures on the plugin event
+              // channel — the same surface loader-stage failures use via
+              // publishPluginError. (A dedicated plugin.failed lifecycle event
+              // on the global bus remains a follow-up; this closes the
+              // silent-swallow TODO without inventing a new event type.)
+              publishPluginError(`Failed to load plugin ${load.spec}: ${message}`)
               return Effect.void
             }),
           )

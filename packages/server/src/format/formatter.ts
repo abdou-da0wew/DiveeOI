@@ -10,6 +10,12 @@ export interface Context extends Pick<InstanceContext, "directory" | "worktree">
 
 export interface Info {
   name: string
+  /**
+   * Formatters sharing a `backend` are alternate front-ends for the same tool
+   * (e.g. ruff and uv both drive the ruff formatter binary). Disabling any
+   * entry of a backend disables every entry of that backend.
+   */
+  backend?: string
   environment?: Record<string, string>
   extensions: string[]
   enabled(context: Context): Promise<string[] | false>
@@ -188,6 +194,7 @@ export const ktlint: Info = {
 
 export const ruff: Info = {
   name: "ruff",
+  backend: "ruff",
   extensions: [".py", ".pyi"],
   async enabled(context) {
     if (!which("ruff")) return false
@@ -235,6 +242,7 @@ export const rlang: Info = {
 
 export const uvformat: Info = {
   name: "uv",
+  backend: "ruff",
   extensions: [".py", ".pyi"],
   async enabled(context) {
     if (await ruff.enabled(context)) return false

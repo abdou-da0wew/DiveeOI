@@ -2,7 +2,7 @@ import { ConfigV1 } from "@diveeoi/db/v1/config/config"
 import { SessionV1 } from "@diveeoi/db/v1/session"
 import { FSUtil } from "@diveeoi/db/fs-util"
 import { ModelsDev } from "@diveeoi/db/models-dev"
-import { HttpRecorder } from "@diveeoi/http-recorder"
+import { HttpRecorder, isRecordMode } from "@diveeoi/http-recorder"
 import { HttpRecorderInternal } from "@diveeoi/http-recorder/internal"
 import { describe, expect, test } from "bun:test"
 import { tool, type ModelMessage, type JSONValue } from "ai"
@@ -207,7 +207,7 @@ const RECORDED_SCENARIOS = [
   },
 ] satisfies ReadonlyArray<RecordedScenario>
 
-const shouldRecord = process.env.RECORD === "true"
+const shouldRecord = isRecordMode()
 const selectedScenarios = new Set(
   (envValue("OPENCODE_RECORDED_SCENARIO", "RECORDED_PROVIDER") ?? "")
     .split(",")

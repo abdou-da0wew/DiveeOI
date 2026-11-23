@@ -11,11 +11,19 @@ import { handlers } from "./handlers"
 import { authorizationLayer } from "./middleware/authorization"
 import { schemaErrorLayer } from "./middleware/schema-error"
 import { PtyEnvironment } from "./pty-environment"
+import * as ApiWebSocketTracker from "./handlers/pty-ws-tracker"
 
 export function createRoutes(password?: string) {
   return HttpApiBuilder.layer(Api, { openapiPath: "/openapi.json" }).pipe(
     Layer.provide(handlers),
     Layer.provide(PtyEnvironment.defaultLayer),
+    // Graceful-shutdown WebSocket tracking for raw WS handlers (pty.connect):
+    // tracks connections, enforces the adaptive maxWSConnections cap, and
+    // refuses new upgrades with a 1001 close frame once closing begins. When a
+    // host (e.g. the server package) mounts these routes it can instead bridge
+    // its own tracker implementation to ApiWebSocketTracker.Service — the
+    // handler contract is identical.
+    Layer.provide(ApiWebSocketTracker.layer),
     Layer.provide(authorizationLayer),
     Layer.provide(schemaErrorLayer),
     Layer.provide(

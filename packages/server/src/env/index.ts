@@ -20,11 +20,21 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const get = Effect.fn("Env.get")((key: string) => Effect.sync(() => process.env[key]))
     const all = Effect.fn("Env.all")(() => Effect.sync(() => ({ ...process.env })))
+    // Runtime contract: Env mutates the real process.env. (The first Env
+    // implementation worked on a shallow copy, which is why provider loaders
+    // historically reached around this service — with the real contract the
+    // service is the single sanctioned mutation seam.) The Effects are yielded
+    // so the mutation actually runs; an earlier revision built Effect.sync
+    // without yielding, making set/remove silent no-ops.
     const set = Effect.fn("Env.set")(function* (key: string, value: string) {
-      Effect.sync(() => { process.env[key] = value })
+      yield* Effect.sync(() => {
+        process.env[key] = value
+      })
     })
     const remove = Effect.fn("Env.remove")(function* (key: string) {
-      Effect.sync(() => { delete process.env[key] })
+      yield* Effect.sync(() => {
+        delete process.env[key]
+      })
     })
 
     return Service.of({ get, all, set, remove })

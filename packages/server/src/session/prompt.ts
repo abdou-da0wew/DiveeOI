@@ -55,7 +55,7 @@ import { Truncate } from "@/tool/truncate"
 import { Image } from "@/image/image"
 import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
-import { Cause, Effect, Exit, Latch, Layer, Option, Scope, Context, Schema, Types } from "effect"
+import { Cause, Effect, Exit, Fiber, Latch, Layer, Option, Scope, Context, Schema, Types } from "effect"
 import { Tracer } from "@/effect/tracer"
 import { InstanceRef } from "@/effect/instance-ref"
 import { InstanceState } from "@/effect/instance-state"
@@ -196,6 +196,20 @@ export const layer = Layer.effect(
     const database = yield* Database.Service
     const todoService = yield* SessionTodo.Service
     const { db } = database
+
+    // P3: per-session watchdog state. The supervisor fiber lives OUTSIDE the
+    // run fiber (forked into the instance-lifetime scope), which is what makes
+    // the interrupt-and-restart path possible: it survives the run fiber's
+    // death and can cancel + re-enter the loop from the persisted checkpoint.
+    // Timers and the restart count are shared between the run loop (touches)
+    // and the supervisor (checks), and persist across restarts (cap:
+    // Watchdog.MAX_AUTO_RESTARTS). Maps are reaped when the supervisor exits,
+    // and die with the instance scope on disposal.
+    const watchdogs = new Map<SessionID, WatchdogState>()
+    const watchdogSupervisors = new Map<SessionID, Fiber.Fiber<unknown, unknown>>()
+    // Diagnosis queued for the restarted run's first step (injected into the
+    // system prompt, then cleared).
+    const watchdogDiagnosis = new Map<SessionID, string>()
     // oxlint-disable-next-line require-yield -- Effect.fn requires a generator callback here to preserve TaskPromptOps inference.
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
       return {
@@ -1331,55 +1345,124 @@ export const layer = Layer.effect(
       // that ignores the gate cannot loop forever.
       let todoNudgeCount: number | undefined
       // P3: per-run watchdog state. Touches on every LLM event + persisted
-      // part so the scoped supervisor can detect no-progress stalls. It logs
-      // stalls but does not interrupt/restart a run without the run fiber ID.
-      const watchdog = new WatchdogState()
+      // part so the supervisor can detect no-progress stalls. State is
+      // per-session (not per-run) so a restarted run keeps the same timers and
+      // restart count — the cap counts restarts per session, per the plan.
+      let watchdog = watchdogs.get(sessionID)
+      if (!watchdog) {
+        watchdog = new WatchdogState()
+        watchdogs.set(sessionID, watchdog)
+      }
       const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
       const memory = yield* SessionMemoryIntegration.Service
       const targetedMode =
         (session.metadata?.["targetedLearning"] as { mode?: string } | undefined)?.mode === "targeted"
 
-      // P3: Fork the watchdog supervisor fiber. It wakes on
-      // heartbeatIntervalMs (adaptive: 60s/45s/30s by tier), checks
-      // isStalled(stallMs), and if so logs the stall. The supervisor
-      // does NOT interrupt the run yet — that requires the run fiber's
-      // FiberId, which we don't have at this point. The stall is logged
-      // so the operator can see it; the watchdog state + touch calls
-      // are the foundation for the full interrupt-and-restart path.
-      yield* Effect.forkScoped(
-        Effect.gen(function* () {
+      // P3: arm the watchdog supervisor — ONE per session, forked into the
+      // instance-lifetime scope (NOT the run fiber's scope), so it survives
+      // the run fiber's death and can perform the interrupt-and-restart
+      // itself. It wakes on heartbeatIntervalMs (adaptive: 60s/45s/30s by
+      // tier); on a stall it cancels the wedged run and re-enters the loop
+      // from the persisted checkpoint with the diagnosis injected into the
+      // restarted run's system prompt. After Watchdog.MAX_AUTO_RESTARTS
+      // restarts without progress the session is paused with a degraded
+      // error event instead.
+      if (!watchdogSupervisors.has(sessionID)) {
+        const supervisor = Effect.gen(function* () {
           const thresholds = yield* Watchdog.adaptiveThresholds()
-          yield* Effect.forever(
-            Effect.gen(function* () {
-              yield* Effect.sleep(thresholds.heartbeatMs)
-              if (watchdog.isStalled(thresholds.stallMs)) {
-                const stalledMs = watchdog.stalledFor()
-                yield* Effect.logWarning("watchdog.stall.detected", {
-                  sessionID,
-                  stalledMs,
-                  stallThreshold: thresholds.stallMs,
-                  restartCount: watchdog.getRestartCount(),
-                })
-                if (targetedMode) {
-                  yield* Effect.sync(() =>
-                    logDiagnostic(
-                      "session",
-                      "watchdog.stall.detected",
-                      {
-                        sessionId: sessionID,
-                        stalledMs,
-                        stallThresholdMs: thresholds.stallMs,
-                        restartCount: watchdog.getRestartCount(),
-                      },
-                      "warn",
-                    ),
-                  )
-                }
-              }
-            }).pipe(Effect.catchCause(() => Effect.void)),
-          )
-        }),
-      )
+          const reap = Effect.sync(() => {
+            watchdogSupervisors.delete(sessionID)
+            watchdogs.delete(sessionID)
+            watchdogDiagnosis.delete(sessionID)
+          })
+          while (true) {
+            yield* Effect.sleep(thresholds.heartbeatMs)
+            const wd = watchdogs.get(sessionID)
+            if (!wd) return // reaped (run finished or instance disposed)
+            if (!wd.isStalled(thresholds.stallMs)) continue
+
+            const runStatus = yield* status.get(sessionID).pipe(Effect.catch(() => Effect.succeed(undefined)))
+            if (!runStatus || (runStatus.type !== "busy" && runStatus.type !== "retry")) {
+              // the run ended without further progress; nothing to restart
+              yield* reap
+              return
+            }
+
+            const stalledMs = wd.stalledFor()
+            const restartCount = wd.bumpRestartCount()
+            yield* Effect.logWarning("watchdog.stall.detected", {
+              sessionID,
+              stalledMs,
+              stallThreshold: thresholds.stallMs,
+              restartCount,
+            })
+            if (targetedMode) {
+              yield* Effect.sync(() =>
+                logDiagnostic(
+                  "session",
+                  "watchdog.stall.detected",
+                  {
+                    sessionId: sessionID,
+                    stalledMs,
+                    stallThresholdMs: thresholds.stallMs,
+                    restartCount,
+                  },
+                  "warn",
+                ),
+              )
+            }
+
+            // Mark interrupted so late touches from the dying fiber cannot
+            // reset the timers mid-cancel.
+            wd.markInterrupted()
+
+            if (restartCount > Watchdog.MAX_AUTO_RESTARTS) {
+              // Cap reached: pause the session as degraded — full cancel
+              // (including background jobs) and a user-visible error event.
+              yield* state.cancel(sessionID).pipe(Effect.catch(() => Effect.void))
+              const error = new NamedError.Unknown({
+                message: `Watchdog paused this session: no progress for ${Math.round(stalledMs / 1000)}s after ${Watchdog.MAX_AUTO_RESTARTS} auto-restarts.`,
+              })
+              yield* events
+                .publish(Session.Event.Error, { sessionID, error: error.toObject() })
+                .pipe(Effect.catch(() => Effect.void))
+              yield* reap
+              return
+            }
+
+            // Interrupt-and-restart: cancel the wedged run fiber (its prompt
+            // caller unwinds through the standard interrupted-assistant path),
+            // queue the diagnosis for the restarted run's first step, reset
+            // the timers, and re-enter the loop. The restart is forked so the
+            // supervisor keeps monitoring the new run (another stall counts
+            // toward the same restart cap).
+            watchdogDiagnosis.set(
+              sessionID,
+              Watchdog.diagnosisMessage({
+                sessionID,
+                kind: "no-progress",
+                stalledMs,
+                restartCount,
+              }),
+            )
+            wd.reset()
+            yield* state.cancel(sessionID).pipe(Effect.catch(() => Effect.void))
+            yield* loop({ sessionID }).pipe(
+              Effect.catch((error) =>
+                Effect.logError("watchdog restart failed", { sessionID, error }),
+              ),
+              Effect.forkIn(scope),
+            )
+          }
+        }).pipe(
+          // Supervisor failures must never take the instance down.
+          Effect.catchCause((cause) =>
+            Effect.logError("watchdog supervisor failed", { sessionID, cause: Cause.pretty(cause) }),
+          ),
+        )
+        const fiber = yield* supervisor.pipe(Effect.forkIn(scope))
+        watchdogSupervisors.set(sessionID, fiber)
+      }
       // Bounded so a provider that refuses every candidate still terminates the run.
       let rotations = 0
 
@@ -1605,7 +1688,13 @@ export const layer = Layer.effect(
             instruction.system().pipe(Effect.orDie),
             MessageV2.toModelMessagesEffect(msgs, model),
           ])
-          const system = [...assembly.parts, ...instructions]
+          // P3: a queued watchdog diagnosis (set by the supervisor when it
+          // interrupted + restarted a stalled run) rides in the system prompt
+          // of the restarted run's first step so the model knows why it lost
+          // context and can change approach.
+          const watchdogReminder = watchdogDiagnosis.get(sessionID)
+          if (watchdogReminder) watchdogDiagnosis.delete(sessionID)
+          const system = [...assembly.parts, ...instructions, ...(watchdogReminder ? [watchdogReminder] : [])]
 
           // Targeted Learning: retrieve from the attached books and apply the gate BEFORE the
           // model is called. A refused gate answers with the hardcoded message and no LLM call.

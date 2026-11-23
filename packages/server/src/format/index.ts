@@ -132,20 +132,38 @@ export const layer = Layer.effect(
         }
 
         if (cfg.formatter !== true) {
+          // Backends shared by multiple formatters (Ruff/uv) disable as a unit:
+          // disabling any entry of a backend removes every formatter of that
+          // backend — including built-in entries that the config never
+          // mentions (the old special case deleted formatters.ruff AND
+          // formatters.uv for exactly this reason). Backend resolution goes
+          // through the registered formatters map first, because config keys
+          // and Formatter registry keys can differ ("uv" config → "uvformat"
+          // registry entry).
+          const removeBackend = (backend: string) => {
+            for (const key of Object.keys(formatters)) {
+              if (formatters[key]?.backend === backend) delete formatters[key]
+            }
+          }
+          const backendOf = (name: string): string | undefined =>
+            formatters[name]?.backend ?? Formatter[name as keyof typeof Formatter]?.backend
+          const disabledBackends = new Set(
+            Object.entries(cfg.formatter)
+              .filter(([, item]) => item?.disabled)
+              .map(([name]) => backendOf(name) ?? name),
+          )
           for (const [name, item] of Object.entries(cfg.formatter)) {
-            const builtIn = Formatter[name as keyof typeof Formatter]
-
-            // Ruff and uv are both the same formatter, so disabling either should disable both.
-            if (["ruff", "uv"].includes(name) && (cfg.formatter.ruff?.disabled || cfg.formatter.uv?.disabled)) {
-              // TODO combine formatters so shared backends like Ruff/uv don't need linked disable handling here.
-              delete formatters.ruff
-              delete formatters.uv
-              continue
-            }
+            const backend = backendOf(name)
             if (item.disabled) {
-              delete formatters[name]
+              if (backend !== undefined) removeBackend(backend)
+              else delete formatters[name]
               continue
             }
+            if (backend !== undefined && disabledBackends.has(backend)) {
+              removeBackend(backend)
+              continue
+            }
+            const builtIn = Formatter[name as keyof typeof Formatter]
             const info = mergeDeep(builtIn ?? { extensions: [] }, item)
 
             formatters[name] = {

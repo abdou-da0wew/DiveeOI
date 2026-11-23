@@ -312,17 +312,15 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
       const awsAccessKeyId = env["AWS_ACCESS_KEY_ID"]
       const configApiKey = providerConfig?.options?.apiKey
 
-      // TODO: Using process.env directly because Env.set only updates a process.env shallow copy,
-      // until the scope of the Env API is clarified (test only or runtime?)
-      const awsBearerToken = iife(() => {
-        const envToken = process.env.AWS_BEARER_TOKEN_BEDROCK
-        if (envToken) return envToken
-        if (auth?.type === "api") {
-          process.env.AWS_BEARER_TOKEN_BEDROCK = auth.key
-          return auth.key
-        }
-        return undefined
-      })
+      // The AWS SDK reads AWS_BEARER_TOKEN_BEDROCK from the real process.env at
+      // request time; Env.set mutates process.env (the service's runtime
+      // contract), so an auth-store API key is published through the service
+      // instead of a direct process.env write.
+      let awsBearerToken = yield* dep.get("AWS_BEARER_TOKEN_BEDROCK")
+      if (!awsBearerToken && auth?.type === "api") {
+        yield* dep.set("AWS_BEARER_TOKEN_BEDROCK", auth.key)
+        awsBearerToken = auth.key
+      }
 
       const awsWebIdentityTokenFile = env["AWS_WEB_IDENTITY_TOKEN_FILE"]
 
@@ -572,17 +570,14 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
     }),
     "sap-ai-core": Effect.fnUntraced(function* () {
       const auth = yield* dep.auth("sap-ai-core")
-      // TODO: Using process.env directly because Env.set only updates a shallow copy (not process.env),
-      // until the scope of the Env API is clarified (test only or runtime?)
-      const envServiceKey = iife(() => {
-        const envAICoreServiceKey = process.env.AICORE_SERVICE_KEY
-        if (envAICoreServiceKey) return envAICoreServiceKey
-        if (auth?.type === "api") {
-          process.env.AICORE_SERVICE_KEY = auth.key
-          return auth.key
-        }
-        return undefined
-      })
+      // The SAP AI Core SDK reads AICORE_SERVICE_KEY from the real process.env;
+      // an auth-store API key is published through Env.set (runtime contract:
+      // the service mutates process.env).
+      let envServiceKey = yield* dep.get("AICORE_SERVICE_KEY")
+      if (!envServiceKey && auth?.type === "api") {
+        yield* dep.set("AICORE_SERVICE_KEY", auth.key)
+        envServiceKey = auth.key
+      }
       const deploymentId = process.env.AICORE_DEPLOYMENT_ID
       const resourceGroup = process.env.AICORE_RESOURCE_GROUP
 
@@ -1167,6 +1162,22 @@ export interface Interface {
     providerID: ProviderV2.ID,
   ) => Effect.Effect<Model | undefined>
   readonly defaultModel: () => Effect.Effect<{ providerID: ProviderV2.ID; modelID: ModelV2.ID }, DefaultModelError>
+  /**
+   * Request-shape capabilities for a resolved model. Encapsulates per-provider
+   * quirks so callers (e.g. Agent.generate) never branch on provider identity.
+   */
+  readonly requestCapabilities: (model: Model) => Effect.Effect<RequestCapabilities>
+}
+
+export interface RequestCapabilities {
+  /**
+   * The system prompt must not be sent as a system message; it travels via
+   * providerOptions `instructions` with `store: false` (OpenAI Responses
+   * stateless OAuth path).
+   */
+  readonly systemViaInstructions: boolean
+  /** generateObject misbehaves on this path — use streamObject and drain. */
+  readonly preferStreamingObjectGeneration: boolean
 }
 
 interface State {
@@ -1478,6 +1489,7 @@ export const layer = Layer.effect(
           config: () => config.get(),
           env: () => env.all(),
           get: (key: string) => env.get(key),
+          set: (key: string, value: string) => env.set(key, value),
         }
 
         function mergeProvider(providerID: ProviderV2.ID, provider: Partial<Info>) {
@@ -2340,7 +2352,33 @@ export const layer = Layer.effect(
       return yield* getSmallModel(providerID)
     })
 
-    return Service.of({ list, getProvider, getModel, getLanguage, closest, getSmallModel, getRoleModel, defaultModel })
+    const requestCapabilities = Effect.fn("Provider.requestCapabilities")(function* (model: Model) {
+      // OpenAI OAuth runs against the stateless Responses API: the system
+      // prompt goes out via providerOptions.instructions with store:false and
+      // object generation has to stream. Everything else uses the plain
+      // request shape.
+      if (model.providerID !== "openai") {
+        return { systemViaInstructions: false, preferStreamingObjectGeneration: false }
+      }
+      const authInfo = yield* auth.get("openai").pipe(Effect.orDie)
+      const isOpenaiOauth = authInfo?.type === "oauth"
+      return {
+        systemViaInstructions: isOpenaiOauth,
+        preferStreamingObjectGeneration: isOpenaiOauth,
+      }
+    })
+
+    return Service.of({
+      list,
+      getProvider,
+      getModel,
+      getLanguage,
+      closest,
+      getSmallModel,
+      getRoleModel,
+      defaultModel,
+      requestCapabilities,
+    })
   }),
 )
 

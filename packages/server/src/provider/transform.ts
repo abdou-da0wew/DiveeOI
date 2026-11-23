@@ -22,8 +22,17 @@ export const OUTPUT_TOKEN_MAX = 32_000
 // branch that requests it stays in lockstep.
 const INCLUDE_ENCRYPTED_REASONING = ["reasoning.encrypted_content"] as const
 
+// Lone high/low surrogates are vanishingly rare in real traffic, so the test
+// pre-check avoids paying the allocating `.replace` on every text segment of
+// every message of every LLM request (this was the "inefficient dogshit"
+// normalizeMessages hot path — the fast path makes the per-request cost a few
+// regex scans instead of a full string rebuild per segment).
+const loneSurrogateRegExp = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
+const loneSurrogateRegExpGlobal = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g
+
 export function sanitizeSurrogates(content: string) {
-  return content.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "\uFFFD")
+  if (!loneSurrogateRegExp.test(content)) return content
+  return content.replace(loneSurrogateRegExpGlobal, "\uFFFD")
 }
 
 // Maps npm package to the key the AI SDK expects for providerOptions
@@ -61,7 +70,8 @@ function sdkKey(npm: string): string | undefined {
   return undefined
 }
 
-// TODO: fix this stupid inefficient dogshit function
+// Per-request message normalization: surrogate sanitization (fast-pathed in
+// sanitizeSurrogates) + provider-specific content filtering below.
 function normalizeMessages(
   msgs: ModelMessage[],
   model: Provider.Model,

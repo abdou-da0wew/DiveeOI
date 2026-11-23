@@ -1,6 +1,14 @@
 import { http } from "./effect.js"
 import { socket } from "./socket.js"
 
+/**
+ * True when the caller asked for cassette recording. The canonical spelling is
+ * `RECORD=true` (what both recorded test suites checked historically); `RECORD=1`
+ * is tolerated because the READMEs used it first. Centralized here so the
+ * env-var spelling cannot drift between suites again.
+ */
+export const isRecordMode = (): boolean => process.env.RECORD === "true" || process.env.RECORD === "1"
+
 /** HTTP and WebSocket cassette recording. */
 export const HttpRecorder = { http, socket } as const
 
