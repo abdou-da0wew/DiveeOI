@@ -21,12 +21,16 @@ import {
   postJsonToApi,
   type ResponseHandler,
 } from "@ai-sdk/provider-utils"
-import { z } from "zod/v4"
+import { z, type ZodType } from "zod/v4"
 import { convertToOpenAICompatibleChatMessages } from "./convert-to-openai-compatible-chat-messages"
 import { getResponseMetadata } from "./get-response-metadata"
 import { mapOpenAICompatibleFinishReason } from "./map-openai-compatible-finish-reason"
 import { type OpenAICompatibleChatModelId, openaiCompatibleProviderOptions } from "./openai-compatible-chat-options"
-import { defaultOpenAICompatibleErrorStructure, type ProviderErrorStructure } from "../openai-compatible-error"
+import {
+  defaultOpenAICompatibleErrorStructure,
+  type OpenAICompatibleErrorData,
+  type ProviderErrorStructure,
+} from "../openai-compatible-error"
 import type { MetadataExtractor } from "./openai-compatible-metadata-extractor"
 import { prepareTools } from "./openai-compatible-prepare-tools"
 
@@ -36,7 +40,7 @@ export type OpenAICompatibleChatConfig = {
   url: (options: { modelId: string; path: string }) => string
   fetch?: FetchFunction
   includeUsage?: boolean
-  errorStructure?: ProviderErrorStructure<any>
+  errorStructure?: ProviderErrorStructure<OpenAICompatibleErrorData>
   metadataExtractor?: MetadataExtractor
 
   /**
@@ -383,7 +387,6 @@ export class OpenAICompatibleChatLanguageModel implements LanguageModelV3 {
             controller.enqueue({ type: "stream-start", warnings })
           },
 
-          // TODO we lost type safety on Chunk, most likely due to the error schema. MUST FIX
           transform(chunk, controller) {
             // Emit raw chunk if requested (before anything else)
             if (options.includeRawChunks) {
@@ -777,7 +780,11 @@ const OpenAICompatibleChatResponseSchema = z.object({
 
 // limited version of the schema, focussed on what is needed for the implementation
 // this approach limits breakages when the API changes and increases efficiency
-const createOpenAICompatibleChatChunkSchema = <ERROR_SCHEMA extends z.core.$ZodType>(errorSchema: ERROR_SCHEMA) =>
+// The error schema is concrete (OpenAICompatibleErrorData), so z.infer of the
+// union is a proper union type and `"error" in value` in the stream transform
+// narrows type-safely — previously the generic $ZodType collapsed the
+// inference and the transform had to probe the value blindly.
+const createOpenAICompatibleChatChunkSchema = (errorSchema: ZodType<OpenAICompatibleErrorData>) =>
   z.union([
     z.object({
       id: z.string().nullish(),

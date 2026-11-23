@@ -55,10 +55,12 @@ const make = (options: Config) =>
 
     const run = (query: string, params: ReadonlyArray<unknown> = []) =>
       Effect.withFiber<Array<Record<string, unknown>>, SqlError>((fiber) => {
-        const statement = native.query(query)
-        // @ts-ignore bun-types missing safeIntegers method, fixed in https://github.com/oven-sh/bun/pull/26627
-        statement.safeIntegers(Context.get(fiber.context, Client.SafeIntegers))
         try {
+          // Prepare + bind must happen inside the try: a bad query (missing
+          // table, syntax error) is an expected SqlError failure, not a defect.
+          const statement = native.query(query)
+          // @ts-ignore bun-types missing safeIntegers method, fixed in https://github.com/oven-sh/bun/pull/26627
+          statement.safeIntegers(Context.get(fiber.context, Client.SafeIntegers))
           return Effect.succeed((statement.all(...(params as any)) ?? []) as Array<Record<string, unknown>>)
         } catch (cause) {
           return Effect.fail(
@@ -71,10 +73,12 @@ const make = (options: Config) =>
 
     const runValues = (query: string, params: ReadonlyArray<unknown> = []) =>
       Effect.withFiber<Array<unknown[]>, SqlError>((fiber) => {
-        const statement = native.query(query)
-        // @ts-ignore bun-types missing safeIntegers method, fixed in https://github.com/oven-sh/bun/pull/26627
-        statement.safeIntegers(Context.get(fiber.context, Client.SafeIntegers))
         try {
+          // Prepare + bind must happen inside the try: a bad query is an
+          // expected SqlError failure, not a defect.
+          const statement = native.query(query)
+          // @ts-ignore bun-types missing safeIntegers method, fixed in https://github.com/oven-sh/bun/pull/26627
+          statement.safeIntegers(Context.get(fiber.context, Client.SafeIntegers))
           return Effect.succeed((statement.values(...(params as any)) ?? []) as Array<unknown[]>)
         } catch (cause) {
           return Effect.fail(
@@ -98,8 +102,17 @@ const make = (options: Config) =>
       executeUnprepared(query, params, transformRows) {
         return this.execute(query, params, transformRows)
       },
-      executeStream() {
-        return Stream.die("executeStream not implemented")
+      // SQLite's synchronous driver materializes result sets (statement.all()),
+      // so streaming cannot avoid the row materialization; what it CAN do is
+      // hand rows to the consumer incrementally instead of dying. Rows are
+      // produced inside the acquired connection (the same invariant as
+      // execute) and then chunked through Stream.fromIterable.
+      executeStream(sql, params, transformRows) {
+        return Stream.unwrap(
+          Effect.map(run(sql, params), (rows) =>
+            Stream.fromIterable((transformRows ? transformRows(rows) : rows) as Array<any>),
+          ),
+        )
       },
       export: Effect.try({
         try: () => native.serialize(),

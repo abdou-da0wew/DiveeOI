@@ -165,7 +165,11 @@ const upgradeSyncFunctions: Record<
    * 2. Sort localMigrations ASC by millis and if the same - sort by name
    * 3. Match each DB row to a local migration
    * If multiple migrations share the same second, use hash matching as a tiebreaker
-   * Not implemented for now -> If hash matching fails, fall back to serial id ordering
+   * DECIDED 2026-11-23: the serial-id fallback stays UNIMPLEMENTED on purpose.
+   * When hash matching fails, the upgrade throws (fail loudly). Positional
+   * pairing would silently mislabel migration history whenever files were
+   * regenerated or the DB came from a different tool version, which is worse
+   * for operators than an explicit error naming the unmatched rows.
    * 5. Create extra column and backfill names for matched migrations
    */
   0: (migrationsTable, session, localMigrations) => {
@@ -231,7 +235,11 @@ const upgradeAsyncFunctions: Record<
    * 2. Sort localMigrations ASC by millis and if the same - sort by name
    * 3. Match each DB row to a local migration
    * If multiple migrations share the same second, use hash matching as a tiebreaker
-   * Not implemented for now -> If hash matching fails, fall back to serial id ordering
+   * DECIDED 2026-11-23: the serial-id fallback stays UNIMPLEMENTED on purpose.
+   * When hash matching fails, the upgrade throws (fail loudly). Positional
+   * pairing would silently mislabel migration history whenever files were
+   * regenerated or the DB came from a different tool version, which is worse
+   * for operators than an explicit error naming the unmatched rows.
    * 5. Create extra column and backfill names for matched migrations
    */
   0: async (migrationsTable, db, localMigrations) => {

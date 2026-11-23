@@ -71,9 +71,11 @@ export const make = (
 
       const run = (sql: string, params: ReadonlyArray<unknown> = []) =>
         Effect.withFiber<Array<Record<string, unknown>>, SqlError>((fiber) => {
-          const statement = db.prepare(sql)
-          statement.setReadBigInts(Context.get(fiber.context, Client.SafeIntegers))
           try {
+            // Prepare + bind must happen inside the try: a bad query (missing
+            // table, syntax error) is an expected SqlError failure, not a defect.
+            const statement = db.prepare(sql)
+            statement.setReadBigInts(Context.get(fiber.context, Client.SafeIntegers))
             return Effect.succeed(statement.all(...(params as SQLInputValue[])) as Array<Record<string, unknown>>)
           } catch (cause) {
             return Effect.fail(
@@ -86,10 +88,12 @@ export const make = (
 
       const runValues = (sql: string, params: ReadonlyArray<unknown> = []) =>
         Effect.withFiber<ReadonlyArray<ReadonlyArray<unknown>>, SqlError>((fiber) => {
-          const statement = db.prepare(sql)
-          statement.setReadBigInts(Context.get(fiber.context, Client.SafeIntegers))
-          statement.setReturnArrays(true)
           try {
+            // Prepare + bind must happen inside the try: a bad query is an
+            // expected SqlError failure, not a defect.
+            const statement = db.prepare(sql)
+            statement.setReadBigInts(Context.get(fiber.context, Client.SafeIntegers))
+            statement.setReturnArrays(true)
             return Effect.succeed(
               statement.all(...(params as SQLInputValue[])) as unknown as ReadonlyArray<ReadonlyArray<unknown>>,
             )
@@ -115,8 +119,17 @@ export const make = (
         executeUnprepared(sql, params, transformRows) {
           return this.execute(sql, params, transformRows)
         },
-        executeStream() {
-          return Stream.die("executeStream not implemented")
+        // SQLite's synchronous driver materializes result sets (statement.all()),
+        // so streaming cannot avoid the row materialization; what it CAN do is
+        // hand rows to the consumer incrementally instead of dying. Rows are
+        // produced inside the acquired connection (the same invariant as
+        // execute) and then chunked through Stream.fromIterable.
+        executeStream(sql, params, transformRows) {
+          return Stream.unwrap(
+            Effect.map(run(sql, params), (rows) =>
+              Stream.fromIterable((transformRows ? transformRows(rows) : rows) as Array<any>),
+            ),
+          )
         },
         loadExtension: (path) =>
           Effect.try({

@@ -1,4 +1,4 @@
-import { HttpRecorder } from "@diveeoi/http-recorder"
+import { HttpRecorder, isRecordMode } from "@diveeoi/http-recorder"
 import { HttpRecorderInternal } from "@diveeoi/http-recorder/internal"
 import * as OpenAIChat from "@diveeoi/llm/protocols/openai-chat"
 import { Auth, LLMClient, RequestExecutor } from "@diveeoi/llm/route"
@@ -37,7 +37,7 @@ const events = EventV2.layer.pipe(Layer.provide(database))
 const projector = SessionProjector.layer.pipe(Layer.provide(events), Layer.provide(database))
 const store = SessionStore.layer.pipe(Layer.provide(database))
 const cassette =
-  process.env.RECORD === "true"
+  isRecordMode()
     ? HttpRecorderInternal.cassetteLayer("session-runner/openai-chat-streams-text", {
         directory: path.resolve(import.meta.dir, "fixtures/recordings"),
         mode: "record",
