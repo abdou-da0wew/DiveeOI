@@ -7,6 +7,7 @@ import type {
   CallResult,
   Comparison,
   Method,
+  Mode,
   ProjectOptions,
   RequestSpec,
   ScenarioContext,
@@ -31,6 +32,7 @@ class ScenarioBuilder<S = undefined> {
       mutates: false,
       reset: true,
       auth,
+      modes: undefined,
     }
   }
 
@@ -66,8 +68,22 @@ class ScenarioBuilder<S = undefined> {
     return this.clone({ capture: "stream" })
   }
 
+  /**
+   * Restrict the scenario to the given modes. Use for routes whose handler mutates
+   * process state on any authenticated call (e.g. POST /global/restart schedules a
+   * process exit), so an auth-mode probe would kill the exerciser.
+   */
+  onlyIn(...modes: Mode[]) {
+    return this.clone({ modes })
+  }
+
   protected() {
     return this.auth("protected")
+  }
+
+  /** JWT-protected route: Basic credentials do not apply, so auth mode only checks the 401 leg. */
+  protectedJwt() {
+    return this.auth("protected-jwt")
   }
 
   public() {
@@ -167,6 +183,7 @@ class ScenarioBuilder<S = undefined> {
       mutates: state.mutates,
       reset: state.reset,
       auth: state.auth,
+      modes: state.modes,
     }
   }
 }

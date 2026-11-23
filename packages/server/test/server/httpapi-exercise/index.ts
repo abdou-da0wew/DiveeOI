@@ -35,7 +35,7 @@ import { coverageResult, parseOptions, routeKey, routeKeys, selectedScenarios } 
 import { runScenario } from "./runner"
 import { disposeApps } from "./backend"
 import { runtime } from "./runtime"
-import { type Scenario } from "./types"
+import { type JsonObject, type Scenario, type ScenarioContext } from "./types"
 
 function cursor(input: Record<string, unknown>) {
   return Buffer.from(JSON.stringify(input)).toString("base64url")
@@ -56,6 +56,160 @@ function locationData(validate: (value: any) => void) {
     validate(body.data)
   }
 }
+
+// ---------------------------------------------------------------------------
+// Seed helpers for the route groups below (auth, prefs, tasks, console, TL).
+// ---------------------------------------------------------------------------
+
+const EXERCISE_EMAIL = "exercise@diveeoi.test"
+const EXERCISE_PASSWORD = "exercise-password-123"
+
+const bearer = (token: string) => ({ authorization: `Bearer ${token}` })
+
+/** Register + login a throwaway user through the real routes; returns the tokens. */
+const authSeed = Effect.fn("exercise.authSeed")(function* (ctx: ScenarioContext, email = EXERCISE_EMAIL) {
+  const registered = yield* ctx.request({
+    path: "/api/auth/register",
+    method: "POST",
+    body: { email, password: EXERCISE_PASSWORD, username: "exercise" },
+  })
+  if (registered.status !== 200) throw new Error(`seed register failed: ${registered.status} ${registered.text}`)
+  const login = yield* ctx.request({
+    path: "/api/auth/login",
+    method: "POST",
+    body: { email, password: EXERCISE_PASSWORD },
+  })
+  if (login.status !== 200) throw new Error(`seed login failed: ${login.status} ${login.text}`)
+  object(login.body)
+  check(typeof login.body.accessToken === "string", "seed login should return an access token")
+  check(typeof login.body.refreshToken === "string", "seed login should return a refresh token")
+  return {
+    email,
+    password: EXERCISE_PASSWORD,
+    accessToken: login.body.accessToken as string,
+    refreshToken: login.body.refreshToken as string,
+  }
+})
+
+/** Create a paused autonomous task through the real route; returns its id. */
+const taskSeed = Effect.fn("exercise.taskSeed")(function* (ctx: ScenarioContext, prompt: string) {
+  const created = yield* ctx.request({
+    path: "/api/v1/tasks",
+    method: "POST",
+    body: { prompt, autoRun: false, source: "user" },
+  })
+  if (created.status !== 200) throw new Error(`seed task create failed: ${created.status} ${created.text}`)
+  object(created.body)
+  object(created.body.data)
+  check(typeof created.body.data.id === "string", "seed task create should return an id")
+  return { id: created.body.data.id as string }
+})
+
+/** Upload a tiny book through the real route; returns the book id. */
+const bookUploadSeed = Effect.fn("exercise.bookSeed")(function* (ctx: ScenarioContext, title: string) {
+  const uploaded = yield* ctx.request({
+    path: "/targeted-learning/books",
+    method: "POST",
+    headers: ctx.headers(),
+    body: {
+      filename: `${title}.txt`,
+      contentBase64: Buffer.from(`Exercise book content for ${title}.\n`).toString("base64"),
+      title,
+    },
+  })
+  if (uploaded.status !== 200) throw new Error(`seed book upload failed: ${uploaded.status} ${uploaded.text}`)
+  object(uploaded.body)
+  check(typeof uploaded.body.bookId === "string", "seed book upload should return a bookId")
+  return { bookId: uploaded.body.bookId as string }
+})
+
+/**
+ * Seed one student memory row through the memory service (same module the handler uses).
+ * The route layer must have been built once so the TL runtime (dataDir) is registered.
+ */
+const studentMemorySeed = Effect.fn("exercise.studentMemorySeed")(function* (ctx: ScenarioContext, text: string) {
+  const warm = yield* ctx.request({ path: "/targeted-learning/health", headers: ctx.headers() })
+  if (warm.status !== 200) throw new Error(`seed TL warmup failed: ${warm.status} ${warm.text}`)
+  const service = yield* Effect.promise(() => import("@diveeoi/learning/memory/service"))
+  const written = yield* Effect.promise(() => service.writeStudentMemory({ kind: "goal", text }))
+  if (!written.ok || !written.id) throw new Error(`seed student memory write failed: ${written.reason ?? "unknown"}`)
+  return { memoryID: written.id }
+})
+
+/**
+ * Seed one book note row directly in books.db (notes require a ready book, which the
+ * exercise cannot produce without the embedding model). Returns the note id.
+ */
+const bookNoteSeed = Effect.fn("exercise.bookNoteSeed")(function* (ctx: ScenarioContext) {
+  const warm = yield* ctx.request({ path: "/targeted-learning/health", headers: ctx.headers() })
+  if (warm.status !== 200) throw new Error(`seed TL warmup failed: ${warm.status} ${warm.text}`)
+  const runtimeModule = yield* Effect.promise(() => import("@diveeoi/learning/runtime"))
+  const rt = runtimeModule.getRuntime()
+  check(!!rt?.booksStore.available && !!rt.booksStore.db, "seed needs an available books.db")
+  const db = rt.booksStore.db!
+  const now = Date.now()
+  yield* Effect.promise(() =>
+    Promise.resolve(
+      db.run(
+        `INSERT OR IGNORE INTO books (id, slug, title, source_hash, source_path, status, embed_signature, normalizer_version, created_at)
+         VALUES ('bk_exercise_note', 'exercise-note-book', 'Exercise Note Book', 'hash_exercise_note', '', 'ready', '', '', ?)`,
+        now,
+      ),
+    ),
+  )
+  yield* Effect.promise(() =>
+    Promise.resolve(
+      db.run(
+        `INSERT OR IGNORE INTO book_notes (id, book_id, source_hash, kind, text, citations_json, source_session_id, stale, created_at, updated_at)
+         VALUES ('bn_exercise_note', 'bk_exercise_note', 'hash_exercise_note', 'definition', 'Exercise note about photosynthesis.', '[]', NULL, 0, ?, ?)`,
+        now,
+        now,
+      ),
+    ),
+  )
+  return { noteID: "bn_exercise_note" }
+})
+
+/**
+ * A throwaway local "console" that answers the device-authorization endpoints. The
+ * finalizer stops the server when the scenario scope closes.
+ */
+const fakeConsoleSeed = Effect.gen(function* () {
+  const server = Bun.serve({
+    port: 0,
+    fetch: (request) => {
+      const url = new URL(request.url)
+      if (url.pathname === "/auth/device/code")
+        return Response.json({
+          device_code: "dc_exercise",
+          user_code: "EXRC-CODE",
+          verification_uri_complete: "/device?code=EXRC-CODE",
+          expires_in: 600,
+          interval: 5,
+        })
+      if (url.pathname === "/auth/device/token")
+        return Response.json({ error: "authorization_pending", error_description: "awaiting approval" })
+      return new Response("exercise console: not found", { status: 404 })
+    },
+  })
+  yield* Effect.addFinalizer(() => Effect.promise(() => Promise.resolve(server.stop(true))))
+  return { url: `http://127.0.0.1:${server.port}` }
+})
+
+/** Start a device login against the local fake console; returns the attempt id. */
+const consoleLoginSeed = Effect.fn("exercise.consoleLoginSeed")(function* (ctx: ScenarioContext) {
+  const consoleState = yield* fakeConsoleSeed
+  const login = yield* ctx.request({
+    path: "/experimental/console/login",
+    method: "POST",
+    headers: ctx.headers(),
+    body: { server: consoleState.url },
+  })
+  if (login.status !== 200) throw new Error(`seed console login failed: ${login.status} ${login.text}`)
+  object(login.body)
+  check(typeof login.body.attemptID === "string", "seed console login should return an attemptID")
+  return { attemptID: login.body.attemptID as string }
+})
 
 const scenarios: Scenario[] = [
   http.protected
@@ -162,6 +316,43 @@ const scenarios: Scenario[] = [
     .at((ctx) => ({ path: "/config", headers: ctx.headers(), body: { username: 1 } }))
     .status(400),
   http.protected.get("/config/providers", "config.providers").json(),
+  http.protected
+    .get("/config/composer-key", "config.composerKey.status")
+    .json(
+      200,
+      (body) => {
+        object(body)
+        check(body.configured === false, "no Artificial Analysis key should be configured in a fresh exercise env")
+      },
+      "status",
+    ),
+  http.protected
+    .post("/config/composer-key", "config.composerKey.set")
+    .mutating()
+    .at((ctx) => ({
+      path: "/config/composer-key",
+      headers: ctx.headers(),
+      body: { apiKey: "exercise-key-0123456789abcdef" },
+    }))
+    .json(
+      200,
+      (body) => {
+        object(body)
+        check(body.configured === true, "composer key set should report configured")
+      },
+      "status",
+    ),
+  http.protected
+    .delete("/config/composer-key", "config.composerKey.remove")
+    .mutating()
+    .json(
+      200,
+      (body) => {
+        object(body)
+        check(body.configured === false, "composer key removal should clear the configured flag")
+      },
+      "status",
+    ),
   http.protected.get("/project", "project.list").json(200, array, "status"),
   http.protected.get("/project/current", "project.current").json(
     200,
@@ -490,6 +681,79 @@ const scenarios: Scenario[] = [
       body: { accountID: "httpapi-account", orgID: "httpapi-org" },
     }))
     .status(400, undefined, "none"),
+  http.protected
+    .post("/experimental/console/login", "experimental.console.login")
+    .probe({ path: "/experimental/console/login", body: { server: 1 } })
+    .seeded(() => fakeConsoleSeed)
+    .at((ctx) => ({
+      path: "/experimental/console/login",
+      headers: ctx.headers(),
+      body: { server: ctx.state.url },
+    }))
+    .json(
+      200,
+      (body, ctx) => {
+        object(body)
+        check(typeof body.attemptID === "string" && body.attemptID.length > 0, "login should return an attempt id")
+        check(body.userCode === "EXRC-CODE", "login should surface the console user code")
+        check(
+          body.verificationURL === `${ctx.state.url}/device?code=EXRC-CODE`,
+          "login should resolve the verification URL against the console",
+        )
+        check(body.server === ctx.state.url, "login should echo the normalized console server")
+        check(typeof body.intervalMs === "number" && body.intervalMs >= 0, "login should return the poll interval")
+        check(typeof body.expiresInMs === "number" && body.expiresInMs > 0, "login should return the expiry window")
+      },
+      "status",
+    ),
+  http.protected
+    .post("/experimental/console/poll", "experimental.console.poll")
+    .seeded((ctx) => consoleLoginSeed(ctx))
+    .at((ctx) => ({
+      path: "/experimental/console/poll",
+      headers: ctx.headers(),
+      body: { attemptID: ctx.state.attemptID },
+    }))
+    .json(
+      200,
+      (body) => {
+        object(body)
+        check(body.status === "pending", "polling an unapproved device flow should report pending")
+        check(typeof body.nextPollMs === "number" && body.nextPollMs >= 0, "poll should return the server-owned cadence")
+      },
+      "status",
+    ),
+  http.protected
+    .post("/experimental/console/cancel", "experimental.console.cancel")
+    .mutating()
+    .seeded((ctx) => consoleLoginSeed(ctx))
+    .at((ctx) => ({
+      path: "/experimental/console/cancel",
+      headers: ctx.headers(),
+      body: { attemptID: ctx.state.attemptID },
+    }))
+    .json(
+      200,
+      (body) => {
+        check(body === true, "cancel should discard the attempt and return true")
+      },
+      "status",
+    ),
+  http.protected
+    .post("/experimental/console/logout", "experimental.console.logout")
+    .mutating()
+    .at((ctx) => ({
+      path: "/experimental/console/logout",
+      headers: ctx.headers(),
+      body: { accountID: "acc_exercise_missing" },
+    }))
+    .json(
+      200,
+      (body) => {
+        check(body === true, "logout should return true even for an unknown account")
+      },
+      "status",
+    ),
   http.protected.get("/experimental/workspace/adapter", "experimental.workspace.adapter.list").json(200, array),
   http.protected.get("/experimental/workspace", "experimental.workspace.list").json(200, array),
   http.protected.get("/experimental/workspace/status", "experimental.workspace.status").json(200, array),
@@ -535,6 +799,9 @@ const scenarios: Scenario[] = [
   http.protected.get("/experimental/worktree", "worktree.list").json(200, array),
   http.protected
     .post("/experimental/worktree", "worktree.create")
+    // Auth-mode probe must decode-fail: a bare POST without the directory header would
+    // resolve the instance to the exerciser's cwd and create a full worktree of that repo.
+    .probe({ path: "/experimental/worktree", body: { name: 1 } })
     .mutating()
     .at((ctx) => ({ path: "/experimental/worktree", headers: ctx.headers(), body: { name: "api-dsl" } }))
     .jsonEffect(
@@ -553,6 +820,7 @@ const scenarios: Scenario[] = [
     .status(400),
   http.protected
     .delete("/experimental/worktree", "worktree.remove")
+    .probe({ path: "/experimental/worktree", body: { directory: 1 } })
     .mutating()
     .seeded((ctx) => ctx.worktree({ name: "api-remove" }))
     .at((ctx) => ({ path: "/experimental/worktree", headers: ctx.headers(), body: { directory: ctx.state.directory } }))
@@ -561,6 +829,7 @@ const scenarios: Scenario[] = [
     }),
   http.protected
     .post("/experimental/worktree/reset", "worktree.reset")
+    .probe({ path: "/experimental/worktree/reset", body: { directory: 1 } })
     .mutating()
     .seeded((ctx) => ctx.worktree({ name: "api-reset" }))
     .at((ctx) => ({
@@ -1024,6 +1293,371 @@ const scenarios: Scenario[] = [
       headers: ctx.headers(),
     }))
     .status(404, undefined, "status"),
+  // ---------------------------------------------------------------------------
+  // v2 auth routes: the /api/auth/ prefix deliberately bypasses Basic auth, so
+  // register/login/logout/resend/verify-email are public while me/refresh/profile
+  // authenticate with a Bearer JWT (protectedJwt: only the 401 leg is probed).
+  // ---------------------------------------------------------------------------
+  http.public
+    .post("/api/auth/register", "v2.auth.register")
+    .global()
+    .mutating()
+    .at((ctx) => ({
+      path: "/api/auth/register",
+      body: { email: EXERCISE_EMAIL, password: EXERCISE_PASSWORD, username: "exercise" },
+    }))
+    .json(
+      200,
+      (body) => {
+        object(body)
+        object(body.user)
+        check(body.user.email === EXERCISE_EMAIL, "register should return the normalized email")
+        check(body.user.role === "admin", "the first registration claims the admin role")
+        check(body.user.verified === true, "register should verify the user when email delivery is unconfigured")
+      },
+      "status",
+    ),
+  http.public
+    .post("/api/auth/login", "v2.auth.login")
+    .global()
+    .seeded((ctx) => authSeed(ctx))
+    .at((ctx) => ({ path: "/api/auth/login", body: { email: ctx.state.email, password: ctx.state.password } }))
+    .json(
+      200,
+      (body, ctx) => {
+        object(body)
+        check(typeof body.accessToken === "string" && body.accessToken.length > 0, "login should issue an access token")
+        check(typeof body.refreshToken === "string", "non-browser login should receive the refresh token in the body")
+        object(body.user)
+        check(body.user.email === ctx.state.email, "login should return the user")
+      },
+      "status",
+    ),
+  http.protected
+    .post("/api/auth/refresh", "v2.auth.refresh")
+    .global()
+    .protectedJwt()
+    .seeded((ctx) => authSeed(ctx))
+    .at((ctx) => ({ path: "/api/auth/refresh", body: { refreshToken: ctx.state.refreshToken } }))
+    .json(
+      200,
+      (body) => {
+        object(body)
+        check(typeof body.accessToken === "string" && body.accessToken.length > 0, "refresh should issue a new access token")
+        check(typeof body.refreshToken === "string" && body.refreshToken.length > 0, "refresh should rotate the refresh token")
+        object(body.user)
+      },
+      "status",
+    ),
+  http.public
+    .post("/api/auth/logout", "v2.auth.logout")
+    .global()
+    .mutating()
+    .at((ctx) => ({ path: "/api/auth/logout" }))
+    .json(
+      200,
+      (body) => {
+        object(body)
+        check(body.ok === true, "logout should acknowledge")
+      },
+      "status",
+    ),
+  http.protected
+    .get("/api/auth/me", "v2.auth.me")
+    .global()
+    .protectedJwt()
+    .probe({ path: "/api/auth/me?token=exercise-probe" })
+    .seeded((ctx) => authSeed(ctx))
+    .at((ctx) => ({
+      path: `/api/auth/me?${new URLSearchParams({ token: "exercise-probe" })}`,
+      headers: bearer(ctx.state.accessToken),
+    }))
+    .json(
+      200,
+      (body, ctx) => {
+        object(body)
+        object(body.user)
+        check(body.user.email === ctx.state.email, "me should resolve the Bearer token to the user")
+      },
+      "status",
+    ),
+  http.public
+    .get("/api/auth/verify-email", "v2.auth.verifyEmail.invalid")
+    .global()
+    .at((ctx) => ({ path: `/api/auth/verify-email?${new URLSearchParams({ token: "exercise-invalid" })}` }))
+    .status(400),
+  http.public
+    .post("/api/auth/resend-verification", "v2.auth.resendVerification")
+    .global()
+    .at((ctx) => ({ path: "/api/auth/resend-verification", body: { email: EXERCISE_EMAIL } }))
+    .json(
+      200,
+      (body) => {
+        object(body)
+        check(body.ok === true, "resend verification should acknowledge without leaking existence")
+      },
+      "status",
+    ),
+  http.protected
+    .patch("/api/auth/profile", "v2.auth.updateProfile")
+    .global()
+    .protectedJwt()
+    .mutating()
+    .seeded((ctx) => authSeed(ctx))
+    .at((ctx) => ({
+      path: "/api/auth/profile",
+      headers: bearer(ctx.state.accessToken),
+      body: { username: "exercise_renamed" },
+    }))
+    .json(
+      200,
+      (body) => {
+        object(body)
+        object(body.user)
+        check(body.user.username === "exercise_renamed", "profile update should apply the new username")
+      },
+      "status",
+    ),
+  // ---------------------------------------------------------------------------
+  // v2 preferences: server-backed scoped key/value storage.
+  // ---------------------------------------------------------------------------
+  http.protected
+    .get("/api/prefs/{scope}", "v2.prefs.list")
+    .global()
+    .at((ctx) => ({ path: route("/api/prefs/{scope}", { scope: "exercise" }) }))
+    .json(
+      200,
+      (body) => {
+        object(body)
+        array(body.data)
+      },
+      "status",
+    ),
+  http.protected
+    .put("/api/prefs/{scope}", "v2.prefs.set")
+    .global()
+    .mutating()
+    .at((ctx) => ({
+      path: route("/api/prefs/{scope}", { scope: "exercise" }),
+      body: { name: "tone", value: "concise" },
+    }))
+    .json(
+      200,
+      (body) => {
+        object(body)
+        object(body.data)
+        check(body.data.name === "tone", "prefs set should echo the name")
+        check(body.data.value === "concise", "prefs set should echo the value")
+      },
+      "status",
+    ),
+  http.protected
+    .delete("/api/prefs/{scope}/{name}", "v2.prefs.delete")
+    .global()
+    .mutating()
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        const seeded = yield* ctx.request({
+          path: "/api/prefs/exercise",
+          method: "PUT",
+          body: { name: "tone", value: "concise" },
+        })
+        if (seeded.status !== 200) throw new Error(`seed prefs set failed: ${seeded.status} ${seeded.text}`)
+        return { scope: "exercise", name: "tone" }
+      }),
+    )
+    .at((ctx) => ({
+      path: route("/api/prefs/{scope}/{name}", { scope: ctx.state.scope, name: ctx.state.name }),
+    }))
+    // The handler returns HttpApiSchema.NoContent but the wire response is currently
+    // 200 with an empty body (spec says 204) — assert the shipped behavior and keep
+    // the drift visible here until the schema-error layer maps Void to 204.
+    .status(
+      200,
+      (_ctx, result) =>
+        Effect.sync(() => {
+          check(result.text === "", "prefs delete should return an empty body")
+        }),
+      "status",
+    ),
+  http.protected
+    .delete("/api/prefs/{scope}", "v2.prefs.deleteScope")
+    .global()
+    .mutating()
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        for (const name of ["one", "two"]) {
+          const seeded = yield* ctx.request({
+            path: "/api/prefs/exercise",
+            method: "PUT",
+            body: { name, value: name },
+          })
+          if (seeded.status !== 200) throw new Error(`seed prefs set failed: ${seeded.status} ${seeded.text}`)
+        }
+        return { scope: "exercise" }
+      }),
+    )
+    .at((ctx) => ({ path: route("/api/prefs/{scope}", { scope: ctx.state.scope }) }))
+    // Same 200-empty vs declared-204 drift as v2.prefs.delete (see above).
+    .status(
+      200,
+      (_ctx, result) =>
+        Effect.sync(() => {
+          check(result.text === "", "prefs scope delete should return an empty body")
+        }),
+      "status",
+    ),
+  // ---------------------------------------------------------------------------
+  // v2 autonomous tasks (draft-10 P4): the curl surface over AgentTask.
+  // ---------------------------------------------------------------------------
+  http.protected
+    .post("/api/v1/tasks", "v2.task.create")
+    .global()
+    .mutating()
+    .at((ctx) => ({
+      path: "/api/v1/tasks",
+      body: { prompt: "exercise task: summarize the README", autoRun: false, source: "user" },
+    }))
+    .json(
+      200,
+      (body) => {
+        object(body)
+        object(body.data)
+        check(typeof body.data.id === "string" && body.data.id.startsWith("task_"), "create should return a task id")
+        check(typeof body.data.sessionID === "string" && body.data.sessionID.length > 0, "create should back the task with a session")
+        check(body.data.status === "paused", "a task without autoRun should start paused")
+        check(body.data.prompt === "exercise task: summarize the README", "create should persist the prompt")
+      },
+      "status",
+    ),
+  http.protected
+    .get("/api/v1/tasks", "v2.task.list")
+    .global()
+    .json(
+      200,
+      (body) => {
+        object(body)
+        array(body.data)
+      },
+      "status",
+    ),
+  http.protected
+    .get("/api/v1/tasks/{id}", "v2.task.get")
+    .global()
+    .seeded((ctx) => taskSeed(ctx, "exercise task: get by id"))
+    .at((ctx) => ({ path: route("/api/v1/tasks/{id}", { id: ctx.state.id }) }))
+    .json(
+      200,
+      (body, ctx) => {
+        object(body)
+        object(body.data)
+        check(body.data.id === ctx.state.id, "get should return the seeded task")
+        check(body.data.status === "paused", "the seeded task should still be paused")
+      },
+      "status",
+    ),
+  http.protected
+    .patch("/api/v1/tasks/{id}", "v2.task.update")
+    .global()
+    .mutating()
+    .seeded((ctx) => taskSeed(ctx, "exercise task: before update"))
+    .at((ctx) => ({
+      path: route("/api/v1/tasks/{id}", { id: ctx.state.id }),
+      body: { prompt: "exercise task: after update" },
+    }))
+    .json(
+      200,
+      (body) => {
+        object(body)
+        object(body.data)
+        check(body.data.prompt === "exercise task: after update", "update should apply the new prompt")
+      },
+      "status",
+    ),
+  http.protected
+    .delete("/api/v1/tasks/{id}", "v2.task.cancel")
+    .global()
+    .mutating()
+    .seeded((ctx) => taskSeed(ctx, "exercise task: cancel me"))
+    .at((ctx) => ({ path: route("/api/v1/tasks/{id}", { id: ctx.state.id }) }))
+    .json(
+      200,
+      (body) => {
+        object(body)
+        check(body.ok === true, "cancel should acknowledge")
+      },
+      "status",
+    ),
+  http.protected
+    .post("/api/v1/tasks/{id}/pause", "v2.task.pause")
+    .global()
+    .mutating()
+    .seeded((ctx) => taskSeed(ctx, "exercise task: pause me"))
+    .at((ctx) => ({ path: route("/api/v1/tasks/{id}/pause", { id: ctx.state.id }) }))
+    .json(
+      200,
+      (body) => {
+        object(body)
+        check(body.ok === true, "pause should acknowledge")
+      },
+      "status",
+    ),
+  http.protected
+    .post("/api/v1/tasks/{id}/resume", "v2.task.resume")
+    .global()
+    .mutating()
+    .seeded((ctx) => taskSeed(ctx, "exercise task: resume me"))
+    .at((ctx) => ({ path: route("/api/v1/tasks/{id}/resume", { id: ctx.state.id }) }))
+    .json(
+      200,
+      (body) => {
+        object(body)
+        check(body.ok === true, "resume should acknowledge and queue the task")
+      },
+      "status",
+    ),
+  http.protected
+    .post("/api/v1/tasks/{id}/run", "v2.task.run")
+    .global()
+    .mutating()
+    .seeded((ctx) => taskSeed(ctx, "exercise task: run me"))
+    .at((ctx) => ({ path: route("/api/v1/tasks/{id}/run", { id: ctx.state.id }) }))
+    .json(
+      200,
+      (body) => {
+        object(body)
+        check(body.ok === true, "run should report that the task was started (a paused task is a no-op)")
+      },
+      "status",
+    ),
+  http.protected
+    .post("/api/v1/tasks/{id}/generate", "v2.task.generate")
+    .global()
+    .mutating()
+    .seeded((ctx) => taskSeed(ctx, "exercise task: generate me"))
+    .at((ctx) => ({ path: route("/api/v1/tasks/{id}/generate", { id: ctx.state.id }) }))
+    .json(
+      200,
+      (body) => {
+        object(body)
+        check(body.ok === true, "generate should acknowledge (generator failures are recorded, not surfaced)")
+      },
+      "status",
+    ),
+  http.protected
+    .get("/api/v1/tasks/{id}/events", "v2.task.events")
+    .global()
+    .seeded((ctx) => taskSeed(ctx, "exercise task: events"))
+    .at((ctx) => ({ path: route("/api/v1/tasks/{id}/events", { id: ctx.state.id }) }))
+    .json(
+      200,
+      (body) => {
+        object(body)
+        array(body.data)
+        check(body.data.length === 0, "a fresh task should have no hook events")
+      },
+      "status",
+    ),
   http.protected
     .get("/session", "session.list")
     .seeded((ctx) => ctx.session({ title: "List me" }))
@@ -1565,6 +2199,413 @@ const scenarios: Scenario[] = [
       "status",
     ),
   http.protected
+    .get("/session/{sessionID}/anchor", "session.anchor")
+    .seeded((ctx) => ctx.session({ title: "Anchor session" }))
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/anchor", { sessionID: ctx.state.id }),
+      headers: ctx.headers(),
+    }))
+    .json(
+      200,
+      (body) => {
+        object(body)
+        array(body.anchors)
+        check(body.anchors.length === 0, "a session without compaction should report no anchors yet")
+      },
+      "status",
+    ),
+  // ---------------------------------------------------------------------------
+  // Targeted Learning: setup, settings, system probes, books, ingest jobs,
+  // retrieval inspector, and student memory. books.db and the TL data dir are
+  // per-process (XDG-isolated) and survive the per-scenario database reset, so
+  // these scenarios assert shapes rather than absolute emptiness and are
+  // ordered to keep state dependencies explicit.
+  // ---------------------------------------------------------------------------
+  http.protected
+    .get("/targeted-learning/setup", "targetedLearning.setup.status")
+    .json(
+      200,
+      (body) => {
+        object(body)
+        check(
+          ["not-started", "in-progress", "ready", "needs-repair"].includes(body.status),
+          `setup status should be a known literal, got ${body.status}`,
+        )
+        array(body.steps)
+        for (const step of body.steps) {
+          object(step)
+          check(typeof step.name === "string", "setup steps should have names")
+          check(
+            ["pending", "running", "complete", "failed", "skipped"].includes(step.status),
+            "setup steps should report known statuses",
+          )
+          check(typeof step.attempts === "number", "setup steps should count attempts")
+        }
+      },
+      "status",
+    ),
+  http.protected
+    .post("/targeted-learning/setup/cancel", "targetedLearning.setup.cancel")
+    .mutating()
+    .json(
+      200,
+      (body) => {
+        object(body)
+        array(body.steps)
+      },
+      "status",
+    ),
+  http.protected
+    .post("/targeted-learning/setup/repair", "targetedLearning.setup.repair")
+    .mutating()
+    .json(
+      200,
+      (body) => {
+        object(body)
+        array(body.steps)
+        check(
+          body.steps.every((step: JsonObject) => step.status === "pending"),
+          "repair should reset every step to pending",
+        )
+      },
+      "status",
+    ),
+  http.protected
+    .post("/targeted-learning/setup/import-local", "targetedLearning.setup.importLocal.missing")
+    .at((ctx) => ({ path: "/targeted-learning/setup/import-local", headers: ctx.headers(), body: { folder: "/tmp/exercise-no-such-folder" } }))
+    .status(400),
+  http.protected
+    .post("/targeted-learning/setup/start", "targetedLearning.setup.start")
+    .probe({ path: "/targeted-learning/setup/start", body: { force: 1 } })
+    .mutating()
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        // Point the download pipeline at a local server that always answers 404 so the
+        // setup fiber fails terminally within the exercise instead of downloading a model.
+        const server = Bun.serve({
+          port: 0,
+          fetch: () => new Response("exercise: downloads are blocked", { status: 404 }),
+        })
+        yield* Effect.addFinalizer(() => Effect.promise(() => Promise.resolve(server.stop(true))))
+        const patched = yield* ctx.request({
+          path: "/targeted-learning/settings",
+          method: "PATCH",
+          headers: ctx.headers(),
+          body: { download: { endpoint: `http://127.0.0.1:${server.port}` } },
+        })
+        if (patched.status !== 200) throw new Error(`seed download endpoint patch failed: ${patched.status} ${patched.text}`)
+        return { url: `http://127.0.0.1:${server.port}` }
+      }),
+    )
+    .at((ctx) => ({ path: "/targeted-learning/setup/start", headers: ctx.headers(), body: {} }))
+    .jsonEffect(
+      200,
+      (body, ctx) =>
+        Effect.gen(function* () {
+          object(body)
+          array(body.steps)
+          check(
+            ["not-started", "in-progress", "ready", "needs-repair"].includes(body.status),
+            `setup start should return a known status, got ${body.status}`,
+          )
+          // Give the probe → preflight → download fiber a moment, then confirm it did NOT
+          // complete against the blocked endpoint and restore the default endpoint.
+          yield* Effect.sleep("1200 millis")
+          const status = yield* ctx.request({ path: "/targeted-learning/setup", headers: ctx.headers() })
+          if (status.status !== 200) throw new Error(`setup status after start failed: ${status.status}`)
+          object(status.body)
+          check(status.body.status !== "ready", "setup must not become ready while downloads are blocked")
+          const restored = yield* ctx.request({
+            path: "/targeted-learning/settings",
+            method: "PATCH",
+            headers: ctx.headers(),
+            body: { download: {} },
+          })
+          if (restored.status !== 200) throw new Error(`download endpoint restore failed: ${restored.status}`)
+        }),
+      "status",
+    ),
+  http.protected
+    .get("/targeted-learning/settings", "targetedLearning.settings.get")
+    .json(
+      200,
+      (body) => {
+        object(body)
+        object(body.values)
+        object(body.effective)
+        check(
+          Object.values(body.effective).every((entry) => isRecord(entry) && "value" in entry && "source" in entry),
+          "effective settings should tag every leaf with a source",
+        )
+      },
+      "status",
+    ),
+  http.protected
+    .patch("/targeted-learning/settings", "targetedLearning.settings.update")
+    .mutating()
+    .at((ctx) => ({ path: "/targeted-learning/settings", headers: ctx.headers(), body: { maxBookSizeMB: 150 } }))
+    .json(
+      200,
+      (body) => {
+        object(body)
+        object(body.values)
+        check(body.values.maxBookSizeMB === 150, "settings update should apply the new value")
+        check(isRecord(body.effective["maxBookSizeMB"]), "effective settings should include the patched leaf")
+      },
+      "status",
+    ),
+  http.protected
+    .get("/targeted-learning/settings/schema", "targetedLearning.settings.schema")
+    .json(
+      200,
+      (body) => {
+        object(body)
+        object(body.properties)
+      },
+      "status",
+    ),
+  http.protected
+    .get("/targeted-learning/settings/presets", "targetedLearning.settings.presets")
+    .json(
+      200,
+      (body) => {
+        object(body)
+        for (const key of ["low", "balanced", "high"]) check(isRecord(body[key]), `preset ${key} should exist`)
+      },
+      "status",
+    ),
+  http.protected
+    .get("/targeted-learning/health", "targetedLearning.health")
+    .json(
+      200,
+      (body) => {
+        object(body)
+        check(typeof body.setupStatus === "string", "health should report the setup status")
+        check(typeof body.booksDbAvailable === "boolean", "health should report books.db availability")
+        check(typeof body.modelReady === "boolean", "health should report model readiness")
+        check(body.manifestLoaded === true, "the pinned manifest means setup is always possible")
+      },
+      "status",
+    ),
+  http.protected
+    .get("/targeted-learning/debug/status", "targetedLearning.debug.status")
+    .json(200, object, "status"),
+  http.protected
+    .get("/targeted-learning/probe", "targetedLearning.probe")
+    .json(
+      200,
+      (body) => {
+        object(body)
+        check(typeof body.cpuCores === "number" && body.cpuCores > 0, "probe should detect the CPU")
+        check(typeof body.totalMemoryMB === "number", "probe should report memory")
+        check(typeof body.freeDiskMB === "number", "probe should report free disk")
+        check(typeof body.dataDirWritable === "boolean", "probe should verify the data dir")
+        check(
+          ["low", "balanced", "high"].includes(body.recommendedProfile),
+          "probe should recommend a profile",
+        )
+      },
+      "status",
+    ),
+  http.protected
+    .get("/targeted-learning/books", "targetedLearning.books.list")
+    .json(
+      200,
+      (body) => {
+        object(body)
+        array(body.books)
+        for (const book of body.books) {
+          object(book)
+          check(typeof book.id === "string", "books should have ids")
+          check(typeof book.status === "string", "books should report indexing status")
+        }
+      },
+      "status",
+    ),
+  http.protected
+    .post("/targeted-learning/books", "targetedLearning.books.upload")
+    .mutating()
+    .at((ctx) => ({
+      path: "/targeted-learning/books",
+      headers: ctx.headers(),
+      body: {
+        filename: "exercise-upload.txt",
+        contentBase64: Buffer.from("Exercise uploaded book.\n").toString("base64"),
+        title: "Exercise Upload",
+      },
+    }))
+    .json(
+      200,
+      (body) => {
+        object(body)
+        check(typeof body.bookId === "string" && body.bookId.length > 0, "upload should register the book")
+        check(typeof body.slug === "string" && body.slug.length > 0, "upload should derive a slug")
+        check(body.duplicate === false, "a fresh upload is not a duplicate")
+      },
+      "status",
+    ),
+  http.protected
+    .post("/targeted-learning/books/import", "targetedLearning.books.import")
+    .mutating()
+    .seeded((ctx) => ctx.file("exercise-import.txt", "Exercise imported book.\n"))
+    .at((ctx) => ({
+      path: "/targeted-learning/books/import",
+      headers: ctx.headers(),
+      body: { path: `${ctx.directory}/exercise-import.txt`, title: "Exercise Import" },
+    }))
+    .json(
+      200,
+      (body) => {
+        object(body)
+        check(typeof body.bookId === "string" && body.bookId.length > 0, "import should register the book")
+        check(body.duplicate === false, "a fresh import is not a duplicate")
+      },
+      "status",
+    ),
+  http.protected
+    .delete("/targeted-learning/books/{bookID}", "targetedLearning.books.delete")
+    .mutating()
+    .seeded((ctx) => bookUploadSeed(ctx, "Exercise Delete Me"))
+    .at((ctx) => ({
+      path: route("/targeted-learning/books/{bookID}", { bookID: ctx.state.bookId }),
+      headers: ctx.headers(),
+    }))
+    .json(
+      200,
+      (body) => {
+        check(body === true, "book delete should confirm removal")
+      },
+      "status",
+    ),
+  http.protected
+    .get("/targeted-learning/jobs", "targetedLearning.jobs.list")
+    .json(
+      200,
+      (body) => {
+        object(body)
+        array(body.jobs)
+        for (const job of body.jobs) {
+          object(job)
+          check(typeof job.id === "string", "jobs should have ids")
+          check(typeof job.status === "string", "jobs should report status")
+          check(typeof job.progress === "number", "jobs should report progress")
+        }
+      },
+      "status",
+    ),
+  http.protected
+    .post("/targeted-learning/jobs/{jobID}/pause", "targetedLearning.jobs.pause.missing")
+    .at((ctx) => ({
+      path: route("/targeted-learning/jobs/{jobID}/pause", { jobID: "job_exercise_missing" }),
+      headers: ctx.headers(),
+    }))
+    .json(200, (body) => check(body === false, "pausing an unknown job should report false"), "status"),
+  http.protected
+    .post("/targeted-learning/jobs/{jobID}/resume", "targetedLearning.jobs.resume.missing")
+    .at((ctx) => ({
+      path: route("/targeted-learning/jobs/{jobID}/resume", { jobID: "job_exercise_missing" }),
+      headers: ctx.headers(),
+    }))
+    .json(200, (body) => check(body === false, "resuming an unknown job should report false"), "status"),
+  http.protected
+    .post("/targeted-learning/jobs/{jobID}/cancel", "targetedLearning.jobs.cancel.missing")
+    .at((ctx) => ({
+      path: route("/targeted-learning/jobs/{jobID}/cancel", { jobID: "job_exercise_missing" }),
+      headers: ctx.headers(),
+    }))
+    .json(200, (body) => check(body === false, "cancelling an unknown job should report false"), "status"),
+  http.protected
+    .post("/targeted-learning/jobs/{jobID}/retry", "targetedLearning.jobs.retry.missing")
+    .at((ctx) => ({
+      path: route("/targeted-learning/jobs/{jobID}/retry", { jobID: "job_exercise_missing" }),
+      headers: ctx.headers(),
+    }))
+    .json(200, (body) => check(body === false, "retrying an unknown job should report false"), "status"),
+  http.protected
+    .post("/targeted-learning/search", "targetedLearning.search")
+    .at((ctx) => ({
+      path: "/targeted-learning/search",
+      headers: ctx.headers(),
+      body: { query: "what is photosynthesis?" },
+    }))
+    .json(
+      200,
+      (body) => {
+        object(body)
+        check(typeof body.decision === "string", "the inspector should report a gate decision")
+        check(typeof body.lang === "string", "the inspector should report the detected language")
+        array(body.candidates)
+        check(isRecord(body.thresholds), "the inspector should report the active thresholds")
+      },
+      "status",
+    ),
+  http.protected
+    .get("/targeted-learning/memory", "targetedLearning.memory.list")
+    .json(
+      200,
+      (body) => {
+        object(body)
+        array(body.student)
+        array(body.notes)
+        for (const memory of body.student) {
+          object(memory)
+          check(typeof memory.id === "string" && typeof memory.text === "string", "student memories should have id and text")
+          check(typeof memory.pinned === "boolean", "student memories should report pinned")
+        }
+        for (const note of body.notes) {
+          object(note)
+          check(typeof note.id === "string" && typeof note.bookId === "string", "book notes should have id and bookId")
+        }
+      },
+      "status",
+    ),
+  http.protected
+    .post("/targeted-learning/memory/student/{memoryID}/pin", "targetedLearning.memory.student.pin")
+    .mutating()
+    .seeded((ctx) => studentMemorySeed(ctx, "exercise goal: read one chapter per week"))
+    .at((ctx) => ({
+      path: route("/targeted-learning/memory/student/{memoryID}/pin", { memoryID: ctx.state.memoryID }),
+      headers: ctx.headers(),
+      body: { pinned: true },
+    }))
+    .json(
+      200,
+      (body) => {
+        check(body === true, "pinning a seeded memory should confirm")
+      },
+      "status",
+    ),
+  http.protected
+    .delete("/targeted-learning/memory/student/{memoryID}", "targetedLearning.memory.student.delete")
+    .mutating()
+    .seeded((ctx) => studentMemorySeed(ctx, "exercise goal: delete me"))
+    .at((ctx) => ({
+      path: route("/targeted-learning/memory/student/{memoryID}", { memoryID: ctx.state.memoryID }),
+      headers: ctx.headers(),
+    }))
+    .json(
+      200,
+      (body) => {
+        check(body === true, "deleting a seeded memory should confirm")
+      },
+      "status",
+    ),
+  http.protected
+    .delete("/targeted-learning/memory/notes/{noteID}", "targetedLearning.memory.note.delete")
+    .mutating()
+    .seeded((ctx) => bookNoteSeed(ctx))
+    .at((ctx) => ({
+      path: route("/targeted-learning/memory/notes/{noteID}", { noteID: ctx.state.noteID }),
+      headers: ctx.headers(),
+    }))
+    .json(
+      200,
+      (body) => {
+        check(body === true, "deleting a seeded book note should confirm")
+      },
+      "status",
+    ),
+  http.protected
     .post("/tui/append-prompt", "tui.appendPrompt")
     .at((ctx) => ({ path: "/tui/append-prompt", headers: ctx.headers(), body: { text: "hello" } }))
     .json(200, boolean, "status"),
@@ -1627,6 +2668,80 @@ const scenarios: Scenario[] = [
     .probe({ path: "/global/upgrade", body: { target: 1 } })
     .at(() => ({ path: "/global/upgrade", body: { target: 1 } }))
     .status(400),
+  http.protected
+    .get("/global/features", "global.features")
+    .global()
+    .json(
+      200,
+      (body) => {
+        object(body)
+        object(body.features)
+        for (const key of ["memory", "mcp", "lsp", "profiler"])
+          check(typeof body.features[key] === "boolean", `feature flag ${key} should be a boolean`)
+        array(body.envDisabled)
+        check(typeof body.lspEnabled === "boolean", "lspEnabled should be a boolean")
+        array(body.lspServers)
+        for (const server of body.lspServers) {
+          object(server)
+          check(typeof server.id === "string", "LSP servers should have ids")
+          array(server.extensions)
+          check(typeof server.disabled === "boolean", "LSP servers should report disabled state")
+        }
+        object(body.performance)
+        check(typeof body.performance.keepProjectsWarm === "boolean", "keepProjectsWarm should be a boolean")
+        object(body.probes)
+        check(typeof body.probes.fts5 === "string" && typeof body.probes.ssh2 === "string", "probes should report runtime capabilities")
+      },
+      "status",
+    ),
+  http.protected
+    .post("/global/restart", "global.restart")
+    .global()
+    // POST /global/restart declares no payload schema, so EVERY authenticated call reaches
+    // the handler: it re-execs the current entrypoint (for the exerciser: this very script)
+    // and schedules a real process.exit 500ms later. An auth-mode probe would therefore
+    // fork-bomb the run, so the scenario only participates in coverage + effect mode, where
+    // the seed stubs process.exit and redirects the re-exec target to a no-op script first.
+    .onlyIn("coverage", "effect")
+    .mutating()
+    .seeded(() =>
+      Effect.gen(function* () {
+        const noOpScript = path.join(exerciseGlobalRoot, "restart-child.ts")
+        yield* Effect.promise(() => Bun.write(noOpScript, "process.exit(0)\n"))
+        const originalExit = process.exit
+        const holder = { exitRequested: undefined as number | undefined }
+        Object.defineProperty(process, "exit", {
+          value: (code?: number) => {
+            holder.exitRequested = code ?? 0
+          },
+          configurable: true,
+          writable: true,
+        })
+        const originalArgv = [...process.argv]
+        process.argv = [originalArgv[0]!, noOpScript]
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            Object.defineProperty(process, "exit", { value: originalExit, configurable: true, writable: true })
+            process.argv = originalArgv
+          }),
+        )
+        return holder
+      }),
+    )
+    .at((ctx) => ({ path: "/global/restart" }))
+    .jsonEffect(
+      200,
+      (body, ctx) =>
+        Effect.gen(function* () {
+          object(body)
+          check(body.started === true, "restart should report that the replacement process was started")
+          // The scheduled exit fires ~500ms after the response; scenarios run sequentially,
+          // so the stub is still installed when it fires.
+          yield* Effect.sleep("700 millis")
+          check(ctx.state.exitRequested === 0, "the restart should have scheduled a process exit")
+        }),
+      "status",
+    ),
 ]
 
 const llmScenarios = new Set([

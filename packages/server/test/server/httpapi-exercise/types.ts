@@ -15,7 +15,14 @@ export type OpenApiMethod = (typeof OpenApiMethods)[number]
 export type Mode = "effect" | "coverage" | "auth"
 export type Comparison = "none" | "status" | "json"
 export type CaptureMode = "full" | "stream"
-export type AuthPolicy = "protected" | "public" | "public-bypass" | "ticket-bypass"
+/**
+ * `protected`  — Basic credentials: missing credentials must 401, valid ones must not.
+ * `protected-jwt` — the route authenticates with a Bearer JWT issued to a real user, so
+ *   Basic credentials are not applicable: only the missing-credentials leg runs, and it
+ *   must 401 (e.g. `/api/auth/me`, where the `/api/auth/` prefix bypasses Basic auth).
+ * `public` / `public-bypass` / `ticket-bypass` — a missing-credential probe must not 401.
+ */
+export type AuthPolicy = "protected" | "protected-jwt" | "public" | "public-bypass" | "ticket-bypass"
 export type ProjectOptions = { git?: boolean; config?: Partial<ConfigV1.Info>; llm?: boolean }
 export type OpenApiSpec = { paths?: Record<string, Partial<Record<OpenApiMethod, unknown>>> }
 export type JsonObject = Record<string, unknown>
@@ -55,6 +62,13 @@ export type ScenarioContext = {
   directory: string | undefined
   headers: (extra?: Record<string, string>) => Record<string, string>
   file: (name: string, content: string) => Effect.Effect<void>
+  /**
+   * Issue an HTTP request against the same in-process app the scenario's own call uses
+   * (Basic credentials by default, overridable via headers). Seeds use it to reach real
+   * routes — registering users, creating tasks, warming route layers — without a second
+   * server and without touching service layers directly.
+   */
+  request: (input: { path: string; method?: Method; headers?: Record<string, string>; body?: unknown }) => Effect.Effect<CallResult>
   session: (input?: { title?: string; parentID?: SessionID }) => Effect.Effect<SessionInfo>
   sessionGet: (sessionID: SessionID) => Effect.Effect<SessionInfo | undefined>
   project: () => Effect.Effect<Project.Info>
@@ -89,6 +103,8 @@ export type ActiveScenario = {
   mutates: boolean
   reset: boolean
   auth: AuthPolicy
+  /** When set, the scenario only participates in the listed modes (excluded elsewhere). */
+  modes: Mode[] | undefined
 }
 
 export type BuilderState<S> = {
@@ -103,6 +119,7 @@ export type BuilderState<S> = {
   mutates: boolean
   reset: boolean
   auth: AuthPolicy
+  modes: Mode[] | undefined
 }
 
 export type TodoScenario = {

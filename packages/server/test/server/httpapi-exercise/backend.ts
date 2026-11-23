@@ -22,6 +22,31 @@ export function call(scenario: ActiveScenario, ctx: SeededContext<unknown>, opti
   )
 }
 
+/**
+ * Raw request against the shared exercise app (Basic credentials unless overridden).
+ * Scenario seeds use this to drive real routes — registering users, creating tasks,
+ * warming route layers — before the scenario's own call runs.
+ */
+export async function exerciseRequest(input: {
+  path: string
+  method?: ActiveScenario["method"]
+  headers?: Record<string, string>
+  body?: unknown
+}): Promise<CallResult> {
+  const method = input.method ?? "GET"
+  const hasBody = input.body !== undefined
+  const request = new Request(new URL(input.path, "http://localhost"), {
+    method,
+    headers: {
+      authorization: basic(TEST_AUTH.username, TEST_AUTH.password),
+      ...(hasBody ? { "content-type": "application/json" } : {}),
+      ...input.headers,
+    },
+    body: hasBody ? JSON.stringify(input.body) : undefined,
+  })
+  return capture(await app(await runtime(), { auth: TEST_AUTH }).request(request), "full")
+}
+
 export function callAuthProbe(scenario: ActiveScenario, credentials: "missing" | "valid" = "missing") {
   return Effect.promise(async () => {
     const controller = new AbortController()

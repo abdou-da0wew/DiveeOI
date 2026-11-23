@@ -65,7 +65,11 @@ export function matches(options: Options, scenario: Scenario) {
 }
 
 export function selectedScenarios(options: Options, scenarios: Scenario[]) {
-  const included = scenarios.filter((scenario) => matches(options, scenario))
+  // Scenarios restricted via `.onlyIn(...)` are simply not selected in other modes:
+  // they neither run nor count as skips (their route is still covered in the listed
+  // modes and by the coverage-mode missing check, which uses the full list).
+  const eligible = scenarios.filter((scenario) => !(scenario.kind === "active" && scenario.modes && !scenario.modes.includes(options.mode)))
+  const included = eligible.filter((scenario) => matches(options, scenario))
   const start = options.startAt ? included.findIndex((scenario) => matchesName(options.startAt!, scenario)) : 0
   const end = options.stopAt
     ? included.findIndex((scenario) => matchesName(options.stopAt!, scenario))

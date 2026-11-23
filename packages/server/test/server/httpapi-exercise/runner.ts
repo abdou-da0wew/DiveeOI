@@ -7,7 +7,7 @@ import type { Config } from "../../../src/config/config"
 
 import type { MessageV2 } from "../../../src/session/message-v2"
 import { MessageID, PartID } from "../../../src/session/schema"
-import { call, callAuthProbe, disposeApps } from "./backend"
+import { call, callAuthProbe, disposeApps, exerciseRequest } from "./backend"
 import { original } from "./environment"
 import { runtime } from "./runtime"
 import type { ActiveScenario, Options, ProjectOptions, Result, Scenario, ScenarioContext, SeededContext } from "./types"
@@ -47,8 +47,9 @@ function runActive(options: Options, scenario: ActiveScenario) {
 function runAuth(scenario: ActiveScenario) {
   return Effect.gen(function* () {
     const result = yield* callAuthProbe(scenario, "missing")
-    if (scenario.auth === "protected") {
+    if (scenario.auth === "protected" || scenario.auth === "protected-jwt") {
       if (result.status !== 401) throw new Error(`auth expected 401, got ${result.status}`)
+      if (scenario.auth === "protected-jwt") return
       const authed = yield* callAuthProbe(scenario, "valid")
       if (authed.status === 401) throw new Error("auth rejected valid credentials")
       return
@@ -129,6 +130,15 @@ function withContext<A, E>(
             ...(context.dir?.path ? { "x-opencode-directory": context.dir.path } : {}),
             ...extra,
           }),
+          request: (input) =>
+            Effect.promise(() =>
+              exerciseRequest({
+                path: input.path,
+                method: input.method,
+                headers: { ...(context.dir?.path ? { "x-opencode-directory": context.dir.path } : {}), ...input.headers },
+                body: input.body,
+              }),
+            ),
           file: (name, content) =>
             Effect.promise(() => {
               return Bun.write(`${directory()}/${name}`, content)
