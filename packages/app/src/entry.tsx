@@ -150,10 +150,23 @@ if (import.meta.env.VITE_SENTRY_DSN) {
 }
 
 if (root instanceof HTMLElement) {
-  // Credentials from legacy auth_token links remain supported. Do not bake
-  // server passwords into the browser bundle; Basic credentials are entered in
-  // the themed login form and held in memory for the active connection.
+  // Credentials from legacy auth_token links remain supported (deprecation
+  // decided 2026-11-23, removal not scheduled yet). Rationale: they are the
+  // only login path for headless deployments without a managed account, so a
+  // hard cutoff would lock users out with no recovery. The mechanism is
+  // memory-only (setBasicCredentials keeps an in-page Map) and the query
+  // parameter is stripped via history.replaceState before anything renders,
+  // so the credential never lands in browser history. Do not bake server
+  // passwords into the browser bundle; Basic credentials are entered in the
+  // themed login form and held in memory for the active connection.
   const auth = authFromToken(new URLSearchParams(location.search).get("auth_token"))
+  if (auth) {
+    console.warn(
+      "[diveeoi] ?auth_token links are deprecated: they embed Basic credentials in a URL. " +
+        "They keep working for now, but share links without credentials and use the server " +
+        "login form instead. A future release will stop honoring them.",
+    )
+  }
   clearAuthToken()
   const server: ServerConnection.Http = {
     type: "http",
