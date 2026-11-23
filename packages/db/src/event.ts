@@ -21,9 +21,32 @@ export type ID = typeof ID.Type
 
 /**
  * Durable aggregate continuation position for embedded replay streams.
- * TODO: Decide whether a future HTTP / SDK surface should expose an opaque cursor instead.
+ *
+ * HTTP/SDK decision (2026-11-23): clients will carry an OPAQUE token, not the
+ * raw integer, so the wire contract can evolve (e.g. composite cursors) without
+ * breaking stored bookmarks. encode/decode below implement the `v1` token; the
+ * HTTP surface keeps accepting the raw integer until the next SDK regen cycle,
+ * and decode() accepts both so the switch is compatible in both directions.
  */
-export const Cursor = NonNegativeInt.pipe(Schema.brand("EventV2.Cursor"))
+export const Cursor = NonNegativeInt.pipe(Schema.brand("EventV2.Cursor")).pipe(
+  withStatics((schema) => ({
+    create: (value: number) => schema.make(value),
+    encode: (cursor: number & { readonly __brand: "EventV2.Cursor" }) =>
+      Buffer.from(`evt-cursor-v1:${cursor}`).toString("base64url"),
+    decode: (token: string): Cursor | undefined => {
+      const numeric = Number(token)
+      if (Number.isInteger(numeric) && numeric >= 0) return schema.make(numeric)
+      try {
+        const decoded = Buffer.from(token, "base64url").toString("utf8")
+        if (!decoded.startsWith("evt-cursor-v1:")) return undefined
+        const value = Number(decoded.slice("evt-cursor-v1:".length))
+        return Number.isInteger(value) && value >= 0 ? schema.make(value) : undefined
+      } catch {
+        return undefined
+      }
+    },
+  })),
+)
 export type Cursor = typeof Cursor.Type
 
 export type Definition<Type extends string = string, DataSchema extends Schema.Top = Schema.Top> = {

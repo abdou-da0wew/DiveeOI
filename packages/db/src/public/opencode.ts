@@ -140,4 +140,19 @@ export const layerWithDatabase = (database: Layer.Layer<Database.Service>) =>
 
 export const layer = layerWithDatabase(Database.defaultLayer)
 
-// TODO: Add OpenCode.create(...) as the Promise facade over the same native API semantics.
+export interface CreateOptions {
+  /** Application-owned or disposable database layer; defaults to the production database. */
+  database?: Layer.Layer<Database.Service>
+}
+
+/**
+ * Promise facade over the same native API semantics as `layer` (2026-11-23):
+ * builds the public service graph and resolves the `Interface` as a plain
+ * Promise for non-Effect embedders. Same graph, same behavior — only delivery.
+ */
+export const create = (options: CreateOptions = {}): Promise<Interface> =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      return yield* Service
+    }).pipe(Effect.provide(layerWithDatabase(options.database ?? Database.defaultLayer))),
+  )

@@ -13,6 +13,7 @@ import { EventV2 } from "./event"
 import { Database } from "./database/database"
 import { SessionProjector } from "./session/projector"
 import { SessionMessageTable, SessionTable } from "./session/sql"
+import { WorkspaceTable } from "./control-plane/workspace.sql"
 import { SessionSchema } from "./session/schema"
 import { AbsolutePath, PositiveInt, RelativePath } from "./schema"
 import { AgentV2 } from "./agent"
@@ -86,6 +87,14 @@ export class NotFoundError extends Schema.TaggedErrorClass<NotFoundError>()("Ses
   sessionID: SessionSchema.ID,
 }) {}
 
+/** Raised by reattach when the target workspace does not exist (replaced/removed). */
+export class WorkspaceNotFoundError extends Schema.TaggedErrorClass<WorkspaceNotFoundError>()(
+  "Session.WorkspaceNotFoundError",
+  {
+    workspaceID: WorkspaceV2.ID,
+  },
+) {}
+
 export class OperationUnavailableError extends Schema.TaggedErrorClass<OperationUnavailableError>()(
   "Session.OperationUnavailableError",
   {
@@ -155,6 +164,17 @@ export interface Interface {
   }) => Effect.Effect<void, OperationUnavailableError>
   readonly compact: (input: CompactInput) => Effect.Effect<void, NotFoundError | OperationUnavailableError>
   readonly wait: (id: SessionSchema.ID) => Effect.Effect<void, NotFoundError | OperationUnavailableError>
+  /**
+   * Attach a session to a workspace (2026-11-23): re-publishes the durable
+   * Moved event with the new workspace binding, which the projector applies to
+   * the session row (and resets the context epoch). This is the public slice
+   * for restoring recorded sessions onto replacement synchronized workspaces —
+   * the previous create() path intentionally left them untouched.
+   */
+  readonly reattach: (input: {
+    sessionID: SessionSchema.ID
+    workspaceID: WorkspaceV2.ID
+  }) => Effect.Effect<SessionSchema.Info, NotFoundError | WorkspaceNotFoundError>
   readonly resume: (sessionID: SessionSchema.ID) => Effect.Effect<void, NotFoundError | SessionRunner.RunError>
   readonly interrupt: (sessionID: SessionSchema.ID) => Effect.Effect<void>
 }
@@ -249,7 +269,9 @@ export const layer = Layer.effect(
             }),
           )
         if (projected.type === "existing") return projected.session
-        // TODO: Restore recorded sessions onto replacement synchronized workspaces in a future API slice.
+        // Recorded sessions (projected by a sync/restore stream) surface here
+        // untouched; reattach(sessionID, workspaceID) is the public slice that
+        // binds them to a replacement workspace.
         return yield* result.get(sessionID).pipe(Effect.orDie)
       }),
       get: Effect.fn("V2Session.get")(function* (sessionID) {
@@ -395,6 +417,28 @@ export const layer = Layer.effect(
       compact: Effect.fn("V2Session.compact")(function* (input) {
         yield* result.get(input.sessionID)
         return yield* new OperationUnavailableError({ operation: "compact" })
+      }),
+      reattach: Effect.fn("V2Session.reattach")(function* (input) {
+        const session = yield* result.get(input.sessionID)
+        const workspace = yield* db
+          .select({ id: WorkspaceTable.id })
+          .from(WorkspaceTable)
+          .where(eq(WorkspaceTable.id, input.workspaceID))
+          .get()
+          .pipe(Effect.orDie)
+        if (!workspace) return yield* new WorkspaceNotFoundError({ workspaceID: input.workspaceID })
+        yield* events.publish(SessionEvent.Moved, {
+          sessionID: input.sessionID,
+          location: Location.Ref.make({
+            directory: session.location.directory,
+            workspaceID: input.workspaceID,
+          }),
+          // The directory is unchanged; the Moved projector recomputes the
+          // project-relative path from the (unchanged) directory, so no
+          // subdirectory override is needed.
+          timestamp: yield* DateTime.now,
+        })
+        return yield* result.get(input.sessionID)
       }),
       wait: Effect.fn("V2Session.wait")(function* (sessionID) {
         yield* result.get(sessionID)
