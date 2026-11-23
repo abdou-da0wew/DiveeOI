@@ -3,6 +3,7 @@ import { HttpApiBuilder, OpenApi } from "effect/unstable/httpapi"
 import { HttpClient, HttpMiddleware, HttpRouter, HttpServer, HttpServerResponse } from "effect/unstable/http"
 import * as Socket from "effect/unstable/socket/Socket"
 import { FSUtil } from "@diveeoi/db/fs-util"
+import { CrossSpawnSpawner } from "@diveeoi/db/cross-spawn-spawner"
 import * as Observability from "@diveeoi/db/observability"
 import { Config } from "@/config/config"
 import { PluginPtyEnvironment } from "@/plugin/pty-environment"
@@ -209,6 +210,13 @@ return Layer.mergeAll(
     Layer.provide(LayerNode.buildLayer(app)),
     Layer.provideMerge(LayerNode.buildLayer(SessionMemoryIntegration.node)),
     Layer.provideMerge(LayerNode.buildLayer(ToolRegistry.node)),
+    // ToolRegistry's lazily-initialized tools (P6 machine tools, skill,
+    // apply_patch) require ChildProcessSpawner / FSUtil at init; without them
+    // the experimental tool-ID route fails with "Service not found:
+    // effect/process/ChildProcessSpawner" (HTTP API exercise effect mode,
+    // RELEASE_HANDOFF_2026-11-03.md §5/§6).
+    Layer.provideMerge(FSUtil.defaultLayer),
+    Layer.provideMerge(CrossSpawnSpawner.defaultLayer),
     Layer.provide(Layer.succeed(CorsConfig)(corsOptions)),
     Layer.provide(Observability.layer),
   ) as Layer.Layer<never, EffectConfig.ConfigError, RouteRequirements>

@@ -1,7 +1,7 @@
 export * as FileSystemSearch from "./search"
 
 import path from "path"
-import { Context, Effect, Layer, Scope } from "effect"
+import { Context, Effect, Fiber, Layer, Scope } from "effect"
 import { Fff } from "./fff.bun"
 import fuzzysort from "fuzzysort"
 import { FileSystem } from "../filesystem"
@@ -38,6 +38,10 @@ export const ripgrepLayer = Layer.effect(
     // Keep the fallback index idle until the file picker asks for it.
     // Scanning during per-workspace layer construction multiplied one crawl
     // into hundreds of concurrent ripgrep processes.
+    // The first find() caller must WAIT for the crawl to finish: forking
+    // fire-and-forget raced every cold query against the ripgrep scan and
+    // served an empty index (findFile returned [] — httpapi-file
+    // "serves search endpoints" failed on any machine slower than the VDS).
     const maxIndexedFiles = 40_000
     let indexStarted = false
     const startIndex = Effect.suspend(() => {
@@ -66,7 +70,14 @@ export const ripgrepLayer = Layer.effect(
               }
             }),
         })
-        .pipe(Effect.orDie, Effect.asVoid, Effect.forkIn(scope), Effect.asVoid)
+        .pipe(
+          // Fork keeps the crawl attached to the layer scope (cancelled on
+          // teardown); joining it keeps the first find() caller correct.
+          Effect.orDie,
+          Effect.asVoid,
+          Effect.forkIn(scope),
+          Effect.flatMap((fiber) => Effect.asVoid(Fiber.join(fiber))),
+        )
     })
     return Service.of({
       glob: (input) =>

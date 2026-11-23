@@ -6,6 +6,7 @@ import { GlobTool } from "../../src/tool/glob"
 import { SessionID, MessageID } from "../../src/session/schema"
 import { CrossSpawnSpawner } from "@diveeoi/db/cross-spawn-spawner"
 import { Ripgrep } from "@diveeoi/db/ripgrep"
+import { RemoteSession } from "../../src/ssh-client"
 import { FSUtil } from "@diveeoi/db/fs-util"
 import { Global } from "@diveeoi/db/global"
 import { Truncate } from "@/tool/truncate"
@@ -27,6 +28,9 @@ const toolLayer = (flags: Partial<RuntimeFlags.Info> = {}) =>
     Truncate.defaultLayer,
     Agent.defaultLayer,
     Git.defaultLayer,
+    // The tool stack reads RemoteSession.Service (SSH spawner selection for
+    // remote workspaces); provide the local no-op implementation explicitly.
+    RemoteSession.defaultLayer,
   )
 
 const it = testEffect(toolLayer())

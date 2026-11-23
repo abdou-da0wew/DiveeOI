@@ -15,6 +15,7 @@ import path from "path"
 import { fileURLToPath } from "url"
 import { NamedError } from "@diveeoi/db/util/error"
 import { Agent as AgentSvc } from "../../src/agent/agent"
+import { RemoteSession } from "../../src/ssh-client"
 import { BackgroundJob } from "@/background/job"
 import { Command } from "../../src/command"
 import { Config } from "@/config/config"
@@ -193,6 +194,10 @@ function makePrompt(input?: { processor?: "blocking" }) {
     mcp,
     FSUtil.defaultLayer,
     BackgroundJob.defaultLayer,
+    // SessionPrompt reads RemoteSession.Service to pick the SSH spawner for
+    // remote workspaces; the production graph gets it via AppServices.serviceNodes,
+    // this hand-built test graph must provide it explicitly.
+    RemoteSession.defaultLayer,
     status,
     Database.defaultLayer,
     EventV2Bridge.defaultLayer,

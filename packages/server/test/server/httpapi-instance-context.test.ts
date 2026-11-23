@@ -14,6 +14,7 @@ import { Workspace } from "../../src/control-plane/workspace"
 import { InstanceRef, WorkspaceRef } from "../../src/effect/instance-ref"
 import { InstanceLayer } from "../../src/project/instance-layer"
 import { Project } from "../../src/project/project"
+import { RemoteSession } from "../../src/ssh-client"
 import { Session } from "../../src/session/session"
 import { disposeMiddleware, markInstanceForDisposal } from "../../src/server/routes/instance/httpapi/lifecycle"
 import {
@@ -56,7 +57,13 @@ const it = testEffect(
     InstanceLayer.layer,
     Project.defaultLayer,
     workspaceLayer,
-  ).pipe(Layer.provide(Ripgrep.defaultLayer)),
+  )
+    .pipe(Layer.provide(Ripgrep.defaultLayer))
+    // instanceContextLayer reads RemoteSession.Service at construction (the
+    // middleware probes remote workspaces); the plain production graph gets it
+    // from AppServices.serviceNodes (commit e7baab3), so the minimal test
+    // stack must provide it explicitly.
+    .pipe(Layer.provideMerge(RemoteSession.defaultLayer)),
 )
 
 const instanceContextTestLayer = Layer.mergeAll(

@@ -21,9 +21,12 @@ function request(route: string, directory: string, init: RequestInit = {}) {
 const Event = Schema.Struct({
   id: Schema.String,
   type: Schema.String,
+  // Every streamed event carries the instance location, but only instance-level
+  // events (server.connected, session.*, ...) carry `location.project`; purely
+  // filesystem-scoped events (e.g. file.watcher.updated) omit it.
   location: Schema.Struct({
     directory: Schema.String,
-    project: Schema.Struct({ id: Schema.String, directory: Schema.String }),
+    project: Schema.optional(Schema.Struct({ id: Schema.String, directory: Schema.String })),
   }),
   data: Schema.Unknown,
 })

@@ -51,6 +51,8 @@ import { SessionShare } from "@/share/session"
 import { Npm } from "@diveeoi/db/npm"
 import { defaultLayer as AdaptiveResourceDefaultLayer } from "@diveeoi/db/adaptive"
 import { memoMap } from "@diveeoi/db/effect/memo-map"
+import { FSUtil } from "@diveeoi/db/fs-util"
+import { CrossSpawnSpawner } from "@diveeoi/db/cross-spawn-spawner"
 import { BackgroundJob } from "@/background/job"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
@@ -109,6 +111,14 @@ export const AppLayer = Layer.mergeAll(
   Layer.provideMerge(Ripgrep.defaultLayer),
   Layer.provideMerge(InstanceLayer.layer),
   Layer.provideMerge(Observability.layer),
+  // P6 machine tools (notify/exec/screenshot/...) lazily require
+  // ChildProcessSpawner, and skill/apply_patch require FSUtil, at ToolRegistry
+  // init. Without these the `as never` cast hides unsatisfied R types and the
+  // experimental tool-ID route fails with "Service not found:
+  // effect/process/ChildProcessSpawner" (HTTP API exercise effect mode,
+  // RELEASE_HANDOFF_2026-11-03.md §5/§6).
+  Layer.provideMerge(FSUtil.defaultLayer),
+  Layer.provideMerge(CrossSpawnSpawner.defaultLayer),
 )
 
 const rt = ManagedRuntime.make(AppLayer as never, { memoMap })

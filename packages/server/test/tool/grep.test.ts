@@ -12,6 +12,7 @@ import { Global } from "@diveeoi/db/global"
 import { Truncate } from "@/tool/truncate"
 import { Agent } from "../../src/agent/agent"
 import { Ripgrep } from "@diveeoi/db/ripgrep"
+import { RemoteSession } from "../../src/ssh-client"
 import { FSUtil } from "@diveeoi/db/fs-util"
 import { testEffect } from "../lib/effect"
 import { Permission } from "../../src/permission"
@@ -29,6 +30,9 @@ const toolLayer = (flags: Partial<RuntimeFlags.Info> = {}) =>
     Truncate.defaultLayer,
     Agent.defaultLayer,
     Git.defaultLayer,
+    // The tool stack reads RemoteSession.Service (SSH spawner selection for
+    // remote workspaces); provide the local no-op implementation explicitly.
+    RemoteSession.defaultLayer,
   )
 
 const it = testEffect(toolLayer())

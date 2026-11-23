@@ -48,7 +48,10 @@ describe("plugin.openai.ws", () => {
         url: server.wsUrl,
         headers: {},
       }),
-    ).rejects.toThrow("Unexpected server response: 401")
+      // The rejection must surface the upgrade failure. Node's ws and newer
+      // Bun builds phrase it as "Unexpected server response: 401"; the pinned
+      // Bun 1.3.14 native WebSocket phrases it as "Expected 101 status code".
+    ).rejects.toThrow(/Unexpected server response: 401|Expected 101 status code/)
   })
 
   test("enforces websocket send idle timeout", async () => {
