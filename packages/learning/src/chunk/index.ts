@@ -184,15 +184,42 @@ const buildSectionsFromOutline = (parseResult: ParseResult): SectionText[] => {
     if (idx < 0 || idx >= pages.length) return null
     const pageText = pages[idx]!.text
     const localFrom = Math.max(0, Math.min(fromAbs - pageStarts[idx]!, pageText.length))
-    const exact = pageText.indexOf(trimmed, localFrom)
-    if (exact >= 0) return { index: pageStarts[idx]! + exact, length: trimmed.length }
+
+    // Collect every occurrence of the title on this page (exact first, then the
+    // whitespace-flexible form used before).
+    const candidates: number[] = []
+    for (let at = localFrom; (at = pageText.indexOf(trimmed, at)) >= 0; at += Math.max(1, trimmed.length)) {
+      candidates.push(at)
+      if (candidates.length > 200) break
+    }
     const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+")
-    if (!escaped) return null
-    const re = new RegExp(escaped, "g")
-    re.lastIndex = localFrom
-    const match = re.exec(pageText)
-    if (match && match[0].length > 0) return { index: pageStarts[idx]! + match.index, length: match[0].length }
-    return null
+    if (escaped) {
+      const re = new RegExp(escaped, "g")
+      re.lastIndex = localFrom
+      let match: RegExpExecArray | null
+      while ((match = re.exec(pageText)) !== null && candidates.length <= 200) {
+        if (match[0].length > 0) candidates.push(match.index)
+        else re.lastIndex++
+      }
+    }
+    if (candidates.length === 0) return null
+
+    // Prefer an occurrence where the heading occupies its own line: a TOC line
+    // embeds the title with trailing leader dots / a page number ("Chapter 3
+    // Advanced Topics ..... 42"), so requiring an empty line-tail skips the TOC
+    // occurrence and anchors the real heading further down. When NO standalone
+    // occurrence exists (headings mid-paragraph, wrapped lines), the first
+    // occurrence wins exactly like the previous implementation.
+    const isStandalone = (start: number): boolean => {
+      const end = start + trimmed.length
+      if (start > 0 && !/[\r\n]/.test(pageText[start - 1]!)) return false
+      let e = end
+      while (e < pageText.length && (pageText[e] === " " || pageText[e] === "\t")) e++
+      return e >= pageText.length || /[\r\n]/.test(pageText[e]!)
+    }
+    const standalone = candidates.find(isStandalone)
+    const start = standalone ?? candidates[0]!
+    return { index: pageStarts[idx]! + start, length: trimmed.length }
   }
 
   // Sort by page only (stable sort — same-page entries keep their document
@@ -237,6 +264,11 @@ const buildSectionsFromOutline = (parseResult: ParseResult): SectionText[] => {
   }
 
   const sections: SectionText[] = []
+  // The previous section's effective text end (absolute offset). The next
+  // section starts AT its own heading exactly when the previous one ended
+  // there — that makes located headings tile without duplication while
+  // unlocatable headings keep the legacy whole-page behavior.
+  let prevEffectiveEnd: number | null = null
 
   for (let i = 0; i < sorted.length; i++) {
     const entry = sorted[i]!
@@ -287,13 +319,32 @@ const buildSectionsFromOutline = (parseResult: ParseResult): SectionText[] => {
       // page as this entry, split the page text BETWEEN the two headings:
       // heading i owns the text from its own position to the next bounding
       // heading's position. Unfindable headings keep the legacy page range.
+      //
+      // Cross-page bounds (refined semantics, 2026-11-23): when the NEXT
+      // bounding heading can be located on its page, this section ends AT the
+      // heading instead of swallowing the whole boundary page — the tail of the
+      // boundary page belongs to the next section (the old behavior duplicated
+      // ~1 whole page at every cross-page PDF bound, ~2x per boundary pair).
+      // And when the previous section ended exactly at this heading's position
+      // (both headings locatable), this section starts AT the heading instead
+      // of re-including the page-head region. Unfindable headings on either
+      // side keep the legacy whole-page behavior so nothing is ever dropped.
       const ownHeading = headingAt[i]!
-      if (i > 0 && sorted[i - 1]!.page === entry.page && ownHeading !== null && ownHeading > textStart) {
+      if (
+        i > 0 &&
+        ownHeading !== null &&
+        ownHeading > textStart &&
+        // Same-page previous entry (the Bug #2 tiling), or a cross-page
+        // previous section whose effective end is exactly this heading.
+        (sorted[i - 1]!.page === entry.page || prevEffectiveEnd === ownHeading)
+      ) {
         textStart = ownHeading
       }
-      if (nextEntry && nextEntry.page === entry.page) {
+      if (nextEntry) {
         const boundHeading = headingAt[boundIdx]!
-        if (boundHeading !== null && boundHeading > textStart) textEnd = boundHeading
+        if (boundHeading !== null && boundHeading > textStart && boundHeading < textEnd) {
+          textEnd = boundHeading
+        }
       }
       if (textEnd < textStart) textEnd = textStart
     }
@@ -305,6 +356,7 @@ const buildSectionsFromOutline = (parseResult: ParseResult): SectionText[] => {
       pageEnd,
       ancestors,
     })
+    prevEffectiveEnd = textEnd
   }
 
   return sections

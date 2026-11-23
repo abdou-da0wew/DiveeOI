@@ -189,7 +189,7 @@ describe("outline page tiling (Bug #2 regression)", () => {
     })
   })
 
-  test("genuine multi-page outline keeps its legacy whole-page section ranges", async () => {
+  test("genuine multi-page outline splits located cross-page bounds at the heading (no whole-page duplication)", async () => {
     const parseResult: ParseResult = {
       pages: [
         { page: 1, text: "Chapter A\nAlpha page body text." },
@@ -207,11 +207,21 @@ describe("outline page tiling (Bug #2 regression)", () => {
     }
     const result = await Effect.runPromise(chunk(parseResult, "mp-book", defaultOptions))
     expect(result.sections.length).toBe(3)
-    // Section i spans pages [own .. bound] (the historical whole-page semantics,
-    // byte-identical) and the page fields are unchanged.
-    expect(result.sections[0]!.text).toBe("Chapter A\nAlpha page body text.\n\nChapter B\nBeta page body text.")
-    expect(result.sections[1]!.text).toBe("Chapter B\nBeta page body text.\n\nChapter C\nGamma page body text.")
+    // Refined cross-page semantics (2026-11-23): located headings end the
+    // previous section AT the heading and start the next one there, so the
+    // boundary page is no longer duplicated (~2x overlap removed). The sections
+    // now TILE the whole stream byte-for-byte.
+    expect(result.sections[0]!.text).toBe("Chapter A\nAlpha page body text.")
+    expect(result.sections[1]!.text).toBe("Chapter B\nBeta page body text.")
     expect(result.sections[2]!.text).toBe("Chapter C\nGamma page body text.")
+    // The sections tile every byte of CONTENT. The inter-page "\n\n" glue is
+    // dropped where a range ends exactly at the next page's first character
+    // (the boundary page contributes an empty slice) — invisible to the
+    // sentence splitter, token counters and FTS.
+    expect(result.sections.map((s) => s.text).join("")).toBe(
+      "Chapter A\nAlpha page body text.Chapter B\nBeta page body text.Chapter C\nGamma page body text.",
+    )
+    // pageStart/pageEnd fields KEEP their legacy whole-page meaning (UI ranges).
     expect(result.sections.map((s) => [s.pageStart, s.pageEnd])).toEqual([
       [1, 2],
       [2, 3],
@@ -251,11 +261,44 @@ describe("outline page tiling (Bug #2 regression)", () => {
     expect(b!.text).toContain("Beta body content.")
     expect(b!.text).not.toContain("Chapter C")
     expect(b!.text.length).toBeLessThan(parseResult.pages[1]!.text.length)
-    // C starts at its own heading and owns the rest of page 2 (plus the legacy
-    // whole-page run through its cross-page bound on page 3).
+    // C starts at its own heading and owns the rest of page 2; its cross-page
+    // bound stops AT Chapter D's heading (the boundary page tail belongs to D).
     expect(c!.text.startsWith("Chapter C")).toBe(true)
     expect(c!.text).toContain("Gamma-gamma body content.")
     expect(c!.text).not.toContain("Beta body content.")
+    expect(c!.text).not.toContain("Chapter D")
+  })
+
+  test("TOC lines on the same page do not anchor section starts — real standalone headings do", async () => {
+    // A TOC page lists every heading with leader dots + page numbers, and the
+    // real headings follow later (TXT parsers stamp everything page 1). The
+    // old first-occurrence matcher anchored each section at its TOC line,
+    // slicing the TOC page instead of the body. Standalone-line preference
+    // skips TOC occurrences (they have a non-empty line tail).
+    const toc = [
+      "Contents",
+      "Chapter 1: Foundations ........ 2",
+      "Chapter 2: Methods ............ 9",
+      "Chapter 3: Results ........... 14",
+    ].join("\n")
+    const chapter = (h: number) => `Chapter ${h}: ${["Foundations", "Methods", "Results"][h - 1]}\nBody paragraph ${h} with real prose content.`
+    const text = [toc, "", chapter(1), chapter(2), chapter(3), "Epilogue text."].join("\n\n")
+    const parsed = await Effect.runPromise(parseTxt(text))
+    expect(parsed.outline.length).toBeGreaterThanOrEqual(3)
+
+    const result = await Effect.runPromise(chunk(parsed, "toc-book", { ...defaultOptions, parentMaxTokens: 100_000 }))
+    // The parser derives outline entries from the TOC lines themselves (titles
+    // carry the leader dots) AND from the real headings. Both kinds must anchor
+    // at their OWN standalone line: the TOC-derived sections tile the TOC block,
+    // and the real-heading sections start at the real heading and carry the body.
+    const real = result.sections.filter((s) => s.title?.startsWith("Chapter") && !s.title!.includes("..."))
+    expect(real.length).toBe(3)
+    for (const s of real) {
+      expect(s.text.trimStart().startsWith(s.title!.trim())).toBe(true)
+      expect(s.text).toContain(`Body paragraph ${s.title!.match(/Chapter (\d)/)?.[1]}`)
+      expect(s.text).not.toContain("........")
+    }
+    expect(real.map((s) => s.text).join("")).toContain("Epilogue text.")
   })
 
   test("hierarchical DOCX-style outline on one page: parent spans children, chunk sectionIds stay resolvable", async () => {
