@@ -1,5 +1,6 @@
 import { createEffect, createMemo, createSignal, For, Show, onCleanup, onMount } from "solid-js"
 import { Icon } from "@diveeoi/ui/icon"
+import { useLanguage } from "@/context/language"
 import { QuestionCard } from "./exam-question"
 import { ExamResultPanel } from "./exam-result-panel"
 import {
@@ -14,6 +15,7 @@ import {
 } from "./exam-tabs"
 
 export function ExamWorkspace(props: { examID: string; overlay?: boolean }) {
+  const language = useLanguage()
   const entry = createMemo(() => examTabs()[props.examID])
   const [now, setNow] = createSignal(Date.now())
   const [confirming, setConfirming] = createSignal(false)
@@ -113,7 +115,7 @@ export function ExamWorkspace(props: { examID: string; overlay?: boolean }) {
           const value = remaining()
           return value === undefined ? formatExamDuration(elapsed()) : formatExamDuration(value)
         }
-        const answeredLabel = () => `${answered()} / ${exam().questions.length} answered`
+        const answeredLabel = () => language.t("exam.status.answered", { answered: answered(), total: exam().questions.length })
 
         return (
           <div
@@ -134,7 +136,7 @@ export function ExamWorkspace(props: { examID: string; overlay?: boolean }) {
                 <div class="min-w-0">
                   <div class="truncate text-14-semibold text-text-strong">{exam().title}</div>
                   <div class="mt-0.5 text-11-regular text-text-weak">
-                    {submitted() ? "Submission complete" : answeredLabel()}
+                    {submitted() ? language.t("exam.status.complete") : answeredLabel()}
                   </div>
                 </div>
               </div>
@@ -167,21 +169,21 @@ export function ExamWorkspace(props: { examID: string; overlay?: boolean }) {
                     type="button"
                     class="inline-flex h-9 items-center gap-2 rounded-lg border border-border-weak-base bg-background-stronger px-3 text-12-medium text-text-strong hover:bg-background-base"
                     onClick={() => setExamPresentation(props.examID, "fill")}
-                    aria-label="Fill tab"
-                    title="Fill tab"
+                    aria-label={language.t("exam.presentation.fill")}
+                    title={language.t("exam.presentation.fill")}
                   >
                     <Icon name="layout-right-full" size="small" />
-                    <span class="hidden sm:inline">Fill tab</span>
+                    <span class="hidden sm:inline">{language.t("exam.presentation.fill")}</span>
                   </button>
                   <button
                     type="button"
                     class="inline-flex h-9 items-center gap-2 rounded-lg border border-border-weak-base bg-background-stronger px-3 text-12-medium text-text-strong hover:bg-background-base"
                     onClick={enterFullscreen}
-                    aria-label="Full screen"
-                    title="Full screen"
+                    aria-label={language.t("exam.presentation.fullscreen")}
+                    title={language.t("exam.presentation.fullscreen")}
                   >
                     <Icon name="expand" size="small" />
-                    <span class="hidden sm:inline">Full screen</span>
+                    <span class="hidden sm:inline">{language.t("exam.presentation.fullscreen")}</span>
                   </button>
                 </Show>
               </div>
@@ -201,26 +203,34 @@ export function ExamWorkspace(props: { examID: string; overlay?: boolean }) {
                     <div class="rounded-2xl border border-icon-success-base/30 bg-icon-success-base/5 p-5">
                       <div class="flex items-center gap-2 text-14-semibold text-text-strong">
                         <Icon name="check" size="large" />
-                        Exam submitted
+                        {language.t("exam.submitted.title")}
                       </div>
                       <p class="mt-2 text-12-regular leading-relaxed text-text-weak">
-                        You answered {answered()} of {exam().questions.length} questions in{" "}
-                        {formatExamDuration(current().elapsedMs ?? 0)}.{" "}
+                        {language.t("exam.submitted.summary", {
+                          answered: answered(),
+                          total: exam().questions.length,
+                          duration: formatExamDuration(current().elapsedMs ?? 0),
+                        })}{" "}
                         {current().grade
-                          ? `Attempt ${current().grade?.attemptNumber} scored ${current().grade?.score}/${current().grade?.maximum} (${current().grade?.percentage}%).`
-                          : "Your answers are being graded by the server."}
+                          ? language.t("exam.submitted.attemptScored", {
+                              attempt: current().grade?.attemptNumber ?? 0,
+                              score: current().grade?.score ?? 0,
+                              maximum: current().grade?.maximum ?? 0,
+                              percentage: current().grade?.percentage ?? 0,
+                            })
+                          : language.t("exam.submitted.grading")}
                       </p>
                       <Show when={current().reportStatus === "error"}>
                         <div class="mt-3 flex flex-wrap items-center gap-3">
                           <span class="text-11-regular text-icon-warning-base">
-                            The submission could not be sent to the conversation.
+                            {language.t("exam.submitted.sendFailed")}
                           </span>
                           <button
                             type="button"
                             class="h-8 rounded-lg border border-border-weak-base px-3 text-11-medium text-text-strong hover:bg-background-base"
                             onClick={() => setExamReportStatus(props.examID, "pending")}
                           >
-                            Retry sending
+                            {language.t("exam.submitted.retrySend")}
                           </button>
                         </div>
                       </Show>
@@ -257,7 +267,11 @@ export function ExamWorkspace(props: { examID: string; overlay?: boolean }) {
             <Show when={!submitted()}>
               <footer class="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border-weak-base bg-background-stronger px-4 py-3 sm:px-6">
                 <div class="text-11-regular text-text-weak">
-                  {answered()} of {exam().questions.length} answered · {exam().totalPoints} points
+                  {language.t("exam.footer.answered", {
+                    answered: answered(),
+                    total: exam().questions.length,
+                    points: exam().totalPoints,
+                  })}
                 </div>
                 <div class="flex items-center gap-2">
                   <Show when={confirming()}>
@@ -266,9 +280,9 @@ export function ExamWorkspace(props: { examID: string; overlay?: boolean }) {
                       class="h-9 rounded-lg border border-border-weak-base px-3 text-12-medium text-text-weak hover:bg-background-base"
                       onClick={() => setConfirming(false)}
                     >
-                      Keep working
+                      {language.t("exam.submit.keepWorking")}
                     </button>
-                    <span class="hidden text-11-regular text-text-weak sm:inline">Submit your answers now?</span>
+                    <span class="hidden text-11-regular text-text-weak sm:inline">{language.t("exam.submit.confirmQuestion")}</span>
                   </Show>
                   <button
                     type="button"
@@ -276,7 +290,7 @@ export function ExamWorkspace(props: { examID: string; overlay?: boolean }) {
                     onClick={requestSubmit}
                   >
                     <Icon name="arrow-up" size="small" />
-                    {confirming() ? "Confirm submit" : "Submit exam"}
+                    {confirming() ? language.t("exam.submit.confirm") : language.t("exam.submit.label")}
                   </button>
                 </div>
               </footer>

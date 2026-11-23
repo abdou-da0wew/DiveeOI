@@ -1,6 +1,7 @@
 import { createMemo, For, Match, Show, Switch } from "solid-js"
 import { Markdown } from "@diveeoi/ui/markdown"
 import { RichUIRenderer } from "@diveeoi/ui/rich-ui"
+import { useLanguage } from "@/context/language"
 import type { ExamQuestion } from "@diveeoi/db/chat-ui"
 
 export function QuestionCard(props: {
@@ -17,6 +18,7 @@ export function QuestionCard(props: {
   const selected = (id: string) => (Array.isArray(props.answer) ? props.answer.includes(id) : props.answer === id)
   const components = createMemo(() => props.question.components)
 
+  const language = useLanguage()
   return (
     <section class="min-w-0 rounded-2xl border border-border-weak-base bg-background-stronger p-4 sm:p-5">
       <div class="flex items-start justify-between gap-3">
@@ -30,17 +32,17 @@ export function QuestionCard(props: {
             </div>
             <div class="mt-1 text-10-regular uppercase tracking-wide text-text-weak">
               {props.question.type === "multiple"
-                ? "Select all that apply"
+                ? language.t("exam.type.multiple")
                 : props.question.type === "short"
-                  ? "Written answer"
+                  ? language.t("exam.type.short")
                   : props.question.type === "boolean"
-                    ? "True or false"
-                    : "Choose one"}
+                    ? language.t("exam.type.boolean")
+                    : language.t("exam.type.single")}
             </div>
           </div>
         </div>
         <span class="shrink-0 rounded-md bg-background-base px-2 py-1 text-10-medium tabular-nums text-text-weak">
-          {props.question.points} pt{props.question.points === 1 ? "" : "s"}
+          {props.question.points === 1 ? language.t("exam.points.one", { points: props.question.points }) : language.t("exam.points.other", { points: props.question.points })}
         </span>
       </div>
 
@@ -50,7 +52,7 @@ export function QuestionCard(props: {
             spec={{
               id: `exam-${props.question.id}`,
               version: 1,
-              title: "Interactive material",
+              title: language.t("exam.interactiveMaterial"),
               layoutMode: "auto",
               layout: "stack",
               state: props.question.state,
@@ -67,11 +69,11 @@ export function QuestionCard(props: {
         <Match when={props.question.type === "short"}>
           <textarea
             class="mt-4 min-h-28 w-full resize-y rounded-xl border border-border-weak-base bg-background-base px-3 py-3 text-13-regular leading-relaxed text-text-base outline-none transition-colors placeholder:text-text-weaker focus:border-border-base focus:ring-2 focus:ring-border-weak-base disabled:opacity-60"
-            placeholder="Write your answer…"
+            placeholder={language.t("exam.answer.placeholder")}
             value={typeof props.answer === "string" ? props.answer : ""}
             disabled={props.disabled}
             onInput={(event) => props.onWritten(event.currentTarget.value)}
-            aria-label={`Answer to question ${props.index}`}
+            aria-label={language.t("exam.answer.aria", { index: props.index })}
           />
         </Match>
         <Match when={props.question.type === "single" || props.question.type === "boolean"}>

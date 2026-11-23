@@ -1,45 +1,47 @@
 import { For, Show } from "solid-js"
 import type { ExamGrade, ExamSpec } from "@diveeoi/db/chat-ui"
 import { Icon } from "@diveeoi/ui/icon"
+import { useLanguage } from "@/context/language"
 import type { ExamTabEntry } from "./exam-tabs"
 import { retryExam } from "./exam-tabs"
 
 export function ExamResultPanel(props: { exam: ExamSpec; entry: ExamTabEntry; grade: ExamGrade; examID: string }) {
+  const language = useLanguage()
   const grade = () => props.grade
   return (
     <div class="mt-4 flex flex-col gap-3">
       <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <div class="rounded-lg bg-background-base p-3">
-          <div class="text-10-medium uppercase text-text-weak">Score</div>
+          <div class="text-10-medium uppercase text-text-weak">{language.t("exam.result.score")}</div>
           <div class="mt-1 text-18-semibold tabular-nums text-text-strong">
             {grade().score}/{grade().maximum}
           </div>
         </div>
         <div class="rounded-lg bg-background-base p-3">
-          <div class="text-10-medium uppercase text-text-weak">Percentage</div>
+          <div class="text-10-medium uppercase text-text-weak">{language.t("exam.result.percentage")}</div>
           <div class="mt-1 text-18-semibold tabular-nums text-text-strong">{grade().percentage}%</div>
         </div>
         <div class="rounded-lg bg-background-base p-3">
-          <div class="text-10-medium uppercase text-text-weak">Attempt</div>
+          <div class="text-10-medium uppercase text-text-weak">{language.t("exam.result.attempt")}</div>
           <div class="mt-1 text-18-semibold tabular-nums text-text-strong">
             {grade().attemptNumber}/{grade().attemptsAllowed}
           </div>
         </div>
         <div class="rounded-lg bg-background-base p-3">
-          <div class="text-10-medium uppercase text-text-weak">Review</div>
+          <div class="text-10-medium uppercase text-text-weak">{language.t("exam.result.review")}</div>
           <div class="mt-1 text-18-semibold tabular-nums text-text-strong">{grade().needsReviewCount}</div>
         </div>
       </div>
       <Show when={props.entry.analytics}>
         <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <div class="rounded-lg bg-background-base p-3">
-            <div class="text-10-medium uppercase text-text-weak">Average</div>
+            <div class="text-10-medium uppercase text-text-weak">{language.t("exam.result.average")}</div>
             <div class="mt-1 text-15-semibold tabular-nums text-text-strong">
               {props.entry.analytics?.averagePercentage}%
             </div>
           </div>
           <div class="rounded-lg bg-background-base p-3">
-            <div class="text-10-medium uppercase text-text-weak">Best attempt</div>
+            <div class="text-10-medium uppercase text-text-weak">{language.t("exam.result.bestAttempt")}</div>
             <div class="mt-1 text-15-semibold tabular-nums text-text-strong">
               {props.entry.analytics?.bestPercentage}%
             </div>
@@ -52,7 +54,7 @@ export function ExamResultPanel(props: { exam: ExamSpec; entry: ExamTabEntry; gr
             <div class="rounded-xl border border-border-weak-base bg-background-base p-3">
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <span class="text-12-semibold text-text-strong">
-                  Question {index() + 1} · {result.earned}/{result.maximum}
+                  {language.t("exam.result.question", { index: index() + 1, earned: result.earned, maximum: result.maximum })}
                 </span>
                 <span class="text-10-medium uppercase text-text-weak">{result.status}</span>
               </div>
@@ -62,15 +64,16 @@ export function ExamResultPanel(props: { exam: ExamSpec; entry: ExamTabEntry; gr
               </Show>
               <Show when={result.correctOptionIDs?.length}>
                 <p class="mt-2 text-11-regular text-text-weak">
-                  Correct answer:{" "}
-                  {result
-                    .correctOptionIDs!.map(
-                      (id) =>
-                        props.exam.questions
-                          .find((question) => question.id === result.questionId)
-                          ?.options?.find((option) => option.id === id)?.label ?? id,
-                    )
-                    .join(", ")}
+                  {language.t("exam.result.correctAnswer", {
+                    labels: result
+                      .correctOptionIDs!.map(
+                        (id) =>
+                          props.exam.questions
+                            .find((question) => question.id === result.questionId)
+                            ?.options?.find((option) => option.id === id)?.label ?? id,
+                      )
+                      .join(", "),
+                  })}
                 </p>
               </Show>
               <Show when={result.criteria?.length}>
@@ -93,7 +96,7 @@ export function ExamResultPanel(props: { exam: ExamSpec; entry: ExamTabEntry; gr
       </div>
       <Show when={grade().needsReview}>
         <p class="text-11-regular text-icon-warning-base">
-          This is a provisional score. Some written answers still need tutor review.
+          {language.t("exam.result.provisional")}
         </p>
       </Show>
       <Show when={grade().nextAttempt && grade().attemptsRemaining > 0}>
@@ -102,7 +105,7 @@ export function ExamResultPanel(props: { exam: ExamSpec; entry: ExamTabEntry; gr
           class="inline-flex h-9 items-center justify-center gap-2 self-start rounded-lg bg-text-strong px-4 text-12-semibold text-background-base hover:opacity-85"
           onClick={() => retryExam(props.examID)}
         >
-          Retry with {grade().nextAttempt!.questions.length} new questions
+          {language.t("exam.result.retry", { count: grade().nextAttempt!.questions.length })}
           <Icon name="arrow-right" size="small" />
         </button>
       </Show>

@@ -4,6 +4,7 @@ import { SelectV2 } from "@diveeoi/ui/v2/select-v2"
 import { TextInputV2 } from "@diveeoi/ui/v2/text-input-v2"
 import { useDialog } from "@diveeoi/ui/context/dialog"
 import { Show, type Component, createResource, createSignal } from "solid-js"
+import { useLanguage } from "@/context/language"
 import { useServerSDK } from "@/context/server-sdk"
 import { useServer } from "@/context/server"
 import { authTokenFromCredentials } from "@/utils/server"
@@ -11,6 +12,7 @@ import { createRemoteSessionApi, type RemoteProfile } from "./remote-session-api
 import "./dialog-session-remote.css"
 
 export const DialogSessionRemote: Component<{ sessionID: string }> = (props) => {
+  const language = useLanguage()
   const serverSDK = useServerSDK()
   const server = useServer()
   const dialog = useDialog()
@@ -40,13 +42,16 @@ export const DialogSessionRemote: Component<{ sessionID: string }> = (props) => 
     const profile = current()
     if (!profile) return
     setBusy(true)
-    setStatus(`Testing ${profile.name}…`)
+    setStatus(language.t("remote.status.testing", { name: profile.name }))
     try {
       const result = await api().probeProfile(profile.id)
       setStatus(
         result.ok
-          ? `Connected · ${result.platform ?? "Remote"} · ${result.homeDirectory ?? "home directory unknown"}`
-          : (result.reason ?? "Connection failed"),
+          ? language.t("remote.status.connected", {
+              platform: result.platform ?? language.t("remote.status.platformFallback"),
+              home: result.homeDirectory ?? language.t("remote.status.homeUnknown"),
+            })
+          : (result.reason ?? language.t("remote.status.failed")),
       )
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error))
@@ -58,7 +63,7 @@ export const DialogSessionRemote: Component<{ sessionID: string }> = (props) => 
   const connect = async () => {
     const profile = current()
     if (!profile) {
-      setStatus("Select a saved SSH profile first.")
+      setStatus(language.t("remote.status.selectProfile"))
       return
     }
     setBusy(true)
@@ -92,8 +97,8 @@ export const DialogSessionRemote: Component<{ sessionID: string }> = (props) => 
     <Dialog
       class="dialog-session-remote-dialog"
       fit
-      title="Remote SSH session"
-      description="Attach this session to a saved SSH host. Files, shell commands, and project operations will run remotely. Manage hosts and credentials in Settings → Remote Sessions."
+      title={language.t("remote.title")}
+      description={language.t("remote.description")}
     >
       <div class="flex w-full min-w-0 flex-1 flex-col gap-4 px-4">
         <Show
@@ -101,15 +106,15 @@ export const DialogSessionRemote: Component<{ sessionID: string }> = (props) => 
           fallback={
             <div class="dialog-session-remote-status">
               {profiles.loading
-                ? "Loading saved SSH profiles…"
-                : "No saved SSH profiles. Add one in Settings → Remote Sessions first."}
+                ? language.t("remote.loadingProfiles")
+                : language.t("remote.noProfiles")}
             </div>
           }
         >
           <div class="flex w-full min-w-0 flex-col gap-2">
-            <span class="dialog-session-remote-label">SSH profile</span>
+            <span class="dialog-session-remote-label">{language.t("remote.profile.label")}</span>
             <SelectV2
-              aria-label="SSH profile"
+              aria-label={language.t("remote.profile.label")}
               options={profiles() ?? []}
               current={current()}
               value={(profile) => profile.id}
@@ -123,7 +128,7 @@ export const DialogSessionRemote: Component<{ sessionID: string }> = (props) => 
           </div>
           <div class="flex w-full min-w-0 flex-col gap-2">
             <label class="dialog-session-remote-label" for="dialog-remote-working-directory">
-              Remote working directory
+              {language.t("remote.workingDirectory")}
             </label>
             <TextInputV2
               id="dialog-remote-working-directory"
@@ -141,10 +146,10 @@ export const DialogSessionRemote: Component<{ sessionID: string }> = (props) => 
               <div class="dialog-session-remote-status">
                 <div>
                   {profile().authMethod === "agent"
-                    ? "Authentication: SSH agent"
+                    ? language.t("remote.auth.agent")
                     : profile().authMethod === "privateKey"
-                      ? "Authentication: private key"
-                      : "Authentication: saved password"}
+                      ? language.t("remote.auth.privateKey")
+                      : language.t("remote.auth.password")}
                 </div>
                 <div>
                   {profile().host}:{profile().port} · {profile().user}
@@ -154,10 +159,10 @@ export const DialogSessionRemote: Component<{ sessionID: string }> = (props) => 
           </Show>
           <div class="flex flex-wrap justify-end gap-2">
             <ButtonV2 variant="ghost-muted" onClick={() => void test()} disabled={busy() || !current()}>
-              Test connection
+              {language.t("remote.test")}
             </ButtonV2>
             <ButtonV2 onClick={() => void connect()} disabled={busy() || !current()}>
-              Connect
+              {language.t("remote.connect")}
             </ButtonV2>
           </div>
         </Show>
@@ -168,7 +173,7 @@ export const DialogSessionRemote: Component<{ sessionID: string }> = (props) => 
         </Show>
         <div class="flex justify-end">
           <ButtonV2 variant="ghost-muted" onClick={() => void disconnect()} disabled={busy()}>
-            Disconnect this session
+            {language.t("remote.disconnect")}
           </ButtonV2>
         </div>
       </div>

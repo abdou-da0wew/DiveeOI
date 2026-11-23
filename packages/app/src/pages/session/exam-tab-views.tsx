@@ -3,12 +3,14 @@ import { useParams } from "@solidjs/router"
 import { Icon } from "@diveeoi/ui/icon"
 import { IconButton } from "@diveeoi/ui/icon-button"
 import { Tabs } from "@diveeoi/ui/tabs"
+import { useLanguage } from "@/context/language"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { examTabs, setExamPresentation } from "./exam-tabs"
 import { ExamWorkspace } from "./exam-workspace"
 
 export function ExamTabTriggers() {
   const params = useParams()
+  const language = useLanguage()
   const { tabs } = useSessionLayout()
   const entries = createMemo(() =>
     Object.values(examTabs()).filter(
@@ -32,7 +34,7 @@ export function ExamTabTriggers() {
                   setExamPresentation(entry.exam.id, "normal")
                   tabs().close(value)
                 }}
-                aria-label="Close exam tab"
+                aria-label={language.t("exam.close")}
               />
             }
             hideCloseButton

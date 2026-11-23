@@ -19,6 +19,7 @@ import * as pdfjsLib from "pdfjs-dist"
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url"
 import { IconButton } from "@diveeoi/ui/icon-button"
 import { authFetch, basicAuthorizationForRequest, getAccessToken, isSameOriginRequest } from "@/utils/auth-client"
+import { useLanguage } from "@/context/language"
 import { useServerSDK } from "@/context/server-sdk"
 import { SelectionQuoteBubble, type QuoteAction, type QuotePayload } from "@/components/selection-quote-toolbar"
 import "./book-pdf-panel.css"
@@ -66,6 +67,7 @@ export function BookPdfPanel(props: {
   highlightText?: string
   onClose?: () => void
 }) {
+  const language = useLanguage()
   const serverSDK = useServerSDK()
   const base = () => serverSDK().url
 
@@ -458,9 +460,9 @@ export function BookPdfPanel(props: {
           />
         </svg>
         <div class="text-12-regular text-text-weak truncate flex-1" title={props.chunkId ?? props.bookTitle}>
-          {props.bookTitle ?? `Book · ${shortId()}`}
+          {props.bookTitle ?? language.t("bookPdf.title.fallback", { id: shortId() })}
         </div>
-        <IconButton icon="close-small" variant="ghost" class="h-6 w-6" onClick={() => props.onClose?.()} aria-label="Close book panel" />
+        <IconButton icon="close-small" variant="ghost" class="h-6 w-6" onClick={() => props.onClose?.()} aria-label={language.t("bookPdf.close")} />
       </div>
 
       <Show
@@ -475,20 +477,20 @@ export function BookPdfPanel(props: {
             class="px-2 py-0.5 rounded-md hover:bg-background-stronger disabled:opacity-40"
             disabled={page() <= 1}
             onClick={() => setPage((p) => Math.max(1, p - 1))}
-            aria-label="Previous page"
+            aria-label={language.t("bookPdf.prevPage")}
           >
             ‹
           </button>
           <span>
-            {loadingDoc() ? "Loading…" : `p. ${page()} / ${numPages() || "?"}`}
-            {chunk()?.page ? " · cited" : ""}
+            {loadingDoc() ? language.t("bookPdf.loading") : language.t("bookPdf.page", { page: page(), total: numPages() || "?" })}
+            {chunk()?.page ? ` ${language.t("bookPdf.cited")}` : ""}
           </span>
           <button
             type="button"
             class="px-2 py-0.5 rounded-md hover:bg-background-stronger disabled:opacity-40"
             disabled={!numPages() || page() >= numPages()}
             onClick={() => setPage((p) => Math.min(numPages(), p + 1))}
-            aria-label="Next page"
+            aria-label={language.t("bookPdf.nextPage")}
           >
             ›
           </button>
