@@ -436,23 +436,80 @@ commits). One claim from the exploration pass (a "broken `const ealth]` declarat
 - [ ] `pacote@21.5.1`: the deleted 21.5.0 patch fixed a git-tarball fallback bug still present upstream — re-derive as a 21.5.1 patch only if a tarball fallback failure ever shows up.
 
 - [ ] Memory (from the 2026-11-23 MEMORY_REVIEW re-check): extractor session extraction has no idempotency key
-      (scheduler + manual `extractNow` can double-extract); multi-node extraction commits per-node without a wrapping
+      ~~(scheduler + manual `extractNow` can double-extract); multi-node extraction commits per-node without a wrapping
       transaction (partial commits possible); public `MemoryService.updateNode` rebuilds wikilinks outside a
-      transaction (delete-all-then-reinsert race); indexer schema DDL is raw strings without `PRAGMA user_version`.
+      transaction (delete-all-then-reinsert race); indexer schema DDL is raw strings without `PRAGMA user_version`.)~~
+      DONE 2026-11-23: all four — extraction idempotency via a `memory_extractions` (session, messages-hash) log +
+      FNV-1a key over the message set; nodes+edges commit in one `runInTransaction`; updateNode wraps the index upsert
+      + wikilink rebuild in one transaction; `PRAGMA user_version` gates DDL (legacy 0 → upgraded, newer DB → init
+      fails with an operator-facing error).
 - [ ] Memory UI: build the Settings → Memory inspector tab on the kept `GraphView.tsx` (needs a read-only memory
       graph/stats HTTP endpoint, tab wiring, i18n keys ×18 locales) — decision recorded in §5.
 - [ ] Account/org UX: a choose-your-org screen when login returns multiple orgs (needs endpoint + client surface;
       default-first-org stands until then).
-- [ ] Plugin lifecycle: dedicated `plugin.failed` event on the global bus (init failures currently surface via
-      `publishPluginError`).
+- [x] Plugin lifecycle: dedicated `plugin.failed` event — DONE 2026-11-23: `PluginV2.Event.Failed` published by
+      `publishPluginError` alongside the session error channel, with plugin spec + stage
+      (install/compatibility/entry/register).
 - [ ] Server pricing: contribute a reasoning-token rate field to models.dev, then consume it in
       `Session.getUsage` instead of the output-rate stopgap.
 - [ ] cors-vary: file the upstream Vary-merge PR at Effect-TS/effect (v4 smol beta, `HttpMiddleware.cors`
       `headersFromRequestOptions` ~L332); delete the local mitigation middleware once a release ships it.
-- [ ] DB public facade: `SessionV2.reattach(sessionID, workspaceID)` for recorded sessions on replaced workspaces;
-      opaque event cursor for the HTTP/SDK surface (API-shape decision); `OpenCode.create()` Promise facade.
+- [x] DB public facade — DONE 2026-11-23: `SessionV2.reattach(sessionID, workspaceID)` (validates session + workspace,
+      re-publishes `session.next.moved`, projector rewrites the binding + resets the context epoch); opaque
+      `EventV2.Cursor.encode/decode` (`evt-cursor-v1` base64url token; decode accepts raw ints + tokens for both-way
+      compatibility — wire switch deferred to the next SDK regen); `OpenCode.create(options)` Promise facade with an
+      optional injectable database layer.
 - [ ] db v2 tool layer, prioritize IF background/detached tool execution ships: parser-based shell-command
       advisories (current token-based scan is advisory-only) and crash-recovery/idempotency between `Tool.Called`
       and durable settlement.
 - [ ] gitlab-duo: rewrite the commented 410-line test suite against the Effect Provider service + instance fixtures
       (support itself is implemented in src; `Env.set` now works, which was one of the blockers).
+
+## 12. Session record — 2026-11-23 completion sweep (§4/§7 + §11 leftovers)
+
+DONE 2026-11-23 (all committed on `dev`, suite-green per package):
+- §4 hardening: learning `store/index.ts` catch mappers (schema_version read/write + meta fallback now typed; degraded
+  mode logs the real cause; quarantine nesting readable) and `sqlite-vec/index.ts` metric-marker writes record
+  `sqlite-vec.metric.writeFailed` instead of `.catch(() => undefined)`. embed-pipeline test fixed (cacheDir leak made
+  the missing-local-model case silently succeed).
+- §4: retained-heap pin in `test/ingest-load.test.ts` — forced-GC `Bun.generateHeapSnapshot()` string-volume bound
+  (<4.6× book; baseline 4.08×) + a source-order pin for the run.ts parsed/chunked pruning (a bare revert is GC-invisible
+  under JSC liveness — proven empirically: reverted run measures the identical 59.65 MB).
+- §4: TL route 400 bodies unified into the `{ name: "BadRequest", data }` NamedError shape (matches the schema-decode
+  middleware + SDK `wrapClientError`); every handler site carries a human reason. No-404 contract DECIDED: keep
+  200-false + SPA catch-all (UI depends on idempotent deletes). SDK regen note applies.
+- §4: chunking — TOC-safe heading anchoring (standalone-line preference skips leader-dotted TOC lines) and de-duplicated
+  cross-page bounds (sections end/start AT located headings; unlocatable headings keep legacy whole-page ranges;
+  same-page Bug #2 tiling preserved verbatim; pageStart/pageEnd fields keep their legacy meaning).
+- §4: memory Phase C orphan-file cleanup hook — `IndexerService.cleanupOrphanFiles()` (rowless, aged, well-named .md
+  sweep with 60 s concurrency guard) wired into consolidation's post-commit failure path with an enriched error.
+- §7: email-verification system DISABLED end to end (both endpoints answer `{ ok: false }`; no token consumption;
+  exercise scenarios re-pinned). `?auth_token` links: deprecation DECIDED — keep honored (headless recovery path),
+  loud console.warn, removal deferred to a named future release. `_ExternalThemeLoader` wired reactively (late/server
+  switches + logged failures). Exam restore timing FIXED (startedAt seeds at registration, not the agent's message
+  time — instant-expire auto-submit regression test added). 401 on the global SSE stream parks the loop and surfaces a
+  re-login banner (i18n ×18). i18n routing for the exam workspace, book-pdf-panel and remote-session dialog (60 keys
+  ×18 locales, parity green); console device login was already i18n'd. Phase 5 v1/v2 TL settings duplication collapsed
+  (shared state machine + step/health blocks; shells are chrome-only).
+- §11 memory: idempotency/transactions/user_version (see §11), MemoryLayer now provides Indexer + Database services.
+
+HOST-BOUND (cannot run in the 4 GB / no-GPU / no-Docker sandbox — unchanged, recorded for the model host):
+- Live real-corpus tl:eval + promotion decision; HNSW decision after measured p95; golden-vector freeze with the pinned
+  BGE-M3 model; live-model CI runs; server tsgo typecheck on a ≥16 GB machine (this sandbox OOM-kills it); docker
+  build/run smoke of the new production CMD; cors-vary upstream PR at Effect-TS/effect; models.dev reasoning-token
+  rate field (the `Session.getUsage` consumption needs the catalog field first); @book chip PART_MAPPING (needs SDK
+  regen); pacote 21.5.1 patch re-derive only on a tarball-fallback failure.
+
+ASSESSMENTS (decided this session, deliberately not started):
+- prompt-input.tsx (~3.1k lines) / session.tsx (~1.7k lines) refactor hotspots: DEFERRED — both are working, actively
+  changed surfaces; a behavior-preserving split needs a dedicated session with the UI test harness running, per the
+  "any refactor must not break working logic" constraint. No safe mechanical extraction was identified that pays for
+  itself right now.
+- Frontend bundle (luxon/kobalte lazy-loading, splash for marked-chunk gap, ConnectionGate timeout nuance): DEFERRED —
+  build-graph changes need a built bundle to verify sizes; record before the next release pass.
+- Account/org choose screen + Memory inspector tab: DEFERRED — both need NEW server endpoints + client surfaces +
+  i18n ×18; scoped plans already recorded in §11/§5.
+- db v2 tool layer (parser advisories + crash-recovery) and gitlab-duo test rewrite: DEFERRED — gated on background
+  tool execution / provider-instance fixtures respectively, as recorded.
+- Rust `fts_expression` one-liner for rewritten follow-ups + src/eval export-map decision: DEFERRED — needs the Rust
+  engine build chain and a measured follow-up corpus; the JS fallback path is correct today.
