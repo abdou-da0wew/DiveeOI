@@ -156,48 +156,134 @@ Authoritative sources: `docs/handoffs/coenx-video-renderer-handoff-2026-11-21.md
       by both the strengthen-connections path and the `mergeNodes` backlink-redirect path (read-back via the
       indexer). 4 new tests in `packages/memory/test/consolidation.test.ts` (6/6 suite green).
 - [x] **DONE 2026-11-22** Non-transactional `mergeNodes` + naive duplicate detection fixed — merges run as plan-then-single-SQLite-transaction (link redirects + duplicate deletions + primary update + outgoing-link rebuild + in-transaction verification with rollback) via additive `IndexerService.runInTransaction`; filesystem-mirror writes happen after commit (documented limitation: stale/orphan .md files possible on post-commit fs failure). `String.includes` duplicate-content detection replaced with normalized containment (NFKC/lowercase/punctuation-strip/Arabic-harakat folding). Failure-injection + content-detection tests; 10/10 suite green ×3.
-- [ ] The scheduler **does not** call `ConsolidationService.runMaintenance()` — daily consolidation from the original
-      plan is not implemented. Decide whether it is still required; if yes, wire it
-      (`plans/MemoryPlan/MEMORY_SERVER_INTEGRATION_PLAN.md` (doc)).
-- [ ] `executeStream()` is stubbed with `Stream.die("executeStream not implemented")` in
-      `packages/db/src/database/sqlite.bun.ts:101-102`, `sqlite.node.ts:102-103`, and
-      `packages/effect-sqlite-node/src/index.ts:118` — any new consumer crashes at runtime, not typecheck (doc + code).
-- [ ] Execute the pending memory-integration verification list (doc): boot with memory enabled and exercise prompt
-      context loading; verify daily extraction scheduling; full create→link→retrieve→update→delete test; all eight
-      tools vs empty/missing/invalid data; verify disabling the feature prevents layer/scheduler/route/tool work.
-- [ ] Re-check `MEMORY_REVIEW_1/2/3` criticals (path traversal, prompt injection, non-atomic merges, O(n²) queue)
-      against current source — the reviews are stamped historical (doc).
-- [ ] `@diveeoi/memory`'s GraphView is only mounted in an isolated corner of the app — decide its product surface.
+- [x] **DONE 2026-11-23** Daily consolidation wired — decision: REQUIRED (extraction adds nodes after every session
+      via `extractOnEnd`, and without scheduled maintenance duplicates/weak links accumulate until a user manually
+      invokes the consolidate tool). `SessionMemoryIntegration` gained `runConsolidationMaintenance()` (gated on
+      `consolidation.enabled`) and the memory scheduler's daily 12:00 tick now runs it after the extraction pass,
+      failure-isolated so it can never break extraction or rescheduling.
+- [x] **DONE 2026-11-23** `executeStream()` implemented in all three SQLite connection adapters
+      (`sqlite.bun.ts`, `sqlite.node.ts`, `effect-sqlite-node/src/index.ts`) — rows are materialized inside the
+      acquired connection (the same invariant as `execute`; the synchronous drivers already materialize) and then
+      chunked through `Stream.fromIterable`, so `Statement.stream` consumers get incremental rows instead of a
+      defect. Fixed en route: statement PREPARATION sat outside the try block in all six run/runValues fns, so
+      bad queries (missing table, syntax error) died as raw defects instead of failing with `SqlError`. 3 tests
+      (`packages/db/test/sqlite-execute-stream.test.ts`) pin rows-vs-execute parity, transformRows and SqlError
+      failure semantics; db migration suite 16/0.
+- [x] **DONE 2026-11-23** Memory-integration verification list executed as real offline tests:
+      `packages/server/test/session/memory-integration.test.ts` (boots the REAL Memory node + SessionMemoryIntegration
+      + REAL MemoryScheduler with the Session service; prompt-context loading incl. XML-escaping of hostile content;
+      full create→link→recall→update→delete; real consolidation maintenance run; scheduler next-run + manual
+      extractNow incl. missing-session tolerance; all eight tools + extract-status/toggle vs valid/empty/missing/
+      invalid data — 44 assertions) and `memory-disabled.test.ts` (child-process run with
+      `DIVEEOI_DISABLE_FEATURES=memory`: flag off, scheduler/integration layers are no-ops with zero requirement
+      nodes, memory HTTP route never registers, tool registry skips the dynamic `./memory` import). Bugs fixed by
+      the verification: scheduler `extractNow(sessionId)` failed uncaught for a missing session (now logs + skips),
+      and extractor-generated node IDs contained UUID hyphens violating `NODE_ID_REGEX` (which would have failed
+      any later merge's Phase C "Path traversal attempt") — extractor now reuses `generateNodeId()`.
+- [x] **DONE 2026-11-23** `MEMORY_REVIEW_1/2/3` criticals re-checked against current source (all evidence at
+      current file:line): path traversal CLOSED (id regex + resolve/startsWith guard in `node.ts`), non-atomic
+      merges CLOSED (Phase A/B/C transactional merge with in-transaction verification + failure-injection test),
+      O(n²) queue CLOSED (level-order BFS with `maxVisited` cap replaced the per-push sort), prompt injection
+      PARTIAL — delimiters, untrusted-data marker, input truncation and strict output validation are in place, and
+      the residual raw-interpolation arm is now closed too (`sanitizeUntrusted` neutralizes `</conversation>`
+      break-outs in `extractor.ts`); remaining hardening (LLM tool-calling extraction) is future work. Review
+      follow-ups that remain open as NEW items (§11): extractor session-idempotency, multi-node creation without a
+      wrapping transaction, public `updateNode` wikilink rebuild outside a transaction, indexer schema DDL still
+      raw-string with `PRAGMA user_version` missing.
+- [x] **DECIDED 2026-11-23** GraphView product surface: `packages/app/src/components/GraphView.tsx` currently has
+      ZERO consumers (the "isolated corner" mounting no longer exists; the file also carries a mock-data demo
+      export). Decision: KEEP the component as the intended visualization for a future Settings → Memory inspector
+      tab; the surface requires (a) a read-only memory graph/stats HTTP endpoint (the HTTP API today exposes only
+      the memory-extract route), (b) the settings-v2 tab wiring, (c) i18n keys across all 18 locales. Tracked as a
+      §11 follow-up; deleting the 462-line d3 implementation was rejected because it is the working basis for that
+      tab.
 
 ## 6. Server / core — source-verified TODO comments
 
-- [ ] `packages/server/src/tool/tool.ts:15` — `// TODO: remove this hack`
-- [ ] `packages/server/src/agent/agent.ts:458` — clean up provider-specific logic bleed
-- [ ] `packages/server/src/provider/transform.ts:64` — `// TODO: fix this stupid inefficient dogshit function`
-- [ ] `packages/server/src/provider/provider.ts:315` and `:575` — direct `process.env` use because `Env.set` only
-      updates a shallow copy
-- [ ] `packages/server/src/session/session.ts:453` — better pricing model pending models.dev update
-- [ ] `packages/server/src/account/account.ts:423` — let the user choose when multiple orgs exist
-- [ ] `packages/server/src/plugin/index.ts:229` — make proper plugin events
-- [ ] `packages/server/src/format/index.ts:140` — combine formatters (shared Ruff/uv handling)
-- [ ] `packages/server/src/server/routes/instance/httpapi/middleware/cors-vary.ts:11` — upstream the Vary-merge fix
-- [ ] `packages/server/src/control-plane/workspace.ts:487` — `tapError` status-setting cleanup
-- [ ] `packages/api/src/handlers/pty.ts:174` — integrate graceful-shutdown socket tracking before clients migrate
-- [ ] **Watchdog is half-built** — `packages/server/src/session/prompt.ts:1333-1348`: it logs stalls but *"does NOT
-      interrupt the run yet"* (needs the run fiber's `FiberId`). Finish the interrupt-and-restart path (code + doc).
-- [ ] **v1↔v2 session-message dual-write** — "Temporary dual-write while migrating session messages to v2 events
-      (removal in v2)" (`prompt.ts`); the db v2 tool layer still carries long deferred-feature lists
-      (`packages/db/src/tool/edit.ts:84-88` fuzzy edit correction, `write.ts`, `bash.ts:80-91` parser-based
-      approvals/PowerShell/background jobs/output streaming, `file-mutation.ts:198-204` seven V2 TODOs incl.
-      snapshots/undo, formatter hooks, LSP diagnostics, multi-file transactions, crash recovery) (code + doc).
-- [ ] `packages/db/src/session.ts:252` — restore recorded sessions onto replacement workspaces; `event.ts:24` —
-      opaque cursor for the HTTP/SDK surface; `public/opencode.ts:84,131` — storage injection + facade (code).
-- [ ] `packages/db/src/github-copilot/chat/...:386` — "we lost type safety on Chunk … MUST FIX" (code).
-- [ ] `packages/server/test/provider/gitlab-duo.test.ts:2` — `TODO: UNCOMMENT WHEN GITLAB SUPPORT IS COMPLETED` (code).
-- [ ] `packages/effect-drizzle-sqlite/src/up-migrations/sqlite.ts:168,234` — hash-match migration fallback
-      "not implemented for now" (code).
-- [ ] `packages/server/test/provider/gitlab-duo` + `packages/db/test/session-runner-recorded` suites rely on
-      recorded fixtures — keep `RECORD=true` doc drift in mind (`README` says `RECORD=1`, code checks `"true"`).
+- [x] **DONE 2026-11-23** `tool.ts` dead `DynamicDescription` type removed (zero users repo-wide, verified).
+- [x] **DONE 2026-11-23** provider-specific logic bleed cleaned — `Agent.generate` now reads
+      `Provider.requestCapabilities(model)` (`systemViaInstructions`, `preferStreamingObjectGeneration`); the
+      OpenAI-OAuth stateless-Responses quirk lives in the provider layer, agent code branches on capabilities only.
+      (`Agent.generate` currently has no in-repo callers; verified before touching.)
+- [x] **DONE 2026-11-23** `normalizeMessages` hot path fixed — `sanitizeSurrogates` fast-path (regex `.test`
+      pre-check) avoids the allocating `.replace` on every text segment of every request; behavior identical,
+      TODO removed.
+- [x] **DONE 2026-11-23** `Env.set`/`Env.remove` were SILENT NO-OPS (built `Effect.sync` without yielding — an
+      Effect 4 generator-body pitfall; invalidated every test that "set" env vars). Fixed, and the Env service's
+      runtime contract made explicit: it mutates real `process.env` (the AWS/SAP SDKs read from it). The two
+      provider.ts TODO sites (Bedrock bearer token, sap-ai-core service key) now publish auth keys through the
+      Env service instead of direct `process.env` writes; provider tests re-run green.
+- [x] **DECIDED 2026-11-23** session pricing: keep the stopgap (reasoning tokens billed at the output rate) —
+      models.dev's cost schema has no reasoning-rate field; the correct fix is contributing the field upstream and
+      then reading `costInfo?.reasoning ?? costInfo?.output`. No code change until the data exists (guessing rates
+      per provider would be worse than the documented approximation).
+- [x] **DECIDED 2026-11-23** multiple orgs on login: keep default-first-org (current behavior, existing
+      `Account.use` switching already works); a choose-your-org screen needs a client surface (endpoint + UI) and is
+      tracked as a §11 follow-up rather than silently changing login semantics here.
+- [x] **DONE 2026-11-23** plugin init failures are no longer swallowed silently: the dead commented
+      `events.publish(Session.Event.Error, …)` TODO is replaced by routing through the existing
+      `publishPluginError` channel (the same surface loader-stage failures use, with the error bound — the old
+      block couldn't even reference `message`). A dedicated `plugin.failed` lifecycle event on the global bus
+      remains a §11 follow-up.
+- [x] **DONE 2026-11-23** shared-backend formatters combined — `Formatter.Info` gained `backend?: string`
+      (`ruff` and `uv` both declare `backend: "ruff"`); the config disable check generalizes over backends and
+      removes every formatter of a disabled backend (config-key ↔ registry-key mismatch handled: config `uv` →
+      registry `uvformat`). Existing ruff/uv disable tests green.
+- [x] **DONE (tracking) 2026-11-23** cors-vary upstream item: the local mitigation (`cors-vary.ts` middleware +
+      tests) is complete and correct; the upstream target is **Effect-TS/effect** v4 "smol" beta,
+      `HttpMiddleware.cors` / `headersFromRequestOptions` (~line 332) merging `Vary` instead of overwriting. Filing
+      the upstream PR is an external action; removing the middleware after an upstream release stays the follow-up.
+- [x] **DONE 2026-11-23** workspace `tapError` cleanup — `syncWorkspaceLoop` failures now `Effect.tapError` (set
+      error status + log) and RE-FAIL, so FiberMap drops the dead fiber and a later `startSync` restarts it; the
+      restart guard (`status !== "error"`) is unchanged.
+- [x] **DONE 2026-11-23** api-package `pty.connect` gained the graceful-shutdown tracker gate before client
+      migration: new `packages/api/src/handlers/pty-ws-tracker.ts` (mirrors the server tracker contract; the tag
+      lives in the API package because dependency direction forbids importing server internals), the handler
+      refuses upgrades with the 1001 server-closing frame once closing/capped (degrading to "allowed" standalone),
+      and `routes.ts` provides the tracker layer (hosts may bridge their own implementation to the same tag).
+- [x] **DONE 2026-11-23** Watchdog interrupt-and-restart path FINISHED (code + doc + live test). The supervisor
+      moved out of the run fiber: ONE supervisor per session, forked by `runLoop` into the instance-lifetime scope,
+      sharing per-session `WatchdogState` with the run's touches. On a stall (adaptive heartbeat 60/45/30s, stall
+      300/240/180s) it: verifies the session is still busy/retry, logs + diagnostics, interrupts the wedged run via
+      `SessionRunState.cancel` (the prompt caller unwinds through the standard interrupted-assistant path), queues
+      `diagnosisMessage` into the restarted run's system prompt, resets timers and forks a fresh `loop()` from the
+      persisted checkpoint. After `MAX_AUTO_RESTARTS` (3) restarts without progress it fully cancels and publishes a
+      degraded `session.error`. Live test (`test/session/watchdog-restart.test.ts`) drives a hanging LLM through
+      trip → interrupt → restart ×3 → pause event, with adaptive thresholds shrunk for test speed. prompt.test.ts
+      56-test file still green; design docs updated in `watchdog.ts` header.
+- [x] **DECIDED 2026-11-23** v1↔v2 session-message dual-write: **v1 stays canonical** until v2 event-sourced
+      projections are proven equivalent; the v2 half remains a flag-gated mirror (`OPENCODE_EXPERIMENTAL_EVENT_SYSTEM`,
+      default off) so removal of the v2 half is a pure deletion of `if (flags.experimentalEventSystem)` blocks when
+      the flag is retired. Deleting the v1 half instead would flip every reader (run loop, REST messages API, tool
+      history, compaction) onto unproven projections — rejected. The db v2 tool layer's deferred-feature lists
+      (edit fuzzy correction, bash parser-approvals/PowerShell/background jobs, file-mutation snapshots/undo/
+      formatter/LSP/multi-file/crash-recovery) are classified in-source: most are explicitly blocked on missing V2
+      infrastructure ("after V2 X runtime exists") and stay; parser-based shell advisories and crash-recovery/
+      idempotency are the two items worth prioritizing IF background/detached tool execution ships (§11 note).
+- [x] **DONE (partial) 2026-11-23** db public facade storage injection — `layerWithDatabase(dbLayer)` added to
+      `packages/db/src/public/opencode.ts` (`layer` = default DB). The remaining three sub-items are decisions, not
+      mechanical fixes, and stay open as §11 entries: recorded-session restore onto replacement workspaces (needs a
+      `SessionV2.reattach` API slice + control-plane caller), opaque event cursor for HTTP/SDK (API-shape decision
+      affecting SDK compat), and the `OpenCode.create()` Promise facade (~150 lines, public-API naming/lifecycle
+      review).
+- [x] **DONE 2026-11-23** github-copilot Chunk type safety restored — the chunk schema's error member is now
+      concrete (`ZodType<OpenAICompatibleErrorData>`; `errorStructure?: ProviderErrorStructure<OpenAICompatibleErrorData>`),
+      so `z.infer` of the union is a real union and the stream transform's `"error" in value` narrows type-safely.
+      Runtime schema unchanged; "MUST FIX" resolved.
+- [x] **DECIDED 2026-11-23** gitlab-duo commented suite: gitlab support IS implemented in src (provider loader,
+      workflow routing, V2 plugin) but the 410-line commented test suite targets pre-Effect APIs (bare `list()`/
+      `getModel()`, `ProviderID` symbols that no longer exist) and its `Env.set` calls were no-ops until the Env fix
+      above. Decision: keep the suite commented until someone rewrites it against `testEffect`/instance fixtures +
+      `ProviderV2.ID.gitlab`; rewrite tracked as §11 follow-up (deleting the reference tests was rejected).
+- [x] **DONE 2026-11-23** hash-match migration fallback: DECIDED fail-loud — the serial-id fallback stays
+      unimplemented on purpose (positional pairing would silently mislabel migration history when files were
+      regenerated or the DB came from a different tool version); the throw is the conservative, operator-honest
+      behavior. Both doc comments now record the decision instead of "not implemented for now".
+- [x] **DONE 2026-11-23** RECORD mode drift fixed — canonical spelling is `RECORD=true` with `RECORD=1` tolerated;
+      new shared `isRecordMode()` in `@diveeoi/http-recorder` used by both recorded suites (`llm-native-recorded`,
+      `session-runner-recorded`), and both READMEs updated to match the code. (Note: gitlab-duo itself has NO
+      recorded fixtures — that part of the TODO premise was stale; the drift was purely README vs the two test
+      files.)
 
 ## 7. Frontend (packages/app)
 
@@ -333,3 +419,25 @@ commits). One claim from the exploration pass (a "broken `const ealth]` declarat
 - [ ] Auth UX (from §2 #8, 2026-11-22): when the global SSE stream (or any data request) 401s with a stale cookie, surface a re-login prompt instead of raw console errors — the retry loop currently just logs `[global-sdk] event stream error` until the user re-authenticates manually.
 - [ ] Run one `docker build && docker run` smoke of the new production CMD (`/usr/local/bin/diveeoi`) on a host with a Docker daemon — the dev sandbox has none; the Dockerfile change was verified by construction only (build.ts emits a single compiled Bun executable; `find` pattern matches exactly one file).
 - [ ] `pacote@21.5.1`: the deleted 21.5.0 patch fixed a git-tarball fallback bug still present upstream — re-derive as a 21.5.1 patch only if a tarball fallback failure ever shows up.
+
+- [ ] Memory (from the 2026-11-23 MEMORY_REVIEW re-check): extractor session extraction has no idempotency key
+      (scheduler + manual `extractNow` can double-extract); multi-node extraction commits per-node without a wrapping
+      transaction (partial commits possible); public `MemoryService.updateNode` rebuilds wikilinks outside a
+      transaction (delete-all-then-reinsert race); indexer schema DDL is raw strings without `PRAGMA user_version`.
+- [ ] Memory UI: build the Settings → Memory inspector tab on the kept `GraphView.tsx` (needs a read-only memory
+      graph/stats HTTP endpoint, tab wiring, i18n keys ×18 locales) — decision recorded in §5.
+- [ ] Account/org UX: a choose-your-org screen when login returns multiple orgs (needs endpoint + client surface;
+      default-first-org stands until then).
+- [ ] Plugin lifecycle: dedicated `plugin.failed` event on the global bus (init failures currently surface via
+      `publishPluginError`).
+- [ ] Server pricing: contribute a reasoning-token rate field to models.dev, then consume it in
+      `Session.getUsage` instead of the output-rate stopgap.
+- [ ] cors-vary: file the upstream Vary-merge PR at Effect-TS/effect (v4 smol beta, `HttpMiddleware.cors`
+      `headersFromRequestOptions` ~L332); delete the local mitigation middleware once a release ships it.
+- [ ] DB public facade: `SessionV2.reattach(sessionID, workspaceID)` for recorded sessions on replaced workspaces;
+      opaque event cursor for the HTTP/SDK surface (API-shape decision); `OpenCode.create()` Promise facade.
+- [ ] db v2 tool layer, prioritize IF background/detached tool execution ships: parser-based shell-command
+      advisories (current token-based scan is advisory-only) and crash-recovery/idempotency between `Tool.Called`
+      and durable settlement.
+- [ ] gitlab-duo: rewrite the commented 410-line test suite against the Effect Provider service + instance fixtures
+      (support itself is implemented in src; `Env.set` now works, which was one of the blockers).

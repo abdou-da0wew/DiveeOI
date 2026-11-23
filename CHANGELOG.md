@@ -4,6 +4,29 @@ Notable changes to DiveeOI are recorded here. Unreleased work remains under **Un
 
 ## Unreleased
 
+### Added
+- The memory scheduler now runs daily graph consolidation maintenance (duplicate merge, link strengthening, orphan decay) right after the daily extraction pass, gated on `consolidation.enabled`.
+- `executeStream()` is implemented for all three SQLite connection adapters (bun, node, effect-sqlite-node): `Statement.stream` returns rows incrementally instead of dying; query failures surface as `SqlError`.
+- New memory-integration test coverage: enabled-path boot (real memory layers + real scheduler, prompt-context loading, create→link→recall→update→delete, all memory tools vs bad data) and disabled-path child-process run (no layers/scheduler/tools work with the feature off).
+- `Provider.requestCapabilities(model)` exposes per-provider request-shape quirks (OpenAI-OAuth stateless Responses requirements) so agent code stops branching on provider identity.
+- `Formatter.Info` gained a `backend` field; shared backends (Ruff/uv) disable as a unit without special-casing.
+- The API-package `pty.connect` raw WebSocket handler now participates in graceful-shutdown socket tracking (1001 close frame once closing/capped), with a tracker layer provided for standalone use.
+- `@diveeoi/http-recorder` exports `isRecordMode()` (accepts `RECORD=true` and the historic `RECORD=1`), shared by both recorded test suites.
+- `packages/db/src/public/opencode.ts` gained `layerWithDatabase(dbLayer)` so tests and embeddings can inject disposable storage.
+
+### Fixed
+- Fixed `Env.set`/`Env.remove` being silent no-ops (the `Effect.sync` was never yielded), and made the Env runtime contract explicit; the Bedrock and sap-ai-core provider loaders now publish auth keys through the Env service instead of writing `process.env` directly.
+- Fixed the session watchdog being half-built: it now interrupts a no-progress run (session-scoped supervisor living outside the run fiber), restarts the loop from the persisted checkpoint with a queued diagnosis system-reminder, and pauses the session with a degraded error event after 3 unsuccessful restarts.
+- Fixed statement preparation sitting outside the try block in all six SQLite driver execute paths — bad queries (missing table, syntax error) failed as raw defects instead of `SqlError`.
+- Fixed scheduler memory extraction failing uncaught for a missing/unreadable session id (now logs and skips).
+- Fixed extractor-generated memory node IDs containing UUID hyphens that violate the `NODE_ID_REGEX` path-validation rule (a later merge of such a node failed Phase C with "Path traversal attempt"); extraction now reuses `generateNodeId()`.
+- Fixed the prompt-injection residual in memory extraction: conversation content is sanitized so injected `</conversation>` sequences cannot break out of the untrusted-data tag.
+- Fixed the memory-indexer initialization failing to reach `ConsolidationService` from the server (the service was not exported from the `@diveeoi/memory` package root).
+- Fixed the workspace sync listener swallowing failures (error status is now set via `Effect.tapError` and the fiber actually fails, so FiberMap drops it and restarts become possible).
+- Fixed plugin initialization failures being swallowed without any event (now reported through the existing `publishPluginError` channel).
+- Fixed the Copilot chat stream losing chunk type safety (concrete error schema; the `"error" in value` narrowing is now checked by the compiler).
+- Removed the dead `DynamicDescription` tool type and normalized the LLM request message hot path (surrogate sanitization now pre-tests before the allocating replace).
+
 ## 1.19.7 (2026-11-23)
 
 First tagged release since the fork; everything previously listed under **Unreleased** ships here, plus the release-day fixes below.
