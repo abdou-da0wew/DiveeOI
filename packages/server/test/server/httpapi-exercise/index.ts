@@ -1381,20 +1381,30 @@ const scenarios: Scenario[] = [
       },
       "status",
     ),
+  // Email-verification system DISABLED (2026-11-23): both endpoints answer
+  // { ok: false } uniformly — no token consumption, no enumeration, no
+  // misleading success.
   http.public
-    .get("/api/auth/verify-email", "v2.auth.verifyEmail.invalid")
+    .get("/api/auth/verify-email", "v2.auth.verifyEmail.disabled")
     .global()
     .at((ctx) => ({ path: `/api/auth/verify-email?${new URLSearchParams({ token: "exercise-invalid" })}` }))
-    .status(400),
+    .json(
+      200,
+      (body) => {
+        object(body)
+        check(body.ok === false, "verify-email is disabled and must answer ok:false for any token")
+      },
+      "status",
+    ),
   http.public
-    .post("/api/auth/resend-verification", "v2.auth.resendVerification")
+    .post("/api/auth/resend-verification", "v2.auth.resendVerification.disabled")
     .global()
     .at((ctx) => ({ path: "/api/auth/resend-verification", body: { email: EXERCISE_EMAIL } }))
     .json(
       200,
       (body) => {
         object(body)
-        check(body.ok === true, "resend verification should acknowledge without leaking existence")
+        check(body.ok === false, "resend verification is disabled and must answer ok:false")
       },
       "status",
     ),

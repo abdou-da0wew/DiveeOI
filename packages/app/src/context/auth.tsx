@@ -121,8 +121,9 @@ export function AuthProvider(props: { children: any }) {
     register,
     refreshAccessToken,
     updateProfile,
-    // Email delivery is not configured in the server yet; these methods remain
-    // for the legacy account page API but do not start a misleading poll loop.
+    // The email-verification system is DISABLED (no email delivery exists on
+    // the server; the API endpoints answer { ok: false }). These methods stay
+    // for the legacy account page API but are permanent no-ops.
     startVerificationPolling: () => {},
     stopVerificationPolling: () => {},
   }

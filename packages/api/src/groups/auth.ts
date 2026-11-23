@@ -44,7 +44,9 @@ const LoginResponse = Schema.Struct({
 })
 
 const OkResponse = Schema.Struct({
-  ok: Schema.Literal(true),
+  // Widened from Literal(true) when the email-verification system was disabled:
+  // the verification endpoints now answer { ok: false }.
+  ok: Schema.Boolean,
 })
 
 const UpdateProfileBody = Schema.Struct({
@@ -131,12 +133,11 @@ export const AuthGroup = HttpApiGroup.make("server.auth")
     HttpApiEndpoint.get("auth.verifyEmail", "/api/auth/verify-email", {
       query: TokenQuery,
       success: OkResponse,
-      error: InvalidRequestError,
     }).annotateMerge(
       OpenApi.annotations({
         identifier: "v2.auth.verifyEmail",
-        summary: "Verify email",
-        description: "Verify email address using a verification token.",
+        summary: "Verify email (disabled)",
+        description: "DISABLED: the email-verification system is not enabled in this deployment. Always answers { ok: false } without consuming tokens or touching the user record.",
       }),
     ),
   )
@@ -147,8 +148,8 @@ export const AuthGroup = HttpApiGroup.make("server.auth")
     }).annotateMerge(
       OpenApi.annotations({
         identifier: "v2.auth.resendVerification",
-        summary: "Resend verification email",
-        description: "Resend the email verification link.",
+        summary: "Resend verification email (disabled)",
+        description: "DISABLED: the email-verification system is not enabled in this deployment. Always answers { ok: false } and sends nothing.",
       }),
     ),
   )

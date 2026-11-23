@@ -242,19 +242,16 @@ export const AuthHandler = HttpApiBuilder.group(Api, "server.auth", (handlers) =
           },
         }
       }))
-      .handle("auth.verifyEmail", Effect.fn(function* (ctx) {
-        const { token } = ctx.query
-        const maybeUserId = yield* userService.consumeVerificationToken(token, "verify_email")
-        if (Option.isNone(maybeUserId)) {
-          return yield* new InvalidRequestError({ message: "Invalid or expired verification token" })
-        }
-        yield* userService.verifyEmail(maybeUserId.value)
-        return { ok: true as const }
+      .handle("auth.verifyEmail", Effect.fn(function* (_ctx) {
+        // The email-verification system is DISABLED (no email delivery is
+        // configured, and no server code path ever creates verification
+        // tokens). Answer uniformly without consuming tokens or touching the
+        // user record — no enumeration, no misleading success.
+        return { ok: false }
       }))
       .handle("auth.resendVerification", Effect.fn(function* (_ctx) {
-        // Avoid account enumeration. Verification email delivery is not yet
-        // configured, so this endpoint intentionally sends nothing.
-        return { ok: true as const }
+        // DISABLED (see auth.verifyEmail): sends nothing, verifies nothing.
+        return { ok: false }
       }))
       .handle("auth.updateProfile", Effect.fn(function* (ctx) {
         const { username, email: requestedEmail, password } = ctx.payload
