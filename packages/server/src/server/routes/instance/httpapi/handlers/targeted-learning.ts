@@ -9,6 +9,7 @@ import { join } from "node:path"
 import { InstanceHttpApi } from "../api"
 import { badRequest } from "../errors"
 import { TargetedLearning as TLService } from "@diveeoi/learning"
+import { NORMALIZER_VERSION } from "@diveeoi/learning/lang/version"
 import { Config } from "@/config/config"
 import { PRESETS, withDefaults, type Info as TLInfo } from "@diveeoi/learning/settings"
 import { Global } from "@diveeoi/db/global"
@@ -267,12 +268,30 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
 
       const health = Effect.fn("TargetedLearning.health")(function* () {
         const state = yield* tl.getSetupState()
+        // Read-only ops signal: books ingested under a NORMALIZER_VERSION older
+        // than the running code. A version bump without a re-ingest leaves
+        // chunk text_norm / FTS content produced by the old rules; this count
+        // tells ops how many books to delete + re-upload. Omitted while
+        // books.db is unavailable (nothing to count against).
+        let booksNeedingReingest: number | undefined
+        if (tl.booksStore.available && tl.booksStore.db) {
+          booksNeedingReingest = yield* Effect.promise(() =>
+            tl.booksStore
+              .db!.get<{ n: number }>(
+                "SELECT COUNT(*) AS n FROM books WHERE normalizer_version != ?",
+                NORMALIZER_VERSION,
+              )
+              .then((row) => row?.n ?? 0)
+              .catch(() => undefined),
+          )
+        }
         return {
           setupStatus: state.status,
           booksDbAvailable: tl.booksStore.available,
           booksDbReason: tl.booksStore.unavailabilityReason,
           modelReady: state.status === "ready",
           manifestLoaded: tl.manifest !== null,
+          booksNeedingReingest,
         }
       })
 

@@ -29,7 +29,9 @@ import { HttpRouter } from "effect/unstable/http"
 import { HttpApiApp } from "../../src/server/routes/instance/httpapi/server"
 import { writeFileSync, existsSync, readFileSync, mkdirSync } from "node:fs"
 import path from "node:path"
-import { globalConfigFile, testDirectory, cleanupTestRoot } from "./tl-env"
+import { Database } from "bun:sqlite"
+import { NORMALIZER_VERSION } from "@diveeoi/learning/lang/version"
+import { globalConfigFile, testDirectory, testRoot, cleanupTestRoot } from "./tl-env"
 import { disposeAllInstances } from "../fixture/fixture"
 
 const BASIC = "Basic " + Buffer.from("DIVEEI:secret").toString("base64")
@@ -125,6 +127,42 @@ describe("GET /targeted-learning — reads", () => {
     expect(body.booksDbAvailable).toBe(true)
     expect(body.manifestLoaded).toBe(true)
     expect(body.modelReady).toBe(false)
+    // Fresh library: no book can predate the running NORMALIZER_VERSION.
+    expect(body.booksNeedingReingest).toBe(0)
+  }, HTTP_TIMEOUT)
+
+  test("health counts books ingested under an older NORMALIZER_VERSION", async () => {
+    // Write the rows straight into the same books.db file the route tree owns
+    // (WAL mode tolerates a second short-lived writer; no ingest runs in this
+    // window). One stale-version book + one current-version book → the count
+    // must be exactly 1. Rows are removed so later tests see a clean library.
+    const booksDb = path.join(testRoot, "data", "diveeoi", "targeted-learning", "books.db")
+    const db = new Database(booksDb)
+    const staleId = "book_stale_nv"
+    const currentId = "book_current_nv"
+    for (const [id, version] of [
+      [staleId, NORMALIZER_VERSION - 1],
+      [currentId, NORMALIZER_VERSION],
+    ] as const) {
+      db.run(
+        "INSERT INTO books (id, slug, title, source_hash, source_path, status, embed_signature, normalizer_version, created_at) VALUES (?, ?, ?, ?, ?, 'complete', 'test-sig', ?, ?)",
+        id,
+        `slug-${id}`,
+        `Book ${id}`,
+        `hash-${id}`,
+        `/tmp/${id}.pdf`,
+        version,
+        Date.now(),
+      )
+    }
+    try {
+      const { status, body } = await call("/targeted-learning/health")
+      expect(status).toBe(200)
+      expect(body.booksNeedingReingest).toBe(1)
+    } finally {
+      db.run("DELETE FROM books WHERE id IN (?, ?)", staleId, currentId)
+      db.close()
+    }
   }, HTTP_TIMEOUT)
 
   test("setup status exposes the 8-step pipeline", async () => {

@@ -56,6 +56,12 @@ const HealthResponse = Schema.Struct({
   booksDbReason: Schema.optional(Schema.String),
   modelReady: Schema.Boolean,
   manifestLoaded: Schema.Boolean,
+  // Books ingested under an older NORMALIZER_VERSION (normalization rules
+  // changed since their chunks were produced): their FTS index silently
+  // diverges from what a fresh ingest would produce. Read-only count surfaced
+  // by /health so ops can schedule the re-ingest (delete + re-upload the
+  // affected books); the ingest stamps the CURRENT version on every new row.
+  booksNeedingReingest: Schema.optional(Schema.Number),
 })
 
 const IngestJobResponse = Schema.Struct({

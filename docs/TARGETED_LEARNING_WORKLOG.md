@@ -805,3 +805,46 @@ Also: the UI-driven setup pipeline (clicking Start Setup in the browser) stalled
 | Browser UI flow (agent-browser) | **17/17** |
 
 Bugs found by real usage that unit tests missed: 7 (settings JSON, schema endpoint, missing export, step results, invalid icon, wrong SDK field, resource-rethrow crash) — plus 3 environment lessons (process lifecycle, inotify, hydration race) and 1 model finding (MiniLM anisotropy ⇒ bge-m3 required for gate calibration).
+
+## Session 7 — 2026-11-23: test isolation fixed + normalizer-version health signal
+
+Follow-ups from the 2026-11-23 completion sweep (TODO §11 items "combined server-test run contamination" and
+"pre-fix books / NORMALIZER_VERSION").
+
+### Combined server-test runs: root cause fixed, not just avoided
+
+Reproduced the recorded contamination with `bun test test/server/httpapi-targeted-learning.test.ts test/server/httpapi-instance.test.ts`:
+TL passes 26/0, then the instance file fails 7/7 with `NotFound: FileSystem.open(/tmp/tl-routes-test-*/data/diveeoi/log/opencode.log)`.
+Mechanism: `bun test` runs every file of one invocation in a SINGLE process; the TL `tl-env` fixture (a) redirects the
+XDG/db env at module load — too late for later files to re-resolve, since `Global.Path` reads xdg-basedir once at import —
+and (b) deleted its temp root in `afterAll`, leaving exactly those module-cached paths dangling.
+
+Fix (test code only, no production logic touched), `packages/server/test/server/tl-env.ts`:
+
+- `cleanupTestRoot()` now RESTORES the snapshot of the pre-test environment (8 vars) instead of deleting anything,
+  so a later file in the same process stops inheriting this file's redirect.
+- The temp root is removed on process exit (`exit` + `beforeExit` handlers) instead of afterAll — the observed
+  contamination is gone because the cached paths stay alive for the whole run.
+- Verified empirically on bun 1.3.14: `bun test` fires NEITHER listener on termination (shared, per-file and
+  `--isolate` modes all leave the root behind), so each run stamps its OS pid into `owner.pid` and the next run
+  sweeps roots whose owner is gone (EPERM = alive per existence-check semantics, ESRCH = dead; pid-less legacy
+  roots swept after 6 h). Parallel terminals can't steal each other's roots.
+- `packages/server/package.json` gained `test:isolated` (`bun test --isolate` — fresh global per file).
+- Baking `--isolate` into the default `test` script was evaluated and REJECTED for now: the full-suite isolated run
+  is OOM-killed in this 4 GB sandbox (exit 137, no test failure printed) — cannot verify all 52 files stay green
+  per-file here. Default behavior unchanged; the flag is opt-in via `test:isolated`.
+
+Verification matrix (all in this sandbox): TL file alone 27/0 · instance file alone 7/0 · plain combined 33/0
+(was 26 pass / 7 fail) · `--isolate` combined 33/0 · httpapi-exercise coverage mode 252 pass / 0 fail / 0 missing.
+Synthetic sweep self-test: dead-pid root removed, live-pid (EPERM) root kept, stale pid-less removed, fresh pid-less kept.
+
+### NORMALIZER_VERSION mismatch is now observable (no inert bumps)
+
+`books.normalizer_version` was stamped at ingest but nothing ever read it, so a future bump would silently leave
+old books' chunk `text_norm`/FTS produced by the old rules. `GET /targeted-learning/health` now reports
+`booksNeedingReingest` (count of books whose `normalizer_version != NORMALIZER_VERSION`; absent while books.db is
+unavailable; additive optional field — exercise assertions are field-wise, re-run green). Route test pins both
+directions: fresh library → 0, and a stale-version book row inserted directly into books.db → exactly 1 (rows
+removed in finally). The re-ingest itself stays a deliberate operator step (delete + re-upload per book) —
+documented with the real route paths in `docs/targeted-learning-deployment.md` §"Ingest jobs and recovery".
+A version bump without a re-ingest plan is now a visible state, not a silent one.

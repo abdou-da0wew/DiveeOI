@@ -151,7 +151,7 @@ Authoritative sources: `docs/handoffs/coenx-video-renderer-handoff-2026-11-21.md
       to a real LLM service — wiring is the remaining step when a consumer exists.
 - [x] **DONE 2026-11-22** Dead worker-pool stub resolved by DELETION — `packages/learning/src/ingest/pool.ts` removed (verified: `makePool`/`IngestPool` had zero real importers and no HTTP pool-status endpoint ever existed; repo-wide + `git log -S` searches). Barrel re-export, stale comment and the dangling `./ingest/pool` package export removed; a regression test guards against reintroduction.
 - [x] **DONE 2026-11-22** Hardened the silent `catch: () => null` mappers in the learning pipeline — all 9 verified sites fixed (parsers ×6, sqlite-vec ×1, hybrid ×2) plus adjacent same-class catches; failures now surface as typed errors or recorded diagnostics (`parse.*`, `availability.probeFailed`, `dense.legFailed`, `native.engineError`, …). Empirically confirmed the old pattern short-circuited Effect generators with null errors — the 2026-11-09 `error:"null"` incident mechanism.
-- [ ] REMAINING (same treatment, next pass): `packages/learning/src/store/index.ts` silent catch mappers (~132/229/246) and `sqlite-vec/index.ts:198,207` pre-existing `.catch(() => undefined)` metric inserts.
+- [x] **DONE 2026-11-23** (sweep, `8ac65af`): `packages/learning/src/store/index.ts` silent catch mappers (~132/229/246) and `sqlite-vec/index.ts:198,207` metric inserts — schema_version read/write + meta fallback typed, degraded mode logs the real cause, metric writes record `sqlite-vec.metric.writeFailed` instead of `.catch(() => undefined)`.
 - [x] **TOOLING DONE 2026-11-22** Real-corpus student evaluation + promotion — the offline-runnable `tl:eval` CLI exists (`packages/learning/scripts/eval-corpus.ts`): pluggable embedder (`real` fails fast without the model / `standin` deterministic for CI / `student`), golden-set schema v2 + synthetic fixtures, recall@k (BM25/dense/fused), MRR, nDCG, gate precision/recall, refusal + false-refusal, p50/p95 latency, peak RSS, student-vs-teacher comparison, promotion-gate PASS/FAIL verdicts matching promote.py thresholds. The LIVE run against a finished real-book corpus on deployment hardware stays open (no GPU/weights in the dev sandbox): `bun run tl:eval --embedder real --corpus … --golden …`.
 - [ ] (still open) Execute the live real-corpus eval + promotion decision on the model host.
 - [ ] Decide on approximate search (HNSW) **only if** measured library-scale p95 justifies it (doc) — decision tooling ready: `tl:eval` reports p50/p95 latency + peak RSS per run; measure on the real corpus, then decide.
@@ -307,17 +307,17 @@ Authoritative sources: `docs/handoffs/coenx-video-renderer-handoff-2026-11-21.md
       check, placeholder-preservation check, legacy 2-key ≠-en assertion kept). Drift it exposed was fixed:
       1,934 translations added (ar +46, every other locale +118). Mutation-verified: missing key, corrupted
       placeholder and unknown-key injections all fail with locale+key named.
-- [ ] Route hardcoded English strings through i18n: exam workspace, `book-pdf-panel.tsx`, remote-session dialogs,
+- [x] **DONE 2026-11-23** (`6595885`): Route hardcoded English strings through i18n: exam workspace, `book-pdf-panel.tsx`, remote-session dialogs,
       console device login (code).
-- [ ] **Exam restore timing** — `ExamTabPersistence` restores exams with the message's `time.created` as
+- [x] **DONE 2026-11-23** (`155883d`): **Exam restore timing** — `ExamTabPersistence` restores exams with the message's `time.created` as
       `startedAt` (`exam-side-tabs.tsx`); a duration-limited exam restored mid-session may instantly expire and
-      auto-submit. Verify and fix (code — flagged, needs confirmation).
-- [ ] Collapse the deliberate v1/v2 settings duplication per the "Phase 5" plan noted in
-      `src/components/settings-targeted-learning.tsx:7-10` (code).
-- [ ] Refactor hotspots: `prompt-input.tsx` (~3.1k lines) and `session.tsx` (~1.7k lines) (code).
-- [ ] `_ExternalThemeLoader` is mounted outside `ServerKey` gating with an empty catch — harmless but half-wired (code).
-- [ ] Legacy `?auth_token` Basic-credential links still supported in `entry.tsx` — decide deprecation (code).
-- [ ] Email-verification polling is a no-op by design (`context/auth.tsx:124-127`) — finish when server email delivery exists (code).
+      auto-submit. Verify and fix (code — flagged, needs confirmation). FIXED: startedAt seeds at registration, not the agent's message time; instant-expire auto-submit regression test added.
+- [x] **DONE 2026-11-23** (`63e4b11`): Collapse the deliberate v1/v2 settings duplication per the "Phase 5" plan noted in
+      `src/components/settings-targeted-learning.tsx:7-10` (code). Shared state machine + step/health blocks; shells are chrome-only.
+- [ ] Refactor hotspots: `prompt-input.tsx` (~3.1k lines) and `session.tsx` (~1.7k lines) (code). DEFERRED deliberately — both are working, actively changed surfaces; a behavior-preserving split needs a dedicated session with the UI test harness running (§12).
+- [x] **DONE 2026-11-23** (`1368927`): `_ExternalThemeLoader` is mounted outside `ServerKey` gating with an empty catch — harmless but half-wired (code). Wired reactively (late/server switches + logged failures).
+- [x] **DONE 2026-11-23** (`cbeaac9`): Legacy `?auth_token` Basic-credential links still supported in `entry.tsx` — deprecation DECIDED: keep honored (headless recovery path), loud console.warn, removal deferred to a named future release.
+- [x] **DONE 2026-11-23** (`288fb9e`): Email-verification system DISABLED end to end (both endpoints answer `{ ok: false }`, no token consumption; exercise scenarios re-pinned) — the polling no-op question is moot by decision.
 
 ## 8. Repo hygiene / build / housekeeping
 
@@ -414,28 +414,28 @@ commits). One claim from the exploration pass (a "broken `const ealth]` declarat
 
 ## 11. Sprint-2 follow-ups (discovered 2026-11-22, all non-blocking, recorded during the swarm's verification)
 
-- [ ] `packages/learning/src/store/index.ts` silent catch mappers (~132/229/246) + `sqlite-vec/index.ts:198,207` `.catch(() => undefined)` metric inserts — same treatment as the §4 hardening item.
-- [ ] Add a retained-heap assertion to `test/ingest-load.test.ts` so the `run.ts` `parsed`/`chunked` pruning fix is test-pinned (a plain revert currently passes the suite).
-- [ ] Pre-fix books: re-ingest required after upgrade (chunk boundaries + `text_norm` changed); land the mismatch→re-ingest job (or document the ops step) before bumping `NORMALIZER_VERSION` — a bump today is inert because nothing reads it yet.
-- [ ] Docs sweep: `WHATS_DONE.md`, `TARGETED_LEARNING_WORKLOG.md`, `docs/audit/2026-10-31-comprehensive-findings.md` and the `learning/src/index.ts` header still reference the deleted pool stub / old behavior.
-- [ ] Unify the two 400 body shapes in the TL route group (handler `_tag` vs schema-decode `Payload`) and decide the no-404 contract (currently `200 false` / SPA catch-all; pinned by tests).
-- [ ] `IndexerService.runInTransaction` Phase C: add an orphan-file cleanup hook for post-commit filesystem failures (stale duplicate .md files possible).
-- [ ] Chunking refinements: TOC-page heading strings can anchor a section start at the TOC occurrence; pre-existing ~2× whole-page overlap at cross-page PDF bounds is preserved by design — reconsider both.
-- [ ] Deep lexical handling of rewritten follow-ups in the Rust engine (`fts_expression` one-liner option) and the `src/eval` export-map decision.
-- [ ] Frontend next pass: luxon (259 KB) eager via `context/models.tsx`, kobalte (235 KB) eager via `ui` DialogProvider/toast; optional splash for the marked-chunk gap; `ConnectionGate` timeout-loop nuance.
-- [ ] Run the server `tsgo` typecheck on a machine with more memory (this 4 GB sandbox OOM-kills it; runtime graph-boot tests cover the sprint's server change).
-- [ ] httpapi-instance "missing projects" test still runs on bun's 5s default timeout (~3.6s typical — bump to 20s like its siblings if it ever flakes).
+- [x] **DONE 2026-11-23** (sweep, `8ac65af`): `packages/learning/src/store/index.ts` silent catch mappers (~132/229/246) + `sqlite-vec/index.ts:198,207` metric inserts — same treatment as the §4 hardening item (see §4 for the resolved behavior).
+- [x] **DONE 2026-11-23** (`7956da4`): retained-heap assertion in `test/ingest-load.test.ts` — forced-GC `Bun.generateHeapSnapshot()` string-volume bound (<4.6× book; baseline 4.08×) + a source-order pin for the run.ts parsed/chunked pruning (a bare revert is GC-invisible under JSC liveness — reverted run measured the identical 59.65 MB).
+- [x] **DONE 2026-11-23**: mismatch detection landed, re-ingest stays a deliberate operator step — `GET /targeted-learning/health` now reports `booksNeedingReingest` (count of books whose `normalizer_version != NORMALIZER_VERSION`; absent while books.db unavailable; additive optional field, exercise suite re-run green). Route test pins fresh-library → 0 and a stale-version book row → exactly 1. Ops step (delete + re-upload per affected book) documented in `docs/targeted-learning-deployment.md` §"Ingest jobs and recovery". A bump without a re-ingest plan is now a visible state, not a silent one; the bump itself remains a future decision.
+- [x] **DONE 2026-11-23** (`a743aff`): Docs sweep — `WHATS_DONE.md`, `TARGETED_LEARNING_WORKLOG.md`, `docs/audit/2026-10-31-comprehensive-findings.md` and the `learning/src/index.ts` header no longer reference the deleted pool stub / old behavior.
+- [x] **DONE 2026-11-23** (`8490ad1`): Unify the two 400 body shapes in the TL route group — every handler site emits the `{ name: "BadRequest", data }` NamedError shape (matches schema-decode middleware + SDK `wrapClientError`), each with a human reason. No-404 contract DECIDED: keep 200-false + SPA catch-all (UI depends on idempotent deletes).
+- [x] **DONE 2026-11-23** (`1fc22ee`): `IndexerService.runInTransaction` Phase C orphan-file cleanup hook — `cleanupOrphanFiles()` (rowless, aged, well-named .md sweep with 60 s concurrency guard) wired into consolidation's post-commit failure path with an enriched error.
+- [x] **DONE 2026-11-23** (`2e59c28`): Chunking refinements — TOC-safe heading anchoring (standalone-line preference skips leader-dotted TOC lines) and de-duplicated cross-page bounds (sections end/start AT located headings; unlocatable headings keep legacy whole-page ranges; same-page Bug #2 tiling preserved verbatim; pageStart/pageEnd legacy meaning kept).
+- [ ] Deep lexical handling of rewritten follow-ups in the Rust engine (`fts_expression` one-liner option) and the `src/eval` export-map decision. DEFERRED — needs the Rust engine build chain + a measured follow-up corpus; the JS fallback path is correct today (§12).
+- [ ] Frontend next pass: luxon (259 KB) eager via `context/models.tsx`, kobalte (235 KB) eager via `ui` DialogProvider/toast; optional splash for the marked-chunk gap; `ConnectionGate` timeout-loop nuance. DEFERRED — build-graph changes need a built bundle to verify sizes; do before the next release pass (§12).
+- [ ] Run the server `tsgo` typecheck on a machine with more memory (this 4 GB sandbox OOM-kills it; runtime graph-boot tests cover the sprint's server change). Also OOM-bound here, verified 2026-11-23: the FULL server suite under `bun test --isolate` (exit 137, no test failure printed) — hence `--isolate` stays opt-in via `test:isolated`.
+- [x] **DONE 2026-11-23** (`802b77c`): httpapi-instance "missing projects" test bumped to a 20s timeout like its siblings.
 - [x] **DONE 2026-11-22** `/favicon-light.svg` 404 fixed (discovered during §8 favicon work): the canonical
       `packages/ui/src/assets/favicon/favicon-light.svg` is now copied byte-identical into
       `packages/app/public/` AND `/favicon-light.svg` is allowlisted in the server `PUBLIC_UI_PATHS`
       (`src/server/shared/public-ui.ts`, next to `/favicon.svg`). `isPublicUIPath` sanity-checked
       (GET true / POST false / unknown false); smoke 5/0, server TL 26/0, instance 7/7 re-run green.
-- [ ] Combined single-process server-test run (`bun test test/server/httpapi-targeted-learning.test.ts test/server/httpapi-instance.test.ts`) shows inter-file contamination (TL's `/tmp/tl-routes-test-*` log path) — run the files separately (both green per-file); consider a test-isolation fix.
-- [ ] Auth UX (from §2 #8, 2026-11-22): when the global SSE stream (or any data request) 401s with a stale cookie, surface a re-login prompt instead of raw console errors — the retry loop currently just logs `[global-sdk] event stream error` until the user re-authenticates manually.
-- [ ] Run one `docker build && docker run` smoke of the new production CMD (`/usr/local/bin/diveeoi`) on a host with a Docker daemon — the dev sandbox has none; the Dockerfile change was verified by construction only (build.ts emits a single compiled Bun executable; `find` pattern matches exactly one file).
-- [ ] `pacote@21.5.1`: the deleted 21.5.0 patch fixed a git-tarball fallback bug still present upstream — re-derive as a 21.5.1 patch only if a tarball fallback failure ever shows up.
+- [x] **DONE 2026-11-23**: inter-file contamination root-caused and fixed — `bun test` runs all files of one invocation in a single process; the TL fixture's module-load XDG redirect + afterAll root deletion left later files with dangling module-cached paths (instance 7/7 NotFound on the deleted log path). `tl-env.ts` now restores the env in afterAll, removes the root only on process exit (exit/beforeExit listeners — verified to never fire in bun test, so an owner-pid-stamped stale sweep self-heals leftovers; EPERM=alive, ESRCH=dead), and `test:isolated` gives true per-file isolation. Verified: TL 27/0, instance 7/0, plain combined 33/0 (was 26/7), `--isolate` combined 33/0, exercise coverage 252/0/0.
+- [x] **DONE 2026-11-23** (`15061a6`): Auth UX — a 401 on the global SSE stream parks the retry loop and surfaces a re-login banner (i18n ×18).
+- [ ] Run one `docker build && docker run` smoke of the new production CMD (`/usr/local/bin/diveeoi`) on a host with a Docker daemon — the dev sandbox has none (host-bound, §12); the Dockerfile change was verified by construction only (build.ts emits a single compiled Bun executable; `find` pattern matches exactly one file).
+- [ ] `pacote@21.5.1`: the deleted 21.5.0 patch fixed a git-tarball fallback bug still present upstream — re-derive as a 21.5.1 patch only if a tarball fallback failure ever shows up (conditional, recorded in §12).
 
-- [ ] Memory (from the 2026-11-23 MEMORY_REVIEW re-check): extractor session extraction has no idempotency key
+- [x] Memory (from the 2026-11-23 MEMORY_REVIEW re-check): extractor session extraction has no idempotency key
       ~~(scheduler + manual `extractNow` can double-extract); multi-node extraction commits per-node without a wrapping
       transaction (partial commits possible); public `MemoryService.updateNode` rebuilds wikilinks outside a
       transaction (delete-all-then-reinsert race); indexer schema DDL is raw strings without `PRAGMA user_version`.)~~
@@ -444,16 +444,16 @@ commits). One claim from the exploration pass (a "broken `const ealth]` declarat
       + wikilink rebuild in one transaction; `PRAGMA user_version` gates DDL (legacy 0 → upgraded, newer DB → init
       fails with an operator-facing error).
 - [ ] Memory UI: build the Settings → Memory inspector tab on the kept `GraphView.tsx` (needs a read-only memory
-      graph/stats HTTP endpoint, tab wiring, i18n keys ×18 locales) — decision recorded in §5.
+      graph/stats HTTP endpoint, tab wiring, i18n keys ×18 locales) — DEFERRED: needs a NEW server endpoint + client surface + i18n ×18; scoped plan in §5 (§12).
 - [ ] Account/org UX: a choose-your-org screen when login returns multiple orgs (needs endpoint + client surface;
-      default-first-org stands until then).
+      default-first-org stands until then) — DEFERRED: NEW endpoint + client surface + i18n ×18 (§12).
 - [x] Plugin lifecycle: dedicated `plugin.failed` event — DONE 2026-11-23: `PluginV2.Event.Failed` published by
       `publishPluginError` alongside the session error channel, with plugin spec + stage
       (install/compatibility/entry/register).
 - [ ] Server pricing: contribute a reasoning-token rate field to models.dev, then consume it in
-      `Session.getUsage` instead of the output-rate stopgap.
+      `Session.getUsage` instead of the output-rate stopgap. HOST/UPSTREAM-BOUND — needs the catalog field first (§12).
 - [ ] cors-vary: file the upstream Vary-merge PR at Effect-TS/effect (v4 smol beta, `HttpMiddleware.cors`
-      `headersFromRequestOptions` ~L332); delete the local mitigation middleware once a release ships it.
+      `headersFromRequestOptions` ~L332); delete the local mitigation middleware once a release ships it. UPSTREAM-BOUND (§12).
 - [x] DB public facade — DONE 2026-11-23: `SessionV2.reattach(sessionID, workspaceID)` (validates session + workspace,
       re-publishes `session.next.moved`, projector rewrites the binding + resets the context epoch); opaque
       `EventV2.Cursor.encode/decode` (`evt-cursor-v1` base64url token; decode accepts raw ints + tokens for both-way
@@ -461,9 +461,9 @@ commits). One claim from the exploration pass (a "broken `const ealth]` declarat
       optional injectable database layer.
 - [ ] db v2 tool layer, prioritize IF background/detached tool execution ships: parser-based shell-command
       advisories (current token-based scan is advisory-only) and crash-recovery/idempotency between `Tool.Called`
-      and durable settlement.
+      and durable settlement. DEFERRED — gated on background tool execution (§12).
 - [ ] gitlab-duo: rewrite the commented 410-line test suite against the Effect Provider service + instance fixtures
-      (support itself is implemented in src; `Env.set` now works, which was one of the blockers).
+      (support itself is implemented in src; `Env.set` now works, which was one of the blockers). DEFERRED — needs provider-instance fixtures (§12).
 
 ## 12. Session record — 2026-11-23 completion sweep (§4/§7 + §11 leftovers)
 
@@ -498,7 +498,9 @@ HOST-BOUND (cannot run in the 4 GB / no-GPU / no-Docker sandbox — unchanged, r
   BGE-M3 model; live-model CI runs; server tsgo typecheck on a ≥16 GB machine (this sandbox OOM-kills it); docker
   build/run smoke of the new production CMD; cors-vary upstream PR at Effect-TS/effect; models.dev reasoning-token
   rate field (the `Session.getUsage` consumption needs the catalog field first); @book chip PART_MAPPING (needs SDK
-  regen); pacote 21.5.1 patch re-derive only on a tarball-fallback failure.
+  regen); pacote 21.5.1 patch re-derive only on a tarball-fallback failure. Verified 2026-11-23 addition: the FULL
+  server suite under `bun test --isolate` (exit 137 OOM — hence `--isolate` ships as the opt-in `test:isolated`
+  script, default test script unchanged).
 
 ASSESSMENTS (decided this session, deliberately not started):
 - prompt-input.tsx (~3.1k lines) / session.tsx (~1.7k lines) refactor hotspots: DEFERRED — both are working, actively

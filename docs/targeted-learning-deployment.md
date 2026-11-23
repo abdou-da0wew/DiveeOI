@@ -105,6 +105,19 @@ Book indexing jobs are persisted in `books.db` and can be listed and controlled 
 
 Queued/running jobs are recovered when the server restarts. Recovery validates that the stored source remains inside the library, checks its SHA-256, then rebuilds the index from the beginning; it does not continue from the exact recorded batch. Paused jobs remain paused after restart. Keep source files enabled (`keepSourceFiles: true`, the default) if automatic recovery/re-indexing is required. Setup itself can be cancelled with `POST /targeted-learning/setup/cancel` or the UI control.
 
+### Normalizer-version re-ingest (ops step)
+
+Every ingested book is stamped with the `NORMALIZER_VERSION` of the code that produced its chunks (`books.normalizer_version`). If a release bumps the normalizer (chunk boundary or `text_norm` rules changed), books ingested by the previous version keep search-index content the current rules would produce differently — FTS/BM25 quality silently diverges from a fresh ingest.
+
+Detection is automatic: `GET /targeted-learning/health` reports `booksNeedingReingest` — the count of books whose `normalizer_version` differs from the running code (0 on an up-to-date library; the field is absent while books.db is unavailable).
+
+The re-ingest itself is a deliberate operator action, per affected book:
+
+1. Delete the book in the Library UI (or `DELETE /targeted-learning/books/:bookID`).
+2. Re-upload the same source file (or `POST /targeted-learning/books` with the file) — the ingest stamps the current `NORMALIZER_VERSION` and rebuilds chunks + vectors.
+
+Do not bump `NORMALIZER_VERSION` in code until a re-ingest plan (or this manual step in the release notes) is in place: a bump without re-ingest is exactly the state this count warns about.
+
 ## Resource requirements
 
 - **Minimum**: 2 cores, 4 GB RAM, 2 GB free disk (int8 model + small library)
