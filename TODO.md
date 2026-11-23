@@ -18,34 +18,69 @@ say this explicitly — do not inherit the Nov 3 test counts by implication.
 
 - [ ] **Rebuild the production binary from current source and restore the service.**
       The 2026-11-09 ingest `error:"null"` root-cause fix is already in source — `packages/learning/src/embed/pipeline.ts:101-105`
-      no longer maps the Transformers.js import failure to `null`, and `packages/learning/src/ingest/run.ts:768` now uses
+      no longer maps the Transformers.js import failure to `null`, and `packages/learning/src/ingest/run.ts:789` now uses
       `util.inspect(err)` (code). But the deployed binary predates Nov 5+ source (`CONTEXT.md`, `RELEASE_HANDOFF_2026-11-06.md` (doc)),
       so production still runs the broken build. Ops checklist: rebuild → verify migrations/backups → get explicit user approval →
       restart `diveeoi.service` (`docs/testing/2026-11-09-ui-test/docs/DiveeOI_Ops_Debug_Manual.md` §5, §9.4 (doc)).
-- [ ] **Run a full monorepo verification** (`bun turbo typecheck` + per-package `bun test` + `bun run build`) on the
-      current HEAD. Nov 4–21 commits are unverified as a whole (doc: `CONTEXT.md` "Verification boundaries",
-      `docs/targeted-learning.md:78`). Known wrinkle: the server `tsgo` typecheck has OOMed historically —
-      `docs/audit/2026-10-31-comprehensive-findings.md` records that its status was "not verified" (doc).
+      → **REBUILD DONE 2026-11-23**: linux-x64 production binary `packages/server/dist/@diveeoi/server-linux-x64/bin/diveeoi`
+      self-reports `DiveeOI 1.19.7`, build smoke test passed. **Remaining: copy to VDS + user-approved `diveeoi.service` restart** (needs production access).
+- [x] **DONE 2026-11-23 (sandbox, 4 GB / 2 cores)** **Full monorepo verification** on HEAD `00a1cf0` + release fixes:
+      typecheck **PASS for all 18 packages with a typecheck script except `server`** — the server `tsgo --noEmit` OOM-reproduces
+      (SIGKILL at ~3.5 GB RSS; same historical wrinkle, `docs/audit/2026-10-31-comprehensive-findings.md`); it needs the 32 GiB VDS.
+      Tests **PASS**: coenx-video, db (1082/1082 after fixture fix), effect-drizzle-sqlite, http-recorder, learning, llm, memory,
+      profiler, ui, app, and the server suite (215 files, run in memory-sized chunks: all green after the fixes below).
+      `bun run build` **PASS** (5/5 turbo tasks, binary smoke-tested). Failures found and fixed during the pass:
+      db location-layer fixture (coenx-video tools), plugin openai-ws Bun-1.3.14 message wording, RemoteSession missing from
+      5 minimal test stacks, v2-location SSE schema (`location.project` now optional), file-picker lazy-index race
+      (`findFile` served `[]` — real production bug, fixed), stale tool-parameters snapshots.
+      Known pre-existing (documented, not blocking): `httpapi-targeted-learning` + `httpapi-sync` interfere when run in ONE
+      process (each passes in isolation); server typecheck needs a ≥6 GB machine.
 - [ ] **Bug #14 (🔴, 2026-11-09): prompt-execution stall** — all sessions stopped producing tokens (~22:20 UTC).
       Diagnosed as the LLM dispatch/bootstrap layer, not Targeted Learning. No doc records a confirmed fix; verify on
       the rebuilt binary (`docs/testing/2026-11-09-ui-test/docs/DiveeOI_ManualTest_Report_2026-11-09.md` (doc)).
+      → **STATUS 2026-11-23**: `git log --since=2026-11-08` over `packages/llm` + `packages/server` shows NO stall-specific fix
+      has landed; the verification is still an **ops action on the rebuilt binary** after the user-approved restart
+      (session turns, provider dispatch, bootstrap 503s). Server-side regression coverage that does exist (route boot tests,
+      prompt loop tests, ws upgrade paths) is green as of this verification.
 - [x] **DONE 2026-11-22** **Bug #2 (🔴, 2026-11-09): server crash under ingest memory spike** (RSS → 15.8 GB) — ROOT CAUSE FOUND AND FIXED: TXT/DOCX parsers stamped every outline entry `page: 1`, so `buildSectionsFromOutline` duplicated the ENTIRE book text once per heading (O(headings × bookSize)); sections now tile page text between headings via character offsets (120-heading 277 KB book: Σ section text 33.0 MB → 0.277 MB; chunk-stage RSS 380 → 108 MB). Ingest-time page/outline retention also pruned. Automated ingest-under-load stress test added (`test/ingest-load.test.ts`: bounded in-flight vectors, per-wave checkpointing, post-completion cleanup). A deliberate re-test on deployment hardware remains an ops action.
 - [ ] **Recover the lost "Mathematics (English) - Part 1" book** (Bug #12 🟠) — re-upload via UI or restore from the
-      67 MB corpus backup; candidates identified in `docs/testing/2026-11-09-ui-test/docs/mathbook_hunt.md` (doc).
-      The golden math exam question is blocked on this.
+      corpus backup; candidates identified in `docs/testing/2026-11-09-ui-test/docs/mathbook_hunt.md` (doc):
+      `/home/celestial-dev/diveeoi-artifacts/Mathematics-EN-Part1.pdf` (1,248,223 B, mtime Nov 8 23:03) is the primary
+      recovery candidate; fallback `eb-pdf/` curriculum set + orphaned sections (`bk_5e4f6d18c33342f6`, 320 KB text).
+      → **Cannot be executed from the dev sandbox**: the artifacts live on the VDS filesystem. Runbook: upload the PDF via
+      the Library UI (or copy into `~/.local/share/diveeoi/targeted-learning/` and ingest), then confirm 552 passages
+      re-index and the golden math exam question unblocks. The golden math exam question is blocked on this.
 - [ ] **Composer release verification never done** (`COMPOSER_INCIDENT_HANDOFF.md` "Remaining verification" (doc)):
   - [ ] Validate authenticated requests against OpenRouter / AgentRouter with real provisioned test credentials.
+        → **Blocked on credentials**: no authorized key exists in this environment; not attempted (no requests invented).
   - [ ] Exercise upstream free-quota exhaustion + cooldown/reselection end-to-end (unit tests only cover classification).
+        → **Blocked on a real upstream account**; classification/cooldown unit tests pass in this verification.
   - [ ] Verify every OAuth provider with its own loader is still available after the provider-auth patch.
+        → Source-verified 2026-11-23: per-provider loaders are wired (provider-auth layer chain intact); live confirmation
+        still needs credentials.
   - [ ] Confirm streaming errors reliably reach `FreeTier.learn()` on the free-tier path.
-- [ ] **Cut an actual release.** `CHANGELOG.md` contains only **Unreleased** — nothing since the fork has ever been
-      versioned/tagged. Also resolve the Bun mismatch: verified with Bun 1.4.4, pinned `packageManager` is 1.3.14
-      (`RELEASE_HANDOFF_2026-11-03.md` §5 (doc)).
-- [ ] **Fix the HTTP API exercise** (`RELEASE_HANDOFF_2026-11-03.md` §5/§6 (doc)): effect mode fails
-      (`ChildProcessSpawner` not provided); coverage mode reports **58 missing route scenarios** — decide to add or formally accept them.
+        → Code-path reviewed; the ws upgrade-rejection surfacing test now passes on the pinned Bun 1.3.14 (message
+        normalization); end-to-end confirmation needs credentials.
+- [x] **DONE 2026-11-23** **Cut an actual release.** `CHANGELOG.md` was Unreleased-only since the fork — now cut as
+      **1.19.7 (2026-11-23)** (matches the built binary's upstream-gated derived version; tag `v1.19.7`), server+app
+      `package.json` bumped to 1.19.7. **Bun mismatch resolved in the safe direction**: this full verification ran on the
+      **pinned Bun 1.3.14** (`packageManager`), and the one Bun-version-dependent test message was made portable
+      (`plugin/openai-ws`). Turbo strict env was also fixed to pass `DIVEEOI_VERSION`/`DIVEEOI_BUMP`/`DIVEEOI_RELEASE`/
+      `DIVEEOI_CHANNEL` so future release builds can pin versions explicitly.
+- [x] **DONE 2026-11-23** **Fix the HTTP API exercise** (`RELEASE_HANDOFF_2026-11-03.md` §5/§6): effect mode FIXED —
+      `AppLayer` (and the route-tree composition) now provide `ChildProcessSpawner` (`CrossSpawnSpawner.defaultLayer`) and
+      `FSUtil.defaultLayer`; the experimental tool-ID route's `ToolRegistry.ids()` passes (`--mode effect --include tool.ids`
+      exit 0, zero `Service not found` in a full effect-mode run). The **58 missing route scenarios are FORMALLY ACCEPTED**
+      as documented coverage debt: auth mode re-verified 194/194 passing with the layer changes; coverage mode stays
+      `--fail-on-missing` as the enforcement point once scenarios are written (tracked below).
+- [ ] **Write the 58 missing HTTP API route scenarios** — accepted debt from the decision above; registry lives in
+      `packages/server/test/server/httpapi-exercise/`.
 - [ ] **Run the FTS anchor-content migration against the live production DB** — still pending per
-      `RELEASE_HANDOFF_2026-11-03.md` §2.5 (doc).
-- [ ] **Mobile / responsive browser QA** — explicitly "not performed" in every QA pass so far (doc).
+      `RELEASE_HANDOFF_2026-11-03.md` §2.5. → Verified 2026-11-23: migration `20261103001500_bootstrap_anchor_content_fts`
+      is registered in `packages/db/src/database/migration.gen.ts:54` and rehearsed on a disposable DB copy (per doc);
+      the live-DB run happens automatically at first boot of the rebuilt binary — the user-approved restart IS the run.
+- [ ] **Mobile / responsive browser QA** — explicitly "not performed" in every QA pass so far (doc). No real devices/
+      browsers available in this environment; needs a device/browser QA pass against the restarted service.
 
 ## 2. UI bugs from the 2026-11-09 manual test (re-verify against current HEAD)
 

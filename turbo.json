@@ -1,7 +1,13 @@
 {
   "$schema": "https://v2-8-13.turborepo.dev/schema.json",
   "globalEnv": ["CI", "DIVEEOI_BUILD_SINGLE", "DIVEEOI_BUILD_NOBINARY", "DIVEEOI_BUILD_OS", "DIVEEOI_BUILD_ARCH", "DIVEEOI_LOW_MEM"],
-  "globalPassThroughEnv": ["CI"],
+  "globalPassThroughEnv": [
+    "CI",
+    "DIVEEOI_VERSION",
+    "DIVEEOI_BUMP",
+    "DIVEEOI_RELEASE",
+    "DIVEEOI_CHANNEL"
+  ],
   "tasks": {
     "typecheck": {},
     "@diveeoi/app#build": {

@@ -4,6 +4,10 @@ Notable changes to DiveeOI are recorded here. Unreleased work remains under **Un
 
 ## Unreleased
 
+## 1.19.7 (2026-11-23)
+
+First tagged release since the fork; everything previously listed under **Unreleased** ships here, plus the release-day fixes below.
+
 ### Added
 
 - Added the `@diveeoi/coenx-video` package foundation for shared composition authoring, keyframe animation, interactive state/event logic, Canvas/DOM playback, 2D and basic mesh rendering, SVG/FFmpeg MP4 export, audio tracks, and batched Rust physics.
@@ -65,3 +69,11 @@ Notable changes to DiveeOI are recorded here. Unreleased work remains under **Un
 - Fixed the light-scheme favicon 404: `/favicon-light.svg` (referenced by `index.html` for `prefers-color-scheme: light`) was neither shipped in the app's public directory nor allowlisted in the server's `PUBLIC_UI_PATHS`; the canonical asset is now copied byte-identical and the path is served publicly.
 - Removed the dead Phase-1 worker-pool stub (`packages/learning/src/ingest/pool.ts`) and its dangling package export; the real pool remains `ingest/embed-pool.ts`.
 - Removed un-wired upstream leftovers and dead weight: `packages/plugins` (imported non-existent `@opencode-ai/*` packages), the 7.7 MB prebuilt Go binaries under `packages/mcp/built-in/opencode-db-reader/` (sources kept, rebuilds git-ignored), the vestigial `packages/server/migration/` drizzle output duplicating a real db migration, and the empty `REMINDERS.md` heading file.
+- Fixed the HTTP API exercise effect mode (`packages/server/script/httpapi-exercise.ts`): `AppLayer` never provided `ChildProcessSpawner` or `FSUtil`, so the lazily-initialized P6 machine tools (notify/exec/screenshot/kill-process/open-url/list-processes) and the skill/apply_patch tools failed at `ToolRegistry` init and the experimental tool-ID route died with `Service not found: effect/process/ChildProcessSpawner`; both layers are now merged into `AppLayer` in `packages/server/src/effect/app-runtime.ts` and into the HTTP route-tree composition in `packages/server/src/server/routes/instance/httpapi/server.ts`, which also repairs the machine tools in production (the `as never` cast had hidden the unsatisfied requirements). Auth mode: 194/194 passing; effect mode `tool.ids` passes.
+- Fixed the file-picker fallback index race (`packages/db/src/filesystem/search.ts`): the lazy ripgrep crawl was forked fire-and-forget, so every cold `find()` query raced the scan and served an empty index (`findFile` returned `[]` — deterministic on any machine slower than the original VDS). The first caller now joins the scoped crawl fiber; later callers hit the warm index immediately.
+- Fixed the minimal test stacks that construct `InstanceContextMiddleware` / `SessionPrompt` / glob+grep tools without `RemoteSession.Service` (the production graph gets it from `AppServices.serviceNodes` since `e7baab3`): `httpapi-instance-context`, `httpapi-promptasync-context`, `session/prompt`, `tool/glob`, `tool/grep` now provide `RemoteSession.defaultLayer` explicitly.
+- Updated the `httpapi-v2-location` SSE test to the real event contract: filesystem-scoped events (`file.watcher.updated`) carry `location.directory` without `location.project`, so the decoded schema marks `project` optional instead of failing every stream.
+- Refreshed the stale `tool/parameters` JSON-Schema snapshots after the glob/grep description updates.
+- Added `db` location-layer test fixtures for the two coenx-video tools (`coenx_video_capabilities`, `coenx_video_validate`) missing from the expected application-tool lists.
+- Turbo strict env mode silently dropped `DIVEEOI_VERSION`/`DIVEEOI_BUMP`/`DIVEEOI_RELEASE`/`DIVEEOI_CHANNEL` from build tasks, so release builds could not pin a version (the binary silently derived it from upstream npm latest); all four are now declared in `globalPassThroughEnv`.
+- The 58 route scenarios missing from the HTTP API exercise registry are formally accepted as documented coverage debt: auth mode passes 194/194 registered scenarios, coverage-mode `--fail-on-missing` remains the enforcement point once the scenarios are written (decision recorded in `TODO.md`).

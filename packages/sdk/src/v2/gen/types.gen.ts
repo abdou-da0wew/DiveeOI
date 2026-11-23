@@ -2035,6 +2035,14 @@ export type Config = {
   shell?: string
   logLevel?: LogLevel
   server?: ServerConfig
+  ssh?: {
+    enabled?: boolean
+    host?: string
+    port?: number
+    username?: string
+    hostKeyFile?: string
+    listenTimeoutMs?: number
+  }
   command?: {
     [key: string]: {
       template: string

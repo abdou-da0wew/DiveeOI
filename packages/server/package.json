@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "version": "1.17.8",
+  "version": "1.19.7",
   "name": "@diveeoi/server",
   "type": "module",
   "license": "MIT",
