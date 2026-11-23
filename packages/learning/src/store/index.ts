@@ -123,13 +123,14 @@ const initSchema = (db: BooksDbHandle): Effect.Effect<void, unknown> =>
       try: () => (db as BooksDbHandle & { _execRaw: (sql: string) => Promise<void> })._execRaw(SCHEMA_SQL),
       catch: (err) => err,
     })
-    // Set schema_version if missing
+    // Set schema_version if missing. Failure here propagates (typed, not swallowed): the
+    // caller marks the store degraded, and the log now says WHY instead of "undefined".
     yield* Effect.tryPromise({
       try: () =>
         db.run(
           `INSERT OR IGNORE INTO \`meta\`(\`key\`, \`value\`) VALUES('schema_version', '${SCHEMA_VERSION}')`,
         ),
-      catch: () => undefined,
+      catch: (err) => new Error(`failed to record schema_version in meta: ${String(err).slice(0, 200)}`),
     })
   })
 
@@ -200,22 +201,33 @@ const openBooksDb = (dbPath: string): Effect.Effect<BooksStoreInterface, unknown
     const healthy = yield* quickCheck(db).pipe(Effect.orElseSucceed(() => false))
     if (!healthy) {
       const corrupt = `${dbPath}.corrupt-${Date.now()}`
+      // Quarantine is best effort; pruning old quarantine copies only runs after a
+      // successful rename (unchanged from the original nesting — just readable now).
       try {
         renameSync(dbPath, corrupt)
-      try {
         // Keep the 3 newest quarantined copies; older ones only waste disk.
-        const dir = path.dirname(dbPath)
-        const base = `${path.basename(dbPath)}.corrupt-`
-        const old = readdirSync(dir).filter((f) => f.startsWith(base)).sort().slice(0, -3)
-        for (const f of old) unlinkSync(path.join(dir, f))
+        try {
+          const dir = path.dirname(dbPath)
+          const base = `${path.basename(dbPath)}.corrupt-`
+          const old = readdirSync(dir).filter((f) => f.startsWith(base)).sort().slice(0, -3)
+          for (const f of old) unlinkSync(path.join(dir, f))
+        } catch {
+          // best effort
+        }
       } catch {
-        // best effort
-      }
-      } catch {
-        // best effort
+        // best effort — recovery continues with a fresh file either way
       }
       const freshDb = yield* openSqlite(dbPath)
-      yield* initSchema(freshDb).pipe(Effect.orElseSucceed(() => undefined))
+      // Failure no longer vanishes: a fresh DB whose schema init failed must not look
+      // like a healthy store with no trace in the logs.
+      yield* initSchema(freshDb).pipe(
+        Effect.tapError((err) =>
+          Effect.logError("BooksStore: schema init after corrupt recovery failed", {
+            err: String(err).slice(0, 200),
+          }),
+        ),
+        Effect.orElseSucceed(() => undefined),
+      )
       return {
         db: freshDb,
         available: true,
@@ -223,10 +235,12 @@ const openBooksDb = (dbPath: string): Effect.Effect<BooksStoreInterface, unknown
       } satisfies BooksStoreInterface
     }
 
-    // Case 2b: schema version check
+    // Case 2b: schema version check. A missing meta table is a normal pre-versioning DB
+    // (falls through to "assume current"); any other read failure also keeps that path
+    // but now carries a descriptive error instead of a bare empty-array mapper.
     const meta = yield* Effect.tryPromise({
       try: () => db.all<{ value: string }>("SELECT value FROM `meta` WHERE key = 'schema_version'"),
-      catch: () => [] as { value: string }[],
+      catch: (err) => new Error(`meta schema_version read failed: ${String(err).slice(0, 200)}`),
     }).pipe(Effect.orElseSucceed(() => [] as { value: string }[]))
     const dbVersion = meta[0] ? parseInt(meta[0].value, 10) : SCHEMA_VERSION
     if (dbVersion > SCHEMA_VERSION) {
@@ -238,12 +252,15 @@ const openBooksDb = (dbPath: string): Effect.Effect<BooksStoreInterface, unknown
       } satisfies BooksStoreInterface
     }
     if (dbVersion < SCHEMA_VERSION) {
+      // Upgrade write. Failure propagates as a typed error so the degraded-mode log
+      // names the failed step instead of printing "undefined".
       yield* Effect.tryPromise({
         try: () =>
           db.run(
             `INSERT OR REPLACE INTO \`meta\`(\`key\`, \`value\`) VALUES('schema_version', '${SCHEMA_VERSION}')`,
           ),
-        catch: () => undefined,
+        catch: (err) =>
+          new Error(`failed to persist upgraded schema_version ${SCHEMA_VERSION}: ${String(err).slice(0, 200)}`),
       })
     }
 
@@ -263,6 +280,11 @@ export const BooksStoreLayer = Layer.effect(
     const dbPath = path.join(dataDir, "books.db")
 
     const store: BooksStoreInterface = yield* openBooksDb(dbPath).pipe(
+      // Log the actual failure — the degraded reason below says "init failed (see logs)"
+      // and with this tapError the statement is finally true.
+      Effect.tapError((err) =>
+        Effect.logError("BooksStore: open failed, entering degraded mode", { err: String(err).slice(0, 200) }),
+      ),
       Effect.orElseSucceed((): BooksStoreInterface => ({
         db: null,
         available: false,

@@ -111,7 +111,11 @@ describe.skipIf(SKIP)("embed pipeline (live)", () => {
 
 describe("embed pipeline error surfacing", () => {
   const transformersEnv = async () => (await import("@huggingface/transformers")).env
-  const ENV_KEYS = ["allowRemoteModels", "allowLocalModels", "localModelPath"] as const
+  // cacheDir is saved/restored too: the file-level beforeAll downloads the test model
+  // with cacheDir pointed at its temp dir, and transformers.js falls back to cacheDir
+  // when localModelPath misses — which would silently resurrect the "missing local
+  // model" fixture below (init then SUCCEEDS and the typed-error test never tests it).
+  const ENV_KEYS = ["allowRemoteModels", "allowLocalModels", "localModelPath", "cacheDir"] as const
   let savedEnv: Record<string, unknown> = {}
   let emptyModelDir = ""
 
@@ -161,6 +165,10 @@ describe("embed pipeline error surfacing", () => {
     env.allowRemoteModels = false
     env.allowLocalModels = true
     env.localModelPath = emptyModelDir
+    // Also empty the hub cache: without this, the model downloaded by the live-test
+    // beforeAll is found in cacheDir even though localModelPath is empty (verified
+    // 2026-11-23 — init succeeded and the assertion caught expect.unreachable()).
+    env.cacheDir = emptyModelDir
     try {
       await Effect.runPromise(Pipeline.init(emptyModelDir, SIGNATURE, OPTIONS))
       expect.unreachable()

@@ -167,6 +167,25 @@ const distanceToScore = (distance: number, cosine: boolean): number => {
   return 1 / (1 + distance)
 }
 
+/**
+ * Persist which distance metric the vec0 table uses. `readMetric` consults this marker
+ * after a restart to convert distance -> score; a silent failure here would make every
+ * future run assume cosine and mis-score an L2 table, so the failure is recorded as a
+ * diagnostic instead of being swallowed. The in-process WeakMap was already updated by
+ * the caller, so this never fails table creation itself.
+ */
+const writeMetricMarker = async (db: BooksDbHandle, metric: "cosine" | "l2"): Promise<void> => {
+  try {
+    await db.run(
+      "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      METRIC_KEY,
+      metric,
+    )
+  } catch (error) {
+    logDiagnostic("sqlite-vec", "metric.writeFailed", { metric, error }, "warn")
+  }
+}
+
 const createVecTableImpl = async (db: BooksDbHandle, config: SqliteVecConfig): Promise<void> => {
   const version = await ensureExtension(db, config)
   if (!version) {
@@ -191,20 +210,12 @@ const createVecTableImpl = async (db: BooksDbHandle, config: SqliteVecConfig): P
   try {
     await db.run(withMetric)
     cosineMetric.set(db, true)
-    await db.run(
-      "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-      METRIC_KEY,
-      "cosine",
-    ).catch(() => undefined)
+    await writeMetricMarker(db, "cosine")
   } catch {
     // Older sqlite-vec without distance_metric: fall back to L2 and remember it.
     await db.run(plain)
     cosineMetric.set(db, false)
-    await db.run(
-      "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-      METRIC_KEY,
-      "l2",
-    ).catch(() => undefined)
+    await writeMetricMarker(db, "l2")
   }
 }
 
