@@ -43,6 +43,33 @@ const MAX_EXTRACTION_MESSAGES = 30
 const PER_MESSAGE_CAP = 2000
 
 /**
+ * Stable idempotency key for session extraction: FNV-1a over the session id and
+ * every message's role + full content. Same messages → same key (a scheduler run
+ * and a manual extract dedupe); any new or edited message → a new key (growth
+ * re-extracts; the extractor's similarity matching keeps old content from
+ * duplicating). Length suffix keeps different-sized sets distinguishable.
+ */
+const messagesHashFor = (sessionId: string, messages: readonly { role: string; content: string }[]): string => {
+  let hash = 0x811c9dc5
+  const feed = (text: string) => {
+    for (let i = 0; i < text.length; i++) {
+      hash ^= text.charCodeAt(i)
+      hash = Math.imul(hash, 0x01000193)
+    }
+    // Separator so field/message boundaries cannot collide.
+    hash ^= 0x1f
+    hash = Math.imul(hash, 0x01000193)
+  }
+  feed(`session:${sessionId}`)
+  feed(`count:${messages.length}`)
+  for (const message of messages) {
+    feed(message.role)
+    feed(message.content)
+  }
+  return `mh_${(hash >>> 0).toString(16).padStart(8, "0")}_${messages.length}`
+}
+
+/**
  * Prompt-injection hardening for untrusted conversation content interpolated
  * into the extraction prompt. The content sits inside a `<conversation>` tag
  * that the system prompt marks as untrusted data; these rewrites stop the
@@ -310,11 +337,25 @@ Extract memories as valid JSON array:`
     path: string
   ) =>
     Effect.gen(function* () {
+      // Idempotency key (MEMORY_REVIEW 2026-11-23): the same (session,
+      // message-set) pair must never extract twice — the daily scheduler and a
+      // manual extract both land here, and per-node commits used to double the
+      // nodes. The hash covers the message ids + full contents; any new message
+      // changes the key, so growth still re-extracts the delta.
+      const messagesHash = messagesHashFor(sessionId, messages)
+      const already = yield* indexer.getExtractionRecord(sessionId, messagesHash)
+      if (already) return { nodes: [], links: [] }
+
       const existingNodes = yield* indexer.getRecentNodes(100)
 
       const extracted = yield* extractFromMessages(messages, sessionId, existingNodes)
 
       if (extracted.length === 0) {
+        // Pin the empty result too: this exact message set produced nothing, so
+        // a scheduler re-run must not spend another LLM call on it.
+        yield* indexer.recordExtraction(sessionId, messagesHash, 0).pipe(
+          Effect.catch((error) => Effect.logWarning("memory extractor: extraction marker not recorded", { sessionId, error })),
+        )
         return { nodes: [], links: [] }
       }
 
@@ -348,29 +389,43 @@ Extract memories as valid JSON array:`
         }
       }
 
-      // Phase 4: Persist nodes
+      // Phase 4 + 5: persist nodes AND edges inside ONE transaction. Per-node
+      // commits left the index half-filled when a later insert failed
+      // (MEMORY_REVIEW 2026-11-23); a transaction makes the whole extraction
+      // all-or-nothing at the index level.
       const created: MemoryNodeRaw[] = []
-      for (const mem of newMemories) {
-        const node: MemoryNodeRaw = {
-          id: mem.id,
-          type: mem.ex.type,
-          title: mem.ex.title,
-          content: mem.ex.content,
-          tags: mem.ex.tags,
-          sessionId: sessionId as SessionID,
-          created: Date.now(),
-          updated: Date.now(),
-          confidence: mem.ex.confidence,
-          path: path as AbsolutePath
-        }
-        created.push(node)
-        yield* indexer.upsertNode(node)
-      }
+      yield* indexer.runInTransaction(
+        Effect.gen(function* () {
+          for (const mem of newMemories) {
+            const node: MemoryNodeRaw = {
+              id: mem.id,
+              type: mem.ex.type,
+              title: mem.ex.title,
+              content: mem.ex.content,
+              tags: mem.ex.tags,
+              sessionId: sessionId as SessionID,
+              created: Date.now(),
+              updated: Date.now(),
+              confidence: mem.ex.confidence,
+              path: path as AbsolutePath
+            }
+            created.push(node)
+            yield* indexer.upsertNode(node)
+          }
 
-      // Phase 5: Persist edges
-      for (const link of linksToPersist) {
-        yield* indexer.upsertLink(link.sourceId, link.targetId, link.type)
-      }
+          for (const link of linksToPersist) {
+            yield* indexer.upsertLink(link.sourceId, link.targetId, link.type)
+          }
+        }),
+      )
+
+      // Mark the idempotency key only after the transaction committed.
+      yield* indexer.recordExtraction(sessionId, messagesHash, created.length).pipe(
+        // A failed marker write must not fail the extraction itself — the next
+        // run would re-extract (worst case: the old duplicate behavior) but the
+        // committed nodes stay consistent.
+        Effect.catch((error) => Effect.logWarning("memory extractor: extraction marker not recorded", { sessionId, error })),
+      )
 
       return { nodes: created, links: linksToPersist }
     })

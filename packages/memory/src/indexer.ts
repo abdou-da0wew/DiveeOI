@@ -8,6 +8,8 @@ import { NODE_ID_REGEX } from "./node"
 
 // SQLite schema for memory index
 export const MemoryIndexSchema = {
+  /** Bumped on additive schema changes; checked against PRAGMA user_version in init. */
+  version: 1,
   nodes: `
     CREATE TABLE IF NOT EXISTS memory_nodes (
       id TEXT PRIMARY KEY,
@@ -67,10 +69,23 @@ export const MemoryIndexSchema = {
       node_count INTEGER DEFAULT 0
     );
   `,
+  // Idempotency log for session extraction: one row per (session, message-set
+  // hash) so a scheduler run and a manual extract cannot double-extract the
+  // same conversation content (MEMORY_REVIEW 2026-11-23).
+  extractions: `
+    CREATE TABLE IF NOT EXISTS memory_extractions (
+      session_id TEXT NOT NULL,
+      messages_hash TEXT NOT NULL,
+      extracted_at INTEGER NOT NULL,
+      node_count INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (session_id, messages_hash)
+    );
+  `,
   projectsIndexes: [
     `CREATE INDEX IF NOT EXISTS idx_memory_projects_active ON memory_projects(is_active);`,
     `CREATE INDEX IF NOT EXISTS idx_memory_projects_root ON memory_projects(root_path);`,
   ],
+  extractionsIndexes: [`CREATE INDEX IF NOT EXISTS idx_memory_extractions_session ON memory_extractions(session_id);`],
 }
 
 export interface IndexerService {
@@ -135,6 +150,14 @@ export interface IndexerService {
    * still in flight) are left untouched. Returns the number of files removed.
    */
   readonly cleanupOrphanFiles: () => Effect.Effect<number, MemoryError>
+  /**
+   * Extraction idempotency log (MEMORY_REVIEW 2026-11-23): read the marker for a
+   * (session, message-set hash) pair. Some means this exact extraction already
+   * ran — a scheduler run and a manual extract share the same key.
+   */
+  readonly getExtractionRecord: (sessionId: string, messagesHash: string) => Effect.Effect<boolean, MemoryError>
+  /** Record a completed extraction for the (session, message-set hash) pair. */
+  readonly recordExtraction: (sessionId: string, messagesHash: string, nodeCount: number) => Effect.Effect<void, MemoryError>
 }
 
 export const IndexerService = Context.Service<IndexerService, IndexerService>()("@diveeoi/memory/IndexerService")
@@ -156,6 +179,22 @@ const makeIndexer: Effect.Effect<IndexerService, never, Database.Service | Memor
       yield* mapDbError(db.run(MemoryIndexSchema.links))
       yield* mapDbError(db.run(MemoryIndexSchema.sessionMemories))
       yield* mapDbError(db.run(MemoryIndexSchema.projects))
+      yield* mapDbError(db.run(MemoryIndexSchema.extractions))
+
+      // Schema version gate: a database written by a NEWER build must not be
+      // silently upgraded or downgraded — fail init with the version pair so the
+      // operator sees the mismatch instead of undefined behavior.
+      const userVersion = yield* db
+        .all<{ user_version: number }>(sql.raw("PRAGMA user_version"))
+        .pipe(mapDbError)
+      const dbSchemaVersion = userVersion[0]?.user_version ?? 0
+      if (dbSchemaVersion > MemoryIndexSchema.version) {
+        yield* Effect.fail(
+          new MemoryError({
+            cause: `memory index schema v${dbSchemaVersion} is newer than this build (v${MemoryIndexSchema.version}); upgrade the app or restore a matching backup`,
+          }),
+        )
+      }
 
       // Additive columns are idempotent, and idempotence is decided by looking at the table
       // rather than by catching "duplicate column name": SQLite errors do not survive
@@ -171,7 +210,7 @@ const makeIndexer: Effect.Effect<IndexerService, never, Database.Service | Memor
         yield* mapDbError(db.run(sql))
       }
 
-      for (const idx of [...MemoryIndexSchema.indexes, ...MemoryIndexSchema.projectsIndexes]) {
+      for (const idx of [...MemoryIndexSchema.indexes, ...MemoryIndexSchema.projectsIndexes, ...MemoryIndexSchema.extractionsIndexes]) {
         // A single unusable index must not take the rest of init (or the readiness signal) down.
         yield* db.run(idx).pipe(
           Effect.catch((error) => Effect.logWarning("memory indexer: index not created", { index: idx, error })),
@@ -180,6 +219,10 @@ const makeIndexer: Effect.Effect<IndexerService, never, Database.Service | Memor
 
       // Enable foreign keys
       yield* mapDbError(db.run(`PRAGMA foreign_keys = ON`))
+      // Stamp the schema version AFTER every DDL succeeded. Legacy databases
+      // carry user_version = 0; this init is additive/idempotent, so 0 is
+      // upgraded to the current version transparently.
+      yield* mapDbError(db.run(sql.raw(`PRAGMA user_version = ${MemoryIndexSchema.version}`)))
       // Signal that init is complete
       yield* Deferred.succeed(ready, undefined)
     }).pipe(
@@ -597,6 +640,24 @@ const getLinkedNodes = (nodeId: MemoryNodeID, depth: number): Effect.Effect<Memo
       return rows.map(rowToNode)
     })
 
+  // Extraction idempotency log (see interface doc).
+  const getExtractionRecord = (sessionId: string, messagesHash: string): Effect.Effect<boolean, MemoryError> =>
+    Effect.gen(function* () {
+      const row = yield* mapDbError(
+        db.get<{ extracted_at: number }>(
+          sql`SELECT extracted_at FROM memory_extractions WHERE session_id = ${sessionId} AND messages_hash = ${messagesHash}`,
+        ),
+      )
+      return row !== undefined
+    })
+
+  const recordExtraction = (sessionId: string, messagesHash: string, nodeCount: number): Effect.Effect<void, MemoryError> =>
+    mapDbError(
+      db.run(
+        sql`INSERT INTO memory_extractions (session_id, messages_hash, extracted_at, node_count) VALUES (${sessionId}, ${messagesHash}, ${Date.now()}, ${nodeCount}) ON CONFLICT(session_id, messages_hash) DO NOTHING`,
+      ),
+    )
+
   return {
     ready,
     isReady,
@@ -634,6 +695,8 @@ const getLinkedNodes = (nodeId: MemoryNodeID, depth: number): Effect.Effect<Memo
     verifyFileExists: (nodeId) => afterReady(verifyFileExists(nodeId)),
     markOrphaned: (nodeId) => afterReady(markOrphaned(nodeId)),
     cleanupOrphanFiles: () => afterReady(cleanupOrphanFiles()),
+    getExtractionRecord: (sessionId, hash) => afterReady(getExtractionRecord(sessionId, hash)),
+    recordExtraction: (sessionId, hash, count) => afterReady(recordExtraction(sessionId, hash, count)),
   }
 })
 

@@ -169,25 +169,34 @@ const makeMemoryService = Effect.gen(function* () {
   const updateNode = (id: MemoryNodeID, patch: PatchNode): Effect.Effect<MemoryNode, MemoryError | NodeNotFoundError> =>
     Effect.gen(function* () {
       const node = yield* nodeService.update(id, patch)
-      
-      // Update index
-      yield* indexer.upsertNode(node)
-      
-      // Re-process wikilinks if content changed
+
       if (patch.content) {
-        // Remove old links
-        const oldLinks = yield* indexer.getLinks(id)
-        for (const link of oldLinks) {
-          yield* indexer.deleteLink(id, link.targetId)
-        }
-        
-        // Add new links
-        const linkIds = extractWikilinks(node.content)
-        for (const linkId of linkIds) {
-          yield* indexer.upsertLink(node.id, linkId.target as MemoryNodeID, "references")
-        }
+        // The wikilink rebuild is delete-all-then-reinsert — outside a
+        // transaction, a failure between the two phases left the node with NO
+        // outgoing links (MEMORY_REVIEW 2026-11-23). The index-side upsert and
+        // the rebuild now commit together; the file write above is idempotent
+        // with the patch and is not part of the SQLite transaction.
+        yield* indexer.runInTransaction(
+          Effect.gen(function* () {
+            yield* indexer.upsertNode(node)
+
+            // Remove old links
+            const oldLinks = yield* indexer.getLinks(id)
+            for (const link of oldLinks) {
+              yield* indexer.deleteLink(id, link.targetId)
+            }
+
+            // Add new links
+            const linkIds = extractWikilinks(node.content)
+            for (const linkId of linkIds) {
+              yield* indexer.upsertLink(node.id, linkId.target as MemoryNodeID, "references")
+            }
+          }),
+        )
+      } else {
+        yield* indexer.upsertNode(node)
       }
-      
+
       return node
     })
 
