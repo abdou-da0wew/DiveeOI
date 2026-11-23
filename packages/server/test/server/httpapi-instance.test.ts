@@ -217,28 +217,33 @@ describe("instance HttpApi", () => {
     }),
   )
 
-  it.live("returns typed not found bodies for missing projects", () =>
-    Effect.gen(function* () {
-      const dir = yield* tmpdirScoped({ git: true })
-      const projectID = ProjectV2.ID.make("project_missing")
-      const response = yield* Effect.promise(() =>
-        HttpApiApp.webHandler().handler(
-          new Request(`http://localhost/project/${projectID}`, {
-            method: "PATCH",
-            headers: { "x-opencode-directory": dir, "content-type": "application/json" },
-            body: JSON.stringify({ name: "Missing" }),
-          }),
-          handlerContext,
-        ),
-      )
+  // 20s like its siblings: the first request lazily builds the service graph
+  // (~3.6s typical) and bun's 5s default timeout flaked under load.
+  it.live(
+    "returns typed not found bodies for missing projects",
+    () =>
+      Effect.gen(function* () {
+        const dir = yield* tmpdirScoped({ git: true })
+        const projectID = ProjectV2.ID.make("project_missing")
+        const response = yield* Effect.promise(() =>
+          HttpApiApp.webHandler().handler(
+            new Request(`http://localhost/project/${projectID}`, {
+              method: "PATCH",
+              headers: { "x-opencode-directory": dir, "content-type": "application/json" },
+              body: JSON.stringify({ name: "Missing" }),
+            }),
+            handlerContext,
+          ),
+        )
 
-      expect(response.status).toBe(404)
-      expect(yield* Effect.promise(() => response.json())).toEqual({
-        _tag: "ProjectNotFoundError",
-        projectID,
-        message: `Project not found: ${projectID}`,
-      })
-    }),
+        expect(response.status).toBe(404)
+        expect(yield* Effect.promise(() => response.json())).toEqual({
+          _tag: "ProjectNotFoundError",
+          projectID,
+          message: `Project not found: ${projectID}`,
+        })
+      }),
+    { timeout: 20_000 },
   )
 
   it.live("serves path and VCS read endpoints", () =>
