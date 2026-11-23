@@ -120,7 +120,7 @@ These are *not* runtime bugs, but they are incomplete systems the user asked to 
 ### packages/learning
 
 - **`sqlite-vec` backend** — `src/sqlite-vec/index.ts:45,77,91,104` returns "not implemented"; brute-force vector search is the effective default. A "Phase 6" TODO does not correspond to work scheduled anywhere else.
-- **Worker pool** — `src/ingest/pool.ts` returns an empty pool; main-thread pipeline only. `embed/worker.entry.ts` is a placeholder; no real Bun Worker is spawned.
+- **Worker pool** — `src/ingest/pool.ts` returns an empty pool; main-thread pipeline only. `embed/worker.entry.ts` is a placeholder; no real Bun Worker is spawned. [UPDATE 2026-11-23: resolved — the dead stub was deleted and the real `ingest/embed-pool.ts` Bun-Worker pool ships, load-tested in `test/ingest-load.test.ts`.]
 - **`ingest/jobs.ts`** — types only; no runner.
 - **Query rewriter** — `src/retrieve/rewrite.ts:48` (LLM rewrite stubbed; heuristic only).
 - **Setup benchmark step / cancel** — step returns stubbed numbers; cancel is no-op.

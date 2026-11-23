@@ -60,7 +60,7 @@ For the implementation history, see `TARGETED_LEARNING_WORKLOG.md`.
 
 ### New package: `packages/learning/`
 
-The `@diveeoi/learning` package contains everything that is not wiring — settings, manifest, downloader, probe, setup state machine, self-test, books store, Arabic normalizer, parsers, chunker, embed pipeline, ingest pool, retriever, gate, memory, grounding, eval harness, OCR pack, and sqlite-vec backend.
+The `@diveeoi/learning` package contains everything that is not wiring — settings, manifest, downloader, probe, setup state machine, self-test, books store, Arabic normalizer, parsers, chunker, embed pipeline, embed worker pool, retriever, gate, memory, grounding, eval harness, OCR pack, and sqlite-vec backend.
 
 ```
 packages/learning/
@@ -106,7 +106,8 @@ packages/learning/
 │   │   └── worker.entry.ts — Bun Worker entry stub
 │   ├── ingest/
 │   │   ├── index.ts      — re-exports
-│   │   ├── pool.ts       — worker pool interface (stub)
+│   │   ├── embed-pool.ts — real Bun Worker embed pool (createEmbedWorkerPool)
+│   │   ├── run.ts        — ingest orchestrator (parse → OCR → chunk → embed → checkpoint)
 │   │   └── jobs.ts       — ingest job types + reindex triggers
 │   ├── retrieve/
 │   │   ├── index.ts      — re-exports
@@ -221,7 +222,7 @@ packages/learning/
 | `src/embed/pipeline.ts` | Transformers.js wrapper — real `pipeline()` call, CLS pooling, L2 normalize, batch splitting | 1 live test in `embed-pipeline.test.ts` |
 | `src/embed/worker.entry.ts` | Bun Worker entry stub (Phase 2 worker pool) | Untested (stub) |
 | `src/embed/index.ts` | Re-exports pipeline | — |
-| `src/ingest/pool.ts` | Worker pool interface (stub — returns empty pool) | Untested (stub) |
+| `src/ingest/embed-pool.ts` | Real Bun Worker embed pool — bounded queue, worker stats, drain | 3 tests in `ingest-load.test.ts` |
 | `src/ingest/jobs.ts` | Ingest job types + reindex triggers (interfaces only) | Untested (types) |
 | `src/ingest/index.ts` | Re-exports | — |
 | `src/retrieve/hybrid.ts` | BM25 (FTS5) + dense (brute-force cosine) + RRF + parent expansion + gate | 8 tests in `hybrid.test.ts` |
@@ -732,7 +733,7 @@ cd packages/learning && bun test test/embed-pipeline.test.ts
 
 ### ⚠️ Stubbed (interface exists, implementation deferred)
 
-- Worker pool (`ingest/pool.ts`) — returns empty pool; main-thread pipeline works
+- ~~Worker pool (`ingest/pool.ts`)~~ DELETED 2026-11-22 (dead stub, zero importers; a regression test guards against reintroduction). The REAL pool is `ingest/embed-pool.ts` (createEmbedWorkerPool, Bun Workers, bounded queue) — load-tested in `test/ingest-load.test.ts`.
 - Worker entry (`embed/worker.entry.ts`) — placeholder; real Bun Worker not spawned
 - Ingest jobs runner (`ingest/jobs.ts`) — types only; no job execution
 - Student memory CRUD (`memory/student.ts`) — types + guards; CRUD returns empty/dies

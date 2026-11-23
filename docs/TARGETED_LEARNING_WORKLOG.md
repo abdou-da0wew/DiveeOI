@@ -695,7 +695,7 @@ Every bug I hit, in order of discovery:
 
 2. **Golden vectors**: The self-test refuses to pass until `GOLDEN_CASES` have non-empty `referenceVectorB64` fields. To freeze them: pin the revision, run Setup, then run `bun run tl:selftest:freeze` (a script that doesn't exist yet — it would embed each golden case and write the b64 back into `self-test/index.ts`).
 
-3. **Worker pool**: The `ingest/pool.ts` is a stub. Real implementation needs Bun Workers spawned from `embed/worker.entry.ts`, a shared work queue, bucketing by chunk length, and checkpointing. The embed pipeline itself works on the main thread (Spike 1 confirmed), so the worker pool is a performance optimization, not a blocker.
+3. **Worker pool**: ~~The `ingest/pool.ts` is a stub.~~ [UPDATE 2026-11-22/23] The dead stub was DELETED (no importers, regression-tested against reintroduction) and replaced by the REAL `ingest/embed-pool.ts` (Bun Workers from `embed/worker.entry.ts`, bounded caller-side queue, worker stats, full drain) plus the `ingest/run.ts` orchestrator with wave-based backpressure, per-wave checkpoints and adaptive budgets — load-tested in `test/ingest-load.test.ts` (400-page book, bounded queue, incremental checkpoints, outline-heavy Bug #2 profile).
 
 4. **sqlite-vec**: The stub returns "not implemented." The brute-force backend works for libraries up to ~100k chunks. Beyond that, sqlite-vec would be faster — but it requires the loadable extension, which is fragile under Bun.
 
