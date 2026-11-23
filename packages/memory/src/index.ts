@@ -17,6 +17,7 @@ export { ExtractionModels } from "./extraction-models"
 export type { ExtractionModel, ExtractionModelResolver } from "./extraction-models"
 import type { ExtractionModelResolver } from "./extraction-models"
 export { GraphService } from "./graph"
+export { ConsolidationService } from "./consolidation"
 export { MemoryConfig, defaultMemoryConfig } from "./config"
 export { MemoryError } from "./schema"
 export type { MemoryMessage } from "./extractor"
@@ -32,7 +33,7 @@ import { GraphLive } from "./graph"
 import { ExtractorLive } from "./extractor"
 import { SessionLive } from "./session"
 import { RecallLive } from "./recall"
-import { ConsolidationLive } from "./consolidation"
+import { ConsolidationLive, ConsolidationService } from "./consolidation"
 import { MemoryConfig } from "./config"
 import { ExtractionModels } from "./extraction-models"
 import { Effect, Layer } from "effect"
@@ -114,6 +115,7 @@ export const Memory = {
   TestMemoryLayer: MemoryLayer,
   defaultLayer: MemoryLayer,
   withExtractionModels,
+  ConsolidationService,
 } as const
 
 // Test layer alias

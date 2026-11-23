@@ -1,7 +1,7 @@
 import { LayerNode } from "@diveeoi/db/effect/layer-node"
 import { Memory, SessionService } from "@diveeoi/memory"
 import { MemoryConfig } from "@diveeoi/memory"
-import { MemoryError } from "@diveeoi/memory/schema"
+import { MemoryError, NodeNotFoundError } from "@diveeoi/memory/schema"
 import { Features } from "@/features"
 import { Context, Effect, Layer } from "effect"
 
@@ -14,6 +14,8 @@ export interface Interface {
   readonly initializeSessionMemory: (sessionId: string, title: string) => Effect.Effect<void, MemoryError>
   readonly extractSessionMemory: (sessionId: string, messages: MemoryMessage[]) => Effect.Effect<void, MemoryError>
   readonly loadSessionContext: (sessionId: string, query?: string, projectRoot?: string) => Effect.Effect<string, MemoryError>
+  /** Daily graph maintenance (dedupe/merge, link strengthening, orphan decay). No-op when consolidation is disabled. */
+  readonly runConsolidationMaintenance: () => Effect.Effect<void, MemoryError | NodeNotFoundError>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@diveeoi/server/SessionMemoryIntegration") {}
@@ -37,6 +39,7 @@ const makeSessionMemoryIntegration = Effect.gen(function* () {
   const memory = yield* Memory.MemoryService
   const sessionSvc = yield* SessionService
   const memConfig = yield* MemoryConfig
+  const consolidation = yield* Memory.ConsolidationService
 
   const initializeSessionMemory: Interface["initializeSessionMemory"] = (sessionId, title) =>
     Effect.gen(function* () {
@@ -105,7 +108,21 @@ const makeSessionMemoryIntegration = Effect.gen(function* () {
       ].join("\n")
     })
 
-  return { initializeSessionMemory, extractSessionMemory, loadSessionContext }
+  /**
+   * Daily consolidation maintenance (MEMORY_SERVER_INTEGRATION_PLAN): merge
+   * duplicate nodes created by extraction, strengthen links, decay stale
+   * orphans. Gated on consolidation.enabled so the kill-switch also stops this
+   * layer of the feature.
+   */
+  const runConsolidationMaintenance: Interface["runConsolidationMaintenance"] = () =>
+    Effect.gen(function* () {
+      if (!memConfig.consolidation.enabled) {
+        return
+      }
+      yield* consolidation.runMaintenance()
+    })
+
+  return { initializeSessionMemory, extractSessionMemory, loadSessionContext, runConsolidationMaintenance }
 })
 
 // When the memory feature is disabled the real implementation never builds:
@@ -117,6 +134,7 @@ const disabledLayer = Layer.succeed(
     initializeSessionMemory: () => Effect.void,
     extractSessionMemory: () => Effect.void,
     loadSessionContext: () => Effect.succeed(""),
+    runConsolidationMaintenance: () => Effect.void,
   }),
 )
 

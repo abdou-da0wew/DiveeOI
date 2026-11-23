@@ -10,7 +10,8 @@ import { SessionID } from "./schema"
 
 /**
  * Memory Scheduler - Runs automatic memory extraction daily at 12:00
- * and provides manual extraction trigger.
+ * followed by graph consolidation maintenance, and provides manual
+ * extraction trigger.
  */
 
 const EXTRACT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
@@ -31,6 +32,7 @@ export const MemorySchedulerService = Context.Service<MemorySchedulerInterface, 
 const makeScheduler = Effect.gen(function* () {
   const sessionMemory = yield* SessionMemoryIntegration.Service
   const sessions = yield* Session.Service
+  const memConfig = yield* MemoryConfig
   const scope = yield* Scope.Scope
 
   // State for the scheduled fiber
@@ -41,8 +43,17 @@ const makeScheduler = Effect.gen(function* () {
     sessionId: string
   ): Effect.Effect<void, MemoryError, MemoryConfig> =>
     Effect.gen(function* () {
-      // Get messages for this session
-      const messages = yield* getSessionMessages(sessionId)
+      // Get messages for this session. A missing/unreadable session (the
+      // manual extract tool passes model-supplied ids) logs and skips instead
+      // of failing the whole extraction pass.
+      const messages = yield* getSessionMessages(sessionId).pipe(
+        Effect.catch((err) =>
+          Effect.logWarning("Extraction could not load session messages", {
+            sessionID: sessionId,
+            error: err,
+          }).pipe(Effect.andThen(Effect.succeed([] as Array<{ role: "user" | "assistant" | "system"; content: string }>)))
+        )
+      )
       if (messages.length === 0) return
 
       yield* sessionMemory.extractSessionMemory(sessionId, messages).pipe(
@@ -137,6 +148,15 @@ const makeScheduler = Effect.gen(function* () {
 
         yield* extractAllSessions().pipe(
           Effect.catch((err) => Effect.logError("Scheduled extraction failed", { error: err }))
+        )
+
+        // Daily consolidation maintenance (MEMORY_SERVER_INTEGRATION_PLAN):
+        // after the extraction pass, merge duplicates / strengthen links /
+        // decay stale orphans once per day. Failure-isolated so it can never
+        // break extraction or the rescheduling loop; gated on
+        // consolidation.enabled (the integration no-ops when disabled).
+        yield* sessionMemory.runConsolidationMaintenance().pipe(
+          Effect.catch((err) => Effect.logError("Daily memory consolidation failed", { error: err }))
         )
 
         const next = yield* calculateNextRun()
