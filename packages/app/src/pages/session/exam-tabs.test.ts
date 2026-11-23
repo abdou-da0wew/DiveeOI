@@ -92,15 +92,25 @@ describe("exam tab state", () => {
     expect(examTabs()[exam.id]?.answers.q1).toBe("a")
   })
 
-  test("restores an exam from a completed tool message", () => {
+  test("restores an exam from a completed tool message with a fresh attempt clock", () => {
     const exam = makeExam()
-    restoreExam(exam, "session-restored", 42_000)
-    const restored = examTabs()[exam.id]
+    const before = Date.now()
+    restoreExam(exam, "session-restored")
+    const restored = examTabs()[exam.id]!
     expect(restored.sessionID).toBe("session-restored")
-    expect(restored.startedAt).toBe(42_000)
+    // Regression (2026-11-23): restoreExam used to seed startedAt with the
+    // create_exam message's time.created, so a duration-limited exam restored
+    // mid-session instantly expired (remaining <= 0) and ExamWorkspace
+    // auto-submitted it before the student answered anything. The attempt
+    // clock must start at registration time in this browser.
+    expect(restored.startedAt).toBeGreaterThanOrEqual(before)
+    expect(restored.startedAt).toBeLessThanOrEqual(Date.now())
     expect(restored.status).toBe("in-progress")
     expect(restored.answers).toEqual({})
     expect(restored.questionState).toEqual({})
+    // The countdown is FULL right after restore — a stale message timestamp
+    // (hours old) must never eat into it.
+    expect(examTimeRemaining(examTabs()[exam.id]!, Date.now())).toBe(exam.durationMinutes! * 60_000)
   })
 
   test("hydrates submitted attempts safely after a reload", () => {

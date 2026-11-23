@@ -51,7 +51,7 @@ function ExamTabPersistence(props: { sessionID: string }) {
         if (!id) continue
         const parsed = parseExamDraft(raw, id, Math.random, { randomize: false })
         if (!parsed.ok) continue
-        restoreExam(parsed.value, props.sessionID, message.time.created)
+        restoreExam(parsed.value, props.sessionID)
       }
     }
   })

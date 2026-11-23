@@ -45,12 +45,20 @@ export function hydrateExamTabs(entries: Record<string, ExamTabEntry>) {
   setStore({ ...store, ...restored })
 }
 
-export function restoreExam(exam: ExamSpec, sessionID: string, startedAt: number) {
+export function restoreExam(exam: ExamSpec, sessionID: string) {
   if (!sessionID || !exam.id || store[exam.id]) return
+  // The attempt clock starts when the exam first registers in THIS browser —
+  // NOT at the create_exam message's time.created. That timestamp is when the
+  // agent generated the exam (possibly hours before the student ever sees the
+  // session), and seeding the countdown with it made every duration-limited
+  // exam restored mid-session instantly expire and auto-submit
+  // (exam-workspace submits when examTimeRemaining() <= 0). A persisted
+  // attempt's real startedAt always wins over this default via
+  // hydrateExamTabs.
   setStore(exam.id, {
     exam,
     sessionID,
-    startedAt,
+    startedAt: Date.now(),
     answers: {},
     questionState: {},
     attemptNumber: 1,
