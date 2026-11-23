@@ -417,3 +417,106 @@ test("outline-heavy book (one heading per chapter) ingests without per-heading t
     `[ingest-load][outline-heavy] headings=${headings} bookBytes=${bookBytes} sections=${counts.sections} sectionBytes=${counts.sectionBytes} (pre-fix would be ≈ ${(headings * bookBytes / 1e6).toFixed(1)}MB) chunks=${counts.chunks} heap=${Math.round(heapAfter / 1e6)}MB`,
   )
 }, 40_000)
+
+// ---------------------------------------------------------------------------
+// 6. Retained-heap pin for the run.ts parsed/chunked pruning (2026-11-23).
+//
+//    After chunkBook, run.ts snapshots the small summary facts, then releases
+//    parsed.pages/outline ("parsed = { ...parsed, pages: [], outline: [] }")
+//    and the whole ChunkResult ("chunked = null") so the embed phase retains
+//    only chunk-row text (plus its text_norm twin and the paced-write queue).
+//
+//    TWO pins, because JSC liveness analysis makes them complementary:
+//      a) RETAINED-HEAP assertion: a forced-GC heap snapshot is taken inside
+//         the embed callback and the total size of live primitive strings is
+//         bounded. Measured baseline (this fixture, bun 1.3.14): ~4.0x book
+//         (chunk text + text_norm ≈ 2x, one parser-side copy + the paced-write
+//         queue ≈ 2x). Threshold 4.6x book fails any refactor that CAPTURES
+//         parsed/chunked into a closure or otherwise keeps page/section text
+//         reachable during embedding (+2x book minimum → >6x).
+//      b) SOURCE-ORDER pin: JSC prunes generator/async locals after their last
+//         read, so a bare revert of the two pruning lines is GC-invisible
+//         (verified 2026-11-23: reverted run measures the identical 59.65 MB).
+//         The source pin fails the literal revert and checks the statements
+//         sit in the right order in the run flow.
+// ---------------------------------------------------------------------------
+
+test("embed phase retains ~4xbook, not pages/sections (parsed/chunked pruning is pinned)", async () => {
+  const pages = 64
+  const filler =
+    "The observed specimen converts measured input energy into stored reserves with repeatable accuracy during the recorded experiment series of this page. "
+  const pageText = (p: number) =>
+    `Page ${p} of ${pages}: dense prose block ${p}.\n` + filler.repeat(1530) // ≈ 190 KB per page
+  const parts = Array.from({ length: pages }, (_, i) => pageText(i + 1))
+  const bytes = new TextEncoder().encode(parts.join("\n\n"))
+  const bookBytes = bytes.length
+  parts.length = 0 // the test must not retain the joined page strings itself
+
+  // (b) source-order pin — see the block comment above.
+  const runSource = await Bun.file(new URL("../src/ingest/run.ts", import.meta.url)).text()
+  const parsedPrune = runSource.indexOf("parsed = { ...parsed, pages: [], outline: [] }")
+  const chunkedRelease = runSource.indexOf("chunked = null")
+  const summaryFactsAt = runSource.indexOf("const summaryFacts = (() => {")
+  const itemsAt = runSource.indexOf("const items = chunked!.chunks")
+  const waveAt = runSource.indexOf("for (let w = 0; w < batches.length; w += concurrency)")
+  expect(parsedPrune).toBeGreaterThan(-1)
+  expect(chunkedRelease).toBeGreaterThan(-1)
+  expect(summaryFactsAt).toBeGreaterThan(-1)
+  expect(itemsAt).toBeGreaterThan(-1)
+  expect(waveAt).toBeGreaterThan(-1)
+  // snapshot facts → release pages → build items → release chunked → embed waves
+  expect(parsedPrune).toBeGreaterThan(summaryFactsAt)
+  expect(itemsAt).toBeGreaterThan(parsedPrune)
+  expect(chunkedRelease).toBeGreaterThan(itemsAt)
+  expect(chunkedRelease).toBeLessThan(waveAt)
+
+  const liveStringBytes = (): number => {
+    Bun.gc(true)
+    const snap = Bun.generateHeapSnapshot()
+    const nodes = snap.nodes as number[]
+    const names = snap.nodeClassNames as string[]
+    let total = 0
+    for (let i = 0; i < nodes.length; i += 4) {
+      if (names[nodes[i + 2]!] === "string") total += nodes[i + 1]!
+    }
+    return total
+  }
+
+  const samples: number[] = []
+  const embedProbe = async (texts: string[]): Promise<Float32Array[]> => {
+    // First and last batch bracket the embed phase; the retained set is steady
+    // in between (verified: 59,651,157 → 59,651,415 bytes on this fixture).
+    if (samples.length === 0 || texts.length < 64) samples.push(liveStringBytes())
+    return texts.map(hashEmbed)
+  }
+
+  const r = await startIngest({
+    db,
+    dataDir: dir,
+    filename: "retained-heap-64-pages.txt",
+    bytes,
+    title: "Retained Heap Book",
+    settings: {
+      indexing: { workersPerBook: 2 },
+      embedding: { batchSize: 64 },
+      // Huge child chunks keep the CHUNK COUNT low (fast test) while the TEXT
+      // volume stays high — the shape that makes retained page/section text
+      // measurable against chunk text.
+      chunking: { childTargetTokens: 1000, childMaxTokens: 2000, childOverlapTokens: 20, minChunkTokens: 30, parentMaxTokens: 60000 },
+    },
+    embedFn: embedProbe,
+    ensureFn: async () => undefined,
+  })
+  const done = await waitReady(r.bookId)
+  expect(done.status).toBe("ready")
+  expect(done.error ?? "").toBe("")
+
+  expect(samples.length).toBe(2)
+  const maxRetained = Math.max(...samples)
+  console.log(
+    `[ingest-load][retained-heap] bookBytes=${bookBytes} liveStrings=${Math.round(maxRetained / 1e6)}MB (= ${(maxRetained / bookBytes).toFixed(2)}x book)`,
+  )
+  // (a) retained-heap assertion — see the block comment above.
+  expect(maxRetained).toBeLessThan(4.6 * bookBytes)
+  expect(ingestProgress(r.bookId)).toBeUndefined()
+}, 55_000)
