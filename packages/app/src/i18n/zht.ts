@@ -1038,4 +1038,6 @@ export const dict = {
   "targetedLearning.memory.fallbackBook": "書",
   "targetedLearning.memory.failed": "記憶服務無法使用。",
   "targetedLearning.workspace": "學習工作區",
+  "auth.relogin.description": "您的工作階段已過期。請重新登入以繼續接收即時更新。",
+  "auth.relogin.action": "重新登入",
 } satisfies Partial<Record<Keys, string>>

@@ -1057,4 +1057,6 @@ export const dict = {
   "targetedLearning.memory.fallbackBook": "knjiga",
   "targetedLearning.memory.failed": "Servis memorije je nedostupan.",
   "targetedLearning.workspace": "Prostor za učenje",
+  "auth.relogin.description": "Vaša sesija je istekla. Prijavite se ponovo da biste nastavili primati ažuriranja.",
+  "auth.relogin.action": "Prijavi se ponovo",
 }

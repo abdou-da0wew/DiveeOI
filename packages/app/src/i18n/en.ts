@@ -1279,4 +1279,6 @@ export const dict = {
   "usrQuote.explainPrompt": "Explain this passage from our study material.",
   "usrQuote.memorizePrompt": "Help me memorize this.",
   "usrQuote.fromAnswer": "From my previous answer",
+  "auth.relogin.description": "Your session expired. Log in again to keep receiving live updates.",
+  "auth.relogin.action": "Log in again",
 }

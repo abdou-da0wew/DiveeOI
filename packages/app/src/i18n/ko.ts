@@ -970,4 +970,6 @@ export const dict = {
   "targetedLearning.memory.fallbackBook": "책",
   "targetedLearning.memory.failed": "메모리 서비스를 사용할 수 없습니다.",
   "targetedLearning.workspace": "학습 작업 공간",
+  "auth.relogin.description": "세션이 만료되었습니다. 실시간 업데이트를 계속 받으려면 다시 로그인하세요.",
+  "auth.relogin.action": "다시 로그인",
 }

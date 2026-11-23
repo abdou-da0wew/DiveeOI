@@ -1047,4 +1047,6 @@ export const dict = {
   "targetedLearning.memory.fallbackBook": "หนังสือ",
   "targetedLearning.memory.failed": "บริการความจำไม่พร้อมใช้งาน",
   "targetedLearning.workspace": "พื้นที่การเรียนรู้",
+  "auth.relogin.description": "เซสชันของคุณหมดอายุแล้ว เข้าสู่ระบบอีกครั้งเพื่อรับการอัปเดตแบบทันทีต่อไป",
+  "auth.relogin.action": "เข้าสู่ระบบอีกครั้ง",
 }

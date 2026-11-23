@@ -975,4 +975,6 @@ export const dict = {
   "targetedLearning.memory.fallbackBook": "本",
   "targetedLearning.memory.failed": "メモリーサービスを利用できません。",
   "targetedLearning.workspace": "学習ワークスペース",
+  "auth.relogin.description": "セッションの有効期限が切れました。最新情報を受け取り続けるには、再度ログインしてください。",
+  "auth.relogin.action": "再度ログイン",
 }

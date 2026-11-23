@@ -2,7 +2,7 @@ import type { Event } from "@diveeoi/sdk/v2/client"
 import { createSimpleContext } from "@diveeoi/ui/context"
 import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { makeEventListener } from "@solid-primitives/event-listener"
-import { type Accessor, batch, createMemo, onCleanup, onMount } from "solid-js"
+import { type Accessor, batch, createMemo, createSignal, onCleanup, onMount } from "solid-js"
 import { createSdkForServer } from "@/utils/server"
 import { useLanguage } from "./language"
 import { usePlatform } from "./platform"
@@ -15,6 +15,13 @@ const isAbortError = (error: unknown) =>
   error !== null && typeof error === "object" && "name" in error && error.name === "AbortError"
 
 const isStreamClosed = (error: unknown, signal?: AbortSignal) => isAbortError(error) || signal?.aborted === true
+
+/** Best-effort 401 detection across the SDK error shapes (hey-api ErrorWrapper, Response, cause chain). */
+const isUnauthorizedError = (error: unknown): boolean => {
+  if (!error || typeof error !== "object") return false
+  const probe = error as { status?: unknown; response?: { status?: unknown }; cause?: { status?: unknown } }
+  return probe.status === 401 || probe.response?.status === 401 || probe.cause?.status === 401
+}
 type QueuedServerEvent = { directory: string; payload: Event }
 
 const deltaKey = (directory: string, messageID: string, partID: string) => `${directory}:${messageID}:${partID}`
@@ -129,6 +136,11 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
   }
 
   let streamErrorLogged = false
+  // A 401 on the stream means the auth cookie is stale: retrying every
+  // RECONNECT_DELAY_MS is pointless console noise until the user re-authenticates
+  // manually. When detected, the loop parks itself and surfaces a re-login
+  // prompt instead of raw errors.
+  const [streamUnauthorized, setStreamUnauthorized] = createSignal(false)
   const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
   let attempt: AbortController | undefined
   let run: Promise<void> | undefined
@@ -152,6 +164,7 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
 
   const start = () => {
     if (started) return run
+    setStreamUnauthorized(false)
     started = true
     const active = ++generation
     const previous = run
@@ -170,6 +183,11 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
             signal: attempt.signal,
             onSseError: (error) => {
               if (isStreamClosed(error, attempt?.signal)) return
+              if (isUnauthorizedError(error)) {
+                setStreamUnauthorized(true)
+                stop()
+                return
+              }
               if (streamErrorLogged) return
               streamErrorLogged = true
               console.error("[global-sdk] event stream error", {
@@ -212,7 +230,11 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
             await wait(0)
           }
         } catch (error) {
-          if (!isStreamClosed(error, attempt?.signal) && !streamErrorLogged) {
+          if (isUnauthorizedError(error)) {
+            // Park the loop on a stale credential instead of reconnect-spamming.
+            setStreamUnauthorized(true)
+            stop()
+          } else if (!isStreamClosed(error, attempt?.signal) && !streamErrorLogged) {
             streamErrorLogged = true
             console.error("[global-sdk] event stream failed", {
               url: server.http.url,
@@ -276,6 +298,8 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
       on: emitter.on.bind(emitter),
       listen: emitter.listen.bind(emitter),
       start,
+      /** True while the stream is parked because the auth cookie went stale. */
+      unauthorized: streamUnauthorized as Accessor<boolean>,
     },
     createClient(opts: Omit<Parameters<typeof createSdkForServer>[0], "server" | "fetch">) {
       return createSdkForServer({

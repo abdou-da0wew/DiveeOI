@@ -1089,4 +1089,6 @@ export const dict = {
   "targetedLearning.memory.fallbackBook": "книга",
   "targetedLearning.memory.failed": "Сервіс пам'яті недоступний.",
   "targetedLearning.workspace": "Навчальний простір",
+  "auth.relogin.description": "Ваш сеанс завершився. Увійдіть знову, щоб продовжувати отримувати оновлення.",
+  "auth.relogin.action": "Увійти знову",
 }

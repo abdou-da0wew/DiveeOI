@@ -993,4 +993,6 @@ export const dict = {
   "targetedLearning.memory.fallbackBook": "Buch",
   "targetedLearning.memory.failed": "Der Speicherdienst ist nicht verfügbar.",
   "targetedLearning.workspace": "Lernarbeitsbereich",
+  "auth.relogin.description": "Ihre Sitzung ist abgelaufen. Melden Sie sich erneut an, um Live-Updates zu erhalten.",
+  "auth.relogin.action": "Erneut anmelden",
 } satisfies Partial<Record<Keys, string>>

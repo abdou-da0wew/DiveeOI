@@ -981,4 +981,6 @@ export const dict = {
   "targetedLearning.memory.fallbackBook": "livro",
   "targetedLearning.memory.failed": "O serviço de memória está indisponível.",
   "targetedLearning.workspace": "Espaço de aprendizado",
+  "auth.relogin.description": "Afedez ho seans. Kevrait en-dro evit derc'hel da resev an hizivaadennoù.",
+  "auth.relogin.action": "Kevrañ en-dro",
 }

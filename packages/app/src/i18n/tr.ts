@@ -1066,4 +1066,6 @@ export const dict = {
   "targetedLearning.memory.fallbackBook": "kitap",
   "targetedLearning.memory.failed": "Bellek servisi kullanılamıyor.",
   "targetedLearning.workspace": "Öğrenme çalışma alanı",
+  "auth.relogin.description": "Oturumunuz süresi doldu. Canlı güncellemeleri almaya devam etmek için yeniden giriş yapın.",
+  "auth.relogin.action": "Yeniden giriş yap",
 } satisfies Partial<Record<Keys, string>>

@@ -992,4 +992,6 @@ export const dict = {
   "targetedLearning.memory.fallbackBook": "livre",
   "targetedLearning.memory.failed": "Le service de mémoire est indisponible.",
   "targetedLearning.workspace": "Espace d'apprentissage",
+  "auth.relogin.description": "Votre session a expiré. Reconnectez-vous pour continuer à recevoir les mises à jour en direct.",
+  "auth.relogin.action": "Se reconnecter",
 }

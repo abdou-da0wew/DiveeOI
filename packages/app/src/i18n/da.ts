@@ -1051,4 +1051,6 @@ export const dict = {
   "targetedLearning.memory.fallbackBook": "bog",
   "targetedLearning.memory.failed": "Hukommelsestjenesten er utilgængelig.",
   "targetedLearning.workspace": "Læringsarbejdsområde",
+  "auth.relogin.description": "Din session er udløbet. Log ind igen for at fortsætte med at modtage opdateringer.",
+  "auth.relogin.action": "Log ind igen",
 }

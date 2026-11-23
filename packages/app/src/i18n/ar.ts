@@ -977,4 +977,6 @@ export const dict = {
   "usrQuote.explainPrompt": "اشرح هذه الفقرة من مادة دراستنا.",
   "usrQuote.memorizePrompt": "ساعدني على حفظ هذا.",
   "usrQuote.fromAnswer": "من إجابتي السابقة",
+  "auth.relogin.description": "انتهت صلاحية جلستك. سجّل الدخول مرة أخرى لمواصلة استقبال التحديثات المباشرة.",
+  "auth.relogin.action": "تسجيل الدخول مرة أخرى",
 }

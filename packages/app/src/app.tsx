@@ -30,7 +30,7 @@ import { CommandProvider } from "@/context/command"
 import { CommentsProvider } from "@/context/comments"
 import { FileProvider } from "@/context/file"
 import { GlobalPrefSync } from "@/components/global-pref-sync"
-import { ServerSDKProvider } from "@/context/server-sdk"
+import { ServerSDKProvider, useServerSDK } from "@/context/server-sdk"
 import { ServerSyncProvider } from "@/context/server-sync"
 import { GlobalProvider } from "@/context/global"
 import { HighlightsProvider } from "@/context/highlights"
@@ -251,11 +251,33 @@ function ServerScopedShell(props: ParentProps) {
         <NotificationProvider>
           <ModelsProvider>
             <GlobalPrefSync />
+            <StreamReloginBanner />
             <Layout>{props.children}</Layout>
           </ModelsProvider>
         </NotificationProvider>
       </LayoutProvider>
     </PermissionProvider>
+  )
+}
+
+// Surfaced when the global event stream parked itself on a 401 (stale auth
+// cookie): a re-login prompt instead of the silent reconnect-error loop.
+function StreamReloginBanner() {
+  const serverSDK = useServerSDK()
+  const language = useLanguage()
+  return (
+    <Show when={serverSDK().event.unauthorized()}>
+      <div
+        role="alert"
+        class="fixed inset-x-0 top-0 z-50 flex items-center justify-center gap-x-3 border-b border-border-critical-base bg-surface-critical-weak px-4 py-2 text-13-regular text-text-critical"
+        data-component="relogin-banner"
+      >
+        <span>{language.t("auth.relogin.description")}</span>
+        <a href="/login" class="text-13-semibold underline underline-offset-2">
+          {language.t("auth.relogin.action")}
+        </a>
+      </div>
+    </Show>
   )
 }
 

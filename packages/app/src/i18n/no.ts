@@ -1058,4 +1058,6 @@ export const dict = {
   "targetedLearning.memory.fallbackBook": "bok",
   "targetedLearning.memory.failed": "Minnetjenesten er utilgjengelig.",
   "targetedLearning.workspace": "Læringsarbeidsområde",
+  "auth.relogin.description": "Økten din har utløpt. Logg inn igjen for å fortsette å motta oppdateringer.",
+  "auth.relogin.action": "Logg inn igjen",
 } satisfies Partial<Record<Keys, string>>

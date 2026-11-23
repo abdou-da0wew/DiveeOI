@@ -1060,4 +1060,6 @@ export const dict = {
   "targetedLearning.memory.fallbackBook": "книга",
   "targetedLearning.memory.failed": "Сервис памяти недоступен.",
   "targetedLearning.workspace": "Учебное пространство",
+  "auth.relogin.description": "Ваша сессия истекла. Войдите снова, чтобы продолжить получать обновления.",
+  "auth.relogin.action": "Войти снова",
 }
