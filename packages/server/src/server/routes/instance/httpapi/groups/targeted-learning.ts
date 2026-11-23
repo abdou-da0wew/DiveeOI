@@ -14,10 +14,11 @@
 // middleware as the rest of the instance API. No unauthenticated routes.
 
 import { Schema } from "effect"
-import { HttpApi, HttpApiEndpoint, HttpApiError, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
+import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
 import { Authorization } from "../middleware/authorization"
 import { InstanceContextMiddleware } from "../middleware/instance-context"
 import { WorkspaceRoutingMiddleware, WorkspaceRoutingQuery } from "../middleware/workspace-routing"
+import { BadRequestError } from "../errors"
 import { described } from "./metadata"
 import { TargetedLearningSettingsSchema, SetupStateSchema, ProbeResultSchema } from "@diveeoi/learning"
 
@@ -99,7 +100,7 @@ export const TargetedLearningApi = HttpApi.make("targeted-learning")
           query: WorkspaceRoutingQuery,
           payload: StartSetupRequest,
           success: described(SetupStatusResponse, "Setup started"),
-          error: HttpApiError.BadRequest,
+          error: BadRequestError,
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "targeted-learning.setup.start",
@@ -136,7 +137,7 @@ export const TargetedLearningApi = HttpApi.make("targeted-learning")
           query: WorkspaceRoutingQuery,
           payload: Schema.Struct({ folder: Schema.String }),
           success: described(SetupStatusResponse, "Import completed"),
-          error: HttpApiError.BadRequest,
+          error: BadRequestError,
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "targeted-learning.setup.import-local",
@@ -162,7 +163,7 @@ export const TargetedLearningApi = HttpApi.make("targeted-learning")
           query: WorkspaceRoutingQuery,
           payload: TargetedLearningSettingsSchema,
           success: described(SettingsResponse, "Updated settings"),
-          error: HttpApiError.BadRequest,
+          error: BadRequestError,
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "targeted-learning.settings.update",
@@ -282,7 +283,7 @@ export const TargetedLearningApi = HttpApi.make("targeted-learning")
           params: { jobID: Schema.String },
           query: WorkspaceRoutingQuery,
           success: described(Schema.Boolean, "Job paused"),
-          error: HttpApiError.BadRequest,
+          error: BadRequestError,
         }).annotateMerge(OpenApi.annotations({ identifier: "targeted-learning.jobs.pause", summary: "Pause an ingest job" })),
       )
       .add(
@@ -290,7 +291,7 @@ export const TargetedLearningApi = HttpApi.make("targeted-learning")
           params: { jobID: Schema.String },
           query: WorkspaceRoutingQuery,
           success: described(Schema.Boolean, "Job resumed"),
-          error: HttpApiError.BadRequest,
+          error: BadRequestError,
         }).annotateMerge(OpenApi.annotations({ identifier: "targeted-learning.jobs.resume", summary: "Resume an ingest job" })),
       )
       .add(
@@ -298,7 +299,7 @@ export const TargetedLearningApi = HttpApi.make("targeted-learning")
           params: { jobID: Schema.String },
           query: WorkspaceRoutingQuery,
           success: described(Schema.Boolean, "Job cancelled"),
-          error: HttpApiError.BadRequest,
+          error: BadRequestError,
         }).annotateMerge(OpenApi.annotations({ identifier: "targeted-learning.jobs.cancel", summary: "Cancel an ingest job" })),
       )
       .add(
@@ -306,7 +307,7 @@ export const TargetedLearningApi = HttpApi.make("targeted-learning")
           params: { jobID: Schema.String },
           query: WorkspaceRoutingQuery,
           success: described(Schema.Boolean, "Job retried"),
-          error: HttpApiError.BadRequest,
+          error: BadRequestError,
         }).annotateMerge(OpenApi.annotations({ identifier: "targeted-learning.jobs.retry", summary: "Retry a failed ingest job" })),
       )
       // Books — add (base64 upload), import (server-side path), delete
@@ -322,7 +323,7 @@ export const TargetedLearningApi = HttpApi.make("targeted-learning")
             Schema.Struct({ bookId: Schema.String, slug: Schema.String, duplicate: Schema.Boolean }),
             "Book accepted; indexing runs in the background",
           ),
-          error: HttpApiError.BadRequest,
+          error: BadRequestError,
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "targeted-learning.books.upload",
@@ -339,7 +340,7 @@ export const TargetedLearningApi = HttpApi.make("targeted-learning")
             Schema.Struct({ bookId: Schema.String, slug: Schema.String, duplicate: Schema.Boolean }),
             "Book accepted; indexing runs in the background",
           ),
-          error: HttpApiError.BadRequest,
+          error: BadRequestError,
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "targeted-learning.books.import",
@@ -353,7 +354,7 @@ export const TargetedLearningApi = HttpApi.make("targeted-learning")
           params: { bookID: Schema.String },
           query: WorkspaceRoutingQuery,
           success: described(Schema.Boolean, "Book removed"),
-          error: HttpApiError.BadRequest,
+          error: BadRequestError,
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "targeted-learning.books.delete",

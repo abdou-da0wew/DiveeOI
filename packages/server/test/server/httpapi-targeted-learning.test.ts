@@ -215,16 +215,20 @@ describe("PATCH /targeted-learning/settings — per-section merge semantics", ()
     expect(onDisk).toContain('"languages": "ara+eng"')
   }, HTTP_TIMEOUT)
 
-  test("validator rejection returns 400 with the handler error shape", async () => {
+  test("validator rejection returns 400 with the unified NamedError shape", async () => {
     // maxBookSizeMB below the schema x-min (10) fails validateSettingsPayload.
+    // Unified shape (2026-11-23): handler-raised 400s are now the SAME
+    // { name: "BadRequest", data } NamedError body the schema-decode middleware
+    // emits, so the SDK's wrapClientError always finds .data.message.
     const { status, body } = await call("/targeted-learning/settings", json({ maxBookSizeMB: 5 }, "PATCH"))
     expect(status).toBe(400)
-    expect(body).toEqual({ _tag: "BadRequest" })
+    expect(body).toMatchObject({ name: "BadRequest", data: { message: expect.stringContaining("maxBookSizeMB") } })
   }, HTTP_TIMEOUT)
 
-  test("schema-decode rejection returns 400 with the payload error shape", async () => {
+  test("schema-decode rejection returns the SAME unified 400 shape (no _tag body)", async () => {
     // ocr.languages must be a string — the HttpApi payload decoder rejects it
-    // before the handler, producing the schema-error middleware shape.
+    // before the handler, producing the schema-error middleware shape. This is
+    // now byte-compatible with the handler-raised shape above.
     const { status, body } = await call("/targeted-learning/settings", json({ ocr: { languages: 123 } }, "PATCH"))
     expect(status).toBe(400)
     expect(body.name).toBe("BadRequest")
@@ -254,19 +258,21 @@ describe("POST /targeted-learning/books — upload & import initiation", () => {
   test("empty contentBase64 is rejected with 400", async () => {
     const { status, body } = await call("/targeted-learning/books", json({ filename: "empty.txt", contentBase64: "" }))
     expect(status).toBe(400)
-    expect(body).toEqual({ _tag: "BadRequest" })
+    expect(body).toMatchObject({ name: "BadRequest", data: { message: expect.stringContaining("zero bytes") } })
   }, HTTP_TIMEOUT)
 
   test("unsupported file type is rejected with 400", async () => {
     const { status, body } = await call("/targeted-learning/books", json({ filename: "virus.exe", contentBase64: Buffer.from("MZ").toString("base64") }))
     expect(status).toBe(400)
-    expect(body).toEqual({ _tag: "BadRequest" })
+    expect(body).toMatchObject({ name: "BadRequest" })
+    expect(typeof body.data?.message).toBe("string")
   }, HTTP_TIMEOUT)
 
   test("import from a missing server path is rejected with 400", async () => {
     const { status, body } = await call("/targeted-learning/books/import", json({ path: "/no/such/file.txt" }))
     expect(status).toBe(400)
-    expect(body).toEqual({ _tag: "BadRequest" })
+    expect(body).toMatchObject({ name: "BadRequest" })
+    expect(typeof body.data?.message).toBe("string")
   }, HTTP_TIMEOUT)
 
   test("import from an existing server path accepts the book", async () => {

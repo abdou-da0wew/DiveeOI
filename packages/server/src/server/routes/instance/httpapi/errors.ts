@@ -191,3 +191,22 @@ export function notFound(message: string) {
     data: { message },
   })
 }
+
+// The single 400 body for the whole instance API: NamedError shape, identical to
+// what the schema-decode middleware emits for payload rejections
+// (middleware/schema-error.ts) and what `wrapClientError` extracts
+// `.data.message` from (packages/sdk/src/error-interceptor.ts). Handlers should
+// pass a short human reason so clients stop showing bare "BadRequest".
+export class BadRequestError extends Schema.ErrorClass<BadRequestError>("BadRequest")(
+  {
+    name: Schema.Literal("BadRequest"),
+    data: Schema.Struct({
+      message: Schema.optional(Schema.String),
+    }),
+  },
+  { httpApiStatus: 400 },
+) {}
+
+export function badRequest(message?: string) {
+  return new BadRequestError({ name: "BadRequest", ...(message ? { data: { message } } : { data: {} }) })
+}

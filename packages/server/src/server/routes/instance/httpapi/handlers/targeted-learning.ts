@@ -4,9 +4,10 @@
 // Each handler closes over the TargetedLearning.Service and the Config.Service.
 
 import { Effect, Fiber } from "effect"
-import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
+import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { join } from "node:path"
 import { InstanceHttpApi } from "../api"
+import { badRequest } from "../errors"
 import { TargetedLearning as TLService } from "@diveeoi/learning"
 import { Config } from "@/config/config"
 import { PRESETS, withDefaults, type Info as TLInfo } from "@diveeoi/learning/settings"
@@ -135,7 +136,7 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
       const setupStart = Effect.fn("TargetedLearning.setupStart")(function* (ctx: {
         payload: { force?: boolean; dtype?: string }
       }) {
-        if (!tl.manifest) return yield* Effect.fail(new HttpApiError.BadRequest({}))
+        if (!tl.manifest) return yield* Effect.fail(badRequest("Targeted Learning is not set up yet: the model manifest is not loaded (run setup first)"))
         if (!setupRunning && !setupStopping && !setupRepairing) {
           setupRunning = true
           setupAbortController = new AbortController()
@@ -172,10 +173,10 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
       const setupImportLocal = Effect.fn("TargetedLearning.setupImportLocal")(function* (ctx: {
         payload: { folder: string }
       }) {
-        if (!tl.manifest) return yield* Effect.fail(new HttpApiError.BadRequest({}))
+        if (!tl.manifest) return yield* Effect.fail(badRequest("Targeted Learning is not set up yet: the model manifest is not loaded (run setup first)"))
         const { importFromLocalFolder } = require("@diveeoi/learning/download") as typeof import("@diveeoi/learning/download")
         yield* importFromLocalFolder(tl.manifest, ctx.payload.folder, join(tl.modelDir, tl.manifest.repo)).pipe(
-          Effect.mapError(() => new HttpApiError.BadRequest({})),
+          Effect.mapError(() => badRequest(`local import failed: folder does not contain a usable model (${ctx.payload.folder})`)),
         )
         return yield* setupStatus()
       })
@@ -226,7 +227,8 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
       }) {
         const cfg = yield* configSvc.get()
         const { validateSettingsPayload } = yield* Effect.promise(() => import("@diveeoi/learning/settings/validate"))
-        if (validateSettingsPayload(ctx.payload).length > 0) return yield* Effect.fail(new HttpApiError.BadRequest({}))
+        const issues = validateSettingsPayload(ctx.payload)
+        if (issues.length > 0) return yield* Effect.fail(badRequest(`invalid settings: ${issues.join("; ").slice(0, 300)}`))
         // Group-level merge: editing one section never wipes the others (plan §11.2).
         const next = {
           ...cfg,
@@ -342,7 +344,7 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
         const ingest = yield* Effect.promise(() => import("@diveeoi/learning/ingest/run"))
         return yield* Effect.tryPromise({
           try: () => ingest.pauseIngestJob(db, ctx.params.jobID),
-          catch: () => new HttpApiError.BadRequest({}),
+          catch: () => badRequest(`job ${ctx.params.jobID} not found or not in a pausable state`),
         })
       })
 
@@ -352,7 +354,7 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
         const ingest = yield* Effect.promise(() => import("@diveeoi/learning/ingest/run"))
         return yield* Effect.tryPromise({
           try: () => ingest.resumeIngestJob(db, ctx.params.jobID, tl.dataDir),
-          catch: () => new HttpApiError.BadRequest({}),
+          catch: () => badRequest(`job ${ctx.params.jobID} not found or not in a resumable state`),
         })
       })
 
@@ -362,7 +364,7 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
         const ingest = yield* Effect.promise(() => import("@diveeoi/learning/ingest/run"))
         return yield* Effect.tryPromise({
           try: () => ingest.cancelIngestJob(db, ctx.params.jobID),
-          catch: () => new HttpApiError.BadRequest({}),
+          catch: () => badRequest(`job ${ctx.params.jobID} not found or not cancellable`),
         })
       })
 
@@ -372,7 +374,7 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
         const ingest = yield* Effect.promise(() => import("@diveeoi/learning/ingest/run"))
         return yield* Effect.tryPromise({
           try: () => ingest.retryIngestJob(db, ctx.params.jobID, tl.dataDir),
-          catch: () => new HttpApiError.BadRequest({}),
+          catch: () => badRequest(`job ${ctx.params.jobID} not found or not retryable`),
         })
       })
 
@@ -380,14 +382,18 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
       const startBook = (filename: string, bytes: Uint8Array, title?: string) =>
         Effect.gen(function* () {
           const store = tl.booksStore
-          if (!store.available || !store.db) return yield* Effect.fail(new HttpApiError.BadRequest({}))
+          if (!store.available || !store.db)
+            return yield* Effect.fail(badRequest(`books.db is unavailable: ${store.unavailabilityReason ?? "unknown reason"}`))
           const cfg = yield* configSvc.get().pipe(Effect.orElseSucceed(() => ({}) as Record<string, unknown>))
           const settings = withDefaults(((cfg as Record<string, unknown>).targetedLearning as never) ?? undefined)
           const ingest = yield* Effect.promise(() => import("@diveeoi/learning/ingest/run"))
           return yield* Effect.tryPromise({
             try: () =>
               ingest.startIngest({ db: store.db!, dataDir: tl.dataDir, filename, bytes, title, settings: settings as never }),
-            catch: () => new HttpApiError.BadRequest({}),
+            catch: (err) =>
+              badRequest(
+                `could not start indexing for "${filename}": ${err instanceof Error ? err.message : String(err).slice(0, 200)}`,
+              ),
           })
         })
 
@@ -395,7 +401,7 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
         payload: { filename: string; contentBase64: string; title?: string }
       }) {
         const bytes = new Uint8Array(Buffer.from(ctx.payload.contentBase64, "base64"))
-        if (bytes.byteLength === 0) return yield* Effect.fail(new HttpApiError.BadRequest({}))
+        if (bytes.byteLength === 0) return yield* Effect.fail(badRequest("contentBase64 decoded to zero bytes"))
         return yield* startBook(ctx.payload.filename, bytes, ctx.payload.title)
       })
 
@@ -406,7 +412,7 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
         const path = yield* Effect.promise(() => import("node:path"))
         const bytes = yield* Effect.try({
           try: () => new Uint8Array(fs.readFileSync(ctx.payload.path)),
-          catch: () => new HttpApiError.BadRequest({}),
+          catch: () => badRequest(`cannot read the file at "${ctx.payload.path}"`),
         })
         return yield* startBook(path.basename(ctx.payload.path), bytes, ctx.payload.title)
       })
@@ -458,11 +464,12 @@ export const targetedLearningHandlers = HttpApiBuilder.group(
 
       const deleteBookHandler = Effect.fn("TargetedLearning.deleteBook")(function* (ctx: { params: { bookID: string } }) {
         const store = tl.booksStore
-        if (!store.available || !store.db) return yield* Effect.fail(new HttpApiError.BadRequest({}))
+        if (!store.available || !store.db)
+          return yield* Effect.fail(badRequest(`books.db is unavailable: ${store.unavailabilityReason ?? "unknown reason"}`))
         const ingest = yield* Effect.promise(() => import("@diveeoi/learning/ingest/run"))
         return yield* Effect.tryPromise({
           try: () => ingest.deleteBook(store.db!, tl.dataDir, ctx.params.bookID),
-          catch: () => new HttpApiError.BadRequest({}),
+          catch: () => badRequest(`book ${ctx.params.bookID} not found or already deleted`),
         })
       })
 
