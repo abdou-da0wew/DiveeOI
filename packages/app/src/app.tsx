@@ -473,20 +473,32 @@ function ServerKey(props: ParentProps) {
 function _ExternalThemeLoader() {
   const theme = useTheme()
   const server = useServer()
+  let loadedFrom: string | undefined
 
-  onMount(async () => {
+  // Reactive on the server URL instead of a one-shot onMount: the URL may not
+  // be resolved at mount time (or may change on a server switch), and the old
+  // version silently did nothing in that case — themes never loaded.
+  createEffect(() => {
     const base = server.current?.http?.url
-    if (!base) return
-    try {
-      const res = await authFetch(`${base}/_opencode/themes`)
-      if (!res.ok) return
-      const themes = (await res.json()) as Record<string, unknown>
-      for (const [, data] of Object.entries(themes)) {
-        if (data && typeof data === "object" && "id" in data && "name" in data && "light" in data && "dark" in data) {
-          theme.registerTheme(data as DesktopTheme)
+    if (!base || base === loadedFrom) return
+    loadedFrom = base
+    void (async () => {
+      try {
+        const res = await authFetch(`${base}/_opencode/themes`)
+        if (!res.ok) return
+        const themes = (await res.json()) as Record<string, unknown>
+        for (const [, data] of Object.entries(themes)) {
+          if (data && typeof data === "object" && "id" in data && "name" in data && "light" in data && "dark" in data) {
+            // registerTheme upserts by id — re-runs are idempotent.
+            theme.registerTheme(data as DesktopTheme)
+          }
         }
+      } catch (error) {
+        // External themes are best-effort decoration, but the old empty catch
+        // hid real wiring breakage; record it instead of vanishing.
+        console.warn("[diveeoi] external theme load failed", error)
       }
-    } catch {}
+    })()
   })
 
   return null
