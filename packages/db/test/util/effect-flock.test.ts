@@ -310,6 +310,9 @@ describe("util.effect-flock", () => {
     "fails on unwritable lock roots",
     Effect.gen(function* () {
       if (process.platform === "win32") return
+      // Root (uid 0) bypasses file-mode checks, so a chmod-0o500 trap never
+      // yields PermissionDenied; the simulated unwritable root cannot exist.
+      if (typeof process.getuid === "function" && process.getuid() === 0) return
       const flock = yield* EffectFlock.Service
       const tmp = yield* Effect.promise(() => fs.mkdtemp(path.join(os.tmpdir(), "eflock-test-")))
       const dir = path.join(tmp, "locks")

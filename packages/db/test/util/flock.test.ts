@@ -402,6 +402,9 @@ describe("util.flock", () => {
 
   test("fails clearly on unwritable lock roots", async () => {
     if (process.platform === "win32") return
+    // Root (uid 0) bypasses file-mode checks, so a chmod-0o500 trap never
+    // yields EACCES/EPERM; the simulated unwritable root cannot exist.
+    if (typeof process.getuid === "function" && process.getuid() === 0) return
 
     await using tmp = await tmpdir()
     const dir = path.join(tmp.path, "locks")

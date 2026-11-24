@@ -533,6 +533,10 @@ describe("Consolidation Service — transactional mergeNodes + normalized duplic
     expect(merged.content).not.toContain("\n\n---\n\n")
   })
   it("Phase C filesystem failure runs the orphan-file cleanup hook and reports an enriched error", async () => {
+    // Root (uid 0) bypasses file-mode checks, so the chmod-0o500 trap below
+    // cannot make the nodes directory unwritable and the Phase C filesystem
+    // failure this test exercises never occurs.
+    if (typeof process.getuid === "function" && process.getuid() === 0) return
     const sessionId = `ses_consol_phc_${crypto.randomUUID()}`
     const run = crypto.randomUUID().slice(0, 8)
     const tag = `ph-c-${run}`
