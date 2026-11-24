@@ -254,6 +254,9 @@ describe("tool.write", () => {
   describe("error handling", () => {
     it.instance("throws error when OS denies write access", () =>
       Effect.gen(function* () {
+        // Root (uid 0) bypasses file-mode checks, so a chmod-0o444 file stays
+        // writable and the OS can never deny the write.
+        if (typeof process.getuid === "function" && process.getuid() === 0) return
         const test = yield* TestInstance
         const readonlyPath = path.join(test.directory, "readonly.txt")
         yield* Effect.promise(() => fs.writeFile(readonlyPath, "test", "utf-8"))
