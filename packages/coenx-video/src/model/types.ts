@@ -48,6 +48,7 @@ export interface NodeBase {
   visible?: boolean
   zIndex?: number
   clipPathId?: string
+  maskId?: string
   fontFamily?: string
   fontSize?: number
   fontWeight?: number | string
@@ -111,6 +112,46 @@ export interface ClipPathDefinition {
   id: string
   pathId: string
   fillRule?: PathFillRule
+}
+
+/**
+ * One vector shape inside an alpha-mask resource. Geometry is expressed in the
+ * mask's own view box; only the paint's alpha channel affects the mask. Shapes
+ * are flat (no nesting) and are rendered white-with-alpha by the SVG backends
+ * so luminance-based SVG masks and true alpha compositing agree everywhere.
+ */
+export interface MaskShape {
+  kind: "path" | "rect" | "ellipse"
+  /** Inline path commands for `kind: "path"`; must not be combined with pathRef. */
+  commands?: PathCommand[]
+  /** Reference to a scene PathDefinition for `kind: "path"` (reuses the WP1 resource graph). */
+  pathRef?: string
+  /** rect/ellipse geometry, in mask view-box units. */
+  x?: number
+  y?: number
+  width?: number
+  height?: number
+  radius?: number
+  /** Alpha source: solid color (8-digit hex alpha supported) or gradient with per-stop alpha. */
+  fill: Paint
+  fillRule?: PathFillRule
+  /** Multiplies the paint alpha; defaults to 1. */
+  opacity?: number
+}
+
+/**
+ * Reusable alpha-mask resource. The referencing node's box maps the mask view
+ * box exactly like clip paths (node-local scaling); the mask inherits the
+ * node's transform; node and transition opacity apply after the mask. Masked
+ * content outside the node box is hidden (backends composite the node into a
+ * node-box-bounded offscreen). Luminance masks are intentionally not part of
+ * version 1 and stay capability-gated off.
+ */
+export interface MaskDefinition {
+  id: string
+  width: number
+  height: number
+  shapes: MaskShape[]
 }
 
 export interface PathNode extends NodeBase {
@@ -316,6 +357,7 @@ export interface Scene {
   nodes: VisualNode[]
   pathDefinitions?: PathDefinition[]
   clipPaths?: ClipPathDefinition[]
+  masks?: MaskDefinition[]
   interactions?: SceneInteraction[]
   camera3d?: Camera3D
   lights3d?: Light3D[]

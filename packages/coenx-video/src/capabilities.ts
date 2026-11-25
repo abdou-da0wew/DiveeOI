@@ -183,12 +183,18 @@ export const COENX_VIDEO_CAPABILITIES = {
     {
       id: "masks",
       support: {
-        "static-svg": "unsupported",
-        "native-cairo": "unsupported",
-        "interactive-canvas": "unsupported",
-        "interactive-svg": "unsupported",
+        "static-svg": "supported",
+        "native-cairo": "supported",
+        "interactive-canvas": "supported",
+        "interactive-svg": "supported",
       },
-      notes: ["Alpha and luminance masks have not been implemented."],
+      notes: [
+        "Reusable alpha masks (v1): flat shape lists (rect/ellipse/path with reusable path references); alpha comes from paint alpha only.",
+        "Masks are node-local: the mask view box scales onto the node box, the node transform is inherited, and content outside the node box is hidden.",
+        "Luminance masks are not implemented and stay capability-gated off.",
+        "SVG backends emit white-with-alpha shapes so luminance and alpha mask semantics agree without mask-type support.",
+        "Masked nodes composite inside a node-box-bounded offscreen on Canvas and native Cairo (bounded memory).",
+      ],
     },
     {
       id: "filter-effects",
@@ -227,7 +233,7 @@ export const COENX_VIDEO_CAPABILITIES = {
       {
         id: "json-typescript",
         supportedNodes: ["rect", "ellipse", "line", "path", "text", "image", "button", "input", "select", "mesh3d"],
-        unsupportedAuthoringFeatures: ["masks", "filter-effects", "gpu-3d"],
+        unsupportedAuthoringFeatures: ["luminance-masks", "filter-effects", "gpu-3d"],
       },
     ],
     safety: [

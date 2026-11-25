@@ -24,7 +24,10 @@ Use the canonical Coenx Video tools before committing to a renderer or claiming 
 - Reusable node-local clip paths are supported by all four output renderers. They support `nonzero` and `evenodd` fill rules. A 2D clip path cannot be attached to a `mesh3d` node.
 - Linear and radial gradients are available in the structured model. Gradient transform, conic gradients and repeat/reflect spread modes are not implemented.
 - CML v1 does not yet expose path commands, reusable path definitions, clip-path references, gradient-paint literals or `mesh3d`. Do not invent undocumented CML syntax for these features.
-- Masks and filter effects are not yet implemented. Do not claim SVG mask/filter support just because SVG as an output format can represent them.
+- Reusable alpha masks (WP2, v1) are supported by all four renderers. A mask is a scene-level `masks[]` resource with a view box and 1-16 flat shapes (rect/ellipse/path, path shapes may reference scene path definitions). Alpha comes from paint alpha only; luminance masks are not implemented.
+- Mask semantics: the mask view box scales onto the referencing node's box, the node transform is inherited, node/transition opacity applies after masking, and content outside the node box is hidden. Masked nodes composite inside a node-box-bounded offscreen on Canvas and native Cairo.
+- Attach masks with the node's `maskId` field; a node may combine `clipPathId` (geometry cut) with `maskId` (alpha multiply). A dangling `maskId` is a validation error, never a silent skip.
+- Filter effects are not yet implemented. Do not claim SVG filter support just because SVG as an output format can represent them.
 - Current 3D is CPU software projection. It supports perspective cameras, basic lights/material response, morph targets, frame-keyed transforms and deterministic physics.
 - GPU 3D is planned, not available. The intended architecture is a browser Three.js/WebGL2 backend (WebGPU optional) and a native Rust/wgpu backend, both consuming one scene contract. The existing CPU renderer must remain the fallback for missing/blocked/lost GPU devices and headless rendering.
 - glTF loading, skeletal/skin animation, shadow maps and a full PBR pipeline are not currently available.

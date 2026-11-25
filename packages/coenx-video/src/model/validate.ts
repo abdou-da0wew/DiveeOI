@@ -1,6 +1,7 @@
 import path from "node:path"
 import { isBundledFontFamily } from "../fonts/catalog"
 import type { Expression, InteractionAction, Paint, RenderProfile, Scene, VideoComposition, VisualNode } from "./types"
+import { validateSceneMasks } from "./validate-masks"
 import { validateScenePaths } from "./validate-paths"
 
 export const RENDER_PROFILES: Record<RenderProfile["name"], RenderProfile> = {
@@ -300,6 +301,7 @@ function validateScene(
   )
   add(issues, scene.nodes.length <= 5_000, `scene ${scene.id} has too many nodes`)
   validateScenePaths(scene, issues)
+  validateSceneMasks(scene, issues)
   const ids = new Set<string>()
   for (const node of scene.nodes) {
     add(issues, !ids.has(node.id), `scene ${scene.id} has duplicate node id ${node.id}`)

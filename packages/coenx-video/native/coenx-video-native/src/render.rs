@@ -1,5 +1,6 @@
 use cairo::{Context, Format, ImageSurface};
 mod image;
+mod mask;
 mod paint;
 mod path;
 #[cfg(test)]
@@ -83,6 +84,13 @@ fn render_node(context: &Context, node: &Value) -> Result<(), String> {
     context.new_path();
     if let Some(clip_path) = node.get("clipPath") {
         path::clip_path(context, clip_path, width, height)?;
+    }
+    // Masked nodes composite inside a node-box-bounded offscreen so the
+    // temporary surface never exceeds the node bounds.
+    if node.get("mask").is_some() {
+        context.rectangle(-width / 2.0, -height / 2.0, width, height);
+        context.clip();
+        context.new_path();
     }
     context.push_group();
     match string(node, "kind", "") {
@@ -215,10 +223,14 @@ fn render_node(context: &Context, node: &Value) -> Result<(), String> {
         }
     }
     let pattern = context.pop_group().map_err(|e| e.to_string())?;
-    context.set_source(&pattern).map_err(|e| e.to_string())?;
-    context
-        .paint_with_alpha(opacity)
-        .map_err(|e| e.to_string())?;
+    if let Some(mask) = node.get("mask") {
+        mask::composite_masked_node(context, &pattern, mask, width, height, opacity)?;
+    } else {
+        context.set_source(&pattern).map_err(|e| e.to_string())?;
+        context
+            .paint_with_alpha(opacity)
+            .map_err(|e| e.to_string())?;
+    }
     context.restore().map_err(|e| e.to_string())?;
     Ok(())
 }

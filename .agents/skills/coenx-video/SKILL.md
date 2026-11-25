@@ -179,4 +179,4 @@ Call `coenx_video_validate` with the complete CML or serialized JSON composition
 
 Current capability boundary: reusable paths, node-local clipping (nonzero/evenodd), and linear/radial gradients exist in the structured model and current renderers. CML v1 does not yet expose them. Masks, filter graphs and GPU 3D are not implemented. Current 3D uses CPU software projection. GPU 3D remains planned; never claim that a GPU path is active. The future browser Three.js/WebGL2 and native Rust/wgpu implementations must share a scene contract and preserve the deterministic CPU fallback.
 
-Preview, inspect and export tools have not yet been registered. Do not promise or invoke them until they appear in the live tool definitions.
+Preview, inspect, export and reference tools are registered separately from the capability/validation pair; check the live tool definitions before promising them.

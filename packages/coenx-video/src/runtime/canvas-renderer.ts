@@ -2,6 +2,7 @@ import type { Scene, Vec3, VideoComposition, VisualNode } from "../model/types"
 import { evaluateSceneAtFrame } from "../animation/timeline"
 import { projectMesh3D } from "../render/geometry3d"
 import { canvasPaint } from "../render/paint"
+import { resolveNodeMask } from "../render/mask"
 import { pathCommandsToSvgD, resolveClipPath, resolveNodePath } from "../render/path"
 
 export interface CanvasAssetResolver {
@@ -15,9 +16,12 @@ export interface CanvasRendererOptions {
 }
 
 export class CanvasVideoRenderer {
-  private readonly context: CanvasRenderingContext2D
+  private context: CanvasRenderingContext2D
   private readonly images = new Map<string, HTMLImageElement>()
   private readonly failedImages = new Set<string>()
+  /** Reused node-box offscreen surface for mask compositing; resized per masked node. */
+  private readonly scratch: HTMLCanvasElement
+  private readonly scratchContext: CanvasRenderingContext2D
 
   constructor(private readonly options: CanvasRendererOptions) {
     const context = options.canvas.getContext("2d", { alpha: false, desynchronized: true })
@@ -25,6 +29,10 @@ export class CanvasVideoRenderer {
     this.context = context
     this.options.canvas.width = options.composition.stage.width
     this.options.canvas.height = options.composition.stage.height
+    this.scratch = document.createElement("canvas")
+    const scratchContext = this.scratch.getContext("2d", { willReadFrequently: false })
+    if (!scratchContext) throw new Error("Canvas 2D is unavailable for mask compositing")
+    this.scratchContext = scratchContext
   }
 
   draw(
@@ -52,6 +60,13 @@ export class CanvasVideoRenderer {
     const context = this.context
     const opacity = Math.max(0, Math.min(1, node.opacity ?? 1))
     if (opacity === 0) return
+    // Meshes draw in stage space with their own transform/alpha handling and
+    // can never carry clips or masks (validation rejects both).
+    if (node.kind === "mesh3d") {
+      this.drawMesh(node, scene)
+      return
+    }
+    const mask = resolveNodeMask(node, scene)
     context.save()
     context.globalAlpha = opacity
     context.translate(node.x, node.y)
@@ -60,6 +75,55 @@ export class CanvasVideoRenderer {
     const { width, height } = node
     const clip = resolveClipPath(node, scene)
     if (clip) context.clip(new Path2D(pathCommandsToSvgD(clip.commands, width, height)), clip.fillRule)
+    if (mask) {
+      // Bounded isolated compositing: render the node body into a node-box
+      // offscreen, multiply the mask alpha with destination-in, blit back.
+      const previous = this.context
+      const { surface, scratch } = this.beginMaskScratch(width, height)
+      this.context = scratch
+      try {
+        this.drawNodeBody(node, scene)
+      } finally {
+        this.context = previous
+      }
+      scratch.setTransform(1, 0, 0, 1, surface.width / 2, surface.height / 2)
+      scratch.globalCompositeOperation = "destination-in"
+      scratch.globalAlpha = 1
+      for (const shape of mask.shapes) {
+        scratch.fillStyle = canvasPaint(scratch, width, height, shape.paint, "transparent")
+        scratch.fill(new Path2D(pathCommandsToSvgD(shape.commands, width, height)), shape.fillRule)
+      }
+      scratch.globalCompositeOperation = "source-over"
+      scratch.setTransform(1, 0, 0, 1, 0, 0)
+      context.globalAlpha = opacity
+      context.drawImage(surface, -surface.width / 2, -surface.height / 2, surface.width, surface.height)
+      context.globalAlpha = 1
+      context.restore()
+      return
+    }
+    this.drawNodeBody(node, scene)
+    context.restore()
+  }
+
+  private beginMaskScratch(width: number, height: number) {
+    const boundedWidth = Math.max(1, Math.min(Math.ceil(width), this.options.composition.stage.width))
+    const boundedHeight = Math.max(1, Math.min(Math.ceil(height), this.options.composition.stage.height))
+    if (this.scratch.width !== boundedWidth || this.scratch.height !== boundedHeight) {
+      this.scratch.width = boundedWidth
+      this.scratch.height = boundedHeight
+    } else {
+      this.scratchContext.setTransform(1, 0, 0, 1, 0, 0)
+    }
+    this.scratchContext.globalCompositeOperation = "source-over"
+    this.scratchContext.globalAlpha = 1
+    this.scratchContext.clearRect(0, 0, boundedWidth, boundedHeight)
+    this.scratchContext.translate(boundedWidth / 2, boundedHeight / 2)
+    return { surface: this.scratch, scratch: this.scratchContext }
+  }
+
+  private drawNodeBody(node: VisualNode, scene: Scene) {
+    const context = this.context
+    const { width, height } = node
     switch (node.kind) {
       case "rect":
         context.fillStyle = canvasPaint(context, width, height, node.fill, "transparent")
@@ -146,9 +210,8 @@ export class CanvasVideoRenderer {
         )
         break
       case "mesh3d":
-        context.restore()
-        this.drawMesh(node, scene)
-        return
+        // Unreachable here: meshes are handled in drawNode before transforms.
+        break
     }
     context.restore()
   }

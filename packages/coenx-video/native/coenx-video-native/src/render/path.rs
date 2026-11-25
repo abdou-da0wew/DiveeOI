@@ -21,7 +21,7 @@ fn point(value: &Value, key: &str, width: f64, height: f64) -> Result<(f64, f64)
     Ok((x - width / 2.0, y - height / 2.0))
 }
 
-fn append_commands(
+pub(super) fn append_commands(
     context: &Context,
     commands: &Value,
     width: f64,

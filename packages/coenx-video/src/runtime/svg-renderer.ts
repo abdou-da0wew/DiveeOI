@@ -1,6 +1,8 @@
 import type { Scene, Vec3, VideoComposition, VisualNode } from "../model/types"
 import { evaluateSceneAtFrame } from "../animation/timeline"
 import { projectMesh3D } from "../render/geometry3d"
+import { resolveNodeMask } from "../render/mask"
+import { isGradientPaint, whiteAlphaPaint } from "../render/paint"
 import { pathCommandsToSvgD, resolveClipPath, resolveNodePath } from "../render/path"
 import type { CanvasAssetResolver } from "./canvas-renderer"
 import { element, paintValue, SVG_NS, textElement } from "./svg-primitives"
@@ -83,6 +85,78 @@ export class SvgVideoRenderer {
       )
       definitions.append(definition)
       group.setAttribute("clip-path", `url(#${clipId})`)
+    }
+    const mask = resolveNodeMask(node, scene)
+    if (mask) {
+      const maskId = `mask-${scene.id}-${node.id}`
+      const maskElement = element("mask", {
+        id: maskId,
+        maskUnits: "userSpaceOnUse",
+        maskContentUnits: "userSpaceOnUse",
+        x: -width / 2,
+        y: -height / 2,
+        width,
+        height,
+      })
+      mask.shapes.forEach((shape, index) => {
+        const paintId = `${maskId}-paint-${index}`
+        if (isGradientPaint(shape.paint)) {
+          const white = whiteAlphaPaint(shape.paint)
+          const scaled = {
+            ...white,
+            stops: white.stops.map((stop) => ({
+              offset: stop.offset,
+              color: stop.color,
+              opacity: Math.max(0, Math.min(1, (stop.opacity ?? 1) * shape.opacity)),
+            })),
+          }
+          const gradient =
+            scaled.type === "linear"
+              ? element("linearGradient", {
+                  id: paintId,
+                  x1: (scaled.from[0] - 0.5) * width,
+                  y1: (scaled.from[1] - 0.5) * height,
+                  x2: (scaled.to[0] - 0.5) * width,
+                  y2: (scaled.to[1] - 0.5) * height,
+                  gradientUnits: "userSpaceOnUse",
+                })
+              : element("radialGradient", {
+                  id: paintId,
+                  cx: (scaled.center[0] - 0.5) * width,
+                  cy: (scaled.center[1] - 0.5) * height,
+                  r: scaled.radius * Math.min(width, height),
+                  gradientUnits: "userSpaceOnUse",
+                })
+          for (const stop of scaled.stops) {
+            gradient.append(
+              element("stop", {
+                offset: stop.offset,
+                "stop-color": stop.color,
+                "stop-opacity": Math.max(0, Math.min(1, stop.opacity ?? 1)),
+              }),
+            )
+          }
+          definitions.append(gradient)
+          maskElement.append(
+            element("path", {
+              d: pathCommandsToSvgD(shape.commands, width, height),
+              fill: `url(#${paintId})`,
+              "fill-rule": shape.fillRule,
+            }),
+          )
+          return
+        }
+        maskElement.append(
+          element("path", {
+            d: pathCommandsToSvgD(shape.commands, width, height),
+            fill: "#ffffff",
+            "fill-opacity": shape.opacity,
+            "fill-rule": shape.fillRule,
+          }),
+        )
+      })
+      definitions.append(maskElement)
+      group.setAttribute("mask", `url(#${maskId})`)
     }
     switch (node.kind) {
       case "rect":

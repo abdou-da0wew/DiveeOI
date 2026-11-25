@@ -98,3 +98,49 @@ function withOpacity(color: string, opacity: number) {
   const embeddedAlpha = parsed.length === 8 ? Number.parseInt(parsed.slice(6, 8), 16) / 255 : 1
   return `rgba(${red}, ${green}, ${blue}, ${embeddedAlpha * Math.max(0, Math.min(1, opacity))})`
 }
+
+const NAMED_COLORS: Record<string, [number, number, number, number]> = {
+  white: [255, 255, 255, 1],
+  black: [0, 0, 0, 1],
+  red: [255, 0, 0, 1],
+  green: [0, 128, 0, 1],
+  blue: [0, 0, 255, 1],
+  transparent: [0, 0, 0, 0],
+}
+
+/** Extracts the alpha channel of any accepted color string; unknown colors count as opaque. */
+export function colorAlpha(color: string): number {
+  if (color === "none") return 0
+  const named = NAMED_COLORS[color.trim().toLowerCase()]
+  if (named) return named[3]
+  const hex = color.trim().replace("#", "")
+  const expanded =
+    hex.length === 3 || hex.length === 4
+      ? hex
+          .split("")
+          .map((value) => value + value)
+          .join("")
+      : hex
+  if ((expanded.length === 4 || expanded.length === 8) && /^[0-9a-f]+$/i.test(expanded)) {
+    return Number.parseInt(expanded.slice(-2), 16) / 255
+  }
+  return 1
+}
+
+/**
+ * Rewrites a gradient paint as white while preserving only its alpha channel.
+ * SVG masks consume luminance by default; white-with-alpha yields the same
+ * mask value in both luminance and alpha mask modes, so one serialized form is
+ * correct everywhere without depending on `mask-type` support. Solid mask
+ * shapes are emitted as white fills with fill-opacity by the callers.
+ */
+export function whiteAlphaPaint(paint: GradientPaint): GradientPaint {
+  return {
+    ...paint,
+    stops: paint.stops.map((stop) => ({
+      offset: stop.offset,
+      color: "#ffffff",
+      opacity: stop.opacity === undefined ? colorAlpha(stop.color) : stop.opacity * colorAlpha(stop.color),
+    })),
+  }
+}

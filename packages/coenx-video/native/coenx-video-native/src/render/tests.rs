@@ -237,3 +237,96 @@ fn rejects_oversized_and_non_png_outputs() {
     });
     assert!(render_frame(&wrong_extension).is_err());
 }
+
+#[test]
+fn masks_native_nodes_with_alpha_gradient_masks() {
+    let output = unique_path("mask");
+    let request = serde_json::json!({
+        "op": "render_frame",
+        "width": 64,
+        "height": 48,
+        "background": "#101820",
+        "output": output,
+        "nodes": [{
+            "id": "faded",
+            "kind": "rect",
+            "x": 32,
+            "y": 24,
+            "width": 48,
+            "height": 32,
+            "fill": "#ff0000",
+            "mask": {
+                "shapes": [{
+                    "kind": "rect",
+                    "commands": [
+                        { "type": "moveTo", "point": [0, 0] },
+                        { "type": "lineTo", "point": [48, 0] },
+                        { "type": "lineTo", "point": [48, 32] },
+                        { "type": "lineTo", "point": [0, 32] },
+                        { "type": "close" }
+                    ],
+                    "fillRule": "nonzero",
+                    "alpha": {
+                        "type": "linear",
+                        "from": [0, 0.5],
+                        "to": [1, 0.5],
+                        "stops": [
+                            { "offset": 0, "alpha": 1.0 },
+                            { "offset": 1, "alpha": 0.0 }
+                        ]
+                    }
+                }]
+            }
+        }]
+    });
+    render_frame(&request).expect("masked frame render succeeds");
+
+    let mut png = File::open(&output).expect("masked frame exists");
+    let mut surface = ImageSurface::create_from_png(&mut png).expect("masked PNG decodes");
+    let stride = surface.stride() as usize;
+    let pixels = surface.data().expect("masked pixels are readable");
+    let pixel = |x: usize, y: usize| {
+        let offset = y * stride + x * 4;
+        &pixels[offset..offset + 4]
+    };
+    let left = pixel(16, 24);
+    let right = pixel(56, 24);
+
+    // Node box spans x 8..56; the gradient mask fades alpha 1 -> 0 across it.
+    // cairo ImageSurface data is little-endian ARGB32: bytes are B, G, R, A.
+    assert!(
+        left[2] > left[0] && left[2] > left[1] && left[3] == 255,
+        "left edge should stay opaque red under the mask"
+    );
+    let background: [i16; 3] = [0x20, 0x18, 0x10];
+    let close_to_background = |p: &[u8]| {
+        (0..3).all(|index| {
+            let delta = i16::from(p[index]) - background[index];
+            delta.abs() <= 2
+        })
+    };
+    assert!(
+        close_to_background(right),
+        "right edge should fade fully to the background under the mask"
+    );
+    drop(pixels);
+    std::fs::remove_file(output).expect("temporary masked frame is removed");
+}
+
+#[test]
+fn rejects_masks_outside_the_supported_budget() {
+    let oversized_shapes = serde_json::json!({
+        "width": 16, "height": 16, "output": "/tmp/invalid-mask.png",
+        "nodes": [{
+            "id": "bad", "kind": "rect", "x": 8, "y": 8, "width": 8, "height": 8, "fill": "#ff0000",
+            "mask": { "shapes": (0..17).map(|index| {
+                serde_json::json!({
+                    "kind": "rect", "x": index, "y": index, "width": 1, "height": 1,
+                    "fill": "#ffffff",
+                    "alpha": { "type": "solid", "alpha": 1.0 }
+                })
+            }).collect::<Vec<_>>() }
+        }]
+    });
+    assert!(render_frame(&oversized_shapes).is_err());
+}

@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url"
 import type { Scene, Vec3, VideoComposition, VisualNode } from "../model/types"
 import { projectMesh3D } from "./geometry3d"
 import { evaluateSceneAtFrame } from "../animation/timeline"
+import { colorAlpha, isGradientPaint } from "./paint"
+import { resolveNodeMask } from "./mask"
 import { resolveClipPath, resolveNodePath } from "./path"
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
@@ -34,6 +36,28 @@ export interface NativeFrameRequest {
   imageAssets?: Record<string, string>
 }
 
+function maskAlphaPaint(paint: unknown): Record<string, unknown> {
+  if (typeof paint !== "object" || paint === null || !isGradientPaint(paint as never)) {
+    return { type: "solid", alpha: colorAlpha(typeof paint === "string" ? paint : "transparent") }
+  }
+  const gradient = paint as {
+    type: "linear" | "radial"
+    from?: readonly number[]
+    to?: readonly number[]
+    center?: readonly number[]
+    radius?: number
+    stops: Array<{ offset: number; color: string; opacity?: number }>
+  }
+  const stops = gradient.stops.map((stop) => ({
+    offset: stop.offset,
+    alpha: Math.max(0, Math.min(1, colorAlpha(stop.color) * (stop.opacity ?? 1))),
+  }))
+  if (gradient.type === "linear") {
+    return { type: "linear", from: gradient.from ?? [0, 0.5], to: gradient.to ?? [1, 0.5], stops }
+  }
+  return { type: "radial", center: gradient.center ?? [0.5, 0.5], radius: gradient.radius ?? 1, stops }
+}
+
 function supportedNodes(
   nodes: VisualNode[],
   scene: Scene,
@@ -54,6 +78,17 @@ function supportedNodes(
     }
     const clipPath = resolveClipPath(node, scene)
     if (clipPath) renderNode.clipPath = clipPath
+    const mask = node.kind === "mesh3d" ? undefined : resolveNodeMask(node, scene)
+    if (mask) {
+      renderNode.mask = {
+        shapes: mask.shapes.map((shape) => ({
+          commands: shape.commands,
+          fillRule: shape.fillRule,
+          alpha: maskAlphaPaint(shape.paint),
+          opacity: shape.opacity,
+        })),
+      }
+    }
 
     if (node.kind === "image") {
       const assetPath = imageAssets?.[node.id]
@@ -179,6 +214,7 @@ export class NativeRendererSession {
       nodes: transitioned.nodes,
       ...(transitioned.clipRect ? { clipRect: transitioned.clipRect } : {}),
     }
+    if (process.env.COENX_DEBUG) console.error("PAYLOAD", JSON.stringify(payload).slice(0, 1200))
     const line = JSON.stringify(payload) + "\n"
     if (!this.child.stdin.write(line)) {
       await new Promise<void>((resolve, reject) => {

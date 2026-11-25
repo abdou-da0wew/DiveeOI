@@ -13,6 +13,7 @@ import type {
 } from "../model/types"
 import { evaluateSceneAtFrame } from "../animation/timeline"
 import { projectMesh3D } from "./geometry3d"
+import { resolveNodeMask, maskSvgDefinition } from "./mask"
 import { svgPaint } from "./paint"
 import { pathCommandsToSvgD, resolveClipPath, resolveNodePath } from "./path"
 import { renderFontFamilyName } from "../fonts/catalog"
@@ -108,6 +109,11 @@ async function renderNode(
       `<clipPath id="${clipId}" clipPathUnits="userSpaceOnUse"><path d="${pathCommandsToSvgD(clip.commands, width, height)}" fill-rule="${clip.fillRule}" clip-rule="${clip.fillRule}"/></clipPath>`,
     )
   }
+  const mask = resolveNodeMask(node, scene)
+  const maskId = mask ? `mask-${scene.id}-${node.id}` : undefined
+  if (mask && maskId) {
+    definitions.push(maskSvgDefinition(mask, maskId, width, height, definitions))
+  }
   let body = ""
   switch (node.kind) {
     case "rect": {
@@ -157,7 +163,7 @@ async function renderNode(
       body = renderMesh(node, camera, lights, transition)
       return body
   }
-  return `<g transform="${transform}" opacity="${opacity}"${clipId ? ` clip-path="url(#${clipId})"` : ""}>${body}</g>`
+  return `<g transform="${transform}" opacity="${opacity}"${clipId ? ` clip-path="url(#${clipId})"` : ""}${maskId ? ` mask="url(#${maskId})"` : ""}>${body}</g>`
 }
 
 function renderMesh(
