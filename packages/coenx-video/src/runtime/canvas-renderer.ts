@@ -1,7 +1,7 @@
 import type { Scene, Vec3, VideoComposition, VisualNode } from "../model/types"
 import { evaluateSceneAtFrame } from "../animation/timeline"
 import { projectMesh3D } from "../render/geometry3d"
-import { canvasPaint } from "../render/paint"
+import { canvasPaint } from "./canvas-paint"
 import { resolveNodeMask } from "../render/mask"
 import { pathCommandsToSvgD, resolveClipPath, resolveNodePath } from "../render/path"
 

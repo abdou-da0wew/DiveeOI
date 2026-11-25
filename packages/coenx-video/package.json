@@ -12,7 +12,9 @@
     "./format": "./src/format/index.ts",
     "./fonts": "./src/fonts/index.ts",
     "./capabilities": "./src/capabilities.ts",
-    "./validation": "./src/validation.ts"
+    "./validation": "./src/validation.ts",
+    "./export": "./src/export.ts",
+    "./reference": "./src/reference.ts"
   },
   "scripts": {
     "typecheck": "tsgo --noEmit",

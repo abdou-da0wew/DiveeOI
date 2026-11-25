@@ -14,7 +14,63 @@ import { Tools } from "./tools"
 
 export const capabilitiesName = "coenx_video_capabilities"
 export const validateName = "coenx_video_validate"
-const MAX_SOURCE_BYTES = 2 * 1024 * 1024
+export const MAX_SOURCE_BYTES = 2 * 1024 * 1024
+
+export const SourceInput = Schema.Struct({
+  format: Schema.Literals(["cml", "json"]),
+  source: Schema.String.annotate({ description: "Complete CML markup or JSON VideoComposition source." }),
+  styles: Schema.String.pipe(Schema.optional),
+  script: Schema.String.pipe(Schema.optional),
+})
+export type SourceInput = Schema.Schema.Type<typeof SourceInput>
+
+const Diagnostic = Schema.Struct({
+  code: Schema.String,
+  severity: Schema.Literals(["error", "warning"]),
+  message: Schema.String,
+})
+
+export function diagnostic(code: string, message: string): { code: string; severity: "error" | "warning"; message: string } {
+  return { code, severity: "error", message: message.slice(0, 1_000) }
+}
+
+/** Shared bounded compile/validate step for every source-consuming Coenx tool. */
+export function compileSource(input: SourceInput): { composition?: VideoComposition; diagnostics: Array<{ code: string; severity: "error" | "warning"; message: string }> } {
+  const byteLength = new TextEncoder().encode(input.source + (input.styles ?? "") + (input.script ?? "")).byteLength
+  if (byteLength > MAX_SOURCE_BYTES) {
+    return { diagnostics: [diagnostic("source.too_large", "Combined project source must not exceed 2 MiB.")] }
+  }
+  if (input.format === "json" && (input.styles !== undefined || input.script !== undefined)) {
+    return { diagnostics: [diagnostic("source.unexpected_files", "styles and script are only accepted with CML source.")] }
+  }
+  let composition: VideoComposition
+  try {
+    if (input.format === "cml") {
+      composition = compileCmlProject({
+        markup: input.source,
+        styles: input.styles,
+        script: input.script,
+      })
+    } else {
+      composition = JSON.parse(input.source) as VideoComposition
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to parse project source."
+    return {
+      diagnostics: [diagnostic(input.format === "json" ? "source.invalid_json" : "source.compile_failed", message)],
+    }
+  }
+  try {
+    validateComposition(composition, RENDER_PROFILES.quality)
+    return { composition, diagnostics: [] }
+  } catch (error) {
+    const issues =
+      error instanceof VideoValidationError
+        ? error.issues
+        : [error instanceof Error ? error.message : "Composition validation failed."]
+    return { diagnostics: issues.slice(0, 50).map((message) => diagnostic("composition.invalid", message)) }
+  }
+}
 
 const Support = Schema.Struct({
   "static-svg": Schema.Literals(["supported", "partial", "unsupported"]),
@@ -80,18 +136,7 @@ const CapabilitiesOutput = Schema.Struct({
 })
 
 const Input = Schema.Struct({})
-const ValidateInput = Schema.Struct({
-  format: Schema.Literals(["cml", "json"]),
-  source: Schema.String.annotate({ description: "Complete CML markup or JSON VideoComposition source." }),
-  styles: Schema.String.pipe(Schema.optional),
-  script: Schema.String.pipe(Schema.optional),
-})
-
-const Diagnostic = Schema.Struct({
-  code: Schema.String,
-  severity: Schema.Literals(["error", "warning"]),
-  message: Schema.String,
-})
+const ValidateInput = SourceInput
 
 const Summary = Schema.Struct({
   stage: Schema.Struct({
@@ -113,60 +158,25 @@ const ValidateOutput = Schema.Struct({
 
 type ValidateResult = Schema.Schema.Type<typeof ValidateOutput>
 
-function diagnostic(code: string, message: string): ValidateResult["diagnostics"][number] {
-  return { code, severity: "error", message: message.slice(0, 1_000) }
-}
-
-function validateSource(input: Schema.Schema.Type<typeof ValidateInput>): ValidateResult {
-  const byteLength = new TextEncoder().encode(input.source + (input.styles ?? "") + (input.script ?? "")).byteLength
-  if (byteLength > MAX_SOURCE_BYTES) {
-    return {
-      valid: false,
-      format: input.format,
-      diagnostics: [diagnostic("source.too_large", "Combined project source must not exceed 2 MiB.")],
-    }
+function validateSource(input: SourceInput): ValidateResult {
+  const compiled = compileSource(input)
+  const summary = compiled.composition
+  if (!summary) {
+    return { valid: false, format: input.format, diagnostics: compiled.diagnostics }
   }
-  if (input.format === "json" && (input.styles !== undefined || input.script !== undefined)) {
-    return {
-      valid: false,
-      format: input.format,
-      diagnostics: [diagnostic("source.unexpected_files", "styles and script are only accepted with CML source.")],
-    }
-  }
-
-  let composition: VideoComposition
   try {
-    if (input.format === "cml") {
-      composition = compileCmlProject({
-        markup: input.source,
-        styles: input.styles,
-        script: input.script,
-      })
-    } else {
-      composition = JSON.parse(input.source) as VideoComposition
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to parse project source."
-    return {
-      valid: false,
-      format: input.format,
-      diagnostics: [diagnostic(input.format === "json" ? "source.invalid_json" : "source.compile_failed", message)],
-    }
-  }
-
-  try {
-    const result = validateComposition(composition, RENDER_PROFILES.quality)
+    const result = validateComposition(summary, RENDER_PROFILES.quality)
     return {
       valid: true,
       format: input.format,
       diagnostics: [],
       summary: {
         stage: {
-          width: composition.stage.width,
-          height: composition.stage.height,
-          fps: composition.stage.fps,
+          width: summary.stage.width,
+          height: summary.stage.height,
+          fps: summary.stage.fps,
         },
-        scenes: composition.scenes.length,
+        scenes: summary.scenes.length,
         nodes: result.nodeCount,
         totalFrames: result.totalFrames,
       },

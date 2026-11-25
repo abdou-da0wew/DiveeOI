@@ -4,38 +4,6 @@ export function isGradientPaint(value: Paint | undefined): value is GradientPain
   return typeof value === "object" && value !== null && (value.type === "linear" || value.type === "radial")
 }
 
-export function canvasPaint(
-  context: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  paint: Paint | undefined,
-  fallback: string,
-): string | CanvasGradient {
-  if (!isGradientPaint(paint)) return paint ?? fallback
-  const localX = (value: number) => (value - 0.5) * width
-  const localY = (value: number) => (value - 0.5) * height
-  const gradient =
-    paint.type === "linear"
-      ? context.createLinearGradient(
-          localX(paint.from[0]),
-          localY(paint.from[1]),
-          localX(paint.to[0]),
-          localY(paint.to[1]),
-        )
-      : context.createRadialGradient(
-          localX(paint.center[0]),
-          localY(paint.center[1]),
-          0,
-          localX(paint.center[0]),
-          localY(paint.center[1]),
-          paint.radius * Math.min(width, height),
-        )
-  for (const stop of paint.stops) {
-    gradient.addColorStop(stop.offset, stop.opacity === undefined ? stop.color : withOpacity(stop.color, stop.opacity))
-  }
-  return gradient
-}
-
 export function cssPaint(paint: Paint | undefined, fallback: string) {
   if (!isGradientPaint(paint)) return paint ?? fallback
   const stops = paint.stops
