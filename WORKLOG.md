@@ -503,3 +503,71 @@ db adaptive/filesystem suites green; learning 328/328 in 9s (the OCR e2e that de
 passes); server worktree exercise scenarios 5/5 with lanes; smoke GREEN 5/0; db + learning typechecks exit 0 (server tsgo
 OOM = known 4 GB sandbox limitation). DB pragmas untouched (WAL + NORMAL + autocheckpoint already HDD-sane) — HDD-specific
 checkpoint tuning recorded as a §11 follow-up.
+
+## 2026-11-24: coenx-video WP4 bounded filter/effect graph + renderer roadmap close-out (WP2–WP6) + video preview UI
+
+Ask: complete the "3. coenx-video renderer" roadmap item and its hand-off plan fully — Rust renderer, TS bindings,
+logic & rendering, the sidebar-tab UI (same panel as exams / book previewer), all tools and agent guidance, and a
+real LLM end-to-end test with the bundled opencode models as the default.
+
+**WP4 — bounded filter/effect graph (`packages/coenx-video`):**
+- Model: `NodeBase.effects[]` (`blur` σ≤64, `drop-shadow` σ≤32/offsets ±128, `color-adjust` amounts 0..4/hueRotate
+  ±360; max 4 effects per node; padded temporary surface ≤ 8,388,608 px per node). Validation in the new
+  `model/validate-effects.ts`; mesh3d rejects effects.
+- Defined semantics identical on every backend: chain applies to node content BEFORE clip/mask/opacity, in list
+  order (SVG rendering model); blur/shadow radii are Gaussian sigmas; color-adjust follows CSS
+  brightness/contrast/saturate/hue-rotate (combined 4x5 feColorMatrix).
+- Static + interactive SVG: generated scoped `filter` defs (feGaussianBlur / feDropShadow / feColorMatrix) with
+  userSpaceOnUse padded regions, deduplicated per identical (chain, node dims) — same dedup rule applied to the WP1
+  clip defs (the last WP1 leftover). No caller-provided SVG filter markup can enter the pipeline.
+- Canvas: padded node-box offscreens; CSS filter chain applied on the blit (feature-detected); when `ctx.filter` is
+  unavailable the player dispatches `coenx:renderer-warning` and renders without effects — explicit partial
+  capability, mirroring the gradient-spread precedent. Mask compositing refactored onto the same padded scratch
+  pair (content → effects → mask in the offscreen, clip at the blit).
+- Rust/Cairo: new `render/effect.rs` — node content rasterized into a node-bounded padded ARGB surface (AABB from
+  rotate/scale + 3σ+offset pad, pixel-budget guarded), three-pass W3C box blur on premultiplied BGRA, drop shadow
+  built from source alpha tinted + blurred then composited source-over-shadow, color matrices on unpremultiplied
+  pixels; mask DestIn compositing on the effect surface; result blitted back in device space with the deferred
+  resource clip active. `render_node` restructured for deferred clipping on the effects path.
+- CML: node `filter="blur(4) drop-shadow(2 4 3 #000000) brightness(1.2) …"` attribute (repair-hint diagnostics with
+  line/column) plus bounded stylesheet `filter`/`clip`/`mask` properties; stylesheet ALLOWED set extended.
+- Capability matrix: `filter-effects` → supported (Canvas partial with degradation note); renderer feature lists now
+  carry `filter-effects`/`masks`/`paint-resources`; authoring gap list updated. `coenx_video_reference` gained the
+  `effects` topic; stale CML/gradient sections corrected (defs authoring, spread/transform, paint resources exist).
+- Skills: core/language/rendering/validation skills updated in `.agents/skills/` AND the bundled copies; a new DB
+  test enforces byte equality for the whole coenx-video catalogue (20 pairs), not just the rendering skill.
+
+**WP1–WP6 close-out (code landed in the previous batch, now documented):** roadmap WP2/WP3/WP5/WP6 sections marked
+implemented with verified evidence; issue register I-001/I-002/I-003 → RESOLVED, I-005 (telemetry/fixtures) and
+I-006 (Zen free-tier outage) added; hand-off doc got a 2026-11-24 status header + §13 addendum; TODO.md §3 rewritten.
+
+**Repo hygiene:** `model/validate.ts` split below the 300-line preference (`validate-nodes.ts`,
+`validate-interactions.ts`, `validate-effects.ts`); effects helpers exported from the package root.
+
+**UI — Coenx Video preview tabs (packages/app):**
+- `video:<path>` tabs in the session side-panel tab strip (same slot as exam/book tabs): `video-tabs.ts` (tab id
+  helpers + pending detail), `video-preview-panel.tsx` (streams the exported MP4 via the standard binary file
+  endpoint `GET /file` → base64 data URL, cached per path; header with play icon, path, hint, close), rendered by
+  `FileTabContent` and labelled by a new `VideoTabVisual` in `session-sortable-tab.tsx`.
+- `video-side-tabs.tsx` bridge (mounted in `session-side-panel.tsx`): opens/focuses the tab and raises the review
+  panel when a `coenx_video_export` tool part completes (same pattern as the exam bridge) or on the manual
+  `diveeoi:open-video-preview` window event; re-focus never steals focus twice.
+- `helpers.ts` activeTab logic extended for `video:` non-file tabs; i18n keys (`video.preview.*`, `video.tab.close`)
+  added to all 18 locales with real translations.
+
+**Real-LLM e2e (`packages/server/script/coenx-e2e-live.ts`):** fixed three real plumbing bugs found while running it
+— server auth (explicit `DIVEEOI_SERVER_USERNAME/PASSWORD` + Basic header incl. the health probe), instance routing
+(session-scoped calls now carry `?directory=` — without it the transcript lives in a different instance) and
+completion detection (the V2 `/wait` endpoint is a hard stub returning 503; the script now polls the durable
+transcript until tools settle and the fingerprint stabilizes). Provider catalogue switched from the offline fixture
+to the live models.dev fetch (the fixture path is rejected by the rooted FS read → silently empty catalog). Verified
+in-repo: server boots, auth works, session created, prompt admitted, `opencode/grok-code` resolves and is enabled
+from the live catalogue. The final hop fails at OpenCode Zen upstream: every anonymous free model answers
+`{"error":{"type":"server_error","message":"Upstream request failed: Model is unavailable."}}` (paid models return a
+proper AuthError) — confirmed with direct curl probes independent of this repo, 2026-11-24. Recorded as issue I-006;
+re-run the script when the free tier recovers.
+
+**Gates**: coenx 115/115 pass (2 browser-runtime tests skip outside a browser; incl. 22 new effect tests, clip-dedup
+fixture and the effects MP4 smoke), Rust 16/16 + `cargo fmt --check` + clippy `-D warnings` + offline release build,
+DB coenx tool tests 17/17 (incl. the whole-catalogue parity test), coenx/db/app typechecks exit 0, oxlint clean
+coenx-wide, app pre-existing component-test failures unchanged (stash-verified identical 16 fail / 12 errors).

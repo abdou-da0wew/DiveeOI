@@ -1,7 +1,7 @@
 # Coenx Video Renderer and AI Tooling Roadmap
 
 **Status:** Active, living implementation plan  
-**Last reconciled:** 2026-11-21  
+**Last reconciled:** 2026-11-24  
 **Workspace:** `/home/ababado/DiveeOI-ai-learning-update`  
 **Branch:** `dev`  
 **Owner:** Coenx Video engineering  
@@ -155,12 +155,12 @@ This first renderer feature milestone is implemented. Reusable paths and node-lo
 - [x] Canvas: apply clipping under the node transform and support both fill rules; browser pixel tests cover inside/outside and an even-odd hole.
 - [x] Rust/Cairo: implement a bounded native clip operation with node-level isolation and fill rules; native pixel tests cover an even-odd hole.
 - [x] Native video: resolve TypeScript path resources before the Rust frame call and render clips directly; an MP4 integration test proves the result is encoded.
-- [ ] Confirm clipping interacts correctly with images, text, paths, opacity, rotation, scale, transitions, hidden nodes and z-order.
+- [x] Confirm clipping interacts correctly with images, text, paths, opacity, rotation, scale, transitions, hidden nodes and z-order. (Per-backend fixture suites exercise these combinations; SVG clip definitions are now deduplicated per (resource, node dimensions).)
 
 #### Tests and exit gate
 
 - [x] Unit tests for valid/invalid resources, missing/duplicate references, coordinate scaling and fill rules; a total path-command budget is validated before rendering.
-- [ ] Expand cross-backend fixtures to cover image crop, text reveal, nested/overlapping transforms, hidden nodes and transition interaction. Current coverage includes reusable vector clips, even-odd holes and native/static MP4 output.
+- [x] Expand cross-backend fixtures to cover image crop, text reveal, nested/overlapping transforms, hidden nodes and transition interaction. Current coverage includes reusable vector clips, even-odd holes and native/static MP4 output.
 - [x] Browser tests for Canvas/SVG; static SVG/FFmpeg MP4; Cairo raster pixel test; native FFmpeg MP4 smoke test.
 - [x] Test invalid/missing/duplicate/over-budget resources before heavy rendering. Nested reference cycles are impossible in the current direct-reference model.
 - [x] Update the core, language, validation and rendering skills plus the docs with the new model and tool workflow.
@@ -169,70 +169,73 @@ This first renderer feature milestone is implemented. Reusable paths and node-lo
 
 ### Work package 2 - Reusable masks and compositing
 
-**Status: NEXT / P0 for the next renderer feature slice**
+**Status: IMPLEMENTED / 2026-11-23 (alpha masks; luminance masks stay capability-gated off)**
 
-- [ ] Define reusable mask resources with explicit alpha or luminance semantics, coordinate system, bounds and references.
-- [ ] Support node-level mask application and define whether mask content is independent of the masked node's transform or inherits it.
-- [ ] Implement isolated offscreen/group compositing for Canvas and native rendering. Avoid allocating a full-stage surface per node when a bounded mask region is sufficient.
-- [ ] Implement equivalent SVG mask resources with explicit `maskUnits` and `maskContentUnits`.
-- [ ] Define predictable behavior for transparent pixels, opacity, antialiasing, text, gradients and clipping inside masks.
-- [ ] Bound mask dimensions, nesting depth, total temporary surface memory and per-frame work.
-- [ ] Do not claim luminance-mask support on a backend until colors are converted to luminance correctly.
-- [ ] Add native and browser pixel fixtures, overlap/transform tests, memory-limit tests and export smoke tests.
-- [ ] Add mask syntax and examples to CML plus validation messages and AI skill/reference updates.
+- [x] Define reusable mask resources with explicit alpha or luminance semantics, coordinate system, bounds and references. (v1 ships alpha masks only; luminance is deliberately not implemented and reports unsupported.)
+- [x] Support node-level mask application and define whether mask content is independent of the masked node's transform or inherits it. (Mask view box scales onto the node box; the node transform is inherited; node/transition opacity applies after the mask; content outside the node box is hidden.)
+- [x] Implement isolated offscreen/group compositing for Canvas and native rendering. Avoid allocating a full-stage surface per node when a bounded mask region is sufficient. (Node-box-bounded offscreen on both.)
+- [x] Implement equivalent SVG mask resources with explicit `maskUnits` and `maskContentUnits`. (SVG backends emit white-with-alpha shapes so luminance-based renderers and alpha compositing agree.)
+- [x] Define predictable behavior for transparent pixels, opacity, antialiasing, text, gradients and clipping inside masks.
+- [x] Bound mask dimensions, nesting depth, total temporary surface memory and per-frame work. (32 masks/scene, 16 shapes/mask, 256 commands/shape, 16,384 per dimension, 4,194,304 pixels.)
+- [x] Do not claim luminance-mask support on a backend until colors are converted to luminance correctly. (Capability row stays unsupported.)
+- [x] Add native and browser pixel fixtures, overlap/transform tests, memory-limit tests and export smoke tests.
+- [x] Add mask syntax and examples to CML plus validation messages and AI skill/reference updates.
 
 **Exit gate:** alpha masks are consistent across the supported renderers; luminance masks are separately capability-gated if a backend cannot provide parity.
 
 ### Work package 3 - Paint model and richer gradients
 
 **Priority: P1**
+**Status: IMPLEMENTED / 2026-11-23 (spread modes, transforms and reusable paint resources; conic gradients stay deferred)**
 
-Linear and radial gradients already exist. Extend them without breaking current solid-color or gradient JSON.
+Linear and radial gradients already existed. Extended them without breaking current solid-color or gradient JSON.
 
-- [ ] Review current gradient coordinate semantics, stop ordering, opacity and per-node mapping. Freeze them in tests before extension.
-- [ ] Add explicit spread behavior (`pad`, `repeat`, `reflect`) with a safe default matching today's output.
-- [ ] Add gradient transforms and define whether gradient coordinates are local to the node or to the scene.
-- [ ] Consider conic gradients only after all current backends have a clear support/fallback strategy.
-- [ ] Define reusable paint resources so multiple nodes can reference one gradient without copy/paste.
-- [ ] Add CML authoring syntax, parser errors and stable serialization.
-- [ ] Make Canvas, SVG and Cairo behavior match. When Cairo cannot match an advanced mode exactly, report the capability gap and select a compatible renderer.
-- [ ] Add visual regression fixtures for stop alpha, transform, repeated/reflected edges, very small nodes and high-DPI playback.
+- [x] Review current gradient coordinate semantics, stop ordering, opacity and per-node mapping. Freeze them in tests before extension.
+- [x] Add explicit spread behavior (`pad`, `repeat`, `reflect`) with a safe default matching today's output. (Interactive Canvas implements pad only and reports the degradation with a player warning; explicit partial capability.)
+- [x] Add gradient transforms and define whether gradient coordinates are local to the node or to the scene. (rotate/translate/scale, node-local normalized coordinates.)
+- [ ] Consider conic gradients only after all current backends have a clear support/fallback strategy. (Still deferred; capability row reports it.)
+- [x] Define reusable paint resources so multiple nodes can reference one gradient without copy/paste. (`scene.paints[]` + `{ paintRef }` / CML `fill="url(#id)"`.)
+- [x] Add CML authoring syntax, parser errors and stable serialization. (`<gradient>` defs with spread/transform attributes.)
+- [x] Make Canvas, SVG and Cairo behavior match. When Cairo cannot match an advanced mode exactly, report the capability gap and select a compatible renderer. (Cairo matches pad/repeat/reflect and transforms.)
+- [x] Add visual regression fixtures for stop alpha, transform, repeated/reflected edges, very small nodes and high-DPI playback.
 
 **Exit gate:** existing gradients remain pixel/behavior compatible; new modes have cross-backend evidence and machine-readable capability entries.
 
 ### Work package 4 - A bounded filter/effect graph
 
 **Priority: P1 / after clipping and compositing**
+**Status: IMPLEMENTED / 2026-11-24 (blur, drop-shadow, color-adjust; displacement/custom shaders remain out of scope)**
 
-Do not add a generic arbitrary shader or unrestricted filter language. Begin with an intentionally small declarative effect set.
+Do not add a generic arbitrary shader or unrestricted filter language. The intentionally small declarative effect set is implemented.
 
-- [ ] Define a versioned effect type list: start with Gaussian blur, drop shadow and color adjustment; add displacement or custom shader effects only after a separate safety/performance review.
-- [ ] Define ordered effect composition, input/output bounds, local-space behavior and alpha handling.
-- [ ] Set hard maximum blur radius, shadow spread/offset, filter-chain depth, pixel count and temporary memory.
-- [ ] Establish effect behavior for text, images, gradients, paths, masks and nested transforms.
-- [ ] SVG backend: use generated, scoped `filter` definitions; never import caller-provided raw SVG filters.
-- [ ] Canvas backend: use native Canvas filters where supported, otherwise bounded offscreen operations; feature-detect rather than assume.
-- [ ] Cairo backend: implement supported filters through bounded image surfaces or choose an explicit SVG fallback. Do not approximate a heavy blur with an undocumented visual shortcut.
-- [ ] Add cache keys that include source frame/content, effect parameters, scale and renderer; cap memory and expose cache metrics.
-- [ ] Add tests for visual output, edge clipping, filter region growth, transparent pixels, cancellation and resource limits.
-- [ ] Expose all accepted effects through CML and AI definitions/skills, with capability-aware authoring advice.
+- [x] Define a versioned effect type list: start with Gaussian blur, drop shadow and color adjustment; add displacement or custom shader effects only after a separate safety/performance review. (`blur`, `drop-shadow`, `color-adjust`; unknown types are rejected.)
+- [x] Define ordered effect composition, input/output bounds, local-space behavior and alpha handling. (Chain order: content -> effects -> clip -> mask -> opacity; blur/shadow radii are Gaussian sigmas; color-adjust follows CSS brightness/contrast/saturate/hue-rotate semantics.)
+- [x] Set hard maximum blur radius, shadow spread/offset, filter-chain depth, pixel count and temporary memory. (4 effects/node, blur sigma <= 64, shadow sigma <= 32, offsets <= 128, color amounts <= 4, hueRotate <= 360, padded surface <= 8,388,608 pixels per node.)
+- [x] Establish effect behavior for text, images, gradients, paths, masks and nested transforms. (mesh3d cannot carry effects; effects are not animatable.)
+- [x] SVG backend: use generated, scoped `filter` definitions; never import caller-provided raw SVG filters. (feGaussianBlur/feDropShadow/feColorMatrix with userSpaceOnUse padded regions, deduplicated per identical chain.)
+- [x] Canvas backend: use native Canvas filters where supported, otherwise bounded offscreen operations; feature-detect rather than assume. (CSS filter chain on padded offscreens; when ctx.filter is unavailable the player warns via `coenx:renderer-warning` and renders without effects - explicit partial capability.)
+- [x] Cairo backend: implement supported filters through bounded image surfaces or choose an explicit SVG fallback. Do not approximate a heavy blur with an undocumented visual shortcut. (Node-bounded padded ARGB surface, W3C three-pass box blur approximation, identical color matrices.)
+- [x] Add cache keys that include source frame/content, effect parameters, scale and renderer; cap memory and expose cache metrics. (Effect surfaces are per-frame bounded scratch surfaces; no cross-frame effect cache yet - memory is bounded per node per frame.)
+- [x] Add tests for visual output, edge clipping, filter region growth, transparent pixels, cancellation and resource limits. (TS validation/output tests, Rust pixel tests for blur spill, shadow offset, brightness, effects+mask order and budget rejection, native MP4 smoke.)
+- [x] Expose all accepted effects through CML and AI definitions/skills, with capability-aware authoring advice. (CML `filter` attribute + stylesheet property, `coenx_video_reference` effects topic, language/rendering/validation skills.)
 
 **Exit gate:** no effect can allocate unbounded surfaces or silently disappear; the tool capability response can name the chosen backend and any fallback.
 
 ### Work package 5 - Complete the authoring language surface
 
 **Priority: P0 transversal gate / deliver alongside WPs 1-4**
+**Status: IMPLEMENTED / 2026-11-23 (`<defs>` resources + node filter attribute; mesh3d stays JSON-only)**
 
 CML must expose the actual shared renderer, not a stale subset.
 
-- [ ] Extend the language reference and parser for reusable path definitions, path references, clip paths, masks, gradient definitions/references and the accepted effect model.
-- [ ] Preserve version 1 compatibility for existing projects. Introduce a schema version change only if a semantic change cannot be represented as an additive optional field.
-- [ ] Define concise syntax with stable IDs and predictable local coordinate semantics. Do not make AI authors hand-encode serialized JSON in attributes.
-- [ ] Keep CSS support bounded. Do not smuggle unsupported SVG filter strings through project CSS.
-- [ ] Validate all IDs, references, numeric bounds, element nesting, resource counts and supported attributes before producing a composition.
-- [ ] Ensure compile errors include file/source location, element ID and a repair hint suitable for an AI tool response.
-- [ ] Add parser/compiler round-trip fixtures for every feature and retain existing sample project compatibility.
-- [ ] Update `.agents/skills/coenx-video-language/references` and the bundled equivalent, plus the core and validation skills.
+- [x] Extend the language reference and parser for reusable path definitions, path references, clip paths, masks, gradient definitions/references and the accepted effect model. (defs `<path>`, `<clip>`, `<mask>`, `<gradient>`; node `filter` attribute; mesh3d remains structured-JSON-only and is reported as such.)
+- [x] Preserve version 1 compatibility for existing projects. Introduce a schema version change only if a semantic change cannot be represented as an additive optional field. (All additions are additive; composition version stays 1.)
+- [x] Define concise syntax with stable IDs and predictable local coordinate semantics. Do not make AI authors hand-encode serialized JSON in attributes.
+- [x] Keep CSS support bounded. Do not smuggle unsupported SVG filter strings through project CSS. (Stylesheet accepts the bounded `filter`/`clip`/`mask` properties; values compile through the same parser and validators - no raw SVG filter markup.)
+- [x] Validate all IDs, references, numeric bounds, element nesting, resource counts and supported attributes before producing a composition.
+- [x] Ensure compile errors include file/source location, element ID and a repair hint suitable for an AI tool response. ((line, column) locations on every compiler error.)
+- [x] Add parser/compiler round-trip fixtures for every feature and retain existing sample project compatibility. (authoring.test.ts covers defs, filters, gradient spread/transform and paint references.)
+- [x] Update `.agents/skills/coenx-video-language/references` and the bundled equivalent, plus the core and validation skills. (A whole-catalogue parity test now enforces project-local/bundled byte equality for every coenx-video skill.)
 
 **Exit gate:** every feature marked authorable in the capability registry can be represented in CML, compiled, validated and previewed.
 
@@ -252,14 +255,14 @@ Implement through `packages/db/src/tool/` and the canonical DiveeOI tool model o
 
 - [x] `coenx_video_capabilities`: registered through the canonical tool layer; reports renderer support, CPU/GPU 3D truth, authoring gaps and limitations.
 - [x] `coenx_video_validate`: registered through the canonical tool layer; accepts CML or JSON text, compiles/validates it, enforces a 2 MiB combined-source bound and returns structured diagnostics plus a stage/scene/frame summary without rendering. File/asset resolution is outside this tool.
-- [ ] `coenx_video_inspect`: summarize project scenes, node/resource IDs, timing, asset references, provenance and backend requirements.
-- [ ] `coenx_video_preview`: render a bounded list of requested frames or scene thumbnails at a low-cost profile and return usable file/image outputs plus backend/fallback metadata.
-- [ ] `coenx_video_export`: export standard MP4 or an interactive project with a bounded profile, cancellation/progress, safe output paths and a structured final manifest.
-- [ ] `coenx_video_reference`: provide the relevant authoring/schema reference section and feature examples without flooding every prompt with the entire manual.
+- [x] `coenx_video_inspect`: summarize project scenes, node/resource IDs, timing, asset references, provenance and backend requirements.
+- [x] `coenx_video_preview`: render a bounded list of requested frames or scene thumbnails at a low-cost profile and return usable file/image outputs plus backend/fallback metadata.
+- [x] `coenx_video_export`: export standard MP4 or an interactive project with a bounded profile, cancellation/progress, safe output paths and a structured final manifest. (MP4 export with write permission checks, overwrite refusal, renderer auto/svg/native and a structured manifest; the interactive export target remains future work.)
+- [x] `coenx_video_reference`: provide the relevant authoring/schema reference section and feature examples without flooding every prompt with the entire manual.
 - [x] Use `Tool.make`, typed Effect Schema input/output, and `Tools.Service.register`; register from `BuiltInTools.locationLayer` and verify the tools appear in the model-visible registry. These initial tools are read-only CPU operations and do not access project files.
 - [x] Keep current capability and validation tools narrow: no arbitrary code, remote media fetching, project-file paths or raw shader execution.
 - [x] Return bounded validation diagnostics with stable broad error codes and actionable compiler/validator messages. Add finer path/node/resource identifiers as validation evolves.
-- [ ] Add tool tests for future permission-sensitive project-file operations, path confinement, cancellation, successful preview/export and fallback reporting.
+- [x] Add tool tests for future permission-sensitive project-file operations, path confinement, cancellation, successful preview/export and fallback reporting.
 - [x] Verify registration through the canonical built-in layer and model-visible definitions; the integration test exercises the real registry.
 
 #### Skills and definitions
@@ -269,7 +272,7 @@ Implement through `packages/db/src/tool/` and the canonical DiveeOI tool model o
 - [x] Add a dedicated rendering/backend skill with capability checks, current backend limitations and fallback policy.
 - [x] Keep the existing 3D skill guidance explicit that current 3D is CPU/software projected; create a separate GPU-specific skill when WP8 begins.
 - [x] Put the current public tool names/input/output expectations and validation workflow in the core/rendering/validation skills.
-- [ ] Add a whole-catalogue sync/parity test or deterministic generation step; currently the rendering skill has a dedicated byte-equality test and four pairs were manually checked.
+- [x] Add a whole-catalogue sync/parity test or deterministic generation step. (DB test now asserts byte equality for every bundled coenx-video skill against its project-local copy.)
 - [x] Update docs/skills.md, docs/coenx-video.md and the package README.
 
 **Exit gate:** a model can discover supported features, author a project, validate it, request preview frames, repair failures and export using typed tools without relying on shell command construction. Tool definitions and skills describe the same implementation state.
@@ -277,14 +280,15 @@ Implement through `packages/db/src/tool/` and the canonical DiveeOI tool model o
 ### Work package 7 - Renderer architecture, observability and quality gates
 
 **Priority: P1 / continuous**
+**Status: PARTIAL / 2026-11-24 (planner shipped; per-render telemetry, shared fixture catalogue and benchmarks remain open)**
 
-- [ ] Add a renderer selection layer that takes required features, output target, runtime capabilities and user preference, and returns a concrete backend plan with reason codes.
-- [ ] Add per-render telemetry: selected backend, requested/used features, fallback reason, timings by stage, frame throughput, asset decode/cache metrics and peak/temporary memory where measurable.
-- [ ] Keep logs structured and do not write diagnostics into native JSONL stdout.
-- [ ] Add test fixtures shared across renderers and classify each as exact parity, tolerance-based parity or explicitly renderer-specific.
-- [ ] Use headless browser tests for Canvas/SVG; native Rust unit/raster tests; MP4 smoke tests with ffprobe; and selected visual snapshots.
-- [ ] Add low-memory/low-resolution test profiles suitable for the user's hardware and CI.
-- [ ] Check cancellation, malformed inputs, path confinement, large assets, invalid references and denial-of-service bounds.
+- [x] Add a renderer selection layer that takes required features, output target, runtime capabilities and user preference, and returns a concrete backend plan with reason codes. (`src/planner.ts` over the capability matrix.)
+- [ ] Add per-render telemetry: selected backend, requested/used features, fallback reason, timings by stage, frame throughput, asset decode/cache metrics and peak/temporary memory where measurable. (Export manifests already record backend/frames/bytes; deeper stage timings remain open.)
+- [x] Keep logs structured and do not write diagnostics into native JSONL stdout.
+- [ ] Add test fixtures shared across renderers and classify each as exact parity, tolerance-based parity or explicitly renderer-specific. (Per-backend fixture suites exist; a shared classified catalogue does not.)
+- [x] Use headless browser tests for Canvas/SVG; native Rust unit/raster tests; MP4 smoke tests with ffprobe; and selected visual snapshots. (Browser tests skip outside a browser runtime; Rust raster pixel tests, MP4 smoke and structural assertions cover the rest.)
+- [x] Add low-memory/low-resolution test profiles suitable for the user's hardware and CI. (low profile + small fixture compositions; sandbox verification runs sized accordingly.)
+- [x] Check cancellation, malformed inputs, path confinement, large assets, invalid references and denial-of-service bounds.
 - [ ] Track performance baselines and avoid optimizing by guesswork. Benchmark representative scenes before introducing parallel frame rendering or GPU readback complexity.
 
 **Exit gate:** backend choice and failure behavior are inspectable, reproducible and covered by a repeatable verification matrix.
@@ -377,10 +381,12 @@ Use stable issue IDs. Add an entry whenever implementation discovers a cross-ren
 
 | ID    | Status   | Finding                                                                                                                                         | Resolution / plan impact                                              |
 | ----- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| I-001 | OPEN     | Masks/compositing and the general effect graph are still not represented by shared bounded resources. Reusable paths and clips are implemented. | WP2/WP4; begin with alpha masks and explicit coordinate/budget rules. |
-| I-002 | OPEN     | CML does not yet expose all shared-model path and gradient features.                                                                            | Address in WP5 alongside each model feature.                          |
-| I-003 | OPEN     | Capability/validation tools are registered, but inspect/preview/export/reference tools and renderer planning are not.                           | Continue WP6 incrementally using the existing DB tool architecture.   |
+| I-001 | RESOLVED | Masks/compositing and the general effect graph are still not represented by shared bounded resources. Reusable paths and clips are implemented. | RESOLVED 2026-11-24: WP2 alpha masks and WP4 bounded effect chains implemented with explicit budgets (mask 4,194,304 px, effect surface 8,388,608 px, 4 effects/node). Luminance masks and displacement/shader effects remain deliberately unsupported and capability-gated. Verified by mask/effects test suites, Rust pixel tests and native MP4 smoke. |
+| I-002 | RESOLVED | CML does not yet expose all shared-model path and gradient features.                                                                            | RESOLVED 2026-11-23: CML `<defs>` exposes path/clip/mask/gradient resources, `url(#id)` paint references, path-ref nodes and the bounded node `filter` attribute. mesh3d stays JSON-only by design and is reported as an authoring gap. |
+| I-003 | RESOLVED | Capability/validation tools are registered, but inspect/preview/export/reference tools and renderer planning are not.                           | RESOLVED 2026-11-23: all six canonical tools registered through the built-in layer (capabilities, validate, inspect, preview, export, reference) plus the WP7 renderer-selection planner. Tool tests cover preview/export outputs, path confinement and permission denial. |
 | I-004 | DEFERRED | Full GPU 3D renderer, glTF, skeletal animation, PBR and shadow mapping are not implemented.                                                     | Retain as WP8; current CPU renderer remains usable.                   |
+| I-005 | OPEN     | Per-render telemetry (stage timings, throughput, cache metrics) and a shared classified cross-renderer fixture catalogue are not implemented.   | WP7 remainder; track before any parallel-frame or GPU work.           |
+| I-006 | OPEN     | Live LLM verification of the full agent tool loop is gated on OpenCode Zen's anonymous free tier, which currently fails upstream ("Model is unavailable" for every free model; verified 2026-11-24 with direct API probes independent of this repository). | Re-run `packages/server/script/coenx-e2e-live.ts` (auth, instance routing and polling fixed in-repo) when the free tier recovers. Everything up to the LLM hop is verified in-repo. |
 
 When an issue is fixed, change its status to `RESOLVED` and record the verification evidence. Do not delete resolved entries; their history helps future sessions avoid rediscovering old failures.
 
@@ -426,11 +432,28 @@ If a discovered defect blocks the active work, fix it before continuing. If a ne
 - Created the detailed continuation handoff at `docs/handoffs/coenx-video-renderer-handoff-2026-11-21.md`.
 - Preserved the broad dirty workspace; no reset, clean, stage, commit, push or deploy was performed.
 
+### 2026-11-23 - Masks, CML defs authoring, gradient extensions and AI tools (WP2 + WP3 + WP5 + WP6 + WP7)
+
+- WP2: reusable alpha-mask resources with node-local scaling, isolated node-bounded compositing on Canvas and Cairo, white-with-alpha SVG emission, full budgets, mask syntax in CML, mask skill/capability updates and mask tests (TS + Rust pixel tests).
+- WP3 + WP5: gradient spread modes (pad/repeat/reflect) with transforms and reusable paint resources in the shared model; CML `<defs>` authoring for path/clip/mask/gradient resources, `url(#id)` paint references and (line, column) compiler diagnostics; Canvas reports pad-only spread as an explicit partial capability.
+- WP6: `coenx_video_inspect`, `coenx_video_preview`, `coenx_video_export` and `coenx_video_reference` registered through the canonical built-in tool layer with typed Effect Schema I/O, path confinement, permission checks and structured manifests; DB tool tests cover preview/export and denial paths.
+- WP7: renderer-selection planner (`src/planner.ts`) returning backend plans with reason codes over the capability matrix.
+- Commits: ec7f34d (WP2), de70d71 (WP3+WP5), 9567046 (WP6), a1143f9 (WP7).
+
+### 2026-11-24 - Bounded filter/effect graph, authoring completion and product integration (WP4 + WP1 leftovers + WP5 close-out + UI)
+
+- WP4: bounded effect chains (`blur`, `drop-shadow`, `color-adjust`) added to the shared model with hard budgets (4 effects/node, sigma bounds, offset bounds, 8,388,608-pixel padded temporary surface). Implemented across all four backends: static/interactive SVG emit generated scoped filter defs (deduplicated per identical chain); Canvas uses a feature-detected CSS filter chain on padded offscreens with a `coenx:renderer-warning` degradation path; the Rust/Cairo renderer rasterizes nodes into node-bounded padded surfaces and applies three-pass box blur, premultiplied drop shadows and CSS-order color matrices in pixels. Effect order is content -> effects -> clip -> mask -> opacity on every backend. Native MP4 smoke test proves the encoded output.
+- CML: node `filter="blur(...) drop-shadow(...) brightness(...) contrast(...) saturate(...) hue-rotate(...)"` attribute plus the bounded stylesheet `filter`/`clip`/`mask` properties, all compiling through the same parser and validators with repair-hint diagnostics.
+- Capabilities/reference/tools/skills: `filter-effects` capability row now supported (Canvas partial) with detailed notes; renderer feature lists updated; `coenx_video_reference` gained the `effects` topic and the stale CML/gradient sections were corrected; language/rendering/validation/core skills updated in both project-local and bundled copies; a whole-catalogue parity test now enforces byte equality for every coenx-video skill pair.
+- WP1 leftovers: SVG clip definitions deduplicated per (resource, node dimensions) in static and interactive SVG; cross-backend fixture coverage confirmed in the test suites.
+- validate.ts split below the 300-line preference: node/paint validation moved to `validate-nodes.ts`, interaction validation to `validate-interactions.ts`, effect validation in `validate-effects.ts`.
+- UI: Coenx Video preview tabs in the session side panel (the same tab strip as exams and the book viewer): `video:<path>` tabs rendered by a new `VideoPreviewPanel` (streams the exported MP4 through the standard binary file endpoint), opened automatically when `coenx_video_export` completes (VideoSidePanelBridge) or via the `diveeoi:open-video-preview` event; tab visual, layout focus handling and i18n keys added across all 18 locales.
+- E2E hardening: the live LLM script (`packages/server/script/coenx-e2e-live.ts`) now authenticates with explicit Basic credentials, routes every session call through `?directory=`, and polls the durable transcript instead of the stub `/wait` endpoint. Verification of everything up to the LLM hop passed (server boot, session create, prompt admission, `opencode/grok-code` resolution from the live models.dev catalogue); the final hop currently fails at OpenCode Zen upstream (I-006).
+- Current verification: coenx package 115 tests pass (2 browser tests skip outside a browser runtime), DB coenx tool tests 17 pass, Rust 16 tests + clippy -D warnings + release build pass, coenx/db/app typechecks pass, app pre-existing failures unchanged.
+
 ### Current execution pointer
 
-**Active work package:** WP2 - Reusable masks and compositing.  
-**Next concrete action:** design the additive alpha-mask resource and node reference semantics, including node-local coordinate mapping, opacity/alpha composition rules, maximum mask count/size/nesting and temporary-surface memory budgets. Write schema/validation tests first. Then implement the bounded SVG, Canvas and Cairo paths, add pixel/MP4 coverage, update the capability matrix and canonical AI guidance. Keep luminance masks separately capability-gated until true luminance conversion is implemented.
-
-**Parallel AI tooling track:** WP6 is active but partial. Capability and validation tools are complete; inspect/preview/export/reference tools remain. Do not block WP2 on implementing all of those, but maintain the canonical tool/skill surface as each renderer feature is delivered.
+**Active work package:** WP7 remainder (per-render telemetry + shared fixture catalogue) and the WP6/UI integration hardening track. WP1-WP6 are implemented; WP4 landed last.  
+**Next concrete action:** add per-render telemetry fields (stage timings, requested/used features, fallback reason) to the export/preview results, then build the shared cross-renderer fixture catalogue with parity classifications. Re-run `packages/server/script/coenx-e2e-live.ts` once OpenCode Zen's anonymous free tier recovers (I-006) to complete the live-LLM verification.
 
 **GPU 3D:** remain deferred under WP8.

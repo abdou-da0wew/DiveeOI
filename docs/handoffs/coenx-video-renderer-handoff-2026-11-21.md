@@ -6,7 +6,7 @@
 **Primary package:** `packages/coenx-video`  
 **Application integration:** `packages/db`  
 **Long-term roadmap:** `docs/plans/coenx-video-renderer-roadmap.md`  
-**Status:** WP1 (reusable vector paths and clipping) implemented and verified; AI capability/validation tools integrated; WP2 (masks/compositing) is the next renderer milestone. Full GPU 3D remains deliberately deferred.
+**Status (2026-11-24 update):** WP1-WP6 are implemented and verified; WP4 (bounded filter/effect graph) landed last and the Coenx Video preview tab is integrated into the session UI. WP7 is partial (planner shipped; per-render telemetry and a shared fixture catalogue remain). WP8 (GPU 3D) remains deliberately deferred. The 2026-11-21 body below is the original WP1-era snapshot; sections 4, 7, 8, 9 and 11 are superseded by `docs/plans/coenx-video-renderer-roadmap.md` (progress ledger 2026-11-23 / 2026-11-24) and by the addendum at the end of this file.
 
 This document is the continuation handoff for the next AI engineering agent. Read it before changing code. It records what was actually implemented and tested, what remains incomplete, how the AI tools and skills are wired, and exactly where to continue. The roadmap is the long-term source of truth; this handoff is the detailed snapshot of the current implementation.
 
@@ -715,3 +715,35 @@ At the end of each meaningful slice:
 ---
 
 **Final instruction to the next agent:** Continue from the exact next action in Section 11. Treat the roadmap as a flexible sequence that can be adjusted when evidence demands it, but preserve the single-composition-model architecture, cross-renderer truthfulness, bounded resource use, canonical AI tool registration, skill synchronization and deterministic CPU fallback. The GPU 3D milestone is not forgotten; it is intentionally waiting its turn.
+
+---
+
+## 13. Addendum - 2026-11-24 state snapshot
+
+This addendum supersedes the completion/limitation/next-step sections above.
+
+### 13.1 What is implemented now
+
+- WP2 (masks): reusable alpha-mask resources (`scene.masks[]`), node-local scaling, node-transform inheritance, node-bounded offscreen compositing on Canvas and Cairo, white-with-alpha SVG emission, budgets (32/scene, 16 shapes, 4,194,304 px), CML `<mask>` defs, capability row and skills.
+- WP3 (paint): gradient spread modes (pad/repeat/reflect), gradient transforms (rotate/translate/scale), reusable paint resources (`scene.paints[]` + `{ paintRef }`); Canvas degrades to pad with an explicit player warning; conic gradients deferred.
+- WP4 (effects): bounded chains (`blur` sigma 0..64, `drop-shadow` sigma 0..32 / offsets within 128, `color-adjust` amounts 0..4 / hueRotate within 360, 4 effects per node, 8,388,608-pixel padded surface). Order: content -> effects -> clip -> mask -> opacity on every backend. Static/interactive SVG emit scoped, deduplicated filter defs; Canvas uses the CSS filter chain (feature-detected, warns via `coenx:renderer-warning`); Cairo rasterizes into padded ARGB surfaces with three-pass box blur and CSS-order color matrices. mesh3d cannot carry effects; effects are not animatable.
+- WP5 (authoring): CML `<defs>` for path/clip/mask/gradient resources, `fill="url(#id)"`, path-ref nodes, node `filter` attribute and stylesheet `filter`/`clip`/`mask` properties; (line, column) diagnostics; whole-catalogue skill parity test.
+- WP6 (tools): all six canonical tools registered (`coenx_video_capabilities`, `coenx_video_validate`, `coenx_video_inspect`, `coenx_video_preview`, `coenx_video_export`, `coenx_video_reference`) with typed schemas, path confinement, permission checks and structured manifests.
+- WP7 (partial): `src/planner.ts` renderer-selection planner with reason codes; telemetry/fixtures/benchmarks remain open.
+- UI: `video:<path>` tabs in the session side-panel tab strip (same slot as exam and book tabs) rendered by `VideoPreviewPanel`; tabs open automatically when `coenx_video_export` completes or via the `diveeoi:open-video-preview` event; i18n keys in all 18 locales.
+- validate.ts split: `validate-nodes.ts`, `validate-interactions.ts`, `validate-effects.ts`, `validate-masks.ts`, `validate-paints.ts`, `validate-paths.ts`.
+
+### 13.2 Verification snapshot (2026-11-24)
+
+- coenx package: 115 tests pass, 2 browser-runtime tests skip outside a browser, 0 failures; typecheck and oxlint clean.
+- Rust: 16 tests pass (including effect pixel tests and budget rejection), `cargo fmt --check` clean, clippy with `-D warnings` clean, offline release build OK.
+- DB tool tests: 17 pass, including preview/export outputs, path confinement, write-permission denial and the whole-catalogue skill parity test.
+- App package typecheck clean; the pre-existing component-test failures (SolidJS client-only APIs under bun's server condition) are unchanged by this work.
+- Live LLM e2e (`packages/server/script/coenx-e2e-live.ts`): verified up to the LLM hop (server boot, Basic auth, session create, prompt admission, `opencode/grok-code` resolved and enabled from the live models.dev catalogue). The final hop currently fails at OpenCode Zen upstream - every anonymous free model returns "Upstream request failed: Model is unavailable." (paid models return a proper AuthError), confirmed 2026-11-24 with direct API probes independent of this repository (issue I-006). Re-run the script when the free tier recovers.
+
+### 13.3 Where to continue
+
+1. Per-render telemetry and the shared classified fixture catalogue (WP7 remainder; issue I-005).
+2. Re-run the live e2e once Zen's free tier recovers (I-006).
+3. Interactive export target for `coenx_video_export` (currently MP4 only).
+4. WP8 stays deferred: do not start GPU work before the WP7 remainder closes.

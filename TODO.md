@@ -114,32 +114,48 @@ Source: `docs/testing/2026-11-09-ui-test/docs/DiveeOI_ManualTest_Report_2026-11-
 
 ## 3. coenx-video renderer roadmap
 
-Authoritative sources: `docs/handoffs/coenx-video-renderer-handoff-2026-11-21.md`,
-`docs/plans/coenx-video-renderer-roadmap.md` (doc). Status at handoff: WP1 implemented (62 tests / 243 assertions),
-**WP2 is the declared next action**; do-not-start list included.
+Authoritative sources: `docs/handoffs/coenx-video-renderer-handoff-2026-11-21.md` (+ 2026-11-24 addendum §13),
+`docs/plans/coenx-video-renderer-roadmap.md` (doc). **Update 2026-11-24: WP1–WP6 implemented and verified, WP7 partial
+(planner shipped; telemetry/fixtures/benchmarks remain), WP8 still deferred.** Commits ec7f34d (WP2), de70d71 (WP3+WP5),
+9567046 (WP6), a1143f9 (WP7 planner) and the WP4/UI batch.
 
-- [ ] **WP2 (NEXT, P0)** — reusable masks & compositing: design the additive alpha-mask resource + node-reference
-      semantics; schema/validation tests **first**; then bounded SVG/Canvas/Cairo paths; luminance masks stay
-      capability-gated. Hand-off §9 has the 11-step first slice. ("Begin WP2 … Do not start GPU 3D.")
-- [ ] **WP5 (P0, transversal, OPEN — I-002)** — CML authoring gaps: no path/clip/gradient syntax yet; mesh3d not
-      exposed; add source-location diagnostics + round-trip fixtures.
-- [ ] **WP6 (ACTIVE, partial, I-003)** — missing AI tools, quoted from handoff §5.5: *"Do not claim these exist yet"*
-      → `coenx_video_inspect`, `coenx_video_preview`, `coenx_video_export`, `coenx_video_reference`. Also: tests for
-      permission-sensitive project-file ops/path confinement/cancellation, and a whole-catalogue skill parity test.
-- [ ] **WP3 (P1)** — gradient spread modes (pad/repeat/reflect), gradient transforms, conic gradients, reusable
-      paint resources, CML gradient syntax. Freeze current behavior in tests first.
-- [ ] **WP4 (P1)** — bounded filter/effect graph: start with Gaussian blur, drop shadow, color adjustment; hard
-      bounds on radius/chain depth/memory.
-- [ ] **WP7 (PLANNED)** — renderer-selection planner with reason codes, per-render telemetry, shared cross-renderer
-      fixtures, benchmark baselines.
-- [ ] **WP1 leftovers** — confirm clipping interacts correctly with images/text/transitions/z-order; expand
-      cross-backend fixtures (image crop, text reveal, nested transforms); dedupe per-node SVG clip defs.
-- [ ] Split `packages/coenx-video/src/model/validate.ts` (~511 lines vs the 300-line preference).
-- [ ] Replace the hand-authored capability matrix with generated data; enforce full package↔skill sync.
-- [ ] **Product integration** (`docs/coenx-video.md:50` (doc)): server routes for preview/export, an authoring UI,
-      a Targeted Learning hand-off route, application-level persistence, student-progress integration. Today only
-      `coenx_video_capabilities` + `coenx_video_validate` are registered as agent tools
-      (`packages/db/src/tool/coenx-video.ts` (code)); nothing renders MP4s in production yet.
+- [x] **DONE 2026-11-23** **WP2 (P0)** — reusable alpha masks & compositing: `scene.masks[]` resources with node-local
+      scaling, node-bounded offscreen compositing on Canvas/Cairo, white-with-alpha SVG emission, budgets (32/scene,
+      16 shapes, 4,194,304 px), CML `<mask>` defs, capability row + skills. Luminance masks stay capability-gated off.
+- [x] **DONE 2026-11-23** **WP5 (P0, transversal, I-002 → RESOLVED)** — CML authoring: `<defs>` path/clip/mask/gradient
+      resources, `fill="url(#id)"` paint refs, path-ref nodes; (line, column) diagnostics + round-trip fixtures. mesh3d
+      stays JSON-only by design (reported as an authoring gap, not silently missing).
+- [x] **DONE 2026-11-23** **WP6 (I-003 → RESOLVED)** — `coenx_video_inspect`, `coenx_video_preview`,
+      `coenx_video_export`, `coenx_video_reference` registered through the canonical built-in tool layer with typed
+      schemas, path confinement, permission checks and structured manifests; preview/export/denial tests; plus the
+      whole-catalogue skill parity test (byte equality for every coenx-video skill pair).
+- [x] **DONE 2026-11-23** **WP3 (P1)** — gradient spread modes (pad/repeat/reflect), gradient transforms, reusable
+      paint resources, CML gradient syntax; Canvas reports pad-only spread as an explicit partial capability. Conic
+      gradients remain deferred (capability row).
+- [x] **DONE 2026-11-24** **WP4 (P1)** — bounded filter/effect graph: `blur` / `drop-shadow` / `color-adjust` chains
+      (max 4 per node, sigma 0..64 / 0..32, offsets ±128, amounts 0..4, padded surface ≤ 8,388,608 px) implemented on
+      static SVG, interactive SVG, Canvas (feature-detected CSS filter chain + `coenx:renderer-warning` degradation) and
+      Rust/Cairo (node-bounded padded surfaces, three-pass box blur, CSS-order color matrices). Order: content → effects
+      → clip → mask → opacity everywhere. CML `filter` attribute; Rust pixel tests + MP4 smoke.
+- [ ] **WP7 remainder (I-005)** — per-render telemetry (stage timings, fallback reasons), shared classified
+      cross-renderer fixture catalogue, benchmark baselines. The planner with reason codes is DONE (`src/planner.ts`,
+      commit a1143f9).
+- [x] **DONE 2026-11-24** **WP1 leftovers** — clipping interactions confirmed in the per-backend suites; cross-backend
+      fixtures expanded; SVG clip defs deduplicated per (resource, node dimensions).
+- [x] **DONE 2026-11-24** Split `packages/coenx-video/src/model/validate.ts` — node/paint validation moved to
+      `validate-nodes.ts`, interactions to `validate-interactions.ts`, effects in `validate-effects.ts` (main file 290 lines).
+- [ ] Replace the hand-authored capability matrix with generated data. (The package↔skill sync is now enforced by the
+      whole-catalogue parity test.)
+- [ ] **Product integration remainder** (`docs/coenx-video.md:50` (doc)): all six canonical tools are registered
+      (`packages/db/src/tool/coenx-video*.ts` (code)); MP4 export works through `coenx_video_export`; the session UI has
+      Coenx Video preview tabs (video preview panel opened on export completion). Still missing: a Targeted Learning
+      hand-off route, application-level persistence of render results and student-progress integration; nothing renders
+      MP4s in the deployed production build yet.
+- [x] **DONE 2026-11-24 (verification)** — live LLM e2e plumbing fixed and verified up to the LLM hop
+      (`packages/server/script/coenx-e2e-live.ts`: Basic auth, `?directory=` instance routing, transcript polling
+      instead of the stub `/wait`); `opencode/grok-code` resolves and is enabled from the live models.dev catalogue.
+      The final hop fails at OpenCode Zen upstream ("Model is unavailable" for every anonymous free model, verified with
+      direct API probes — issue I-006). Re-run when the free tier recovers.
 - [ ] **WP8 GPU 3D — DEFERRED (I-004).** Explicitly do not start.
 
 ## 4. Targeted Learning / Retrieval V2
