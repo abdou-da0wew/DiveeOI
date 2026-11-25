@@ -20,10 +20,17 @@ import { getSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { createSessionTabs } from "@/pages/session/helpers"
 import { bookIdFromTab, pendingBookCite } from "@/pages/session/book-tabs"
+import { pendingVideoDetail, videoPathFromTab } from "@/pages/session/video-tabs"
 
 // Book viewer (Targeted Learning): mounted for `book:<id>` tabs (see book-tabs.ts).
 // Lazy so pdf.js stays out of the initial bundle until a book tab is actually opened.
 const BookPdfPanel = lazy(() => import("@/pages/session/book-pdf-panel").then((m) => ({ default: m.BookPdfPanel })))
+
+// Coenx Video preview: mounted for `video:<path>` tabs (see video-tabs.ts).
+// Lazy so the player stays out of the initial bundle until a video tab opens.
+const VideoPreviewPanel = lazy(() =>
+  import("@/pages/session/video-preview-panel").then((m) => ({ default: m.VideoPreviewPanel })),
+)
 
 function FileCommentMenu(props: {
   moreLabel: string
@@ -184,6 +191,14 @@ export function FileTabContent(props: { tab: string; closeTab?: (tab: string) =>
   const bookCite = createMemo(() => {
     const pending = pendingBookCite()
     if (!pending || pending.bookId !== bookId()) return
+    return pending
+  })
+  // Video tabs (`video:<path>`) render the Coenx Video preview panel. The pending
+  // detail (video-tabs.ts) carries the title of the export that opened this tab.
+  const videoPath = createMemo(() => videoPathFromTab(props.tab))
+  const videoCite = createMemo(() => {
+    const pending = pendingVideoDetail()
+    if (!pending || pending.path !== videoPath()) return
     return pending
   })
 
@@ -457,6 +472,13 @@ export function FileTabContent(props: { tab: string; closeTab?: (tab: string) =>
 
   return (
     <Switch>
+      <Match when={videoPath()} keyed>
+        {(path) => (
+          <Tabs.Content value={props.tab} class="mt-3 relative h-full">
+            <VideoPreviewPanel path={path} title={videoCite()?.title} onClose={() => props.closeTab?.(props.tab)} />
+          </Tabs.Content>
+        )}
+      </Match>
       <Match when={bookId()} keyed>
         {(id) => (
           <Tabs.Content value={props.tab} class="mt-3 relative h-full">

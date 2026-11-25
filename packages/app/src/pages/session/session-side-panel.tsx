@@ -37,6 +37,7 @@ import { setSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { openBookTab, type OpenBookCitationDetail } from "@/pages/session/book-tabs"
 import { ExamSidePanelBridge, ExamTabContents, ExamTabOverlay, ExamTabTriggers } from "@/pages/session/exam-side-tabs"
+import { VideoSidePanelBridge } from "@/pages/session/video-side-tabs"
 
 type RenderDiff = (SnapshotFileDiff & { file: string }) | VcsFileDiff
 
@@ -276,6 +277,7 @@ export function SessionSidePanel(props: {
         style={{ width: panelWidth() }}
       >
         <ExamSidePanelBridge />
+        <VideoSidePanelBridge />
         <Show when={open()}>
           <div
             class="size-full flex"

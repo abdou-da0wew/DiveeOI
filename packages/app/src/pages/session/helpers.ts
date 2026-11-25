@@ -51,8 +51,12 @@ export const createSessionTabs = (input: TabsInput) => {
     if (active === "review" && review()) return active
     if (active && input.pathFromTab(active)) return input.normalizeTab(active)
     // Non-file tabs have no path, so they must be handled explicitly or a
-    // fallback file tab could steal focus from the active book or exam.
-    if (active && (active.startsWith("book:") || active.startsWith("exam:")) && input.tabs().all().includes(active))
+    // fallback file tab could steal focus from the active book, video or exam.
+    if (
+      active &&
+      (active.startsWith("book:") || active.startsWith("video:") || active.startsWith("exam:")) &&
+      input.tabs().all().includes(active)
+    )
       return active
 
     const first = openedTabs()[0]
