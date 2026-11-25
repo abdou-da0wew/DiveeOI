@@ -14,7 +14,8 @@
     "./capabilities": "./src/capabilities.ts",
     "./validation": "./src/validation.ts",
     "./export": "./src/export.ts",
-    "./reference": "./src/reference.ts"
+    "./reference": "./src/reference.ts",
+    "./planner": "./src/planner.ts"
   },
   "scripts": {
     "typecheck": "tsgo --noEmit",

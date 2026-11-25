@@ -199,6 +199,19 @@ export const COENX_VIDEO_CAPABILITIES = {
       notes: ["Scene-level reusable gradient paints referenced with { paintRef }; nodes can also share CML <gradient> defs via fill=\"url(#id)\"."],
     },
     {
+      id: "interactions",
+      support: {
+        "static-svg": "unsupported",
+        "native-cairo": "unsupported",
+        "interactive-canvas": "supported",
+        "interactive-svg": "supported",
+      },
+      notes: [
+        "Interactive triggers/state/branching run in the browser backends through the restricted interaction AST.",
+        "MP4 backends render the timeline but never execute interaction logic.",
+      ],
+    },
+    {
       id: "masks",
       support: {
         "static-svg": "supported",
