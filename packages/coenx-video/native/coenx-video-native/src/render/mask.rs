@@ -21,7 +21,7 @@ fn stop_alpha(stop: &Value) -> Result<f64, String> {
     Ok(base * opacity)
 }
 
-fn set_alpha_paint(
+pub(super) fn set_alpha_paint(
     context: &Context,
     alpha: &Value,
     width: f64,

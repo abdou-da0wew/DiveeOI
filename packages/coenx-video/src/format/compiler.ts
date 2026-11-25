@@ -21,6 +21,7 @@ import type {
   VisualNode,
 } from "../model/types"
 import { compileSceneDefs, elementLocation, paintFromAttribute, parsePathD } from "./defs"
+import { parseFilterAttribute } from "../render/effects"
 import { childElements, elementText, parseCmlMarkup, type CmlElement } from "./markup"
 import { parseCoenxScript } from "./script"
 import { parseCmlStylesheet, stylesForElement, type CmlStyles, type CmlStyleRule } from "./style"
@@ -166,28 +167,59 @@ function nodeFromElement(element: CmlElement, rules: CmlStyleRule[], source: str
   const maskAttribute = value(values, "mask")
   const clipExtras = clipAttribute ? { clipPathId: clipAttribute } : {}
   const maskExtras = maskAttribute ? { maskId: maskAttribute } : {}
+  const filterAttribute = value(values, "filter")
+  let filterExtras = {}
+  if (filterAttribute) {
+    try {
+      filterExtras = { effects: parseFilterAttribute(filterAttribute) }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(`Coenx <${element.tag}> filter attribute: ${message}${where}`)
+    }
+  }
 
   switch (element.tag) {
     case "rect":
-      return { kind: "rect", ...base, ...clipExtras, ...maskExtras, fill, stroke, strokeWidth, radius } satisfies RectNode
+      return { kind: "rect", ...base, ...clipExtras, ...maskExtras, ...filterExtras, fill, stroke, strokeWidth, radius } satisfies RectNode
     case "ellipse":
-      return { kind: "ellipse", ...base, ...clipExtras, ...maskExtras, fill, stroke, strokeWidth } satisfies EllipseNode
+      return { kind: "ellipse", ...base, ...clipExtras, ...maskExtras, ...filterExtras, fill, stroke, strokeWidth } satisfies EllipseNode
     case "line":
       return {
         kind: "line",
         ...base,
         ...clipExtras,
         ...maskExtras,
+        ...filterExtras,
         points: points(value(values, "points")),
         stroke: color(values, ["stroke"], "#ffffff")!,
         strokeWidth,
       } satisfies LineNode
+    case "path": {
+      const inlineD = element.attributes.d
+      const pathRef = value(values, "path-ref", "pathRef")
+      if (!inlineD && !pathRef) throw new Error(`Coenx <path> requires d or path-ref${where}`)
+      return {
+        kind: "path",
+        ...base,
+        ...clipExtras,
+        ...maskExtras,
+        ...filterExtras,
+        ...(inlineD ? { commands: parsePathD(inlineD) } : { pathRef }),
+        ...(value(values, "fill-rule") ? { fillRule: value(values, "fill-rule") as "nonzero" | "evenodd" } : {}),
+        fill,
+        stroke,
+        strokeWidth,
+        ...(value(values, "line-cap") ? { lineCap: value(values, "line-cap") as "butt" | "round" | "square" } : {}),
+        ...(value(values, "line-join") ? { lineJoin: value(values, "line-join") as "miter" | "round" | "bevel" } : {}),
+      } satisfies PathNode
+    }
     case "text": {
       const fontFamily = value(values, "font-family", "fontFamily") ?? "Geist"
       if (!isBundledFontFamily(fontFamily)) throw new Error(`Font ${fontFamily} is not included in coenx-video`)
       return {
         kind: "text",
         ...base,
+        ...filterExtras,
         text: elementText(element) || value(values, "text") || "",
         color: color(values, ["color", "fill"], "#ffffff"),
         align: (value(values, "text-align", "align") as TextNode["align"]) ?? "center",
@@ -201,6 +233,7 @@ function nodeFromElement(element: CmlElement, rules: CmlStyleRule[], source: str
       return {
         kind: "image",
         ...base,
+        ...filterExtras,
         asset,
         alt: values.alt,
         fit: (values.fit ?? "contain") as ImageNode["fit"],
@@ -210,6 +243,7 @@ function nodeFromElement(element: CmlElement, rules: CmlStyleRule[], source: str
       return {
         kind: "button",
         ...base,
+        ...filterExtras,
         text: elementText(element) || value(values, "text") || "",
         fill: color(values, ["fill", "background"], "#315fe8"),
         color: color(values, ["color"], "#ffffff"),

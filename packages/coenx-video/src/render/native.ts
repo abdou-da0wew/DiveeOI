@@ -7,6 +7,7 @@ import type { Scene, Vec3, VideoComposition, VisualNode } from "../model/types"
 import { projectMesh3D } from "./geometry3d"
 import { evaluateSceneAtFrame } from "../animation/timeline"
 import { colorAlpha, isGradientPaint, resolvePaint } from "./paint"
+import { nativeEffectsPayload } from "./effects"
 import { resolveNodeMask } from "./mask"
 import { resolveClipPath, resolveNodePath } from "./path"
 
@@ -90,6 +91,10 @@ function supportedNodes(
         })),
       }
     }
+    // Effects are serialized explicitly (defaults baked in) so the native
+    // renderer receives a fully normalized, bounded chain.
+    const effects = node.kind === "mesh3d" ? undefined : nativeEffectsPayload(node.effects)
+    if (effects) renderNode.effects = effects
 
     if (node.kind === "image") {
       const assetPath = imageAssets?.[node.id]

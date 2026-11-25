@@ -1,5 +1,6 @@
 import type { Scene, Vec3, VideoComposition, VisualNode } from "../model/types"
 import { evaluateSceneAtFrame } from "../animation/timeline"
+import { effectPadding, effectPrimitives } from "../render/effects"
 import { projectMesh3D } from "../render/geometry3d"
 import { resolveNodeMask } from "../render/mask"
 import { isGradientPaint, resolvePaint, whiteAlphaPaint } from "../render/paint"
@@ -35,6 +36,7 @@ export class SvgVideoRenderer {
     const fragment = document.createDocumentFragment()
     const definitions = element("defs", {})
     fragment.append(definitions)
+    const shared = { clipDefs: new Map<string, string>(), filterDefs: new Map<string, string>() }
     fragment.append(
       element("rect", {
         x: 0,
@@ -48,12 +50,17 @@ export class SvgVideoRenderer {
       const pose = physics3d?.[node.id]
       const rendered =
         pose && node.kind === "mesh3d" ? { ...node, position: pose.position, rotation3d: pose.rotation } : node
-      fragment.append(this.drawNode(rendered, scene, definitions))
+      fragment.append(this.drawNode(rendered, scene, definitions, shared))
     }
     this.element.replaceChildren(fragment)
   }
 
-  private drawNode(node: VisualNode, scene: Scene, definitions: SVGDefsElement) {
+  private drawNode(
+    node: VisualNode,
+    scene: Scene,
+    definitions: SVGDefsElement,
+    shared: { clipDefs: Map<string, string>; filterDefs: Map<string, string> },
+  ) {
     const group = element("g", {
       transform:
         "translate(" +
@@ -74,17 +81,47 @@ export class SvgVideoRenderer {
     const height = node.height
     const clip = resolveClipPath(node, scene)
     if (clip) {
-      const clipId = `clip-${scene.id}-${node.id}`
-      const definition = element("clipPath", { id: clipId, clipPathUnits: "userSpaceOnUse" })
-      definition.append(
-        element("path", {
-          d: pathCommandsToSvgD(clip.commands, width, height),
-          "fill-rule": clip.fillRule,
-          "clip-rule": clip.fillRule,
-        }),
-      )
-      definitions.append(definition)
+      // Same dedup rule as the static backend: identical (resource, dimensions)
+      // pairs share one clipPath definition.
+      const key = `${node.clipPathId}|${width}x${height}`
+      let clipId = shared.clipDefs.get(key)
+      if (!clipId) {
+        clipId = `clip-${scene.id}-${node.clipPathId}`
+        shared.clipDefs.set(key, clipId)
+        const definition = element("clipPath", { id: clipId, clipPathUnits: "userSpaceOnUse" })
+        definition.append(
+          element("path", {
+            d: pathCommandsToSvgD(clip.commands, width, height),
+            "fill-rule": clip.fillRule,
+            "clip-rule": clip.fillRule,
+          }),
+        )
+        definitions.append(definition)
+      }
       group.setAttribute("clip-path", `url(#${clipId})`)
+    }
+    const effects = node.effects
+    if (effects?.length) {
+      const pad = effectPadding(effects)
+      const key = `${JSON.stringify(effects)}|${width}x${height}`
+      let filterId = shared.filterDefs.get(key)
+      if (!filterId) {
+        filterId = `filter-${scene.id}-${node.id}`
+        shared.filterDefs.set(key, filterId)
+        const filterElement = element("filter", {
+          id: filterId,
+          filterUnits: "userSpaceOnUse",
+          x: -width / 2 - pad,
+          y: -height / 2 - pad,
+          width: width + pad * 2,
+          height: height + pad * 2,
+        })
+        for (const primitive of effectPrimitives(effects)) {
+          filterElement.append(element(primitive.tag as keyof SVGElementTagNameMap, primitive.attributes))
+        }
+        definitions.append(filterElement)
+      }
+      group.setAttribute("filter", `url(#${filterId})`)
     }
     const mask = resolveNodeMask(node, scene)
     if (mask) {

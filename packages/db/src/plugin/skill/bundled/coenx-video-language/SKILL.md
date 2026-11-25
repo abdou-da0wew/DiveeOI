@@ -13,11 +13,11 @@ Use stable unique IDs for scenes, nodes, tracks, events and state keys. Keep sta
 
 Validate the CML tree, CSS rules and script AST before rendering. On an error, fix the source rather than silently dropping an unsupported element or property. Keep education citations tied to retrieved passage IDs. Never fabricate citations or learner answers.
 
-The current CML node set is rect, ellipse, line, text, image, button, input and select. The lower-level composition API also supports mesh3d, but CML v1 does not expose it yet. Arbitrary SVG path data, filters, masks, gradients, imported stylesheets, arbitrary selectors, custom properties and JavaScript callbacks are not part of v1. Use supported primitives and polylines when they accurately express the visual.\n\n
+The current CML node set is rect, ellipse, line, text, image, button, input and select. The lower-level composition API also supports mesh3d, but CML v1 does not expose it yet. Imported stylesheets, arbitrary selectors, custom properties and JavaScript callbacks are not part of v1. Use supported primitives and polylines when they accurately express the visual.\n\n
 
 ## Structured model features outside CML v1
 
-The versioned JSON/TypeScript composition model supports inline and reusable vector paths, scene-level path definitions, node-local clip paths with `nonzero` and `evenodd` fill rules, and linear/radial gradient paint values. These are not CML v1 tags, attributes or CSS literals. Do not invent path or clip markup. When a project requires these features, author a structured VideoComposition JSON value and validate it with `coenx_video_validate` using `format: "json"`. Check `coenx_video_capabilities` first. Masks, filter effects and GPU 3D are not implemented.
+The versioned JSON/TypeScript composition model supports inline and reusable vector paths, scene-level path definitions, node-local clip paths with `nonzero` and `evenodd` fill rules, reusable alpha masks, reusable gradient paint resources, and the bounded effect chain (blur, drop-shadow, color-adjust). CML v1 exposes paths, clips, masks, gradient resources and effects through the `<defs>` block and the node `filter` attribute below; mesh3d stays JSON-only. Do not invent undocumented markup. Check `coenx_video_capabilities` first, and validate CML or JSON with `coenx_video_validate` before rendering. Luminance masks and GPU 3D are not implemented.
 
 ## Reusable resources and CML defs (v1.1)
 
@@ -28,6 +28,7 @@ CML scenes can declare reusable resources in a `<defs>` block inside `<scene>`:
 - `<mask id="fade" viewBox="100x60">` with `<rect x y width height rx? fill fill-opacity?>`, `<ellipse cx cy rx ry fill>` and `<path d fill fill-rule? opacity?>` shape children compiles to a reusable alpha mask (only shape alpha affects the result; luminance masks are not implemented).
 - `<gradient id="brand" type="linear|radial" from="x,y" to="x,y" | center="x,y" radius="r" spread="pad|repeat|reflect">` with `<stop offset="0" color="#rrggbb" opacity="0..1"/>` children compiles to a reusable paint resource. Linear/radial gradients accept spread modes and `rotate`, `translate="x,y"` and `scale="x,y"` transform attributes (Canvas playback only supports pad spread and reports it).
 - Node references: `fill="url(#gradient-id)"`, `clip="clip-id"`, `mask="mask-id"`; path nodes themselves: `<path id="curve" x y width height path-ref="wave" fill stroke stroke-width line-cap line-join>` (or inline `d="..."` instead of path-ref).
+- Node effect chains: `filter="blur(8)"`, `filter="drop-shadow(4 6 8 #000000)"` or `filter="brightness(1.2) contrast(1.1) saturate(0.8) hue-rotate(15)"` on any 2D node (rect, ellipse, line, path, text, image, button). Accepted functions: blur(radius 0..64), drop-shadow(dx dy radius 0..32, color #RRGGBB(AA) default black), brightness/contrast/saturate (0..4), hue-rotate (degrees). At most 4 functions per node. Effects apply to node content before clip/mask/opacity in list order; blur radii are Gaussian sigmas. The stylesheet subset also accepts the `filter`, `clip` and `mask` properties.
 - Every compiler error carries a `(line X, column Y)` source location plus a repair hint; fix every diagnostic and validate again before rendering.
 
 Do not hand-write serialized JSON inside attributes; use the declarative syntax above.

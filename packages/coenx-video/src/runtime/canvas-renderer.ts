@@ -1,5 +1,6 @@
 import type { Scene, Vec3, VideoComposition, VisualNode } from "../model/types"
 import { evaluateSceneAtFrame } from "../animation/timeline"
+import { effectPadding, canvasFilterValue, canvasFilterUnsupportedWarning } from "../render/effects"
 import { projectMesh3D } from "../render/geometry3d"
 import { canvasPaint } from "./canvas-paint"
 import { resolvePaint } from "../render/paint"
@@ -16,6 +17,18 @@ export interface CanvasRendererOptions {
   resolveAsset?: CanvasAssetResolver
 }
 
+/**
+ * CSS filter chaining (ctx.filter) is feature-detected once: every modern
+ * browser supports it; when it is missing the Canvas backend degrades to
+ * rendering without effects and dispatches a `coenx:renderer-warning` event
+ * (explicit partial capability, never a silent drop).
+ */
+const CSS_FILTER_SUPPORTED =
+  typeof CanvasRenderingContext2D !== "undefined" && "filter" in CanvasRenderingContext2D.prototype
+
+/** Hard renderer-side cap for one padded effect surface, mirroring the validation budget. */
+const MAX_EFFECT_SURFACE_SIDE = 4096
+
 export class CanvasVideoRenderer {
   private context: CanvasRenderingContext2D
   private readonly images = new Map<string, HTMLImageElement>()
@@ -23,6 +36,10 @@ export class CanvasVideoRenderer {
   /** Reused node-box offscreen surface for mask compositing; resized per masked node. */
   private readonly scratch: HTMLCanvasElement
   private readonly scratchContext: CanvasRenderingContext2D
+  /** Second offscreen for the effect-filtered copy (content -> effects -> mask). */
+  private readonly effectScratch: HTMLCanvasElement
+  private readonly effectScratchContext: CanvasRenderingContext2D
+  private warnedAboutFilters = false
 
   constructor(private readonly options: CanvasRendererOptions) {
     const context = options.canvas.getContext("2d", { alpha: false, desynchronized: true })
@@ -34,6 +51,10 @@ export class CanvasVideoRenderer {
     const scratchContext = this.scratch.getContext("2d", { willReadFrequently: false })
     if (!scratchContext) throw new Error("Canvas 2D is unavailable for mask compositing")
     this.scratchContext = scratchContext
+    this.effectScratch = document.createElement("canvas")
+    const effectScratchContext = this.effectScratch.getContext("2d", { willReadFrequently: false })
+    if (!effectScratchContext) throw new Error("Canvas 2D is unavailable for effect compositing")
+    this.effectScratchContext = effectScratchContext
   }
 
   draw(
@@ -62,12 +83,22 @@ export class CanvasVideoRenderer {
     const opacity = Math.max(0, Math.min(1, node.opacity ?? 1))
     if (opacity === 0) return
     // Meshes draw in stage space with their own transform/alpha handling and
-    // can never carry clips or masks (validation rejects both).
+    // can never carry clips, masks or effects (validation rejects all three).
     if (node.kind === "mesh3d") {
       this.drawMesh(node, scene)
       return
     }
     const mask = resolveNodeMask(node, scene)
+    const effects = node.effects
+    const hasEffects = !!effects?.length
+    if (hasEffects && !CSS_FILTER_SUPPORTED && !this.warnedAboutFilters) {
+      this.warnedAboutFilters = true
+      this.options.canvas.dispatchEvent(
+        new CustomEvent("coenx:renderer-warning", {
+          detail: { message: canvasFilterUnsupportedWarning(effects, CSS_FILTER_SUPPORTED) },
+        }),
+      )
+    }
     context.save()
     context.globalAlpha = opacity
     context.translate(node.x, node.y)
@@ -76,26 +107,45 @@ export class CanvasVideoRenderer {
     const { width, height } = node
     const clip = resolveClipPath(node, scene)
     if (clip) context.clip(new Path2D(pathCommandsToSvgD(clip.commands, width, height)), clip.fillRule)
-    if (mask) {
-      // Bounded isolated compositing: render the node body into a node-box
-      // offscreen, multiply the mask alpha with destination-in, blit back.
+    if (mask || (hasEffects && CSS_FILTER_SUPPORTED)) {
+      // Bounded isolated compositing: render the node body into a padded
+      // node-box offscreen, apply the filter chain while blitting between
+      // offscreens (content -> effects), multiply mask alpha with
+      // destination-in, then blit under the main-context clip.
+      const pad = hasEffects ? effectPadding(effects!) : 0
+      const body = this.beginScratch(this.scratch, this.scratchContext, width, height, pad)
       const previous = this.context
-      const { surface, scratch } = this.beginMaskScratch(width, height)
-      this.context = scratch
+      this.context = body.scratch
       try {
         this.drawNodeBody(node, scene)
       } finally {
         this.context = previous
       }
-      scratch.setTransform(1, 0, 0, 1, surface.width / 2, surface.height / 2)
-      scratch.globalCompositeOperation = "destination-in"
-      scratch.globalAlpha = 1
-      for (const shape of mask.shapes) {
-        scratch.fillStyle = canvasPaint(scratch, width, height, resolvePaint(shape.paint, scene), "transparent")
-        scratch.fill(new Path2D(pathCommandsToSvgD(shape.commands, width, height)), shape.fillRule)
+      let surface = body.surface
+      let activeScratch = body.scratch
+      if (hasEffects && CSS_FILTER_SUPPORTED) {
+        const filtered = this.beginScratch(this.effectScratch, this.effectScratchContext, width, height, pad)
+        // Both offscreens share the same padded dimensions: identity blit,
+        // with the CSS filter chain applied to the drawing operation.
+        filtered.scratch.setTransform(1, 0, 0, 1, 0, 0)
+        filtered.scratch.globalAlpha = 1
+        filtered.scratch.filter = canvasFilterValue(effects)
+        filtered.scratch.drawImage(surface, 0, 0)
+        filtered.scratch.filter = "none"
+        surface = filtered.surface
+        activeScratch = filtered.scratch
       }
-      scratch.globalCompositeOperation = "source-over"
-      scratch.setTransform(1, 0, 0, 1, 0, 0)
+      if (mask) {
+        activeScratch.setTransform(1, 0, 0, 1, surface.width / 2, surface.height / 2)
+        activeScratch.globalCompositeOperation = "destination-in"
+        activeScratch.globalAlpha = 1
+        for (const shape of mask.shapes) {
+          activeScratch.fillStyle = canvasPaint(activeScratch, width, height, resolvePaint(shape.paint, scene), "transparent")
+          activeScratch.fill(new Path2D(pathCommandsToSvgD(shape.commands, width, height)), shape.fillRule)
+        }
+        activeScratch.globalCompositeOperation = "source-over"
+        activeScratch.setTransform(1, 0, 0, 1, 0, 0)
+      }
       context.globalAlpha = opacity
       context.drawImage(surface, -surface.width / 2, -surface.height / 2, surface.width, surface.height)
       context.globalAlpha = 1
@@ -106,20 +156,33 @@ export class CanvasVideoRenderer {
     context.restore()
   }
 
-  private beginMaskScratch(width: number, height: number) {
-    const boundedWidth = Math.max(1, Math.min(Math.ceil(width), this.options.composition.stage.width))
-    const boundedHeight = Math.max(1, Math.min(Math.ceil(height), this.options.composition.stage.height))
-    if (this.scratch.width !== boundedWidth || this.scratch.height !== boundedHeight) {
-      this.scratch.width = boundedWidth
-      this.scratch.height = boundedHeight
+  private beginScratch(
+    surface: HTMLCanvasElement,
+    scratch: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+    pad: number,
+  ) {
+    const boundedWidth = Math.max(
+      1,
+      Math.min(Math.ceil(width) + pad * 2, MAX_EFFECT_SURFACE_SIDE),
+    )
+    const boundedHeight = Math.max(
+      1,
+      Math.min(Math.ceil(height) + pad * 2, MAX_EFFECT_SURFACE_SIDE),
+    )
+    if (surface.width !== boundedWidth || surface.height !== boundedHeight) {
+      surface.width = boundedWidth
+      surface.height = boundedHeight
     } else {
-      this.scratchContext.setTransform(1, 0, 0, 1, 0, 0)
+      scratch.setTransform(1, 0, 0, 1, 0, 0)
     }
-    this.scratchContext.globalCompositeOperation = "source-over"
-    this.scratchContext.globalAlpha = 1
-    this.scratchContext.clearRect(0, 0, boundedWidth, boundedHeight)
-    this.scratchContext.translate(boundedWidth / 2, boundedHeight / 2)
-    return { surface: this.scratch, scratch: this.scratchContext }
+    scratch.globalCompositeOperation = "source-over"
+    scratch.globalAlpha = 1
+    scratch.filter = "none"
+    scratch.clearRect(0, 0, boundedWidth, boundedHeight)
+    scratch.translate(boundedWidth / 2, boundedHeight / 2)
+    return { surface, scratch }
   }
 
   private drawNodeBody(node: VisualNode, scene: Scene) {

@@ -12,6 +12,7 @@ import type {
   VisualNode,
 } from "../model/types"
 import { evaluateSceneAtFrame } from "../animation/timeline"
+import { effectPadding, svgFilterDefinition } from "./effects"
 import { projectMesh3D } from "./geometry3d"
 import { resolveNodeMask, maskSvgDefinition } from "./mask"
 import { resolvePaint, svgPaint } from "./paint"
@@ -98,22 +99,43 @@ async function renderNode(
   lights: Light3D[],
   transition: { x: number; y: number; opacity: number },
   definitions: string[],
+  shared: { clipDefs: Map<string, string>; filterDefs: Map<string, string> },
 ) {
   const transform = nodeTransform(node, transition.x, transition.y)
   const opacity = Math.max(0, Math.min(1, (node.opacity ?? 1) * transition.opacity))
   if (opacity <= 0) return ""
   const { width, height } = node
   const clip = resolveClipPath(node, scene)
-  const clipId = clip ? `clip-${scene.id}-${node.id}` : undefined
-  if (clip && clipId) {
-    definitions.push(
-      `<clipPath id="${clipId}" clipPathUnits="userSpaceOnUse"><path d="${pathCommandsToSvgD(clip.commands, width, height)}" fill-rule="${clip.fillRule}" clip-rule="${clip.fillRule}"/></clipPath>`,
-    )
+  // Clip definitions are deduplicated per (resource, node dimensions): the
+  // scaled geometry only differs when either changes (WP1 follow-up).
+  let clipId: string | undefined
+  if (clip && node.clipPathId) {
+    const key = `${node.clipPathId}|${width}x${height}`
+    clipId = shared.clipDefs.get(key)
+    if (!clipId) {
+      clipId = `clip-${scene.id}-${node.clipPathId}`
+      shared.clipDefs.set(key, clipId)
+      definitions.push(
+        `<clipPath id="${clipId}" clipPathUnits="userSpaceOnUse"><path d="${pathCommandsToSvgD(clip.commands, width, height)}" fill-rule="${clip.fillRule}" clip-rule="${clip.fillRule}"/></clipPath>`,
+      )
+    }
   }
   const mask = resolveNodeMask(node, scene)
   const maskId = mask ? `mask-${scene.id}-${node.id}` : undefined
   if (mask && maskId) {
     definitions.push(maskSvgDefinition(mask, maskId, width, height, definitions))
+  }
+  const effects = node.effects
+  let filterId: string | undefined
+  if (effects?.length) {
+    const pad = effectPadding(effects)
+    const key = `${JSON.stringify(effects)}|${width}x${height}`
+    filterId = shared.filterDefs.get(key)
+    if (!filterId) {
+      filterId = `filter-${scene.id}-${node.id}`
+      shared.filterDefs.set(key, filterId)
+      definitions.push(svgFilterDefinition(effects, filterId, width, height, pad))
+    }
   }
   let body = ""
   switch (node.kind) {
@@ -164,7 +186,7 @@ async function renderNode(
       body = renderMesh(node, camera, lights, transition)
       return body
   }
-  return `<g transform="${transform}" opacity="${opacity}"${clipId ? ` clip-path="url(#${clipId})"` : ""}${maskId ? ` mask="url(#${maskId})"` : ""}>${body}</g>`
+  return `<g transform="${transform}" opacity="${opacity}"${clipId ? ` clip-path="url(#${clipId})"` : ""}${maskId ? ` mask="url(#${maskId})"` : ""}${filterId ? ` filter="url(#${filterId})"` : ""}>${body}</g>`
 }
 
 function renderMesh(
@@ -204,6 +226,7 @@ export async function renderSceneSvg(
   const transition = { x: offset, y: 0, opacity: amount }
   const nodes = evaluateSceneAtFrame(scene, frame, options.hiddenNodes)
   const paintDefinitions: string[] = []
+  const shared = { clipDefs: new Map<string, string>(), filterDefs: new Map<string, string>() }
   const content = await Promise.all(
     nodes.map((node) => {
       const physics = options.physics?.[node.id]
@@ -222,6 +245,7 @@ export async function renderSceneSvg(
         scene.lights3d ?? [],
         transition,
         paintDefinitions,
+        shared,
       )
     }),
   )

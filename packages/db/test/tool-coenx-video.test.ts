@@ -68,6 +68,24 @@ bunIt("keeps the project-local rendering skill identical to the bundled copy", a
   expect(localSkill).toBe(bundledRenderingSkill)
 })
 
+describe("CoenxVideoSkillParity", () => {
+  bunIt("keeps every bundled coenx-video skill byte-identical to the project-local copy", async () => {
+    const bundledRoot = new URL("../src/plugin/skill/bundled/", import.meta.url)
+    const projectRoot = new URL("../../../.agents/skills/", import.meta.url)
+    const names = (await Array.fromAsync(new Bun.Glob("*/SKILL.md").scan({ cwd: bundledRoot.pathname })))
+      .filter((entry) => entry.startsWith("coenx-video"))
+      .sort()
+    expect(names.length).toBeGreaterThanOrEqual(20)
+    const mismatches: string[] = []
+    for (const name of names) {
+      const bundled = await Bun.file(new URL(name, bundledRoot)).text()
+      const local = await Bun.file(new URL(name, projectRoot)).text()
+      if (bundled !== local) mismatches.push(name)
+    }
+    expect(mismatches).toEqual([])
+  })
+})
+
 describe("CoenxVideoTool", () => {
   it.effect("registers capability and validation tools in the canonical tool registry", () =>
     Effect.gen(function* () {

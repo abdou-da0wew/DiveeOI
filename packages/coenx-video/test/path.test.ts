@@ -122,8 +122,8 @@ describe("shared vector paths", () => {
     })
     expect(() => validateComposition(value)).not.toThrow()
     const svg = await renderSceneSvg(value, scene, 0, { projectRoot: "/tmp" })
-    expect(svg).toContain('<clipPath id="clip-scene-clipped-panel"')
-    expect(svg).toContain('clip-path="url(#clip-scene-clipped-panel)"')
+    expect(svg).toContain('<clipPath id="clip-scene-organic-clip"')
+    expect(svg).toContain('clip-path="url(#clip-scene-organic-clip)"')
     expect(svg).toContain('clip-rule="evenodd"')
   })
 

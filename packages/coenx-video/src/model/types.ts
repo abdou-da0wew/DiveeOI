@@ -49,11 +49,29 @@ export interface NodeBase {
   zIndex?: number
   clipPathId?: string
   maskId?: string
+  /**
+   * Bounded effect chain (WP4): applied to the node's rendered content before
+   * clipping, masking and node/transition opacity, in list order. Blur and
+   * shadow radii are Gaussian sigmas; parameters are hard-bounded and
+   * validated before any backend runs (see model/validate-effects.ts).
+   */
+  effects?: NodeEffect[]
   fontFamily?: string
   fontSize?: number
   fontWeight?: number | string
   animations?: NodeAnimation[]
 }
+
+export type NodeEffect =
+  | { type: "blur"; radius: number }
+  | { type: "drop-shadow"; dx: number; dy: number; radius: number; color?: string }
+  | {
+      type: "color-adjust"
+      brightness?: number
+      contrast?: number
+      saturate?: number
+      hueRotate?: number
+    }
 
 export interface GradientStop {
   offset: number

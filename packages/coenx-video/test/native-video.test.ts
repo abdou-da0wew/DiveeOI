@@ -477,4 +477,58 @@ describe("Rust/Cairo native MP4 renderer", () => {
       "select nodes",
     )
   })
+
+  it.skipIf(!canRender)("renders bounded effect chains into native MP4 frames", async () => {
+    const projectRoot = await mkdtemp(path.join(os.tmpdir(), "coenx-native-effect-test-"))
+    tempDirectories.push(projectRoot)
+    const composition: VideoComposition = {
+      version: 1,
+      id: "native-effect-render-test",
+      title: "Native effect renderer test",
+      stage: { width: 160, height: 90, fps: 6, background: "#080d18" },
+      scenes: [
+        {
+          id: "effect-scene",
+          durationFrames: 6,
+          nodes: [
+            {
+              id: "glow-panel",
+              kind: "rect",
+              x: 80,
+              y: 45,
+              width: 110,
+              height: 60,
+              radius: 8,
+              fill: "#1d4ed8",
+              effects: [
+                { type: "blur", radius: 2 },
+                { type: "drop-shadow", dx: 4, dy: 6, radius: 3, color: "#000000" },
+                { type: "color-adjust", brightness: 1.15, saturate: 1.1 },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+    const result = await renderNativeVideo(composition, {
+      outputPath: "effects.mp4",
+      projectRoot,
+      profile: {
+        name: "low",
+        maxWidth: 320,
+        maxHeight: 180,
+        maxFps: 24,
+        maxFrames: 100,
+        maxNodes: 20,
+        maxRasterChunkBytes: 2_000_000,
+        maxConcurrentRenders: 1,
+        ffmpegThreads: 1,
+      },
+    })
+    expect(result.frames).toBe(6)
+    expect(result.bytes).toBeGreaterThan(100)
+    const header = await readFile(result.outputPath)
+    expect(header.subarray(4, 8).toString("ascii")).toBe("ftyp")
+  })
 })
+

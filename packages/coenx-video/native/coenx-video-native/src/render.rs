@@ -1,4 +1,5 @@
 use cairo::{Context, Format, ImageSurface};
+mod effect;
 mod image;
 mod mask;
 mod paint;
@@ -82,12 +83,21 @@ fn render_node(context: &Context, node: &Value) -> Result<(), String> {
     context.rotate(number(node, "rotation", 0.0).to_radians());
     context.scale(number(node, "scaleX", 1.0), number(node, "scaleY", 1.0));
     context.new_path();
-    if let Some(clip_path) = node.get("clipPath") {
+    let clip = node.get("clipPath");
+    let has_effects = node
+        .get("effects")
+        .and_then(Value::as_array)
+        .is_some_and(|effects| !effects.is_empty());
+    // With effects, the SVG rendering model defers clipping until after the
+    // filter chain: content -> effects -> clip -> mask -> opacity. Without
+    // effects the clip still bounds the group content while drawing.
+    if let (Some(clip_path), false) = (clip, has_effects) {
         path::clip_path(context, clip_path, width, height)?;
     }
     // Masked nodes composite inside a node-box-bounded offscreen so the
-    // temporary surface never exceeds the node bounds.
-    if node.get("mask").is_some() {
+    // temporary surface never exceeds the node bounds. Effect chains own the
+    // mask compositing on their padded surface instead.
+    if !has_effects && node.get("mask").is_some() {
         context.rectangle(-width / 2.0, -height / 2.0, width, height);
         context.clip();
         context.new_path();
@@ -223,7 +233,30 @@ fn render_node(context: &Context, node: &Value) -> Result<(), String> {
         }
     }
     let pattern = context.pop_group().map_err(|e| e.to_string())?;
-    if let Some(mask) = node.get("mask") {
+    if has_effects {
+        // Deferred resource clip: the effect chain ran on unclipped content
+        // and the blurred/shadowed result is cut here (SVG order).
+        if let Some(clip_path) = clip {
+            path::clip_path(context, clip_path, width, height)?;
+        }
+        let geometry = effect::NodeGeometry {
+            x,
+            y,
+            rotation_degrees: number(node, "rotation", 0.0),
+            scale_x: number(node, "scaleX", 1.0),
+            scale_y: number(node, "scaleY", 1.0),
+            width,
+            height,
+        };
+        effect::apply_effect_chain(
+            context,
+            &pattern,
+            node,
+            &geometry,
+            opacity,
+            node.get("mask"),
+        )?;
+    } else if let Some(mask) = node.get("mask") {
         mask::composite_masked_node(context, &pattern, mask, width, height, opacity)?;
     } else {
         context.set_source(&pattern).map_err(|e| e.to_string())?;

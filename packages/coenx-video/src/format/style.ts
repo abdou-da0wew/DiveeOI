@@ -29,6 +29,9 @@ const ALLOWED = new Set([
   "line-height",
   "z-index",
   "visibility",
+  "filter",
+  "clip",
+  "mask",
 ])
 const SELECTOR = /^(?:[A-Za-z][A-Za-z0-9_-]*|#[A-Za-z][A-Za-z0-9_-]*|\.[A-Za-z][A-Za-z0-9_-]*)$/
 

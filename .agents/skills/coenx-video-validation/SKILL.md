@@ -7,7 +7,7 @@ description: Validate Coenx composition data and source files, test interactions
 
 Validate all three source files before rendering. Reject unsupported elements, properties, selectors, event triggers, action names, expression operators, invalid references and unsafe asset paths rather than silently ignoring them.
 
-Check that scene IDs and node IDs are unique, keyframes increase strictly, timers stay within the scene timeline, all referenced audio tracks and target nodes exist, and all local media paths resolve within the project root. Check font names against the bundled font catalogue.
+Check that scene IDs and node IDs are unique, keyframes increase strictly, timers stay within the scene timeline, all referenced audio tracks and target nodes exist, and all local media paths resolve within the project root. Check font names against the bundled font catalogue. For effect chains, verify the budget rules: at most 4 effects per node, blur sigma 0..64, drop-shadow sigma 0..32 with offsets within +/-128, color-adjust amounts 0..4 and hueRotate within +/-360, and the 8,388,608-pixel padded temporary-surface cap; mesh3d nodes must not carry effects.
 
 For standard MP4, render a low-cost draft, inspect frames at the beginning, middle, transitions and end, then verify codec, dimensions, frame rate, duration and audio streams with ffprobe. Do not trust a successful process exit alone.
 
