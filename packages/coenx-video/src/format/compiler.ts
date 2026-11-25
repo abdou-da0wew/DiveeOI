@@ -3,10 +3,15 @@ import { isBundledFontFamily } from "../fonts/catalog"
 import type {
   AudioClip,
   ButtonNode,
+  ClipPathDefinition,
   EllipseNode,
   ImageNode,
+  MaskDefinition,
   NodeAnimation,
   LineNode,
+  PaintResource,
+  PathDefinition,
+  PathNode,
   RectNode,
   Scene,
   SceneInteraction,
@@ -15,6 +20,7 @@ import type {
   VideoComposition,
   VisualNode,
 } from "../model/types"
+import { compileSceneDefs, elementLocation, paintFromAttribute, parsePathD } from "./defs"
 import { childElements, elementText, parseCmlMarkup, type CmlElement } from "./markup"
 import { parseCoenxScript } from "./script"
 import { parseCmlStylesheet, stylesForElement, type CmlStyles, type CmlStyleRule } from "./style"
@@ -143,27 +149,35 @@ function points(value: string | undefined): LineNode["points"] {
   return parsed
 }
 
-function nodeFromElement(element: CmlElement, rules: CmlStyleRule[]): VisualNode {
+function nodeFromElement(element: CmlElement, rules: CmlStyleRule[], source: string): VisualNode {
   const values = selectorValues(element, rules)
   const base = nodeBase(element, values)
-  const fill = color(values, ["fill", "background"], "none")
+  const fillValue = color(values, ["fill", "background"], "none")
+  const fill = paintFromAttribute(fillValue) ?? fillValue
   const stroke = color(values, ["stroke"], "none")
   const strokeWidth = numeric(values, ["stroke-width"], 1)
   const radius = numeric(values, ["border-radius", "radius"], 0)
   const animations = base.animations
+  const where = elementLocation(source, element)
   if (!isBundledFontFamily(base.fontFamily ?? "Geist")) {
-    throw new Error("Font " + base.fontFamily + " is not included in coenx-video")
+    throw new Error(`Font ${base.fontFamily} is not included in coenx-video${where}`)
   }
+  const clipAttribute = value(values, "clip", "clip-path")
+  const maskAttribute = value(values, "mask")
+  const clipExtras = clipAttribute ? { clipPathId: clipAttribute } : {}
+  const maskExtras = maskAttribute ? { maskId: maskAttribute } : {}
 
   switch (element.tag) {
     case "rect":
-      return { kind: "rect", ...base, fill, stroke, strokeWidth, radius } satisfies RectNode
+      return { kind: "rect", ...base, ...clipExtras, ...maskExtras, fill, stroke, strokeWidth, radius } satisfies RectNode
     case "ellipse":
-      return { kind: "ellipse", ...base, fill, stroke, strokeWidth } satisfies EllipseNode
+      return { kind: "ellipse", ...base, ...clipExtras, ...maskExtras, fill, stroke, strokeWidth } satisfies EllipseNode
     case "line":
       return {
         kind: "line",
         ...base,
+        ...clipExtras,
+        ...maskExtras,
         points: points(value(values, "points")),
         stroke: color(values, ["stroke"], "#ffffff")!,
         strokeWidth,
@@ -288,14 +302,30 @@ export function compileCmlProject(source: CmlProjectSource): VideoComposition {
   const scenes = childElements(root, "scene").map((element, index): Scene => {
     const values = selectorValues(element, rules)
     const id = element.attributes.id ?? `scene-${index + 1}`
-    const nodes = childElements(element)
-      .filter((child) => child.tag !== "animate")
-      .map((child) => nodeFromElement(child, rules))
+    let resources: { pathDefinitions: PathDefinition[]; clipPaths: ClipPathDefinition[]; masks: MaskDefinition[]; paints: PaintResource[] }
+    let nodes: VisualNode[]
+    try {
+      const defs = childElements(element, "defs")[0]
+      resources = defs
+        ? compileSceneDefs(defs)
+        : { pathDefinitions: [], clipPaths: [], masks: [], paints: [] }
+      nodes = childElements(element)
+        .filter((child) => child.tag !== "animate" && child.tag !== "defs")
+        .map((child) => nodeFromElement(child, rules, source.markup))
+    } catch (error) {
+      const where = elementLocation(source.markup, element)
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(where && !message.includes("(line") ? `${message}${where}` : message)
+    }
     return {
       id,
       durationFrames: durationFrames(element, fps),
       background: color(values, ["background", "fill"], root.attributes.background ?? "#090d15"),
       nodes,
+      ...(resources.pathDefinitions.length ? { pathDefinitions: resources.pathDefinitions } : {}),
+      ...(resources.clipPaths.length ? { clipPaths: resources.clipPaths } : {}),
+      ...(resources.masks.length ? { masks: resources.masks } : {}),
+      ...(resources.paints.length ? { paints: resources.paints } : {}),
       interactions: sceneInteractions(element, index, script.interactions),
     }
   })

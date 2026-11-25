@@ -1,5 +1,5 @@
-import type { GradientPaint, Paint } from "../model/types"
-import { isGradientPaint } from "../render/paint"
+import type { Paint } from "../model/types"
+import { isGradientPaint, spreadKind, transformGradientPoint, transformGradientRadius } from "../render/paint"
 
 /** Browser-only paint resolution for the Canvas backend (kept out of the DOM-free paint module). */
 export function canvasPaint(
@@ -9,24 +9,24 @@ export function canvasPaint(
   paint: Paint | undefined,
   fallback: string,
 ): string | CanvasGradient {
-  if (!isGradientPaint(paint)) return paint ?? fallback
+  if (!isGradientPaint(paint)) return (typeof paint === "string" ? paint : fallback) ?? fallback
   const localX = (value: number) => (value - 0.5) * width
   const localY = (value: number) => (value - 0.5) * height
   const gradient =
     paint.type === "linear"
       ? context.createLinearGradient(
-          localX(paint.from[0]),
-          localY(paint.from[1]),
-          localX(paint.to[0]),
-          localY(paint.to[1]),
+          localX(transformGradientPoint(paint.from, paint.transform)[0]),
+          localY(transformGradientPoint(paint.from, paint.transform)[1]),
+          localX(transformGradientPoint(paint.to, paint.transform)[0]),
+          localY(transformGradientPoint(paint.to, paint.transform)[1]),
         )
       : context.createRadialGradient(
-          localX(paint.center[0]),
-          localY(paint.center[1]),
+          localX(transformGradientPoint(paint.center, paint.transform)[0]),
+          localY(transformGradientPoint(paint.center, paint.transform)[1]),
           0,
-          localX(paint.center[0]),
-          localY(paint.center[1]),
-          paint.radius * Math.min(width, height),
+          localX(transformGradientPoint(paint.center, paint.transform)[0]),
+          localY(transformGradientPoint(paint.center, paint.transform)[1]),
+          transformGradientRadius(paint.radius * Math.min(width, height), paint.transform),
         )
   for (const stop of paint.stops) {
     gradient.addColorStop(stop.offset, stop.opacity === undefined ? withAlpha(stop.color, 1) : withAlpha(stop.color, stop.opacity))
@@ -34,6 +34,18 @@ export function canvasPaint(
   return gradient
 }
 
+/**
+ * Canvas gradients only implement pad semantics. When a composition uses
+ * repeat/reflect the Canvas backend documents this as an explicit partial
+ * capability (see capabilities.ts) and callers warn instead of silently
+ * approximating; SVG and native Cairo implement all three modes exactly.
+ */
+export function canvasSpreadWarning(paint: Paint | undefined): string | undefined {
+  if (!isGradientPaint(paint)) return undefined
+  return spreadKind(paint.spread) === "pad"
+    ? undefined
+    : `Canvas backend only supports pad spread; gradient uses ${paint.spread} and will render with pad semantics`
+}
 
 function withAlpha(color: string, opacity: number) {
   const hex = color.replace("#", "")

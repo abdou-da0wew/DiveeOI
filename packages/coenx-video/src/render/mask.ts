@@ -40,7 +40,7 @@ export function maskShapeSvgParts(
     })),
   }
   const painted = svgPaint(scaled, paintId, "#ffffff", width, height)
-  return { fill: painted.value, definition: painted.definition }
+  return { fill: painted.value as string, definition: painted.definition }
 }
 
 /** Serializes a full `<mask>` element (white-alpha content) for the static SVG backend. */

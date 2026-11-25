@@ -61,21 +61,39 @@ export interface GradientStop {
   opacity?: number
 }
 
+export type GradientSpread = "pad" | "repeat" | "reflect"
+
+export interface GradientTransform {
+  /** Degrees, clockwise, around the gradient origin. */
+  rotate?: number
+  translate?: Vec2
+  scale?: Vec2
+}
+
 export type GradientPaint =
   | {
       type: "linear"
       from: Vec2
       to: Vec2
       stops: GradientStop[]
+      spread?: GradientSpread
+      transform?: GradientTransform
     }
   | {
       type: "radial"
       center: Vec2
       radius: number
       stops: GradientStop[]
+      spread?: GradientSpread
+      transform?: GradientTransform
     }
 
-export type Paint = string | GradientPaint
+export type Paint = string | GradientPaint | PaintRef
+
+/** Reference to a scene-level reusable paint resource (`scene.paints[]`). */
+export interface PaintRef {
+  paintRef: string
+}
 
 export interface RectNode extends NodeBase {
   kind: "rect"
@@ -112,6 +130,11 @@ export interface ClipPathDefinition {
   id: string
   pathId: string
   fillRule?: PathFillRule
+}
+
+export interface PaintResource {
+  id: string
+  paint: GradientPaint
 }
 
 /**
@@ -358,6 +381,8 @@ export interface Scene {
   pathDefinitions?: PathDefinition[]
   clipPaths?: ClipPathDefinition[]
   masks?: MaskDefinition[]
+  /** Reusable gradient paint resources referenced by node paints via { paintRef }. */
+  paints?: PaintResource[]
   interactions?: SceneInteraction[]
   camera3d?: Camera3D
   lights3d?: Light3D[]

@@ -1,6 +1,6 @@
 import type { Paint, VisualNode } from "../model/types"
 import { renderFontFamilyName } from "../fonts/catalog"
-import { isGradientPaint } from "../render/paint"
+import { isGradientPaint, isPaintRef } from "../render/paint"
 
 export const SVG_NS = "http://www.w3.org/2000/svg"
 
@@ -44,7 +44,7 @@ export function paintValue(
   width: number,
   height: number,
 ) {
-  if (!isGradientPaint(paint)) return paint ?? fallback
+  if (!paint || isPaintRef(paint) || !isGradientPaint(paint)) return (typeof paint === "string" ? paint : fallback) ?? fallback
   const localX = (value: number) => Number(((value - 0.5) * width).toFixed(4))
   const localY = (value: number) => Number(((value - 0.5) * height).toFixed(4))
   const gradient =

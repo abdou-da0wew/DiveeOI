@@ -2,6 +2,7 @@ import path from "node:path"
 import { isBundledFontFamily } from "../fonts/catalog"
 import type { Expression, InteractionAction, Paint, RenderProfile, Scene, VideoComposition, VisualNode } from "./types"
 import { validateSceneMasks } from "./validate-masks"
+import { validateScenePaints } from "./validate-paints"
 import { validateScenePaths } from "./validate-paths"
 
 export const RENDER_PROFILES: Record<RenderProfile["name"], RenderProfile> = {
@@ -100,6 +101,10 @@ function validateActions(
 
 function validatePaint(paint: Paint | undefined, nodeId: string, issues: string[]) {
   if (paint === undefined || typeof paint === "string") return
+  if (typeof paint === "object" && paint !== null && "paintRef" in paint) {
+    add(issues, typeof (paint as { paintRef: unknown }).paintRef === "string", `node ${nodeId} has an invalid paint reference`)
+    return
+  }
   if (typeof paint !== "object" || paint === null || Array.isArray(paint)) {
     add(issues, false, `node ${nodeId} has an invalid gradient paint`)
     return
@@ -109,6 +114,19 @@ function validatePaint(paint: Paint | undefined, nodeId: string, issues: string[
   if (type !== "linear" && type !== "radial") {
     add(issues, false, `node ${nodeId} has an unsupported gradient type`)
     return
+  }
+  const spread = value.spread
+  if (spread !== undefined)
+    add(issues, spread === "pad" || spread === "repeat" || spread === "reflect", `node ${nodeId} gradient spread must be pad, repeat or reflect`)
+  const transform = value.transform
+  if (transform !== undefined && typeof transform === "object" && transform !== null) {
+    const t = transform as Record<string, unknown>
+    if (t.rotate !== undefined)
+      add(issues, typeof t.rotate === "number" && Number.isFinite(t.rotate) && Math.abs(t.rotate) <= 360, `node ${nodeId} gradient rotate must be finite within ±360 degrees`)
+    if (t.translate !== undefined)
+      add(issues, Array.isArray(t.translate) && t.translate.length === 2 && t.translate.every((item) => typeof item === "number" && Number.isFinite(item) && Math.abs(item as number) <= 2), `node ${nodeId} gradient translate must be finite within -2 to 2`)
+    if (t.scale !== undefined)
+      add(issues, Array.isArray(t.scale) && t.scale.length === 2 && t.scale.every((item) => typeof item === "number" && Number.isFinite(item) && Math.abs(item as number) <= 4 && (item as number) !== 0), `node ${nodeId} gradient scale must be finite, non-zero, within ±4`)
   }
   const rawStops = value.stops
   const stops = Array.isArray(rawStops) ? rawStops : []
@@ -302,6 +320,7 @@ function validateScene(
   add(issues, scene.nodes.length <= 5_000, `scene ${scene.id} has too many nodes`)
   validateScenePaths(scene, issues)
   validateSceneMasks(scene, issues)
+  validateScenePaints(scene, issues)
   const ids = new Set<string>()
   for (const node of scene.nodes) {
     add(issues, !ids.has(node.id), `scene ${scene.id} has duplicate node id ${node.id}`)

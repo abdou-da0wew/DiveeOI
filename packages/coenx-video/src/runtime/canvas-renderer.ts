@@ -2,6 +2,7 @@ import type { Scene, Vec3, VideoComposition, VisualNode } from "../model/types"
 import { evaluateSceneAtFrame } from "../animation/timeline"
 import { projectMesh3D } from "../render/geometry3d"
 import { canvasPaint } from "./canvas-paint"
+import { resolvePaint } from "../render/paint"
 import { resolveNodeMask } from "../render/mask"
 import { pathCommandsToSvgD, resolveClipPath, resolveNodePath } from "../render/path"
 
@@ -90,7 +91,7 @@ export class CanvasVideoRenderer {
       scratch.globalCompositeOperation = "destination-in"
       scratch.globalAlpha = 1
       for (const shape of mask.shapes) {
-        scratch.fillStyle = canvasPaint(scratch, width, height, shape.paint, "transparent")
+        scratch.fillStyle = canvasPaint(scratch, width, height, resolvePaint(shape.paint, scene), "transparent")
         scratch.fill(new Path2D(pathCommandsToSvgD(shape.commands, width, height)), shape.fillRule)
       }
       scratch.globalCompositeOperation = "source-over"
@@ -126,7 +127,7 @@ export class CanvasVideoRenderer {
     const { width, height } = node
     switch (node.kind) {
       case "rect":
-        context.fillStyle = canvasPaint(context, width, height, node.fill, "transparent")
+        context.fillStyle = canvasPaint(context, width, height, resolvePaint(node.fill, scene), "transparent")
         context.strokeStyle = node.stroke ?? "transparent"
         context.lineWidth = node.strokeWidth ?? 1
         this.roundRect(-width / 2, -height / 2, width, height, node.radius ?? 0, node.fill !== "none", !!node.stroke)
@@ -134,7 +135,7 @@ export class CanvasVideoRenderer {
       case "ellipse":
         context.beginPath()
         context.ellipse(0, 0, width / 2, height / 2, 0, 0, Math.PI * 2)
-        context.fillStyle = canvasPaint(context, width, height, node.fill, "transparent")
+        context.fillStyle = canvasPaint(context, width, height, resolvePaint(node.fill, scene), "transparent")
         context.strokeStyle = node.stroke ?? "transparent"
         context.lineWidth = node.strokeWidth ?? 1
         if (node.fill && node.fill !== "none") context.fill()
@@ -144,7 +145,7 @@ export class CanvasVideoRenderer {
         const resolved = resolveNodePath(node, scene)
         const path = new Path2D(pathCommandsToSvgD(resolved.commands, width, height))
         if (node.fill && node.fill !== "none") {
-          context.fillStyle = canvasPaint(context, width, height, node.fill, "transparent")
+          context.fillStyle = canvasPaint(context, width, height, resolvePaint(node.fill, scene), "transparent")
           context.fill(path, resolved.fillRule)
         }
         if (node.stroke) {
@@ -174,7 +175,7 @@ export class CanvasVideoRenderer {
         this.drawImage(node)
         break
       case "button":
-        context.fillStyle = node.disabled ? "#666666" : canvasPaint(context, width, height, node.fill, "#315fe8")
+        context.fillStyle = node.disabled ? "#666666" : canvasPaint(context, width, height, resolvePaint(node.fill, scene), "#315fe8")
         this.roundRect(-width / 2, -height / 2, width, height, node.radius ?? 12, true, false)
         this.drawText(
           node.text,

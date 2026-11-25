@@ -14,7 +14,7 @@ import type {
 import { evaluateSceneAtFrame } from "../animation/timeline"
 import { projectMesh3D } from "./geometry3d"
 import { resolveNodeMask, maskSvgDefinition } from "./mask"
-import { svgPaint } from "./paint"
+import { resolvePaint, svgPaint } from "./paint"
 import { pathCommandsToSvgD, resolveClipPath, resolveNodePath } from "./path"
 import { renderFontFamilyName } from "../fonts/catalog"
 
@@ -82,8 +82,9 @@ function paintValue(
   definitions: string[],
   width: number,
   height: number,
+  scene?: Scene,
 ) {
-  const result = svgPaint(paint, id, fallback, width, height)
+  const result = svgPaint(resolvePaint(paint, scene), id, fallback, width, height)
   if (result.definition) definitions.push(result.definition)
   return result.value
 }
@@ -117,18 +118,18 @@ async function renderNode(
   let body = ""
   switch (node.kind) {
     case "rect": {
-      const fill = paintValue(node.fill, `gradient-${composition.id}-${node.id}`, "none", definitions, width, height)
+      const fill = paintValue(node.fill, `gradient-${composition.id}-${node.id}`, "none", definitions, width, height, scene)
       body = `<rect x="${-width / 2}" y="${-height / 2}" width="${width}" height="${height}" rx="${node.radius ?? 0}" fill="${fill}" stroke="${node.stroke ?? "none"}" stroke-width="${node.strokeWidth ?? 1}"/>`
       break
     }
     case "ellipse": {
-      const fill = paintValue(node.fill, `gradient-${composition.id}-${node.id}`, "none", definitions, width, height)
+      const fill = paintValue(node.fill, `gradient-${composition.id}-${node.id}`, "none", definitions, width, height, scene)
       body = `<ellipse cx="0" cy="0" rx="${width / 2}" ry="${height / 2}" fill="${fill}" stroke="${node.stroke ?? "none"}" stroke-width="${node.strokeWidth ?? 1}"/>`
       break
     }
     case "path": {
       const resolved = resolveNodePath(node, scene)
-      const fill = paintValue(node.fill, `gradient-${composition.id}-${node.id}`, "none", definitions, width, height)
+      const fill = paintValue(node.fill, `gradient-${composition.id}-${node.id}`, "none", definitions, width, height, scene)
       body = `<path d="${pathCommandsToSvgD(resolved.commands, width, height)}" fill="${fill}" fill-rule="${resolved.fillRule}" stroke="${node.stroke ?? "none"}" stroke-width="${node.strokeWidth ?? 1}" stroke-linecap="${node.lineCap ?? "butt"}" stroke-linejoin="${node.lineJoin ?? "miter"}"/>`
       break
     }
@@ -149,7 +150,7 @@ async function renderNode(
     case "button": {
       const fill = node.disabled
         ? "#666666"
-        : paintValue(node.fill, `gradient-${composition.id}-${node.id}`, "#315fe8", definitions, width, height)
+        : paintValue(node.fill, `gradient-${composition.id}-${node.id}`, "#315fe8", definitions, width, height, scene)
       body = `<rect x="${-width / 2}" y="${-height / 2}" width="${width}" height="${height}" rx="${node.radius ?? 12}" fill="${fill}" stroke="${node.borderColor ?? "none"}"/>${renderText({ ...node, kind: "text", text: node.text, color: node.color ?? "#ffffff", fontSize: node.fontSize ?? 18, fontFamily: node.fontFamily ?? "Geist", fontWeight: node.fontWeight ?? 600 })}`
       break
     }

@@ -168,7 +168,11 @@ export const COENX_VIDEO_CAPABILITIES = {
         "interactive-canvas": "supported",
         "interactive-svg": "supported",
       },
-      notes: ["Gradient transforms, conic gradients and repeat/reflect spread modes are not implemented."],
+      notes: [
+        "Spread modes (pad/repeat/reflect) and gradient transforms (rotate/translate/scale) are supported on static SVG, interactive SVG and native Cairo.",
+        "The interactive Canvas backend implements transforms but only pad spread; repeat/reflect degrade to pad with a player warning (explicit partial capability).",
+        "Conic gradients are not implemented.",
+      ],
     },
     {
       id: "radial-gradients",
@@ -178,7 +182,21 @@ export const COENX_VIDEO_CAPABILITIES = {
         "interactive-canvas": "supported",
         "interactive-svg": "supported",
       },
-      notes: ["Gradient transforms, conic gradients and repeat/reflect spread modes are not implemented."],
+      notes: [
+        "Spread modes and gradient transforms are supported on static SVG, interactive SVG and native Cairo.",
+        "The interactive Canvas backend implements transforms but only pad spread (explicit partial capability).",
+        "Conic gradients are not implemented.",
+      ],
+    },
+    {
+      id: "paint-resources",
+      support: {
+        "static-svg": "supported",
+        "native-cairo": "supported",
+        "interactive-canvas": "supported",
+        "interactive-svg": "supported",
+      },
+      notes: ["Scene-level reusable gradient paints referenced with { paintRef }; nodes can also share CML <gradient> defs via fill=\"url(#id)\"."],
     },
     {
       id: "masks",
@@ -221,13 +239,10 @@ export const COENX_VIDEO_CAPABILITIES = {
     formats: [
       {
         id: "cml",
-        supportedNodes: ["rect", "ellipse", "line", "text", "image", "button", "input", "select"],
+        supportedNodes: ["rect", "ellipse", "line", "path", "text", "image", "button", "input", "select"],
         unsupportedAuthoringFeatures: [
-          "path-commands",
-          "reusable-paths",
-          "clip-paths",
-          "gradient-paint-literals",
           "mesh3d",
+          "gradient-transform-literals-in-nodes (use <defs><gradient> instead)",
         ],
       },
       {

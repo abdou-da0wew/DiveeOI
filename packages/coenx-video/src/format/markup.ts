@@ -2,6 +2,8 @@ export interface CmlElement {
   tag: string
   attributes: Record<string, string>
   children: Array<CmlElement | string>
+  /** Character offset of the "<" opening this element, for diagnostics. */
+  offset?: number
 }
 
 export class CmlSyntaxError extends Error {
@@ -121,7 +123,7 @@ export function parseCmlMarkup(source: string): CmlElement {
     if (!nameMatch) throw new CmlSyntaxError("invalid element name", opening)
     const tag = nameMatch[0].toLowerCase()
     const attributes = parseAttributes(body.slice(nameMatch[0].length), opening + 1 + nameMatch[0].length)
-    const element: CmlElement = { tag, attributes, children: [] }
+    const element: CmlElement = { tag, attributes, children: [], offset: opening }
     nodeCount++
     if (nodeCount > 5_000) throw new CmlSyntaxError("document exceeds the 5,000 element limit", opening)
     const parent = stack.at(-1)

@@ -2,7 +2,7 @@ import type { Scene, Vec3, VideoComposition, VisualNode } from "../model/types"
 import { evaluateSceneAtFrame } from "../animation/timeline"
 import { projectMesh3D } from "../render/geometry3d"
 import { resolveNodeMask } from "../render/mask"
-import { isGradientPaint, whiteAlphaPaint } from "../render/paint"
+import { isGradientPaint, resolvePaint, whiteAlphaPaint } from "../render/paint"
 import { pathCommandsToSvgD, resolveClipPath, resolveNodePath } from "../render/path"
 import type { CanvasAssetResolver } from "./canvas-renderer"
 import { element, paintValue, SVG_NS, textElement } from "./svg-primitives"
@@ -165,8 +165,8 @@ export class SvgVideoRenderer {
           node.kind === "button"
             ? node.disabled
               ? "#666666"
-              : paintValue(node.fill, `gradient-${scene.id}-${node.id}`, "#315fe8", definitions, width, height)
-            : paintValue(node.fill, `gradient-${scene.id}-${node.id}`, "none", definitions, width, height)
+              : paintValue(resolvePaint(node.fill, scene), `gradient-${scene.id}-${node.id}`, "#315fe8", definitions, width, height)
+            : paintValue(resolvePaint(node.fill, scene), `gradient-${scene.id}-${node.id}`, "none", definitions, width, height)
         group.append(
           element("rect", {
             x: -width / 2,
@@ -183,7 +183,7 @@ export class SvgVideoRenderer {
         break
       }
       case "ellipse": {
-        const fill = paintValue(node.fill, `gradient-${scene.id}-${node.id}`, "none", definitions, width, height)
+        const fill = paintValue(resolvePaint(node.fill, scene), `gradient-${scene.id}-${node.id}`, "none", definitions, width, height)
         group.append(
           element("ellipse", {
             cx: 0,
@@ -199,7 +199,7 @@ export class SvgVideoRenderer {
       }
       case "path": {
         const resolved = resolveNodePath(node, scene)
-        const fill = paintValue(node.fill, `gradient-${scene.id}-${node.id}`, "none", definitions, width, height)
+        const fill = paintValue(resolvePaint(node.fill, scene), `gradient-${scene.id}-${node.id}`, "none", definitions, width, height)
         group.append(
           element("path", {
             d: pathCommandsToSvgD(resolved.commands, width, height),

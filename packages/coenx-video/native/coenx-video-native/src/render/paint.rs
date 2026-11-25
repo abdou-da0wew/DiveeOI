@@ -1,4 +1,4 @@
-use cairo::{Context, LinearGradient, RadialGradient};
+use cairo::{Context, LinearGradient, Matrix, RadialGradient};
 use serde_json::Value;
 
 fn component(value: &Value, key: &str) -> Result<f64, String> {
@@ -30,6 +30,49 @@ fn color(value: &str) -> Result<(f64, f64, f64, f64), String> {
 
 fn coordinate(value: &Value, index: usize, fallback: f64) -> f64 {
     value.get(index).and_then(Value::as_f64).unwrap_or(fallback)
+}
+
+fn spread(paint: &Value) -> cairo::Extend {
+    match paint.get("spread").and_then(Value::as_str) {
+        Some("repeat") => cairo::Extend::Repeat,
+        Some("reflect") => cairo::Extend::Reflect,
+        _ => cairo::Extend::Pad,
+    }
+}
+
+fn gradient_matrix(paint: &Value) -> Option<Matrix> {
+    let transform = paint.get("transform")?;
+    let scale = |axis: &str| {
+        transform
+            .get("scale")
+            .and_then(|value| value.get(axis))
+            .and_then(Value::as_f64)
+            .unwrap_or(1.0)
+    };
+    let translate = |axis: &str| {
+        transform
+            .get("translate")
+            .and_then(|value| value.get(axis))
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+    };
+    let radians = transform
+        .get("rotate")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0)
+        .to_radians();
+    let (cos, sin) = (radians.cos(), radians.sin());
+    let sx = scale("0");
+    let sy = scale("1");
+    let matrix = Matrix::new(
+        sx * cos,
+        sx * sin,
+        -sy * sin,
+        sy * cos,
+        translate("0"),
+        translate("1"),
+    );
+    Some(matrix)
 }
 
 fn add_stops(gradient: &impl GradientStops, stops: &[Value]) -> Result<(), String> {
@@ -118,6 +161,10 @@ pub(super) fn set_paint(
                 local_y(coordinate(to, 1, 0.5)),
             );
             add_stops(&gradient, stops)?;
+            gradient.set_extend(spread(paint));
+            if let Some(matrix) = gradient_matrix(paint) {
+                gradient.set_matrix(matrix);
+            }
             context
                 .set_source(&gradient)
                 .map_err(|error| error.to_string())?;
@@ -138,6 +185,10 @@ pub(super) fn set_paint(
             }
             let gradient = RadialGradient::new(cx, cy, 0.0, cx, cy, radius);
             add_stops(&gradient, stops)?;
+            gradient.set_extend(spread(paint));
+            if let Some(matrix) = gradient_matrix(paint) {
+                gradient.set_matrix(matrix);
+            }
             context
                 .set_source(&gradient)
                 .map_err(|error| error.to_string())?;

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url"
 import type { Scene, Vec3, VideoComposition, VisualNode } from "../model/types"
 import { projectMesh3D } from "./geometry3d"
 import { evaluateSceneAtFrame } from "../animation/timeline"
-import { colorAlpha, isGradientPaint } from "./paint"
+import { colorAlpha, isGradientPaint, resolvePaint } from "./paint"
 import { resolveNodeMask } from "./mask"
 import { resolveClipPath, resolveNodePath } from "./path"
 
@@ -71,6 +71,7 @@ function supportedNodes(
   const output: Array<VisualNode | Record<string, unknown>> = []
   for (const node of nodes) {
     const renderNode: Record<string, unknown> = { ...node }
+    if ("fill" in node) renderNode.fill = resolvePaint(node.fill, scene)
     if (node.kind === "path") {
       const path = resolveNodePath(node, scene)
       renderNode.commands = path.commands
