@@ -1,7 +1,23 @@
 export type Scalar = string | number | boolean | null
 export type Vec2 = readonly [number, number]
 export type Vec3 = readonly [number, number, number]
-export type Easing = "linear" | "ease-in" | "ease-out" | "ease-in-out" | "step"
+/**
+ * Bounded easing vocabulary shared by every backend. `back-out` and
+ * `elastic-out` give entrances overshoot life; `expo-out` is the standard
+ * motion-design settle curve; `bounce-out` lands playful beats.
+ */
+export type Easing =
+  | "linear"
+  | "ease-in"
+  | "ease-out"
+  | "ease-in-out"
+  | "step"
+  | "back-out"
+  | "back-in-out"
+  | "expo-out"
+  | "expo-in-out"
+  | "elastic-out"
+  | "bounce-out"
 
 export interface Keyframe {
   frame: number
@@ -19,6 +35,8 @@ export type AnimatedProperty =
   | "scaleY"
   | "opacity"
   | "fontSize"
+  /** 0..1 driver for text count-up rendering (TextNode.countTo/countFrom). */
+  | "textProgress"
   | "positionX3d"
   | "positionY3d"
   | "positionZ3d"
@@ -72,6 +90,14 @@ export type NodeEffect =
       saturate?: number
       hueRotate?: number
     }
+  /**
+   * Film-grain finishing layer: deterministic per-seed noise blended over
+   * the node content. `seed` makes the grain stable for a given frame; the
+   * render pipeline injects a per-frame seed so animated grain shimmers.
+   */
+  | { type: "grain"; amount?: number; size?: number; seed?: number }
+  /** Radial edge-darkening finishing layer (strength 0..1, radius 0..1). */
+  | { type: "vignette"; strength?: number; radius?: number }
 
 export interface GradientStop {
   offset: number
@@ -221,6 +247,17 @@ export interface TextNode extends NodeBase {
   color?: string
   align?: "left" | "center" | "right"
   lineHeight?: number
+  /**
+   * Count-up rendering: when `countTo` is set and an animation drives
+   * `textProgress` 0..1, every backend renders the interpolated number
+   * (formatted with countDecimals, wrapped in countPrefix/countSuffix)
+   * instead of the static `text` fallback.
+   */
+  countFrom?: number
+  countTo?: number
+  countDecimals?: number
+  countPrefix?: string
+  countSuffix?: string
 }
 
 export interface ImageNode extends NodeBase {

@@ -1,6 +1,6 @@
 import type { Scene, Vec3, VideoComposition, VisualNode } from "../model/types"
-import { evaluateSceneAtFrame } from "../animation/timeline"
-import { effectPadding, canvasFilterValue, canvasFilterUnsupportedWarning } from "../render/effects"
+import { applyComputedTexts, evaluateSceneAtFrame } from "../animation/timeline"
+import { effectPadding, canvasFilterValue, canvasFilterUnsupportedWarning, withGrainFrameSeeds } from "../render/effects"
 import { projectMesh3D } from "../render/geometry3d"
 import { canvasPaint } from "./canvas-paint"
 import { resolvePaint } from "../render/paint"
@@ -69,16 +69,16 @@ export class CanvasVideoRenderer {
     context.setTransform(1, 0, 0, 1, 0, 0)
     context.fillStyle = scene.background ?? options.composition.stage.background ?? "#10131b"
     context.fillRect(0, 0, width, height)
-    for (const node of evaluateSceneAtFrame(scene, frame, hidden)) {
+    for (const node of applyComputedTexts(withGrainFrameSeeds(evaluateSceneAtFrame(scene, frame, hidden), frame))) {
       const pose = physics3d?.[node.id]
       const rendered =
         pose && node.kind === "mesh3d" ? { ...node, position: pose.position, rotation3d: pose.rotation } : node
-      this.drawNode(rendered, scene)
+      this.drawNode(rendered, scene, frame)
     }
     context.restore()
   }
 
-  private drawNode(node: VisualNode, scene: Scene) {
+  private drawNode(node: VisualNode, scene: Scene, frame = 0) {
     const context = this.context
     const opacity = Math.max(0, Math.min(1, node.opacity ?? 1))
     if (opacity === 0) return
@@ -148,12 +148,90 @@ export class CanvasVideoRenderer {
       }
       context.globalAlpha = opacity
       context.drawImage(surface, -surface.width / 2, -surface.height / 2, surface.width, surface.height)
+      this.applyFinishingOverlays(node, frame, width, height, pad)
       context.globalAlpha = 1
       context.restore()
       return
     }
     this.drawNodeBody(node, scene)
+    this.applyFinishingOverlays(node, frame, width, height, 0)
     context.restore()
+  }
+
+  /**
+   * Grain + vignette finishing overlays for the Canvas backend. Grain uses a
+   * cached deterministic noise tile (per size+seed); vignette a radial
+   * gradient. Both respect the active node transform, clip and mask.
+   */
+  private applyFinishingOverlays(node: VisualNode, frame: number, width: number, height: number, pad: number) {
+    const effects = node.effects?.filter((effect) => effect.type === "grain" || effect.type === "vignette") ?? []
+    if (!effects.length) return
+    const context = this.context
+    context.save()
+    for (const effect of effects) {
+      if (effect.type === "vignette") {
+        const strength = Math.max(0, Math.min(1, effect.strength ?? 0.5))
+        const radius = Math.max(0, Math.min(1, effect.radius ?? 0.7))
+        const inner = (Math.min(width, height) / 2) * radius
+        const outer = Math.max(Math.hypot(width, height) / 2, inner + 1)
+        const gradient = context.createRadialGradient(0, 0, inner, 0, 0, outer)
+        gradient.addColorStop(0, "rgba(0,0,0,0)")
+        gradient.addColorStop(1, `rgba(0,0,0,${strength})`)
+        context.fillStyle = gradient
+        context.fillRect(-width / 2 - pad, -height / 2 - pad, width + pad * 2, height + pad * 2)
+        continue
+      }
+      const amount = Math.max(0, Math.min(1, effect.amount ?? 0.35))
+      const size = Math.max(1, Math.min(8, Math.round(effect.size ?? 2)))
+      const seed = Math.max(0, Math.round((effect.seed ?? 7) + frame * 1013) % 2147483647)
+      const tile = this.grainTile(size, seed)
+      const pattern = context.createPattern(tile, "repeat")
+      if (pattern) {
+        context.globalAlpha = amount
+        context.fillStyle = pattern
+        context.fillRect(-width / 2 - pad, -height / 2 - pad, width + pad * 2, height + pad * 2)
+        context.globalAlpha = Math.max(0, Math.min(1, node.opacity ?? 1))
+      }
+    }
+    context.restore()
+  }
+
+  private grainTileCache: { key: string; canvas: HTMLCanvasElement } | undefined
+
+  private grainTile(size: number, seed: number): HTMLCanvasElement {
+    const key = `${size}:${seed}`
+    if (this.grainTileCache?.key === key) return this.grainTileCache.canvas
+    const side = 128
+    const canvas = document.createElement("canvas")
+    canvas.width = side
+    canvas.height = side
+    const context = canvas.getContext("2d")!
+    const image = context.createImageData(side, side)
+    let state = (seed & 0x7fffffff) >>> 0
+    const random = () => {
+      state = (state + 0x6d2b79f5) >>> 0
+      let t = state
+      t = Math.imul(t ^ (t >>> 15), t | 1)
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+    }
+    for (let y = 0; y < side; y += size) {
+      for (let x = 0; x < side; x += size) {
+        const value = random()
+        for (let dy = 0; dy < size; dy++) {
+          for (let dx = 0; dx < size; dx++) {
+            const offset = ((y + dy) * side + (x + dx)) * 4
+            image.data[offset] = 128
+            image.data[offset + 1] = 128
+            image.data[offset + 2] = 128
+            image.data[offset + 3] = Math.round(value * 255)
+          }
+        }
+      }
+    }
+    context.putImageData(image, 0, 0)
+    this.grainTileCache = { key, canvas }
+    return canvas
   }
 
   private beginScratch(

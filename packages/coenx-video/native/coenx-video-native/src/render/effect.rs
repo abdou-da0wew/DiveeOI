@@ -9,6 +9,9 @@ const MAX_BLUR_SIGMA: f64 = 64.0;
 const MAX_SHADOW_SIGMA: f64 = 32.0;
 const MAX_SHADOW_OFFSET: f64 = 128.0;
 const MAX_SURFACE_PIXELS: f64 = 8_388_608.0;
+const MAX_GRAIN_AMOUNT: f64 = 1.0;
+const MAX_GRAIN_SIZE: f64 = 8.0;
+const MAX_SEED: i64 = 2_147_483_647;
 
 enum Effect {
     Blur {
@@ -26,6 +29,15 @@ enum Effect {
         saturate: Option<f64>,
         hue: Option<f64>,
     },
+    Grain {
+        amount: f64,
+        size: f64,
+        seed: i64,
+    },
+    Vignette {
+        strength: f64,
+        radius: f64,
+    },
 }
 
 impl Effect {
@@ -33,7 +45,7 @@ impl Effect {
         match self {
             Effect::Blur { sigma } => *sigma,
             Effect::Shadow { sigma, .. } => *sigma,
-            Effect::Adjust { .. } => 0.0,
+            Effect::Adjust { .. } | Effect::Grain { .. } | Effect::Vignette { .. } => 0.0,
         }
     }
 
@@ -131,6 +143,57 @@ fn parse_effects(node: &Value) -> Result<Vec<Effect>, String> {
                     saturate: field("saturate"),
                     hue: field("hueRotate"),
                 });
+            }
+            "grain" => {
+                let amount = effect
+                    .get("amount")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.35);
+                let size = effect
+                    .get("size")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(2.0);
+                let seed = effect
+                    .get("seed")
+                    .and_then(Value::as_i64)
+                    .unwrap_or(7);
+                if !amount.is_finite() || !(0.0..=MAX_GRAIN_AMOUNT).contains(&amount) {
+                    return Err(format!(
+                        "grain amount must be between 0 and {MAX_GRAIN_AMOUNT}"
+                    ));
+                }
+                if !size.is_finite() || !(1.0..=MAX_GRAIN_SIZE).contains(&size) {
+                    return Err(format!(
+                        "grain size must be between 1 and {MAX_GRAIN_SIZE}"
+                    ));
+                }
+                if !(0..=MAX_SEED).contains(&seed) {
+                    return Err(format!(
+                        "grain seed must be between 0 and {MAX_SEED}"
+                    ));
+                }
+                effects.push(Effect::Grain {
+                    amount,
+                    size,
+                    seed,
+                });
+            }
+            "vignette" => {
+                let strength = effect
+                    .get("strength")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.5);
+                let radius = effect
+                    .get("radius")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.7);
+                if !strength.is_finite() || !(0.0..=1.0).contains(&strength) {
+                    return Err("vignette strength must be between 0 and 1".into());
+                }
+                if !radius.is_finite() || !(0.0..=1.0).contains(&radius) {
+                    return Err("vignette radius must be between 0 and 1".into());
+                }
+                effects.push(Effect::Vignette { strength, radius });
             }
             other => return Err(format!("unsupported native effect type: {other}")),
         }
@@ -523,6 +586,33 @@ pub(super) fn apply_effect_chain(
                     },
                 );
             }
+            Effect::Grain {
+                amount,
+                size,
+                seed,
+            } => {
+                apply_grain(
+                    &mut pixels,
+                    surface_width,
+                    surface_height,
+                    stride,
+                    *amount,
+                    *size,
+                    *seed,
+                );
+            }
+            Effect::Vignette { strength, radius } => {
+                apply_vignette(
+                    &mut pixels,
+                    surface_width,
+                    surface_height,
+                    stride,
+                    geometry.x - f64::from(aabb_x),
+                    geometry.y - f64::from(aabb_y),
+                    *strength,
+                    *radius,
+                );
+            }
         }
     }
 
@@ -589,4 +679,84 @@ pub(super) fn apply_effect_chain(
         .map_err(|error| error.to_string())?;
     context.restore().map_err(|error| error.to_string())?;
     Ok(())
+}
+
+/// Deterministic per-index noise in [0, 1) from a splitmix64-style mixer so
+/// grain is stable for a given seed and index yet shimmers across frames
+/// when the pipeline injects per-frame seeds.
+fn grain_noise(seed: u64, index: u64) -> f64 {
+    let mut z = seed ^ index.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    z = z.wrapping_add(0x6D2B_79F5);
+    let mut t = z;
+    t = t.wrapping_mul(t ^ (t >> 15));
+    t = t.wrapping_mul(t ^ (t >> 13));
+    ((t ^ (t >> 16)) & 0xFFFF) as f64 / 65535.0
+}
+
+/// Film-grain finishing layer: adds signed, alpha-weighted luminance noise
+/// quantized into `size`-pixel cells over the premultiplied ARGB buffer.
+fn apply_grain(
+    pixels: &mut [u8],
+    width: usize,
+    height: usize,
+    stride: usize,
+    amount: f64,
+    size: f64,
+    seed: i64,
+) {
+    if amount <= 0.0 || width == 0 || height == 0 {
+        return;
+    }
+    let cell = size.max(1.0) as usize;
+    let base_seed = (seed as u64) & 0x7FFF_FFFF;
+    for y in 0..height {
+        for x in 0..width {
+            let cell_x = (x / cell) as u64;
+            let cell_y = (y / cell) as u64;
+            let index = cell_y.wrapping_mul(0x1000_0000).wrapping_add(cell_x);
+            let noise = grain_noise(base_seed, index) * 2.0 - 1.0;
+            let offset = y * stride + x * 4;
+            let alpha = pixels[offset + 3] as f64 / 255.0;
+            let delta = noise * amount * alpha * 255.0;
+            for channel in 0..3 {
+                let value = pixels[offset + channel] as f64 + delta;
+                pixels[offset + channel] = value.clamp(0.0, 255.0) as u8;
+            }
+        }
+    }
+}
+
+/// Radial edge-darkening finishing layer centered on the node box.
+fn apply_vignette(
+    pixels: &mut [u8],
+    width: usize,
+    height: usize,
+    stride: usize,
+    center_x: f64,
+    center_y: f64,
+    strength: f64,
+    radius: f64,
+) {
+    if strength <= 0.0 || width == 0 || height == 0 {
+        return;
+    }
+    let inner = ((width.min(height) as f64) / 2.0) * radius.clamp(0.0, 1.0);
+    let outer = ((width as f64).hypot(height as f64) / 2.0).max(inner + 1.0);
+    for y in 0..height {
+        for x in 0..width {
+            let dx = x as f64 + 0.5 - center_x;
+            let dy = y as f64 + 0.5 - center_y;
+            let distance = dx.hypot(dy);
+            if distance <= inner {
+                continue;
+            }
+            let t = ((distance - inner) / (outer - inner)).clamp(0.0, 1.0);
+            let factor = 1.0 - strength * t;
+            let offset = y * stride + x * 4;
+            for channel in 0..3 {
+                let value = pixels[offset + channel] as f64 * factor;
+                pixels[offset + channel] = value.clamp(0.0, 255.0) as u8;
+            }
+        }
+    }
 }

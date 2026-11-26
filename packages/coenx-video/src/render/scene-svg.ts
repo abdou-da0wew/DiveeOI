@@ -11,8 +11,8 @@ import type {
   VideoComposition,
   VisualNode,
 } from "../model/types"
-import { evaluateSceneAtFrame } from "../animation/timeline"
-import { effectPadding, svgFilterDefinition } from "./effects"
+import { applyComputedTexts, evaluateSceneAtFrame } from "../animation/timeline"
+import { effectPadding, svgFilterDefinition, withGrainFrameSeeds } from "./effects"
 import { projectMesh3D } from "./geometry3d"
 import { resolveNodeMask, maskSvgDefinition } from "./mask"
 import { resolvePaint, svgPaint } from "./paint"
@@ -137,6 +137,19 @@ async function renderNode(
       definitions.push(svgFilterDefinition(effects, filterId, width, height, pad))
     }
   }
+  // Vignette is a finishing overlay: a radial gradient rect painted over the
+  // node content inside the same group (so clip/mask/opacity still apply).
+  let vignetteOverlay = ""
+  const vignette = effects?.find((effect) => effect.type === "vignette")
+  if (vignette && vignette.type === "vignette") {
+    const strength = Math.max(0, Math.min(1, vignette.strength ?? 0.5))
+    const radius = Math.max(0, Math.min(1, vignette.radius ?? 0.7))
+    const gradientId = `vignette-${scene.id}-${node.id}`
+    definitions.push(
+      `<radialGradient id="${gradientId}" cx="0.5" cy="0.5" r="0.75"><stop offset="0" stop-color="#000000" stop-opacity="0"/><stop offset="${radius}" stop-color="#000000" stop-opacity="0"/><stop offset="1" stop-color="#000000" stop-opacity="${strength}"/></radialGradient>`,
+    )
+    vignetteOverlay = `<rect x="${-width / 2}" y="${-height / 2}" width="${width}" height="${height}" fill="url(#${gradientId})"/>`
+  }
   let body = ""
   switch (node.kind) {
     case "rect": {
@@ -186,7 +199,7 @@ async function renderNode(
       body = renderMesh(node, camera, lights, transition)
       return body
   }
-  return `<g transform="${transform}" opacity="${opacity}"${clipId ? ` clip-path="url(#${clipId})"` : ""}${maskId ? ` mask="url(#${maskId})"` : ""}${filterId ? ` filter="url(#${filterId})"` : ""}>${body}</g>`
+  return `<g transform="${transform}" opacity="${opacity}"${clipId ? ` clip-path="url(#${clipId})"` : ""}${maskId ? ` mask="url(#${maskId})"` : ""}${filterId ? ` filter="url(#${filterId})"` : ""}>${body}${vignetteOverlay}</g>`
 }
 
 function renderMesh(
@@ -224,7 +237,7 @@ export async function renderSceneSvg(
         ? -(1 - progress) * composition.stage.width
         : 0
   const transition = { x: offset, y: 0, opacity: amount }
-  const nodes = evaluateSceneAtFrame(scene, frame, options.hiddenNodes)
+  const nodes = applyComputedTexts(withGrainFrameSeeds(evaluateSceneAtFrame(scene, frame, options.hiddenNodes), frame))
   const paintDefinitions: string[] = []
   const shared = { clipDefs: new Map<string, string>(), filterDefs: new Map<string, string>() }
   const content = await Promise.all(

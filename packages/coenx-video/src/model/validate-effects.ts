@@ -23,6 +23,14 @@ export const EFFECT_BUDGETS = {
   maxSaturate: 4,
   /** Maximum absolute hue-rotate degrees. */
   maxHueRotate: 360,
+  /** Maximum grain amount (0..1 opacity of the noise layer). */
+  maxGrainAmount: 1,
+  /** Maximum grain cell size in pixels. */
+  maxGrainSize: 8,
+  /** Maximum vignette strength (0..1). */
+  maxVignetteStrength: 1,
+  /** Maximum seed range for deterministic grain. */
+  maxSeed: 2_147_483_647,
   /** Maximum padded effect-surface pixels per node (temporary surface budget). */
   maxEffectSurfacePixels: 8_388_608,
 } as const
@@ -108,8 +116,29 @@ function validateEffect(nodeId: string, index: number, raw: unknown, width: numb
       )
       break
     }
+    case "grain": {
+      const amount = effect.amount
+      if (amount !== undefined)
+        add(issues, finite(amount) && (amount as number) >= 0 && (amount as number) <= EFFECT_BUDGETS.maxGrainAmount, `${label} grain amount must be between 0 and ${EFFECT_BUDGETS.maxGrainAmount}`)
+      const size = effect.size
+      if (size !== undefined)
+        add(issues, finite(size) && Number.isInteger(size) && (size as number) >= 1 && (size as number) <= EFFECT_BUDGETS.maxGrainSize, `${label} grain size must be an integer between 1 and ${EFFECT_BUDGETS.maxGrainSize}`)
+      const seed = effect.seed
+      if (seed !== undefined)
+        add(issues, finite(seed) && Number.isInteger(seed) && (seed as number) >= 0 && (seed as number) <= EFFECT_BUDGETS.maxSeed, `${label} grain seed must be an integer between 0 and ${EFFECT_BUDGETS.maxSeed}`)
+      break
+    }
+    case "vignette": {
+      const strength = effect.strength
+      if (strength !== undefined)
+        add(issues, finite(strength) && (strength as number) >= 0 && (strength as number) <= EFFECT_BUDGETS.maxVignetteStrength, `${label} vignette strength must be between 0 and ${EFFECT_BUDGETS.maxVignetteStrength}`)
+      const radius = effect.radius
+      if (radius !== undefined)
+        add(issues, finite(radius) && (radius as number) >= 0 && (radius as number) <= 1, `${label} vignette radius must be between 0 and 1`)
+      break
+    }
     default:
-      add(issues, false, `${label} has an unsupported effect type (allowed: blur, drop-shadow, color-adjust)`)
+      add(issues, false, `${label} has an unsupported effect type (allowed: blur, drop-shadow, color-adjust, grain, vignette)`)
   }
 }
 
@@ -120,7 +149,7 @@ function validateEffect(nodeId: string, index: number, raw: unknown, width: numb
  */
 export function validateSceneEffects(scene: Scene, issues: string[]) {
   for (const node of scene.nodes) {
-    const effects = node.effects
+    const effects = "effects" in node ? node.effects : undefined
     if (effects === undefined) continue
     add(issues, Array.isArray(effects) && effects.length > 0, `node ${node.id} effects must be a non-empty array when present`)
     if (!Array.isArray(effects)) continue

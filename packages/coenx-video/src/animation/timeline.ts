@@ -6,6 +6,37 @@ export function ease(value: number, mode: Keyframe["easing"] = "linear") {
   if (mode === "ease-in") return t * t
   if (mode === "ease-out") return 1 - (1 - t) * (1 - t)
   if (mode === "ease-in-out") return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2
+  if (mode === "back-out") {
+    const c1 = 1.70158
+    const c3 = c1 + 1
+    return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2)
+  }
+  if (mode === "back-in-out") {
+    const c2 = 1.70158 * 1.525
+    return t < 0.5
+      ? (Math.pow(2 * t, 2) * ((c2 + 1) * 2 * t - c2)) / 2
+      : (Math.pow(2 * t - 2, 2) * ((c2 + 1) * (t * 2 - 2) + c2) + 2) / 2
+  }
+  if (mode === "expo-out") return t === 1 ? 1 : 1 - Math.pow(2, -10 * t)
+  if (mode === "expo-in-out") {
+    if (t === 0) return 0
+    if (t === 1) return 1
+    return t < 0.5 ? Math.pow(2, 20 * t - 10) / 2 : (2 - Math.pow(2, -20 * t + 10)) / 2
+  }
+  if (mode === "elastic-out") {
+    if (t === 0 || t === 1) return t
+    const c4 = (2 * Math.PI) / 3
+    return Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * c4) + 1
+  }
+  if (mode === "bounce-out") {
+    const n1 = 7.5625
+    const d1 = 2.75
+    let b = t
+    if (b < 1 / d1) return n1 * b * b
+    if (b < 2 / d1) return n1 * (b -= 1.5 / d1) * b + 0.75
+    if (b < 2.5 / d1) return n1 * (b -= 2.25 / d1) * b + 0.9375
+    return n1 * (b -= 2.625 / d1) * b + 0.984375
+  }
   return t
 }
 
@@ -104,4 +135,30 @@ export function evaluateSceneAtFrame(
 
 export function compositionDurationSeconds(composition: VideoComposition) {
   return composition.scenes.reduce((sum, scene) => sum + scene.durationFrames, 0) / composition.stage.fps
+}
+
+function formatCountValue(value: number, decimals: number) {
+  if (decimals <= 0) return Math.round(value).toLocaleString("en-US")
+  return value.toFixed(decimals)
+}
+
+/**
+ * Resolves count-up text: text nodes carrying `countTo` plus a numeric
+ * `textProgress` (driven by keyframes) render the interpolated, formatted
+ * number instead of their static text. Applied once per evaluated frame so
+ * every backend (SVG, Canvas, native) sees final text content.
+ */
+export function applyComputedTexts<T extends VisualNode>(nodes: readonly T[]): T[] {
+  return nodes.map((node) => {
+    if (node.kind !== "text") return node
+    const progress = (node as unknown as Record<string, unknown>).textProgress
+    if (typeof progress !== "number" || !Number.isFinite(node.countTo)) return node
+    const from = typeof node.countFrom === "number" ? node.countFrom : 0
+    const decimals = Math.max(0, Math.min(6, Math.floor(node.countDecimals ?? 0)))
+    const clamped = Math.max(0, Math.min(1, progress))
+    const value = from + (node.countTo! - from) * clamped
+    const prefix = node.countPrefix ?? ""
+    const suffix = node.countSuffix ?? ""
+    return { ...node, text: prefix + formatCountValue(value, decimals) + suffix } as T
+  })
 }

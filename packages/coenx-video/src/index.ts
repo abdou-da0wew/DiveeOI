@@ -32,3 +32,18 @@ export { renderNativeFrame } from "./render/native"
 export type { NativeFrameRequest } from "./render/native"
 export { renderNativeVideo } from "./render/native-video"
 export { SvgVideoRenderer } from "./runtime/svg-renderer"
+export {
+  SETTLE_EASING,
+  POP_EASING,
+  ENTRANCE_FRAMES,
+  EXIT_FRAMES,
+  STAGGER_FRAMES,
+  entrance,
+  popIn,
+  slideIn,
+  stagger,
+  kenBurns,
+  breathe,
+  countUp,
+  exit,
+} from "./motion/presets"

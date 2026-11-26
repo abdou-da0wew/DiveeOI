@@ -5,9 +5,9 @@ import { createInterface } from "node:readline"
 import { fileURLToPath } from "node:url"
 import type { Scene, Vec3, VideoComposition, VisualNode } from "../model/types"
 import { projectMesh3D } from "./geometry3d"
-import { evaluateSceneAtFrame } from "../animation/timeline"
+import { applyComputedTexts, evaluateSceneAtFrame } from "../animation/timeline"
 import { colorAlpha, isGradientPaint, resolvePaint } from "./paint"
-import { nativeEffectsPayload } from "./effects"
+import { nativeEffectsPayload, withGrainFrameSeeds } from "./effects"
 import { resolveNodeMask } from "./mask"
 import { resolveClipPath, resolveNodePath } from "./path"
 
@@ -199,7 +199,7 @@ export class NativeRendererSession {
       throw new Error("Native renderer session is closed")
     }
     const nodes = supportedNodes(
-      evaluateSceneAtFrame(options.scene, options.frame),
+      applyComputedTexts(withGrainFrameSeeds(evaluateSceneAtFrame(options.scene, options.frame), options.frame)),
       options.scene,
       options.physics3d,
       options.imageAssets,

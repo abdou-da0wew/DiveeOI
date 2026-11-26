@@ -1,5 +1,6 @@
 import { createComposition } from "../authoring/composition"
 import { isBundledFontFamily } from "../fonts/catalog"
+import type { Easing } from "../model/types"
 import type {
   AudioClip,
   ButtonNode,
@@ -86,7 +87,8 @@ function animationChildren(element: CmlElement): NodeAnimation[] {
     const start = number(animation.attributes.start, 0, "animation start frame")
     const end = number(animation.attributes.end, 30, "animation end frame")
     const easing = animation.attributes.easing ?? "linear"
-    if (!["linear", "ease-in", "ease-out", "ease-in-out", "step"].includes(easing)) {
+    const EASINGS = ["linear", "ease-in", "ease-out", "ease-in-out", "step", "back-out", "back-in-out", "expo-out", "expo-in-out", "elastic-out", "bounce-out"]
+    if (!EASINGS.includes(easing)) {
       throw new Error("Unsupported animation easing: " + easing)
     }
     return {
@@ -96,7 +98,7 @@ function animationChildren(element: CmlElement): NodeAnimation[] {
         {
           frame: end,
           value: number(to, 0, "animation to"),
-          easing: easing as "linear" | "ease-in" | "ease-out" | "ease-in-out" | "step",
+          easing: easing as Easing,
         },
       ],
     }

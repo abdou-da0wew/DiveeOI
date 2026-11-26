@@ -18,7 +18,26 @@ import type { NodeEffect } from "../model/types"
  */
 
 const HEX_COLOR = /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i
-export const EFFECT_TYPES: ReadonlyArray<NodeEffect["type"]> = ["blur", "drop-shadow", "color-adjust"]
+export const EFFECT_TYPES: ReadonlyArray<NodeEffect["type"]> = ["blur", "drop-shadow", "color-adjust", "grain", "vignette"]
+
+/**
+ * Injects a deterministic per-frame seed into grain effects so animated
+ * grain shimmers across frames while staying stable within a frame (and
+ * reproducible across renders). Validation still bounds the base seed.
+ */
+export function withGrainFrameSeeds<T extends { effects?: NodeEffect[] }>(nodes: readonly T[], frame: number): T[] {
+  return nodes.map((node) => {
+    if (!node.effects?.some((effect) => effect.type === "grain")) return node
+    return {
+      ...node,
+      effects: node.effects.map((effect) => {
+        if (effect.type !== "grain") return effect
+        const mixed = (Math.round(effect.seed ?? 7) + frame * 1013 + (effect.size ?? 2) * 7919) % 2147483647
+        return { ...effect, seed: Math.max(0, mixed) }
+      }),
+    } as T
+  })
+}
 
 /** Padding (pixels) an effect chain requires around the node box: 3 sigmas of blur plus shadow offsets. */
 export function effectPadding(effects: readonly NodeEffect[]): number {
@@ -78,8 +97,22 @@ export function parseFilterAttribute(value: string): NodeEffect[] {
         effects.push({ type: "color-adjust", hueRotate: numbers()[0] })
         break
       }
+      case "grain": {
+        if (args.length > 2) throw new Error("filter grain() takes an optional amount and size")
+        const values = args.map((item) => Number(item))
+        if (values.some((item) => !Number.isFinite(item))) throw new Error("filter grain() expects numeric arguments")
+        effects.push({ type: "grain", ...(values[0] !== undefined ? { amount: values[0] } : {}), ...(values[1] !== undefined ? { size: values[1] } : {}) })
+        break
+      }
+      case "vignette": {
+        if (args.length > 2) throw new Error("filter vignette() takes an optional strength and radius")
+        const values = args.map((item) => Number(item))
+        if (values.some((item) => !Number.isFinite(item))) throw new Error("filter vignette() expects numeric arguments")
+        effects.push({ type: "vignette", ...(values[0] !== undefined ? { strength: values[0] } : {}), ...(values[1] !== undefined ? { radius: values[1] } : {}) })
+        break
+      }
       default:
-        throw new Error(`unsupported filter function ${name}() (allowed: blur, drop-shadow, brightness, contrast, saturate, hue-rotate)`)
+        throw new Error(`unsupported filter function ${name}() (allowed: blur, drop-shadow, brightness, contrast, saturate, hue-rotate, grain, vignette)`)
     }
   }
   const remainder = value.slice(consumed).trim()
@@ -99,6 +132,7 @@ export function canvasFilterValue(effects: readonly NodeEffect[] | undefined): s
         return `drop-shadow(${effect.dx}px ${effect.dy}px ${effect.radius}px ${rgba(color)})`
       }
       const parts: string[] = []
+      if (effect.type !== "color-adjust") return ""
       if (effect.brightness !== undefined) parts.push(`brightness(${effect.brightness})`)
       if (effect.contrast !== undefined) parts.push(`contrast(${effect.contrast})`)
       if (effect.saturate !== undefined) parts.push(`saturate(${effect.saturate})`)
@@ -216,6 +250,25 @@ export function effectPrimitives(effects: readonly NodeEffect[]): EffectPrimitiv
       })
       continue
     }
+    if (effect.type === "grain") {
+      const amount = Math.max(0, Math.min(1, effect.amount ?? 0.35))
+      const size = Math.max(1, Math.min(8, Math.round(effect.size ?? 2)))
+      const seed = Math.max(0, Math.min(2147483647, Math.round(effect.seed ?? 7)))
+      const frequency = (0.9 / size).toFixed(4)
+      primitives.push({ tag: "feTurbulence", attributes: { type: "fractalNoise", baseFrequency: frequency, numOctaves: "2", seed: String(seed), result: "coenx-grain-noise" } })
+      primitives.push({
+        tag: "feColorMatrix",
+        attributes: {
+          in: "coenx-grain-noise",
+          type: "matrix",
+          values: `0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 ${(0.2126 * amount).toFixed(5)} ${(0.7152 * amount).toFixed(5)} ${(0.0722 * amount).toFixed(5)} 0 0`,
+          result: "coenx-grain-layer",
+        },
+      })
+      primitives.push({ tag: "feComposite", attributes: { in: "coenx-grain-layer", in2: "SourceGraphic", operator: "over" } })
+      continue
+    }
+    if (effect.type === "vignette") continue
     const values = colorAdjustMatrix(effect)
     if (values) primitives.push({ tag: "feColorMatrix", attributes: { type: "matrix", values } })
   }
@@ -249,6 +302,19 @@ export function nativeEffectsPayload(effects: readonly NodeEffect[] | undefined)
     if (effect.type === "blur") return { type: "blur", radius: effect.radius }
     if (effect.type === "drop-shadow")
       return { type: "drop-shadow", dx: effect.dx, dy: effect.dy, radius: effect.radius, color: effect.color ?? "#000000" }
+    if (effect.type === "grain")
+      return {
+        type: "grain",
+        amount: Math.max(0, Math.min(1, effect.amount ?? 0.35)),
+        size: Math.max(1, Math.min(8, Math.round(effect.size ?? 2))),
+        seed: Math.max(0, Math.min(2147483647, Math.round(effect.seed ?? 7))),
+      }
+    if (effect.type === "vignette")
+      return {
+        type: "vignette",
+        strength: Math.max(0, Math.min(1, effect.strength ?? 0.5)),
+        radius: Math.max(0, Math.min(1, effect.radius ?? 0.7)),
+      }
     return {
       type: "color-adjust",
       brightness: effect.brightness,
