@@ -3,6 +3,7 @@ import { applyComputedTexts, evaluateSceneAtFrame } from "../animation/timeline"
 import { effectPadding, canvasFilterValue, canvasFilterUnsupportedWarning, withGrainFrameSeeds } from "../render/effects"
 import { projectMesh3D } from "../render/geometry3d"
 import { canvasPaint } from "./canvas-paint"
+import { applyNodeOverride, type NodeOverrideMap } from "./overrides"
 import { resolvePaint } from "../render/paint"
 import { resolveNodeMask } from "../render/mask"
 import { pathCommandsToSvgD, resolveClipPath, resolveNodePath } from "../render/path"
@@ -62,6 +63,7 @@ export class CanvasVideoRenderer {
     frame: number,
     hidden: ReadonlySet<string>,
     physics3d?: Record<string, { position: Vec3; rotation: Vec3 }>,
+    overrides?: NodeOverrideMap,
   ) {
     const { context, options } = this
     this.currentFrame = frame
@@ -74,7 +76,7 @@ export class CanvasVideoRenderer {
       const pose = physics3d?.[node.id]
       const rendered =
         pose && node.kind === "mesh3d" ? { ...node, position: pose.position, rotation3d: pose.rotation } : node
-      this.drawNode(rendered, scene, frame)
+      this.drawNode(applyNodeOverride(rendered, overrides?.get(node.id)), scene, frame)
     }
     context.restore()
   }

@@ -362,23 +362,47 @@ export type VisualNode =
 export type Expression =
   | { op: "literal"; value: Scalar }
   | { op: "state"; key: string }
-  | { op: "event"; key: "value" | "key" | "targetId" }
-  | { op: "eq" | "neq" | "gt" | "gte" | "lt" | "lte"; left: Expression; right: Expression }
-  | { op: "and" | "or"; items: Expression[] }
-  | { op: "not"; value: Expression }
+  | { op: "event"; key: "value" | "key" | "targetId" | "x" | "y" }
+  | {
+      op: "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "add" | "sub" | "mul" | "div" | "mod"
+      left: Expression
+      right: Expression
+    }
+  | { op: "and" | "or" | "min" | "max" | "concat"; items: Expression[] }
+  | { op: "not" | "abs" | "round" | "floor" | "ceil"; value: Expression }
   | { op: "contains"; value: Expression; search: Expression }
+  | { op: "clamp"; value: Expression; min: Expression; max: Expression }
+  | { op: "random"; min: Expression; max: Expression }
+  | { op: "if"; cond: Expression; trueValue: Expression; falseValue: Expression }
 
 export type InteractionTrigger =
   | { type: "click"; targetId: string }
   | { type: "submit"; targetId: string }
   | { type: "change"; targetId: string }
+  | { type: "hover"; targetId: string; phase?: "enter" | "leave" }
+  | { type: "drag"; targetId: string; phase?: "start" | "move" | "end" }
+  | { type: "collide"; targetId: string; withId?: string }
   | { type: "key"; key: string }
   | { type: "timer"; frame: number }
+
+/** Concrete (already-evaluated) visual overrides applied to a node by `setNode`. */
+export interface NodeOverrideProps {
+  text?: Scalar | Expression
+  x?: Scalar | Expression
+  y?: Scalar | Expression
+  rotation?: Scalar | Expression
+  opacity?: Scalar | Expression
+  scale?: Scalar | Expression
+}
 
 export type InteractionAction =
   | { type: "set"; key: string; value: Scalar | Expression }
   | { type: "increment"; key: string; amount: number }
   | { type: "goto"; sceneId: string }
+  | { type: "gotoFrame"; frame: number }
+  | { type: "run"; actions: InteractionAction[] }
+  | { type: "setNode"; targetId: string; props: NodeOverrideProps }
+  | { type: "impulse"; targetId: string; vx: number; vy: number }
   | { type: "show" | "hide"; targetId: string }
   | { type: "feedback"; text: string; tone?: "neutral" | "success" | "error" }
   | { type: "playAudio"; trackId: string }

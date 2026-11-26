@@ -7,10 +7,6 @@ import { packCoenx, unpackCoenx, validateCoenx, CONTAINER_VERSION } from "../src
 import type { VideoComposition } from "../src/model/types"
 
 function composition(): VideoComposition {
-  const png1x1 = Buffer.from(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
-    "base64",
-  )
   return {
     version: 1,
     id: "container-test",

@@ -7,6 +7,7 @@ import { isGradientPaint, resolvePaint, whiteAlphaPaint } from "../render/paint"
 import { pathCommandsToSvgD, resolveClipPath, resolveNodePath } from "../render/path"
 import type { CanvasAssetResolver } from "./canvas-renderer"
 import { element, paintValue, SVG_NS, textElement } from "./svg-primitives"
+import { applyNodeOverride, type NodeOverrideMap } from "./overrides"
 
 export class SvgVideoRenderer {
   readonly element: SVGSVGElement
@@ -30,6 +31,7 @@ export class SvgVideoRenderer {
     frame: number,
     hidden: ReadonlySet<string>,
     physics3d?: Record<string, { position: Vec3; rotation: Vec3 }>,
+    overrides?: NodeOverrideMap,
   ) {
     const width = this.composition.stage.width
     const height = this.composition.stage.height
@@ -50,7 +52,7 @@ export class SvgVideoRenderer {
       const pose = physics3d?.[node.id]
       const rendered =
         pose && node.kind === "mesh3d" ? { ...node, position: pose.position, rotation3d: pose.rotation } : node
-      fragment.append(this.drawNode(rendered, scene, definitions, shared))
+      fragment.append(this.drawNode(applyNodeOverride(rendered, overrides?.get(node.id)), scene, definitions, shared))
     }
     this.element.replaceChildren(fragment)
   }
