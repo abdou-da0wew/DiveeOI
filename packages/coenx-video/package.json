@@ -15,7 +15,8 @@
     "./validation": "./src/validation.ts",
     "./export": "./src/export.ts",
     "./reference": "./src/reference.ts",
-    "./planner": "./src/planner.ts"
+    "./planner": "./src/planner.ts",
+    "./container": "./src/container/pack.ts"
   },
   "scripts": {
     "typecheck": "tsgo --noEmit",

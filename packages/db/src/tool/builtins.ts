@@ -5,6 +5,7 @@ import { BashTool } from "./bash"
 import { CoenxVideoTool } from "./coenx-video"
 import { CoenxVideoInspectTool } from "./coenx-video-inspect"
 import { CoenxVideoRenderTool } from "./coenx-video-render"
+import { CoenxVideoPackTool } from "./coenx-video-pack"
 import { ApplyPatchTool } from "./apply-patch"
 import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
@@ -36,6 +37,7 @@ export const locationLayer = Layer.mergeAll(
   CoenxVideoTool.layer,
   CoenxVideoInspectTool.layer,
   CoenxVideoRenderTool.layer,
+  CoenxVideoPackTool.layer,
   BashTool.layer,
   EditTool.layer,
   GlobTool.layer,

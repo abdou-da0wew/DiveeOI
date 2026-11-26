@@ -9,7 +9,7 @@ import { compileCmlProject } from "./format"
 
 function usage(): never {
   console.error(
-    "Usage: coenx-video <validate|render|interactive> <composition.json|project.cml> [--out <path>] [--profile low|balanced|quality] [--renderer svg|native]",
+    "Usage: coenx-video <validate|render|interactive|pack|unpack|validate-container> <composition.json|project.cml|container.coenx4> [--out <path>] [--profile low|balanced|quality] [--renderer svg|native|canvas]",
   )
   process.exit(2)
 }
@@ -49,6 +49,23 @@ async function main() {
   const [command, input, ...args] = process.argv.slice(2)
   if (!command || !input) usage()
   const inputPath = path.resolve(input)
+
+  if (command === "unpack") {
+    const out = option(args, "--out")
+    if (!out) usage()
+    const { unpackCoenx } = await import("./container/pack")
+    const result = await unpackCoenx(inputPath, path.resolve(out))
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  if (command === "validate-container") {
+    const { validateCoenx } = await import("./container/pack")
+    const result = await validateCoenx(inputPath)
+    console.log(JSON.stringify(result, null, 2))
+    if (!result.ok) process.exitCode = 1
+    return
+  }
+
   const composition = await loadComposition(inputPath)
   const profileName = option(args, "--profile") as keyof typeof RENDER_PROFILES | undefined
   const profile = profileName ? RENDER_PROFILES[profileName] : RENDER_PROFILES.balanced
@@ -82,6 +99,17 @@ async function main() {
     const result = await compileInteractiveProject(composition, {
       outputDirectory: output,
       projectRoot: path.dirname(inputPath),
+    })
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  if (command === "pack") {
+    const { packCoenx } = await import("./container/pack")
+    const result = await packCoenx({
+      composition,
+      projectRoot: path.dirname(inputPath),
+      outputPath: output,
+      renderer: (option(args, "--renderer") as "canvas" | "svg" | undefined) ?? "canvas",
     })
     console.log(JSON.stringify(result, null, 2))
     return

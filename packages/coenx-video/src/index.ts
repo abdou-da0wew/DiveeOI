@@ -32,6 +32,9 @@ export { renderNativeFrame } from "./render/native"
 export type { NativeFrameRequest } from "./render/native"
 export { renderNativeVideo } from "./render/native-video"
 export { SvgVideoRenderer } from "./runtime/svg-renderer"
+export { createZip, readZip, crc32 } from "./container/zip"
+export { packCoenx, unpackCoenx, validateCoenx, CONTAINER_VERSION } from "./container/pack"
+export type { CoenxManifest, CoenxPackOptions, CoenxValidation } from "./container/pack"
 export {
   SETTLE_EASING,
   POP_EASING,
