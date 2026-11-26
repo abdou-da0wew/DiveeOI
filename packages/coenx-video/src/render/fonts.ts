@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process"
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 import type { VideoComposition, VisualNode } from "../model/types"
 import { findFontFamily } from "../fonts/catalog"
 import { FONT_LIBRARY_RESOURCE_FILES } from "../fonts/embedded"
+import { resolveMediaSource } from "./media-frames"
 
 function textNodes(nodes: VisualNode[]) {
   return nodes.filter(
@@ -54,6 +55,14 @@ async function convertWoff2ToTtf(fontsDirectory: string, files: string[]): Promi
   })
 }
 
+export interface CustomFontFace {
+  family: string
+  /** File name inside the render fonts directory (TTF after conversion). */
+  file: string
+  weight?: number | string
+  style?: string
+}
+
 export async function prepareRenderFonts(composition: VideoComposition, tempRoot: string) {
   const usedFamilies = new Set<string>(["Geist"])
   for (const scene of composition.scenes) {
@@ -72,7 +81,13 @@ export async function prepareRenderFonts(composition: VideoComposition, tempRoot
   const fontFiles = new Set<string>()
   for (const family of usedFamilies) {
     const catalogueEntry = findFontFamily(family)
-    if (!catalogueEntry) throw new Error("Font family is not bundled with Coenx Video: " + family)
+    if (!catalogueEntry) {
+      // Custom families must be declared via composition.fonts.
+      if (!composition.fonts?.some((font) => font.family === family)) {
+        throw new Error("Font family is not bundled with Coenx Video: " + family)
+      }
+      continue
+    }
     const record = manifest.families.find((item) => item.family === catalogueEntry.family)
     if (!record?.files.length) throw new Error("Bundled font files are missing for: " + family)
     record.files.forEach((file) => fontFiles.add(file))
@@ -82,6 +97,27 @@ export async function prepareRenderFonts(composition: VideoComposition, tempRoot
     const resource = FONT_LIBRARY_RESOURCE_FILES["fonts/" + file + ".b64"]
     if (!resource) throw new Error("Bundled font resource is missing: " + file)
     await writeFile(path.join(fontsDirectory, file), Buffer.from(resource, "base64"))
+  }
+
+  // Materialize custom font sources (project-relative files, tmp: paths or
+  // data:font URIs) next to the bundled files so fontconfig sees them all.
+  const fontFaces: CustomFontFace[] = []
+  const sourceFiles = new Map<string, string>()
+  for (const [index, font] of (composition.fonts ?? []).entries()) {
+    if (!font.family?.trim()) throw new Error("Custom font declarations need a family name")
+    if (!font.src?.trim()) throw new Error(`Custom font ${font.family} needs a src (path, tmp: or data:font URI)`)
+    const projectRoot = process.cwd()
+    const source = await resolveMediaSource(`font:${font.family}`, font.src, projectRoot, tempRoot, sourceFiles)
+    const safeFamily = font.family.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 48) || `font-${index}`
+    const fileName = `custom-${index}-${safeFamily}${source.extension}`
+    await writeFile(path.join(fontsDirectory, fileName), await readFile(source.path))
+    fontFiles.add(fileName)
+    fontFaces.push({
+      family: font.family,
+      file: fileName,
+      ...(font.weight !== undefined ? { weight: font.weight } : {}),
+      ...(font.style !== undefined ? { style: font.style } : {}),
+    })
   }
 
   const converted = await convertWoff2ToTtf(fontsDirectory, [...fontFiles])
@@ -100,5 +136,6 @@ export async function prepareRenderFonts(composition: VideoComposition, tempRoot
     fontCount: fontFiles.size,
     families: [...usedFamilies],
     ttfConverted: converted,
+    fontFaces,
   }
 }

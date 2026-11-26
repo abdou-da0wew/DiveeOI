@@ -493,6 +493,19 @@ export interface LearningCitation {
   page?: number
 }
 
+export interface CustomFontSpec {
+  /**
+   * Family name to use in node fontFamily. Should match the font file's
+   * internal family name for native/fontconfig rendering; the interactive
+   * player honors the declared name via @font-face.
+   */
+  family: string
+  /** Project-relative path, tmp: path, or data:font/...;base64 URI. */
+  src: string
+  weight?: number | string
+  style?: "normal" | "italic"
+}
+
 export interface VideoComposition {
   version: 1
   id: string
@@ -503,6 +516,8 @@ export interface VideoComposition {
   initialState?: Record<string, Scalar>
   timeline?: TimelineEvent[]
   assets?: Record<string, string>
+  /** Custom font files loaded alongside the 16-family bundled catalogue. */
+  fonts?: CustomFontSpec[]
   provenance?: {
     mode: "general" | "education"
     citations?: LearningCitation[]

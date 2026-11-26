@@ -16,7 +16,7 @@ const SAFE_ASSET = /^(?![a-z]+:\/\/)(?!\/)(?![A-Za-z]:\\)[^\0]+$/i
  * and absolute paths under the temp directory (resolved and re-checked at
  * render time by the media pipeline).
  */
-function isPermittedAssetReference(value: string) {
+export function isPermittedAssetReference(value: string) {
   if (/^data:(image|video|audio|font)\//i.test(value)) return true
   if (value.startsWith("tmp:")) return value.length > 4
   if (SAFE_ASSET.test(value) && !path.normalize(value).startsWith("..")) return true
@@ -100,7 +100,7 @@ function validatePaint(paint: Paint | undefined, nodeId: string, issues: string[
   }
 }
 
-export function validateNode(node: VisualNode, issues: string[], sceneId: string, assets: Record<string, string>) {
+export function validateNode(node: VisualNode, issues: string[], sceneId: string, assets: Record<string, string>, allowedFontFamilies: ReadonlySet<string> = new Set()) {
   add(issues, ID.test(node.id), `scene ${sceneId} has invalid node id ${node.id}`)
   for (const [name, value] of Object.entries({
     x: node.x,
@@ -115,7 +115,11 @@ export function validateNode(node: VisualNode, issues: string[], sceneId: string
     add(issues, Number.isFinite(value), `node ${node.id} has invalid ${name}`)
   add(issues, node.width >= 0 && node.height >= 0, `node ${node.id} has negative dimensions`)
   if (node.fontFamily) {
-    add(issues, isBundledFontFamily(node.fontFamily), "node " + node.id + " uses a font outside the bundled catalogue")
+    add(
+      issues,
+      isBundledFontFamily(node.fontFamily) || allowedFontFamilies.has(node.fontFamily),
+      "node " + node.id + " uses a font outside the bundled catalogue and composition.fonts",
+    )
   }
   if (node.fontSize !== undefined) {
     add(

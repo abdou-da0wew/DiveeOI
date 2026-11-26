@@ -195,7 +195,8 @@ export async function renderNativeVideo(composition: VideoComposition, options: 
             }),
           )
         : undefined
-      const sceneImageAssets: Record<string, string> = { ...(imageAssets.get(located.scene.id) ?? {}) }
+      const sceneImageAssets: Record<string, string> = {}
+      Object.assign(sceneImageAssets, imageAssets.get(located.scene.id))
       if (media) Object.assign(sceneImageAssets, (await media.sceneFrameOverrides(located.scene, located.localFrame, fps)).paths)
       await native.renderFrame({
         composition,

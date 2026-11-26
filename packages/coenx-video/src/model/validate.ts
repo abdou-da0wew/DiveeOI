@@ -1,9 +1,8 @@
-import path from "node:path"
 import type { RenderProfile, Scene, TimelineEvent, VideoComposition } from "./types"
 import { validateSceneEffects } from "./validate-effects"
 import { validateActionsExport, validateSceneInteractions } from "./validate-interactions"
 import { validateSceneMasks } from "./validate-masks"
-import { validateNode } from "./validate-nodes"
+import { isPermittedAssetReference, validateNode } from "./validate-nodes"
 import { validateScenePaints } from "./validate-paints"
 import { validateScenePaths } from "./validate-paths"
 
@@ -51,7 +50,6 @@ export class VideoValidationError extends Error {
 }
 
 const ID = /^[A-Za-z][A-Za-z0-9_-]{0,79}$/
-const SAFE_ASSET = /^(?![a-z]+:\/\/)(?!\/)(?![A-Za-z]:\\)[^\0]+$/i
 
 function add(issues: string[], condition: boolean, message: string) {
   if (!condition) issues.push(message)
@@ -63,6 +61,7 @@ function validateScene(
   audio: Set<string>,
   assets: Record<string, string>,
   issues: string[],
+  allowedFontFamilies: ReadonlySet<string> = new Set(),
 ) {
   add(issues, ID.test(scene.id), `invalid scene id ${scene.id}`)
   add(
@@ -79,7 +78,7 @@ function validateScene(
   for (const node of scene.nodes) {
     add(issues, !ids.has(node.id), `scene ${scene.id} has duplicate node id ${node.id}`)
     ids.add(node.id)
-    validateNode(node, issues, scene.id, assets)
+    validateNode(node, issues, scene.id, assets, allowedFontFamilies)
   }
   for (const interaction of scene.interactions ?? []) {
     add(issues, ID.test(interaction.id), `scene ${scene.id} has invalid interaction id ${interaction.id}`)
@@ -253,10 +252,21 @@ export function validateComposition(composition: VideoComposition, profile: Rend
   for (const [name, asset] of Object.entries(composition.assets ?? {}))
     add(
       issues,
-      ID.test(name) && SAFE_ASSET.test(asset) && !path.normalize(asset).startsWith(".."),
-      `asset ${name} has an unsafe path`,
+      ID.test(name) && isPermittedAssetReference(asset),
+      `asset ${name} has an unsafe path (allowed: project-relative, tmp:, data: URIs, absolute temp-directory paths)`,
     )
-  composition.scenes.forEach((scene) => validateScene(scene, sceneIds, audioIds, composition.assets ?? {}, issues))
+  const fontIds = new Set<string>()
+  for (const font of composition.fonts ?? []) {
+    add(issues, ID.test(font.family), `custom font family ${font.family} must be a plain identifier`)
+    add(issues, !fontIds.has(font.family), `custom font family ${font.family} is declared twice`)
+    fontIds.add(font.family)
+    add(issues, isPermittedAssetReference(font.src), `custom font ${font.family} has an unsafe src`)
+    if (font.weight !== undefined)
+      add(issues, font.weight === "normal" || font.weight === "bold" || (Number.isInteger(font.weight) && (font.weight as number) >= 100 && (font.weight as number) <= 900), `custom font ${font.family} weight must be normal, bold or 100..900`)
+    if (font.style !== undefined) add(issues, font.style === "normal" || font.style === "italic", `custom font ${font.family} style must be normal or italic`)
+  }
+  const allowedFontFamilies = new Set((composition.fonts ?? []).map((font) => font.family))
+  composition.scenes.forEach((scene) => validateScene(scene, sceneIds, audioIds, composition.assets ?? {}, issues, allowedFontFamilies))
   for (const track of composition.audio ?? []) {
     add(issues, track.durationFrames > 0 && track.startFrame >= 0, `audio track ${track.id} has invalid timing`)
     add(

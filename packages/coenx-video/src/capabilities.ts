@@ -150,6 +150,21 @@ export const COENX_VIDEO_CAPABILITIES = {
   ] satisfies RendererCapability[],
   features: [
     {
+      id: "custom-fonts",
+      support: {
+        "static-svg": "supported",
+        "native-cairo": "supported",
+        "interactive-canvas": "supported",
+        "interactive-svg": "supported",
+      },
+      notes: [
+        "Compositions may declare additional font families beyond the 16 bundled ones via composition.fonts (CML <font family src> elements): project-relative files, tmp: paths or embedded data:font URIs (ttf/otf/woff/woff2).",
+        "Native/fontconfig rendering matches the font file's internal family name, so the declared family should match it; the interactive player honors the declared name through generated @font-face rules and never touches the network.",
+        "WOFF2 sources are converted to TTF siblings best-effort (fontTools) so every backend rasterizes real glyphs.",
+        "Fonts are validated: family identifiers, single declaration per family, weight normal/bold/100..900, style normal/italic, and the same asset-path safety rules as media.",
+      ],
+    },
+    {
       id: "video-nodes",
       support: {
         "static-svg": "supported",

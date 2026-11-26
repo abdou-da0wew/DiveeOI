@@ -42,7 +42,7 @@ export class CmlStyleError extends Error {
   }
 }
 
-export function parseCmlStylesheet(source: string): CmlStyleRule[] {
+export function parseCmlStylesheet(source: string, customFontFamilies: ReadonlySet<string> = new Set()): CmlStyleRule[] {
   if (source.length > 512_000) throw new CmlStyleError("stylesheet exceeds the 512 KB limit")
   const clean = source.replace(/\/\*[\s\S]*?\*\//g, "")
   const rules: CmlStyleRule[] = []
@@ -68,8 +68,8 @@ export function parseCmlStylesheet(source: string): CmlStyleRule[] {
         }
         if (property === "font-family") {
           const family = value.replace(/^['"]|['"]$/g, "")
-          if (!isBundledFontFamily(family))
-            throw new CmlStyleError(`font family is not in the bundled catalogue: ${family}`)
+          if (!isBundledFontFamily(family) && !customFontFamilies.has(family))
+            throw new CmlStyleError(`font family is not bundled and not declared in <font>: ${family}`)
           declarations[property] = family
         } else {
           declarations[property] = value

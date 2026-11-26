@@ -32,7 +32,7 @@ describe("Coenx stylesheet", () => {
   it("rejects remote CSS, unsupported selectors and unbundled fonts", () => {
     expect(() => parseCmlStylesheet('@import url("https://example.com/a.css");')).toThrow()
     expect(() => parseCmlStylesheet("text:hover { color: red; }")).toThrow()
-    expect(() => parseCmlStylesheet('text { font-family: "A Remote Font"; }')).toThrow("not in the bundled catalogue")
+    expect(() => parseCmlStylesheet('text { font-family: "A Remote Font"; }')).toThrow("not bundled and not declared in <font>")
     expect(() => parseCmlStylesheet("text { background: url(https://example.com); }")).toThrow()
   })
 })

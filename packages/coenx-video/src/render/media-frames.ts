@@ -29,6 +29,15 @@ const MIME_TO_EXTENSION: Record<string, string> = {
   "video/webm": ".webm",
   "video/quicktime": ".mov",
   "video/x-matroska": ".mkv",
+  "font/ttf": ".ttf",
+  "font/otf": ".otf",
+  "font/woff": ".woff",
+  "font/woff2": ".woff2",
+  "application/x-font-ttf": ".ttf",
+  "application/x-font-otf": ".otf",
+  "application/font-woff": ".woff",
+  "application/font-woff2": ".woff2",
+  "application/x-font-woff": ".woff2",
 }
 
 const EXTENSION_MIME: Record<string, string> = {

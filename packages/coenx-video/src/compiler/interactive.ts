@@ -1,9 +1,10 @@
 import path from "node:path"
+import os from "node:os"
 import { mkdtemp, mkdir, realpath, rename, rm, stat, writeFile, copyFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { validateComposition } from "../model/validate"
 import { FONT_FACE_CSS } from "../fonts/embedded"
-import type { VideoComposition } from "../model/types"
+import type { CustomFontSpec, VideoComposition } from "../model/types"
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 
@@ -25,13 +26,23 @@ function safeOutput(root: string, output: string) {
 }
 
 async function ensureSourceFile(root: string, relative: string) {
-  const resolved = resolveInside(root, relative)
+  const tmpRoot = await realpath(os.tmpdir())
+  let resolved: string
+  if (relative.startsWith("tmp:")) {
+    const rest = relative.slice(4)
+    if (!rest) throw new Error(`tmp: media source needs a path: ${relative}`)
+    resolved = path.isAbsolute(rest) ? path.resolve(rest) : path.resolve(tmpRoot, rest)
+  } else if (path.isAbsolute(relative)) {
+    resolved = path.resolve(relative)
+  } else {
+    resolved = resolveInside(root, relative)
+  }
   const info = await stat(resolved)
   if (!info.isFile()) throw new Error(`Media source is not a file: ${relative}`)
   if (info.size > 128 * 1024 * 1024) throw new Error(`Media source exceeds 128 MB: ${relative}`)
   const verified = await realpath(resolved)
-  if (!verified.startsWith((await realpath(root)) + path.sep))
-    throw new Error(`Media source resolves outside the project root: ${relative}`)
+  if (!verified.startsWith((await realpath(root)) + path.sep) && !verified.startsWith(tmpRoot + path.sep))
+    throw new Error(`Media source resolves outside the project root and temp directory: ${relative}`)
   return verified
 }
 
@@ -85,13 +96,37 @@ export async function compileInteractiveProject(composition: VideoComposition, o
     for (const [id, source] of Object.entries(composition.assets ?? {})) aliases.set(id, await copyMedia(source))
     for (const scene of next.scenes) {
       for (const node of scene.nodes) {
-        if (node.kind !== "image") continue
+        if (node.kind !== "image" && node.kind !== "video") continue
         const source = composition.assets?.[node.asset] ?? node.asset
         aliases.set(node.asset, await copyMedia(source))
       }
     }
     next.assets = Object.fromEntries(aliases)
     for (const track of next.audio ?? []) track.source = await copyMedia(track.source)
+
+    // Custom fonts: copy the font files next to the media assets and rewrite
+    // their sources, then generate @font-face rules so the player honors the
+    // declared families without any network access.
+    const fontFaces: string[] = []
+    const declaredFonts: CustomFontSpec[] = []
+    for (const font of composition.fonts ?? []) {
+      const source = composition.assets?.[font.src] ?? font.src
+      if (/^data:font\//i.test(source)) {
+        // Embedded fonts stay embedded: the player already handles data URIs.
+        declaredFonts.push(font)
+        fontFaces.push(
+          `@font-face{font-family:"${font.family}";src:url("${font.src}")${font.weight ? `;font-weight:${font.weight}` : ""}${font.style ? `;font-style:${font.style}` : ""}}`,
+        )
+        continue
+      }
+      const relative = await copyMedia(source)
+      declaredFonts.push({ ...font, src: `./${relative}` })
+      const format = path.extname(relative).toLowerCase().replace(".", "")
+      fontFaces.push(
+        `@font-face{font-family:"${font.family}";src:url("./${relative}") format("${format === "ttf" ? "truetype" : format === "otf" ? "opentype" : format}")${font.weight ? `;font-weight:${font.weight}` : ""}${font.style ? `;font-style:${font.style}` : ""}}`,
+      )
+    }
+    if (declaredFonts.length) next.fonts = declaredFonts
     await writeFile(path.join(tempDirectory, "composition.json"), JSON.stringify(next, null, 2))
 
     const runtimeEntry = path.join(packageRoot, "src", "runtime", "browser-entry.ts")
@@ -118,6 +153,7 @@ export async function compileInteractiveProject(composition: VideoComposition, o
 <title>${escapeHtml(next.title)}</title>
 <style>
 ${FONT_FACE_CSS}
+${fontFaces.join("\n")}
 :root{color-scheme:dark;font-family:"Geist",system-ui,sans-serif;background:#090d15;color:#eef2f8}
 *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}
 main{width:min(100%,1280px)}h1{font-size:clamp(18px,3vw,28px);font-weight:600;margin:0 0 16px}

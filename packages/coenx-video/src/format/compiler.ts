@@ -5,6 +5,7 @@ import type {
   AudioClip,
   ButtonNode,
   ClipPathDefinition,
+  CustomFontSpec,
   EllipseNode,
   ImageNode,
   VideoNode,
@@ -153,7 +154,7 @@ function points(value: string | undefined): LineNode["points"] {
   return parsed
 }
 
-function nodeFromElement(element: CmlElement, rules: CmlStyleRule[], source: string): VisualNode {
+function nodeFromElement(element: CmlElement, rules: CmlStyleRule[], source: string, customFontFamilies: ReadonlySet<string>): VisualNode {
   const values = selectorValues(element, rules)
   const base = nodeBase(element, values)
   const fillValue = color(values, ["fill", "background"], "none")
@@ -163,8 +164,8 @@ function nodeFromElement(element: CmlElement, rules: CmlStyleRule[], source: str
   const radius = numeric(values, ["border-radius", "radius"], 0)
   const animations = base.animations
   const where = elementLocation(source, element)
-  if (!isBundledFontFamily(base.fontFamily ?? "Geist")) {
-    throw new Error(`Font ${base.fontFamily} is not included in coenx-video${where}`)
+  if (!(isBundledFontFamily(base.fontFamily ?? "Geist") || customFontFamilies.has(base.fontFamily ?? "Geist"))) {
+    throw new Error(`Font ${base.fontFamily} is not bundled and not declared in <font>${where}`)
   }
   const clipAttribute = value(values, "clip", "clip-path")
   const maskAttribute = value(values, "mask")
@@ -218,7 +219,8 @@ function nodeFromElement(element: CmlElement, rules: CmlStyleRule[], source: str
     }
     case "text": {
       const fontFamily = value(values, "font-family", "fontFamily") ?? "Geist"
-      if (!isBundledFontFamily(fontFamily)) throw new Error(`Font ${fontFamily} is not included in coenx-video`)
+      if (!isBundledFontFamily(fontFamily) && !customFontFamilies.has(fontFamily))
+        throw new Error(`Font ${fontFamily} is not bundled and not declared in <font>`)
       return {
         kind: "text",
         ...base,
@@ -349,7 +351,21 @@ function sceneInteractions(
 
 export function compileCmlProject(source: CmlProjectSource): VideoComposition {
   const root = parseCmlMarkup(source.markup)
-  const rules = parseCmlStylesheet(source.styles ?? "")
+  const declaredFonts = childElements(root, "font").map((element, index): CustomFontSpec => {
+    const family = element.attributes.family
+    const src = element.attributes.src ?? element.attributes.asset
+    if (!family) throw new Error(`Coenx <font> [${index}] requires a family attribute`)
+    if (!src) throw new Error(`Coenx <font ${family}> requires a src attribute`)
+    const weight = element.attributes.weight
+    return {
+      family,
+      src,
+      ...(weight !== undefined ? { weight: Number.isNaN(Number(weight)) ? weight : Number(weight) } : {}),
+      ...(element.attributes.style ? { style: element.attributes.style as "normal" | "italic" } : {}),
+    }
+  })
+  const customFontFamilies = new Set(declaredFonts.map((font) => font.family))
+  const rules = parseCmlStylesheet(source.styles ?? "", customFontFamilies)
   const script = parseCoenxScript(source.script ?? "export default { state: {}, events: [] }")
   const width = number(root.attributes.width, 1280, "stage width")
   const height = number(root.attributes.height, 720, "stage height")
@@ -366,7 +382,7 @@ export function compileCmlProject(source: CmlProjectSource): VideoComposition {
         : { pathDefinitions: [], clipPaths: [], masks: [], paints: [] }
       nodes = childElements(element)
         .filter((child) => child.tag !== "animate" && child.tag !== "defs")
-        .map((child) => nodeFromElement(child, rules, source.markup))
+        .map((child) => nodeFromElement(child, rules, source.markup, customFontFamilies))
     } catch (error) {
       const where = elementLocation(source.markup, element)
       const message = error instanceof Error ? error.message : String(error)
@@ -413,6 +429,7 @@ export function compileCmlProject(source: CmlProjectSource): VideoComposition {
     audio,
     initialState: script.state,
     assets,
+    ...(declaredFonts.length ? { fonts: declaredFonts } : {}),
     provenance,
   })
   return composition
