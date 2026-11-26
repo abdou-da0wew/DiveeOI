@@ -137,7 +137,7 @@ fn render_node(context: &Context, node: &Value) -> Result<(), String> {
                 context.stroke().map_err(|e| e.to_string())?;
             }
             if string(node, "kind", "") == "button" {
-                draw_text(context, node, "", width);
+                draw_text(context, node, "", width)?;
             }
         }
         "ellipse" => {
@@ -203,7 +203,7 @@ fn render_node(context: &Context, node: &Value) -> Result<(), String> {
         }
         "image" => image::draw_image(context, node, width, height)?,
         "path" => path::draw_path(context, node, width, height)?,
-        "text" => draw_text(context, node, "", width),
+        "text" => draw_text(context, node, "", width)?,
         "input" => {
             rounded_rect(context, -width / 2.0, -height / 2.0, width, height, 8.0);
             color(context, "#ffffff", 1.0);
@@ -222,7 +222,7 @@ fn render_node(context: &Context, node: &Value) -> Result<(), String> {
             }
             context.save().map_err(|e| e.to_string())?;
             context.translate(-width / 2.0 + 12.0, 0.0);
-            draw_text(context, &label, "", width - 24.0);
+            draw_text(context, &label, "", width - 24.0)?;
             context.restore().map_err(|e| e.to_string())?;
         }
         _ => {

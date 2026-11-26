@@ -158,7 +158,7 @@ export async function renderNativeVideo(composition: VideoComposition, options: 
     stderr.push(part)
     stderrSize += part.length
   })
-  const abort = () => ffmpeg.kill("SIGTERM")
+  const abort = () => ffmpeg.kill("SIGKILL")
   options.signal?.addEventListener("abort", abort, { once: true })
   const encoderExit = waitForExit(ffmpeg, stderr)
   let native: NativeRendererSession | undefined
@@ -226,7 +226,7 @@ export async function renderNativeVideo(composition: VideoComposition, options: 
       bytes: info.size,
     }
   } catch (error) {
-    ffmpeg.kill("SIGTERM")
+    ffmpeg.kill("SIGKILL")
     await encoderExit.catch(() => undefined)
     await rm(partialPath, { force: true })
     throw error

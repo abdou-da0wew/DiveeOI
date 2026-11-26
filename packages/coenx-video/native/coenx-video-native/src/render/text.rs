@@ -1,3 +1,4 @@
+use super::paint::set_paint;
 use super::{number, string};
 use cairo::Context;
 use glib::translate::{ToGlibPtr, from_glib_full};
@@ -14,7 +15,12 @@ unsafe extern "C" {
     );
 }
 
-pub(super) fn draw_text(context: &Context, node: &Value, fallback: &str, width: f64) {
+pub(super) fn draw_text(
+    context: &Context,
+    node: &Value,
+    fallback: &str,
+    width: f64,
+) -> Result<(), String> {
     let text = string(node, "text", fallback);
     let family = string(node, "fontFamily", "Geist");
     let weight = number(node, "fontWeight", 500.0).round() as i32;
@@ -37,9 +43,15 @@ pub(super) fn draw_text(context: &Context, node: &Value, fallback: &str, width: 
         _ => Alignment::Center,
     });
     let (_, logical) = layout.pixel_extents();
+    // Text owns its paint: the node color (or a gradient paint object) must
+    // drive the glyph source instead of whatever source the previous node left.
+    // Text nodes carry a color string; gradient paints fall back to node-box
+    // space approximated by the layout width.
+    set_paint(context, node.get("color"), width, width, "#ffffff")?;
     context.move_to(
         -width / 2.0,
         -(logical.height() as f64) / 2.0 - logical.y() as f64,
     );
     unsafe { pango_cairo_show_layout(context.to_raw_none(), layout.to_glib_none().0) };
+    Ok(())
 }

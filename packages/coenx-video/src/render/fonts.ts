@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process"
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import type { VideoComposition, VisualNode } from "../model/types"
@@ -12,6 +13,45 @@ function textNodes(nodes: VisualNode[]) {
 
 function escapeXml(value: string) {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;")
+}
+
+const WOFF2_TO_TTF_SCRIPT = [
+  "import sys",
+  "from fontTools.ttLib import TTFont",
+  "for pair in sys.argv[1:]:",
+  "    source, target = pair.split('=', 1)",
+  "    font = TTFont(source)",
+  "    font.flavor = None",
+  "    font.save(target)",
+].join("\n")
+
+/**
+ * Some fontconfig + Pango stacks index WOFF2 fonts but cannot rasterize their
+ * glyphs, so text silently falls back to a system typeface. When a local
+ * converter is available, add TTF siblings next to the WOFF2 files so the
+ * bundled families always win font matching. Best effort: any failure keeps
+ * the WOFF2-only behaviour unchanged.
+ */
+async function convertWoff2ToTtf(fontsDirectory: string, files: string[]): Promise<number> {
+  const jobs = files.map((file) => {
+    if (!file.endsWith(".woff2")) return undefined
+    const source = path.join(fontsDirectory, file)
+    const target = source.slice(0, -".woff2".length) + ".ttf"
+    return source + "=" + target
+  }).filter((job): job is string => job !== undefined)
+  if (!jobs.length) return 0
+  return await new Promise((resolve) => {
+    const child = spawn("python3", ["-c", WOFF2_TO_TTF_SCRIPT, ...jobs], { stdio: "ignore" })
+    const timer = setTimeout(() => child.kill("SIGKILL"), 30_000)
+    child.on("error", () => {
+      clearTimeout(timer)
+      resolve(0)
+    })
+    child.on("exit", (code) => {
+      clearTimeout(timer)
+      resolve(code === 0 ? jobs.length : 0)
+    })
+  })
 }
 
 export async function prepareRenderFonts(composition: VideoComposition, tempRoot: string) {
@@ -44,6 +84,8 @@ export async function prepareRenderFonts(composition: VideoComposition, tempRoot
     await writeFile(path.join(fontsDirectory, file), Buffer.from(resource, "base64"))
   }
 
+  const converted = await convertWoff2ToTtf(fontsDirectory, [...fontFiles])
+
   const configFile = path.join(tempRoot, "fonts.conf")
   const config = [
     '<?xml version="1.0"?>',
@@ -57,5 +99,6 @@ export async function prepareRenderFonts(composition: VideoComposition, tempRoot
     fontConfigFile: configFile,
     fontCount: fontFiles.size,
     families: [...usedFamilies],
+    ttfConverted: converted,
   }
 }
