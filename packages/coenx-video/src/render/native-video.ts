@@ -5,7 +5,9 @@ import path from "node:path"
 import { locateScene } from "../animation/timeline"
 import { RENDER_PROFILES, totalFrames, validateComposition } from "../model/validate"
 import type { RenderOptions, RenderProfile, RenderResult, VideoComposition } from "../model/types"
+import { simulatePhysics } from "../physics/simulate"
 import { physics3DPoseAt, simulatePhysics3D, type Physics3DSimulation } from "../physics/simulate3d"
+import { physicsForScene } from "./standard"
 import { buildAudioGraph } from "./audio"
 import { prepareRenderFonts } from "./fonts"
 import { NativeRendererSession } from "./native"
@@ -170,6 +172,24 @@ export async function renderNativeVideo(composition: VideoComposition, options: 
       fontConfigFile: fontConfig.fontConfigFile,
       signal: options.signal,
     })
+    const physics2dByScene = new Map<string, Record<number, Record<string, { x: number; y: number }>>>()
+    for (const scene of composition.scenes) {
+      const settings = physicsForScene(scene)
+      if (!settings) continue
+      const simulation = await simulatePhysics(settings, scene.durationFrames - 1, {
+        dt: 1 / fps,
+        signal: options.signal,
+      })
+      physics2dByScene.set(
+        scene.id,
+        Object.fromEntries(
+          simulation.map((frame) => [
+            frame.frame,
+            Object.fromEntries(frame.bodies.map((body) => [body.nodeId, { x: body.x, y: body.y }])),
+          ]),
+        ),
+      )
+    }
     let physics3dSceneId: string | undefined
     let physics3dSimulation: Physics3DSimulation | undefined
     const getPhysics3dSimulation = (scene: VideoComposition["scenes"][number]) => {
@@ -204,6 +224,7 @@ export async function renderNativeVideo(composition: VideoComposition, options: 
         frame: located.localFrame,
         outputPath: framePath,
         physics3d,
+        physics: physics2dByScene.get(located.scene.id)?.[located.localFrame],
         imageAssets: sceneImageAssets,
       })
       const png = await readFile(framePath)

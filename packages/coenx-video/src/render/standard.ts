@@ -90,7 +90,7 @@ async function probeVideo(file: string, width: number, height: number, hasAudio:
   if (hasAudio && !audio) throw new Error("FFprobe could not find the requested audio stream")
 }
 
-function physicsForScene(scene: VideoComposition["scenes"][number]) {
+export function physicsForScene(scene: VideoComposition["scenes"][number]) {
   if (!scene.physics) return undefined
   return {
     ...scene.physics,

@@ -34,6 +34,8 @@ export interface NativeFrameRequest {
   frame: number
   outputPath: string
   physics3d?: Record<string, { position: Vec3; rotation: Vec3 }>
+  /** Pre-baked 2D physics poses (node-center coordinates) per body node. */
+  physics?: Record<string, { x: number; y: number }>
   imageAssets?: Record<string, string>
 }
 
@@ -64,6 +66,7 @@ function supportedNodes(
   scene: Scene,
   physics3d?: NativeFrameRequest["physics3d"],
   imageAssets?: NativeFrameRequest["imageAssets"],
+  physics?: NativeFrameRequest["physics"],
 ): Array<VisualNode | Record<string, unknown>> {
   if (nodes.some((node) => node.kind === "select")) {
     throw new Error("Native renderer does not yet support select nodes")
@@ -72,6 +75,11 @@ function supportedNodes(
   const output: Array<VisualNode | Record<string, unknown>> = []
   for (const node of nodes) {
     const renderNode: Record<string, unknown> = { ...node }
+    const pose2d = physics?.[node.id]
+    if (pose2d && node.kind !== "mesh3d") {
+      renderNode.x = pose2d.x
+      renderNode.y = pose2d.y
+    }
     if ("fill" in node) renderNode.fill = resolvePaint(node.fill, scene)
     if (node.kind === "path") {
       const path = resolveNodePath(node, scene)
@@ -211,6 +219,7 @@ export class NativeRendererSession {
       options.scene,
       options.physics3d,
       options.imageAssets,
+      options.physics,
     )
     const transitioned = applyFrameTransition(
       nodes,

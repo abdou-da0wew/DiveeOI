@@ -86,7 +86,7 @@ export function bindPlayerInput(options: PlayerInputOptions) {
   // ----- Hover (pointer move) -----
 
   const pointerMove = (event: PointerEvent) => {
-    if (!options.isPlaying() || options.isDestroyed() || drag.active) return
+    if (options.isDestroyed() || drag.active) return
     if (event.target instanceof HTMLElement && event.target.tagName === "INPUT") return
     const point = stagePoint(event)
     const targetId = hitTest(event, point)
@@ -99,7 +99,7 @@ export function bindPlayerInput(options: PlayerInputOptions) {
   // ----- Drag (pointer down/move/up with a movement threshold) -----
 
   const pointerDown = (event: PointerEvent) => {
-    if (!options.isPlaying() || options.isDestroyed()) return
+    if (options.isDestroyed()) return
     if (event.target instanceof HTMLElement && (event.target.tagName === "INPUT" || event.target.tagName === "SELECT")) return
     const point = stagePoint(event)
     const targetId = hitTest(event, point)
@@ -150,7 +150,7 @@ export function bindPlayerInput(options: PlayerInputOptions) {
 
   const click = (event: Event) => {
     if (drag.active || drag.targetId !== undefined) return
-    if (!options.isPlaying() || options.isDestroyed()) return
+    if (options.isDestroyed()) return
     const point = event instanceof MouseEvent ? stagePoint(event) : undefined
     const targetId = hitTest(event, point)
     if (targetId) options.dispatch({ type: "click", targetId })

@@ -38,6 +38,7 @@
       "name": "@diveeoi/app",
       "version": "1.19.7",
       "dependencies": {
+        "@diveeoi/coenx-video": "workspace:*",
         "@diveeoi/db": "workspace:*",
         "@diveeoi/memory": "workspace:*",
         "@diveeoi/sdk": "workspace:*",

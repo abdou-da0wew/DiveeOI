@@ -361,7 +361,6 @@ export class CanvasVideoRenderer {
         // Unreachable here: meshes are handled in drawNode before transforms.
         break
     }
-    context.restore()
   }
 
   private drawMesh(node: Extract<VisualNode, { kind: "mesh3d" }>, scene: Scene) {

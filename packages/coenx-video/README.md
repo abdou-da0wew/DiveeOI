@@ -100,7 +100,39 @@ The workspace-facing mirror is in .agents/skills/. Bundled resources include the
   portable zip holding an embedded composition (media + fonts as data URIs),
   a self-contained offline `player.html`, raw media and a manifest; the AI
   tool surface gains `coenx_video_pack`. `examples/studio-showcase` is the
-  full reference project.
+  full reference project. Browsers unpack containers without node APIs via
+  `@diveeoi/coenx-video/container-browser`.
+
+## World model (2026-11 additions)
+
+Interactive scenes can behave like small worlds — states, clicking, moving,
+statements, logic and physics:
+
+- **Triggers**: `click` / `submit` / `change` / `key` / `timer`, plus
+  `hover` (`enter`/`leave` phases), `drag` (`start`/`move`/`end` phases with a
+  4px threshold and grab-offset tracking) and `collide` (live physics overlaps,
+  optional `withId` partner).
+- **Expressions**: boolean logic and comparisons, arithmetic
+  (`add/sub/mul/div/mod`), `concat`, `min`/`max`, `abs/round/floor/ceil`,
+  `clamp`, bounded `random`, ternary `if`; actions can read the event's
+  pointer coordinates (`event.x` / `event.y`).
+- **Actions**: `run` (depth-bounded statement lists), `gotoFrame`,
+  `setNode` (text/x/y/rotation/opacity/scale/color overrides that beat
+  keyframes, snapshot-restored per scene) and `impulse`.
+- **Live 2D physics** (`src/physics/live.ts`): scenes with `physics` run a
+  frame-stepped world in the player — gravity, mass/restitution, circle/box
+  collisions, kinematic drags that keep a fling velocity on release, and
+  once-per-overlap collision events feeding `collide` interactions. The
+  pre-batched static simulation still drives MP4/SVG renders.
+- **App viewer**: the DiveeOI session side panel plays `.coenx4` files with
+  the bundled player (`CoenxInteractivePanel`), auto-opening tabs for
+  `coenx_video_export`, `coenx_video_pack` and `coenx_video_lesson`.
+- **Targeted Learning**: `createInteractiveLesson` (`@diveeoi/coenx-video/learning`)
+  generates grounded quiz lessons (retry-on-wrong, live score, `tl:*` emits,
+  graded results with replay) and the `coenx_video_lesson` tool is on the
+  targeted-session allowlist.
+- **E2E proof**: `test/world-demo.test.ts` drives clicks, hovers, drags, live
+  physics and collision events in headless Chromium.
 
 ## Validation
 

@@ -28,6 +28,22 @@ The compiler packages the same composition model as JSON plus a bundled browser 
 
 The compiled project is a web deliverable, not an MP4. Serve it over HTTP so the player can fetch its JSON and media. The embedding page receives bubbling `coenx:event`, `coenx:state` and `coenx:scenechange` events; the player handle also exposes state and playback controls. Frame timers and global timeline events catch up when playback skips frames, and scene-local timers re-arm on scene re-entry. This is a first-class product direction, but application-level persistence, student progress integration, permission-aware tool registration and broad device QA remain integration work before it should be described as production complete.
 
+## World model (interactive scenes as worlds)
+
+Scenes can behave like small worlds. The interaction model supports:
+
+- **Triggers**: `click`, `submit`, `change`, `key`, `timer`, plus `hover` (with optional `phase: "enter" | "leave"`), `drag` (with optional `phase: "start" | "move" | "end"`, fired after a 4px threshold with grab-offset tracking so bodies do not jump) and `collide` (fired by the live physics step once per new overlap, with optional `withId`).
+- **Expressions**: comparisons and boolean logic, arithmetic (`add`/`sub`/`mul`/`div`/`mod`), `concat`, `min`/`max`, `abs`/`round`/`floor`/`ceil`, `clamp`, bounded `random` and a ternary `if`. Actions can reference the triggering event's pointer coordinates (`event.x` / `event.y`).
+- **Actions (statements)**: `set`, `increment`, `goto`, `gotoFrame` (scene-local), `show`/`hide`, `run` (nested statement lists, depth-bounded), `setNode` (text/x/y/rotation/opacity/scale/color overrides that beat keyframe animation), `impulse` (adds velocity to a live physics body), `feedback`, `playAudio` and `emit`. Overrides are snapshotted per scene and restored on navigation, like hidden-node state.
+
+Scenes with `physics` settings run a **live 2D world** in the player (`src/physics/live.ts`): gravity, mass/restitution, circle/box collision with positional correction, kinematic drag bodies that keep a fling velocity on release and once-per-overlap collision events that dispatch `collide` interactions. Positions use runtime node-center coordinates; poses override node x/y for rendering and hit-testing. The static MP4/SVG routes keep using the pre-baked batched simulation (`simulatePhysics`), so rendered output stays deterministic.
+
+`setNode` overrides and physics poses are applied in both Canvas and SVG stage renderers through `src/runtime/overrides.ts`; the player hit-tests against the overridden geometry, so interactive targets track moved nodes. `.coenx4` containers can also be unpacked entirely in the browser (`src/container/browser.ts`, PK-ZIP + `DecompressionStream`, CRC-verified) — no node APIs on the playback path.
+
+**DiveeOI integration.** The session side panel plays `.coenx4` files directly: `VideoPreviewPanel` routes them to `CoenxInteractivePanel`, which unpacks the container via the file endpoint and mounts the bundled runtime player. Completions of `coenx_video_export`, `coenx_video_pack` and `coenx_video_lesson` auto-open a preview tab.
+
+**Targeted Learning integration.** `coenx-video/learning` (`createInteractiveLesson`) builds grounded lessons from TL-shaped specs: an intro scene, one retry-on-wrong quiz scene per question with live score, `tl:answer:correct` / `tl:answer:wrong` / `tl:lesson:complete` emits and a graded results scene with replay; citations ride in `provenance`. The `coenx_video_lesson` tool is on the targeted-session allowlist and documented in the grounding system prompts. The e2e in `packages/coenx-video/test/world-demo.test.ts` drives clicks, hovers, drags, live physics and collision events in headless Chromium.
+
 ## Rust and resource policy
 
 TypeScript owns authoring, validation, orchestration, control surfaces and interactive events. Rust is reserved for repeated, data-oriented simulation work. Physics is sent to the sidecar in a single batch and can fall back to TypeScript. Do not fork a process once per frame.
