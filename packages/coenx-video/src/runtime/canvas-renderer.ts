@@ -64,6 +64,8 @@ export class CanvasVideoRenderer {
     hidden: ReadonlySet<string>,
     physics3d?: Record<string, { position: Vec3; rotation: Vec3 }>,
     overrides?: NodeOverrideMap,
+    /** Pre-evaluated node list; skips the second per-frame scene evaluation. */
+    evaluatedNodes?: VisualNode[],
   ) {
     const { context, options } = this
     this.currentFrame = frame
@@ -86,7 +88,8 @@ export class CanvasVideoRenderer {
     )
     context.fillStyle = scene.background ?? options.composition.stage.background ?? "#10131b"
     context.fillRect(0, 0, width, height)
-    for (const node of applyComputedTexts(withGrainFrameSeeds(evaluateSceneAtFrame(scene, frame, hidden), frame))) {
+    const nodes = evaluatedNodes ?? applyComputedTexts(withGrainFrameSeeds(evaluateSceneAtFrame(scene, frame, hidden), frame))
+    for (const node of nodes) {
       const pose = physics3d?.[node.id]
       const rendered =
         pose && node.kind === "mesh3d" ? { ...node, position: pose.position, rotation3d: pose.rotation } : node
@@ -213,11 +216,21 @@ export class CanvasVideoRenderer {
     context.restore()
   }
 
-  private grainTileCache: { key: string; canvas: HTMLCanvasElement } | undefined
+  /**
+   * Grain tiles are cached per size + seed bucket instead of per exact seed.
+   * The animated seed changes EVERY frame, so an exact-seed cache (single
+   * entry or LRU) regenerates a 128x128 ImageData + pattern per grain node
+   * per frame; bucketing keeps the shimmer deterministic and animated while
+   * making the per-frame cost a plain fillRect.
+   */
+  private static readonly GRAIN_TILE_BUCKETS = 8
+  private grainTileCache = new Map<string, HTMLCanvasElement>()
 
   private grainTile(size: number, seed: number): HTMLCanvasElement {
-    const key = `${size}:${seed}`
-    if (this.grainTileCache?.key === key) return this.grainTileCache.canvas
+    const bucket = seed % CanvasVideoRenderer.GRAIN_TILE_BUCKETS
+    const key = `${size}:${bucket}`
+    const cached = this.grainTileCache.get(key)
+    if (cached) return cached
     const side = 128
     const canvas = document.createElement("canvas")
     canvas.width = side
@@ -247,7 +260,7 @@ export class CanvasVideoRenderer {
       }
     }
     context.putImageData(image, 0, 0)
-    this.grainTileCache = { key, canvas }
+    this.grainTileCache.set(key, canvas)
     return canvas
   }
 
@@ -550,6 +563,7 @@ export class CanvasVideoRenderer {
   destroy() {
     this.images.clear()
     this.failedImages.clear()
+    this.grainTileCache.clear()
     for (const video of this.videoElements.values()) video.pause()
     this.videoElements.clear()
     this.failedVideos.clear()

@@ -57,8 +57,12 @@ function clampVelocity(velocity: [number, number]) {
 export class LivePhysicsWorld {
   private readonly bodies = new Map<string, LiveBody>()
   private readonly gravity: [number, number]
-  private readonly overlapping = new Set<string>()
+  private overlapping = new Set<string>()
   private readonly dragVelocity = new Map<string, Vec2>()
+  /** Reused scratch state for resolveCollisions/step: zero per-step allocation. */
+  private readonly bodyList: LiveBody[] = []
+  private currentOverlaps = new Set<string>()
+  private readonly posePool: LivePhysicsPose[] = []
 
   constructor(settings: PhysicsSettings, geometry: Map<string, LiveBodyGeometry>) {
     this.gravity = (settings.gravity ?? [0, 980]) as [number, number]
@@ -145,7 +149,7 @@ export class LivePhysicsWorld {
     return this.resolveCollisions()
   }
 
-  /** Node center poses for bodies that moved (static bodies included when clean). */
+  /** Node center poses for all bodies. Returns owned snapshots safe to hold across steps. */
   poses(): Map<string, LivePhysicsPose> {
     const output = new Map<string, LivePhysicsPose>()
     for (const body of this.bodies.values()) {
@@ -159,14 +163,41 @@ export class LivePhysicsWorld {
     return output
   }
 
+  /**
+   * Refill a caller-owned pose map WITHOUT allocating pose objects per frame:
+   * entries are pooled and reused across calls, so every value is only valid
+   * until the next posesInto/step call. The player consumes the map
+   * synchronously inside the render loop, which is the intended use; hold on
+   * to snapshots via poses() instead.
+   */
+  posesInto(output: Map<string, LivePhysicsPose>): Map<string, LivePhysicsPose> {
+    let poolIndex = 0
+    for (const body of this.bodies.values()) {
+      const pose = poolIndex < this.posePool.length ? this.posePool[poolIndex] : { x: 0, y: 0, velocityX: 0, velocityY: 0 }
+      if (poolIndex >= this.posePool.length) this.posePool.push(pose)
+      poolIndex++
+      pose.x = body.position[0]
+      pose.y = body.position[1]
+      pose.velocityX = body.velocity[0]
+      pose.velocityY = body.velocity[1]
+      output.set(body.nodeId, pose)
+    }
+    return output
+  }
+
   private pairKey(a: string, b: string) {
     return a < b ? `${a}|${b}` : `${b}|${a}`
   }
 
   private resolveCollisions(): LiveCollisionEvent[] {
-    const list = [...this.bodies.values()]
+    // Reused buffers + set swap: persistent allocation-free stepping keeps
+    // GC pressure flat on low-memory machines with many small bodies.
+    const list = this.bodyList
+    list.length = 0
+    for (const body of this.bodies.values()) list.push(body)
     const events: LiveCollisionEvent[] = []
-    const current = new Set<string>()
+    const current = this.currentOverlaps
+    current.clear()
     for (let i = 0; i < list.length; i++) {
       for (let j = i + 1; j < list.length; j++) {
         const a = list[i]
@@ -179,20 +210,25 @@ export class LivePhysicsWorld {
         this.separate(a, b, collision)
       }
     }
-    this.overlapping.clear()
-    for (const key of current) this.overlapping.add(key)
+    const eventsSwap = this.overlapping
+    this.overlapping = current
+    this.currentOverlaps = eventsSwap
     return events
   }
 
   private detect(a: LiveBody, b: LiveBody) {
     const dx = b.position[0] - a.position[0]
     const dy = b.position[1] - a.position[1]
+    // Squared-distance rejection first: the sqrt/hypot only runs when a pair
+    // is actually overlapping, which is rare in a spread-out scene.
+    const distanceSquared = dx * dx + dy * dy
     const ra = Math.min(a.size[0], a.size[1]) / 2
     const rb = Math.min(b.size[0], b.size[1]) / 2
-    const distance = Math.hypot(dx, dy)
-    if (distance < ra + rb) {
+    const sum = ra + rb
+    if (distanceSquared < sum * sum) {
+      const distance = Math.sqrt(Math.max(distanceSquared, 0.0001 * 0.0001))
       const length = Math.max(distance, 0.0001)
-      return { nx: dx / length, ny: dy / length, overlap: ra + rb - distance }
+      return { nx: dx / length, ny: dy / length, overlap: sum - distance }
     }
     const ox = (a.size[0] + b.size[0]) / 2 - Math.abs(dx)
     const oy = (a.size[1] + b.size[1]) / 2 - Math.abs(dy)

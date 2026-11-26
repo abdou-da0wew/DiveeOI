@@ -36,6 +36,13 @@ export function applySceneTransition(
         break
     }
   }
+  // Dirty check: most interactive scenes run without a transition, so every
+  // frame would otherwise rewrite 6 style properties x 2 elements and force
+  // style recalc for no visual change. Transition progress changes each frame
+  // by design, so the signature compare is exact, not rounded.
+  const signature = `${transition?.type ?? ""}|${transform}|${opacity}|${clipPath}`
+  if (lastTransitionSignature === signature) return
+  lastTransitionSignature = signature
   for (const element of [stageElement, controlsRoot]) {
     element.style.transformOrigin = "50% 50%"
     element.style.transformStyle = "preserve-3d"
@@ -46,14 +53,18 @@ export function applySceneTransition(
   }
 }
 
+let lastTransitionSignature = ""
+
 export function sizeCanvas(
   canvas: HTMLCanvasElement | undefined,
   wrapper: HTMLElement,
   stage: VideoStage,
   maxDevicePixelRatio: number,
+  /** Pre-measured wrapper rect; skips the forced layout reflow when provided. */
+  measuredRect?: { width: number; height: number },
 ) {
   if (!canvas) return
-  const rect = wrapper.getBoundingClientRect()
+  const rect = measuredRect ?? wrapper.getBoundingClientRect()
   const dpr = Math.min(window.devicePixelRatio || 1, maxDevicePixelRatio)
   const width = Math.max(1, Math.floor(rect.width * dpr))
   const height = Math.max(1, Math.floor(rect.height * dpr))

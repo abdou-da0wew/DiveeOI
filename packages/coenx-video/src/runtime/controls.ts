@@ -8,6 +8,8 @@ export interface ControlCallbacks {
 
 export class InteractiveControls {
   private readonly nodes = new Map<string, HTMLElement>()
+  /** Last style-relevant values applied per node: skips redundant CSS writes. */
+  private readonly applied = new Map<string, string>()
   private sceneId = ""
 
   constructor(
@@ -25,41 +27,45 @@ export class InteractiveControls {
       this.destroyNodes()
       this.sceneId = scene.id
     }
-    const wanted = new Set(
-      scene.nodes
-        .filter((node) => node.kind === "button" || node.kind === "input" || node.kind === "select")
-        .map((node) => node.id),
-    )
-    for (const [id, element] of this.nodes) {
-      if (wanted.has(id)) continue
-      element.remove()
-      this.nodes.delete(id)
-    }
+    let wantedCount = 0
     for (const node of scene.nodes) {
-      if (!wanted.has(node.id)) continue
+      if (node.kind !== "button" && node.kind !== "input" && node.kind !== "select") continue
+      wantedCount++
       let element = this.nodes.get(node.id)
       if (!element || element.dataset.coenxKind !== node.kind) {
         element?.remove()
         element = this.create(node)
+        // Fresh element: force the style block below to run once.
+        this.applied.delete(node.id)
       }
-      const style = element.style
-      const hidden = node.visible === false
-      style.display = hidden ? "none" : "block"
-      style.left = `${((node.x - node.width / 2) / this.composition.stage.width) * 100}%`
-      style.top = `${((node.y - node.height / 2) / this.composition.stage.height) * 100}%`
-      style.width = `${(node.width / this.composition.stage.width) * 100}%`
-      style.height = `${(node.height / this.composition.stage.height) * 100}%`
-      style.transform = `rotate(${node.rotation ?? 0}deg)`
-      style.opacity = String(node.opacity ?? 1)
-      style.pointerEvents = hidden ? "none" : "auto"
-      style.fontFamily = node.fontFamily ?? "Geist"
-      style.fontSize = String(node.fontSize ?? 16) + "px"
-      style.fontWeight = String(node.fontWeight ?? 500)
+      // Value-signature dirty check: scene nodes are re-evaluated objects
+      // every frame, so comparing the handful of style-relevant fields is
+      // cheaper than rewriting ~10 CSS properties per control per frame.
+      const signature = `${node.visible === false}|${node.x},${node.y},${node.width},${node.height}|${node.rotation ?? 0}|${node.opacity ?? 1}|${node.fontFamily ?? "Geist"}|${node.fontSize ?? 16}|${node.fontWeight ?? 500}`
+      if (this.applied.get(node.id) !== signature) {
+        this.applied.set(node.id, signature)
+        const style = element.style
+        const hidden = node.visible === false
+        style.display = hidden ? "none" : "block"
+        style.left = `${((node.x - node.width / 2) / this.composition.stage.width) * 100}%`
+        style.top = `${((node.y - node.height / 2) / this.composition.stage.height) * 100}%`
+        style.width = `${(node.width / this.composition.stage.width) * 100}%`
+        style.height = `${(node.height / this.composition.stage.height) * 100}%`
+        style.transform = `rotate(${node.rotation ?? 0}deg)`
+        style.opacity = String(node.opacity ?? 1)
+        style.pointerEvents = hidden ? "none" : "auto"
+        style.fontFamily = node.fontFamily ?? "Geist"
+        style.fontSize = String(node.fontSize ?? 16) + "px"
+        style.fontWeight = String(node.fontWeight ?? 500)
+      }
+      // State/value syncs stay unconditional: they must react to engine state
+      // changes that the style signature cannot see (bound input values,
+      // disabled flags, option lists).
       if (element instanceof HTMLButtonElement && node.kind === "button") {
         element.disabled = !!node.disabled
-        element.textContent = node.text
-        style.background = node.disabled ? "#666666" : cssPaint(node.fill, "#315fe8")
-        style.color = node.color ?? "#ffffff"
+        if (element.textContent !== node.text) element.textContent = node.text
+        element.style.background = node.disabled ? "#666666" : cssPaint(node.fill, "#315fe8")
+        element.style.color = node.color ?? "#ffffff"
       }
       if (element instanceof HTMLInputElement && node.kind === "input") {
         element.placeholder = node.placeholder ?? node.label ?? ""
@@ -73,6 +79,14 @@ export class InteractiveControls {
           for (const option of node.options) element.add(new Option(option.label, option.value))
           element.dataset.options = optionsKey
         }
+      }
+    }
+    if (wantedCount !== this.nodes.size) {
+      for (const [id, element] of this.nodes) {
+        if (scene.nodes.some((node) => node.id === id && (node.kind === "button" || node.kind === "input" || node.kind === "select"))) continue
+        element.remove()
+        this.nodes.delete(id)
+        this.applied.delete(id)
       }
     }
   }
@@ -138,6 +152,7 @@ export class InteractiveControls {
   private destroyNodes() {
     for (const element of this.nodes.values()) element.remove()
     this.nodes.clear()
+    this.applied.clear()
   }
 
   destroy() {

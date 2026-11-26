@@ -32,6 +32,8 @@ export class SvgVideoRenderer {
     hidden: ReadonlySet<string>,
     physics3d?: Record<string, { position: Vec3; rotation: Vec3 }>,
     overrides?: NodeOverrideMap,
+    /** Pre-evaluated node list; skips the second per-frame scene evaluation. */
+    evaluatedNodes?: VisualNode[],
   ) {
     const width = this.composition.stage.width
     const height = this.composition.stage.height
@@ -48,7 +50,8 @@ export class SvgVideoRenderer {
         fill: scene.background ?? this.composition.stage.background ?? "#10131b",
       }),
     )
-    for (const node of evaluateSceneAtFrame(scene, frame, hidden)) {
+    const nodes = evaluatedNodes ?? evaluateSceneAtFrame(scene, frame, hidden)
+    for (const node of nodes) {
       const pose = physics3d?.[node.id]
       const rendered =
         pose && node.kind === "mesh3d" ? { ...node, position: pose.position, rotation3d: pose.rotation } : node

@@ -1,8 +1,9 @@
-import type { Scalar, Scene, VideoComposition } from "../model/types"
-import { evaluateSceneAtFrame } from "../animation/timeline"
+import type { Scalar, Scene, Vec3, VideoComposition, VisualNode } from "../model/types"
+import { applyComputedTexts, evaluateSceneAtFrame } from "../animation/timeline"
+import { withGrainFrameSeeds } from "../render/effects"
 import { physics3DPoseAt, simulatePhysics3D, type Physics3DSimulation } from "../physics/simulate3d"
-import { LivePhysicsWorld } from "../physics/live"
-import { InteractiveEngine, type InteractionResult, type PlayerEvent } from "../interactive/engine"
+import { LivePhysicsWorld, type LivePhysicsPose } from "../physics/live"
+import { InteractiveEngine, type InteractionResult, type NodeOverride, type PlayerEvent } from "../interactive/engine"
 import { CanvasVideoRenderer, type CanvasAssetResolver } from "./canvas-renderer"
 import { InteractiveControls } from "./controls"
 import { SvgVideoRenderer } from "./svg-renderer"
@@ -81,6 +82,14 @@ export function mountInteractivePlayer(
   let lastPhysicsFrame = 0
   /** Last drawn node boxes (center coordinates) used for hit-testing. */
   let interactionBoxes = new Map<string, InteractionBox>()
+  // Reused per-frame scratch: the render loop runs at up to 30fps on low-end
+  // machines, so pooling poses and guarding override merges keeps idle frames
+  // allocation-free.
+  let poseScratch = new Map<string, LivePhysicsPose>()
+  let mergedOverrides = new Map<string, NodeOverride>()
+  let mergedOverridesVersion = -1
+  let mergedOverridesSceneId = ""
+  const physics3dPool = new Map<string, { position: [number, number, number]; rotation: [number, number, number] }>()
 
   function currentScene(): Scene {
     return engine.currentScene
@@ -140,7 +149,7 @@ export function mountInteractivePlayer(
       lastPhysicsFrame = local
       fractionalFrames = 0
     }
-    controls.setState({ ...engine.state })
+    controls.setState(engine.state)
     if (result.stateChanged) options.onStateChange?.({ ...engine.state })
     if (result.sceneChanged) syncScene()
     if (source?.type !== "collide") render(true)
@@ -183,23 +192,56 @@ export function mountInteractivePlayer(
         emitEvents(result.emitted)
         for (const id of result.playedAudio) audio.play(id)
         if (result.stateChanged) options.onStateChange?.({ ...engine.state })
-        controls.setState({ ...engine.state })
+        controls.setState(engine.state)
         if (result.feedback) engine.feedback = result.feedback
         // Scene changes from collision handlers take effect after the step loop.
       }
     }
     if (steps > 0) lastPhysicsFrame = localFrame
-    const poses = world.poses()
-    const merged = new Map(engine.nodeOverrides)
-    for (const [nodeId, pose] of poses) {
-      merged.set(nodeId, { ...merged.get(nodeId), x: pose.x, y: pose.y })
+    // Merge physics poses with authored setNode overrides. When nothing moved
+    // and no interaction touched overrides (idle/settled scene), the previous
+    // merge is still exactly valid: return it untouched instead of rebuilding
+    // Maps and pose objects every frame.
+    if (steps === 0 && mergedOverridesSceneId === scene.id && mergedOverridesVersion === engine.overridesVersion) {
+      return mergedOverrides
     }
-    return merged
+    mergedOverrides.clear()
+    mergedOverridesSceneId = scene.id
+    mergedOverridesVersion = engine.overridesVersion
+    world.posesInto(poseScratch)
+    for (const [nodeId, pose] of poseScratch) {
+      const base = engine.nodeOverrides.get(nodeId)
+      mergedOverrides.set(nodeId, base ? { ...base, x: pose.x, y: pose.y } : { x: pose.x, y: pose.y })
+    }
+    return mergedOverrides
   }
 
-  function recordInteractionBoxes(scene: Scene, localFrame: number, overrides: NodeOverrideMap | undefined) {
+  /** Collect mesh3d poses into a pooled record (no flatMap/entry churn per frame). */
+  function collectPhysics3dPoses(simulation: Physics3DSimulation | undefined, localFrame: number) {
+    if (!simulation) return undefined
+    const poses: Record<string, { position: Vec3; rotation: Vec3 }> = {}
+    for (const nodeId of simulation.bodyIndexes.keys()) {
+      const pose = physics3DPoseAt(simulation, nodeId, localFrame)
+      if (!pose) continue
+      let entry = physics3dPool.get(nodeId)
+      if (!entry) {
+        entry = { position: [0, 0, 0], rotation: [0, 0, 0] }
+        physics3dPool.set(nodeId, entry)
+      }
+      entry.position[0] = pose.position[0]
+      entry.position[1] = pose.position[1]
+      entry.position[2] = pose.position[2]
+      entry.rotation[0] = pose.rotation[0]
+      entry.rotation[1] = pose.rotation[1]
+      entry.rotation[2] = pose.rotation[2]
+      poses[nodeId] = entry
+    }
+    return poses
+  }
+
+  function recordInteractionBoxes(scene: Scene, overrides: NodeOverrideMap | undefined, evaluated: VisualNode[]) {
     const boxes = new Map<string, InteractionBox>()
-    for (const node of evaluateSceneAtFrame(scene, localFrame, engine.hiddenNodes)) {
+    for (const node of evaluated) {
       const override = overrides?.get(node.id)
       boxes.set(node.id, {
         x: override?.x !== undefined ? Number(override.x) : node.x,
@@ -213,25 +255,25 @@ export function mountInteractivePlayer(
 
   function render(force = false) {
     if (destroyed) return
+    // One layout read per frame, shared with sizeCanvas (a second
+    // getBoundingClientRect here would force a second reflow every frame).
     const rect = wrapper.getBoundingClientRect()
     if (rect.width <= 0 || rect.height <= 0) return
-    sizeCanvas(canvas, wrapper, stage, maxDpr)
+    sizeCanvas(canvas, wrapper, stage, maxDpr, rect)
     const scene = currentScene()
     const localFrame = Math.max(0, Math.min(scene.durationFrames - 1, currentFrame - sceneStartFrame))
     const physicsSimulation = getPhysics3dSimulation(scene)
-    const physics3d = physicsSimulation
-      ? Object.fromEntries(
-          [...physicsSimulation.bodyIndexes.keys()].flatMap((nodeId) => {
-            const pose = physics3DPoseAt(physicsSimulation, nodeId, localFrame)
-            return pose ? [[nodeId, pose]] : []
-          }),
-        )
-      : undefined
+    const physics3d = collectPhysics3dPoses(physicsSimulation, localFrame)
     const overrides = stepLivePhysics(scene, localFrame)
-    recordInteractionBoxes(scene, localFrame, overrides)
-    renderer.draw(scene, localFrame, engine.hiddenNodes, physics3d, overrides)
+    // One scene evaluation per frame, shared by hit-testing and drawing
+    // (previously both consumers evaluated the scene independently).
+    const evaluated = applyComputedTexts(
+      withGrainFrameSeeds(evaluateSceneAtFrame(scene, localFrame, engine.hiddenNodes), localFrame),
+    )
+    recordInteractionBoxes(scene, overrides, evaluated)
+    renderer.draw(scene, localFrame, engine.hiddenNodes, physics3d, overrides, evaluated)
     applySceneTransition(stageElement, controlsRoot, scene, localFrame)
-    controls.setState({ ...engine.state })
+    controls.setState(engine.state)
     controls.update(scene)
     const interaction = engine.tick(localFrame)
     if (interaction.stateChanged) options.onStateChange?.({ ...engine.state })
@@ -343,7 +385,7 @@ export function mountInteractivePlayer(
     isPlaying: () => playing,
     isDestroyed: () => destroyed,
   })
-  controls.setState({ ...engine.state })
+  controls.setState(engine.state)
   render(true)
   if (options.autoplay) play()
 

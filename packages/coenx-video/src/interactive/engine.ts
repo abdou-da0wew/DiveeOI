@@ -54,6 +54,13 @@ export class InteractiveEngine {
   readonly firedTimers = new Set<string>()
   currentSceneId: string
   feedback: InteractionResult["feedback"]
+  /**
+   * Bumped whenever node overrides or hidden nodes change. Consumers that
+   * merge per-frame data with these overrides (the live-physics player) use
+   * it to skip rebuilds while the world is idle - a zero-allocation frame
+   * for static or settled scenes.
+   */
+  overridesVersion = 0
   private readonly hiddenByScene = new Map<string, Set<string>>()
   private readonly overridesByScene = new Map<string, Array<[string, NodeOverride]>>()
   private globalFrame = 0
@@ -79,6 +86,7 @@ export class InteractiveEngine {
     this.currentSceneId = sceneId
     this.hiddenNodes.clear()
     this.nodeOverrides.clear()
+    this.overridesVersion++
     for (const nodeId of this.hiddenByScene.get(sceneId) ?? []) this.hiddenNodes.add(nodeId)
     for (const [nodeId, override] of this.overridesByScene.get(sceneId) ?? []) this.nodeOverrides.set(nodeId, override)
     for (const key of this.firedTimers) {
@@ -191,6 +199,7 @@ export class InteractiveEngine {
         }
         if (changed) {
           this.nodeOverrides.set(action.targetId, override)
+          this.overridesVersion++
           result.nodesChanged = true
         }
         break
@@ -199,10 +208,15 @@ export class InteractiveEngine {
         result.impulses.push({ nodeId: action.targetId, vx: action.vx, vy: action.vy })
         break
       case "show":
-        this.hiddenNodes.delete(action.targetId)
+        if (this.hiddenNodes.delete(action.targetId)) {
+          this.overridesVersion++
+        }
         break
       case "hide":
-        this.hiddenNodes.add(action.targetId)
+        if (!this.hiddenNodes.has(action.targetId)) {
+          this.hiddenNodes.add(action.targetId)
+          this.overridesVersion++
+        }
         break
       case "feedback":
         result.feedback = { text: action.text, tone: action.tone ?? "neutral" }
