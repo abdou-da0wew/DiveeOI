@@ -270,9 +270,15 @@ root.addEventListener("coenx:ready", event => {
   let clipOutside = false;
   if (stage.tagName.toLowerCase() === "canvas") {
     const context = stage.getContext("2d");
-    const inside = context.getImageData(242, 30, 1, 1).data;
-    const hole = context.getImageData(265, 30, 1, 1).data;
-    const outside = context.getImageData(232, 30, 1, 1).data;
+    // The canvas backing store is display-sized (CSS box x devicePixelRatio)
+    // while the renderer draws in stage space scaled to fill it, so pixel
+    // probes must map stage coordinates onto the backing store.
+    const scaleX = stage.width / 320;
+    const scaleY = stage.height / 180;
+    const probe = (x, y) => context.getImageData(Math.round(x * scaleX), Math.round(y * scaleY), 1, 1).data;
+    const inside = probe(242, 30);
+    const hole = probe(265, 30);
+    const outside = probe(232, 30);
     clipInside = inside[1] > inside[0] && inside[1] > inside[2];
     clipHole = !(hole[1] > hole[0] && hole[1] > hole[2]);
     clipOutside = !(outside[1] > outside[0] && outside[1] > outside[2]);

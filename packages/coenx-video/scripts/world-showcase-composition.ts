@@ -1,11 +1,157 @@
 import type { VideoComposition } from "../src/model/types"
 
+/**
+ * Physics-explainer scene: an ideal-gas chamber. Molecule circles fly around
+ * with zero gravity; the Heat button applies impulses to every molecule
+ * (thermal agitation) and recolors them hot, the Cool button damps them and
+ * recolors them cold. Collisions count bumps into the HUD expression, and
+ * molecules can be grabbed and flung with kinematic drags. This is the
+ * "heating the molecules" showcase for live 2D physics + statement lists.
+ */
+function moleculesScene() {
+  const molecules = Array.from({ length: 24 }, (_, index) => {
+    const i = index + 1
+    const column = index % 6
+    const row = Math.floor(index / 6)
+    const signX = i % 2 === 0 ? 1 : -1
+    const signY = i % 3 === 0 ? -1 : 1
+    return {
+      id: `mol-${i}`,
+      x: 150 + column * 138,
+      y: 140 + row * 92,
+      vx: (90 + ((i * 37) % 130)) * signX,
+      vy: (70 + ((i * 53) % 110)) * signY,
+      heatVx: (170 + ((i * 29) % 190)) * signX,
+      heatVy: -(130 + ((i * 41) % 170)) * (i % 2 === 0 ? 1 : -1),
+      coolVx: -(60 + ((i * 23) % 90)) * signX,
+      coolVy: (40 + ((i * 19) % 70)) * signY,
+    }
+  })
+  const hot = "#ff8a5c"
+  const cold = "#6f9bff"
+  const hud = {
+    op: "concat",
+    items: [
+      { op: "literal", value: "temperature " },
+      { op: "state", key: "temp" },
+      { op: "literal", value: " K  ·  bumps " },
+      { op: "state", key: "bumps" },
+    ],
+  } as const
+
+  return {
+    id: "molecules",
+    durationFrames: 600,
+    background: "#0b1120",
+    physics: {
+      gravity: [0, 0],
+      bodies: [
+        ...molecules.map((m) => ({
+          nodeId: m.id,
+          mass: 0.4,
+          velocity: [m.vx, m.vy] as [number, number],
+          size: [22, 22] as [number, number],
+          restitution: 0.92,
+        })),
+        { nodeId: "ch-left", mass: 0, velocity: [0, 0] as [number, number], size: [48, 540] as [number, number], isStatic: true, restitution: 0.9 },
+        { nodeId: "ch-right", mass: 0, velocity: [0, 0] as [number, number], size: [48, 540] as [number, number], isStatic: true, restitution: 0.9 },
+        { nodeId: "ch-top", mass: 0, velocity: [0, 0] as [number, number], size: [960, 48] as [number, number], isStatic: true, restitution: 0.9 },
+        { nodeId: "ch-bottom", mass: 0, velocity: [0, 0] as [number, number], size: [960, 48] as [number, number], isStatic: true, restitution: 0.9 },
+      ],
+    },
+    nodes: [
+      { id: "mol-hud", kind: "text", x: 320, y: 72, width: 420, height: 28, text: "temperature 0 K  ·  bumps 0", color: "#eef2f8", align: "center" },
+      { id: "mol-hint", kind: "text", x: 780, y: 74, width: 330, height: 24, text: "drag a molecule · press heat", color: "#93a0b8", align: "right" },
+      { id: "heat-btn", kind: "button", x: 240, y: 500, width: 220, height: 48, text: "heat  +300 K", fill: "#e8595a", color: "#0b1120", radius: 12 },
+      { id: "cool-btn", kind: "button", x: 500, y: 500, width: 220, height: 48, text: "cool  −300 K", fill: "#3b82f6", color: "#0b1120", radius: 12 },
+      { id: "ch-left", kind: "rect", x: 24, y: 270, width: 48, height: 540, fill: "#243050" },
+      { id: "ch-right", kind: "rect", x: 936, y: 270, width: 48, height: 540, fill: "#243050" },
+      { id: "ch-top", kind: "rect", x: 480, y: 24, width: 960, height: 48, fill: "#243050" },
+      { id: "ch-bottom", kind: "rect", x: 480, y: 516, width: 960, height: 48, fill: "#243050" },
+      ...molecules.map((m) => ({
+        id: m.id,
+        kind: "ellipse",
+        x: m.x,
+        y: m.y,
+        width: 22,
+        height: 22,
+        fill: cold,
+      })),
+    ],
+    interactions: [
+      {
+        id: "mol-heat",
+        trigger: { type: "click", targetId: "heat-btn" },
+        actions: [
+          {
+            type: "run",
+            actions: [
+              { type: "increment", key: "temp", amount: 300 },
+              { type: "setNode", targetId: "mol-hud", props: { text: hud } },
+            ],
+          },
+        ],
+      },
+      ...molecules.map((m) => ({
+        id: `mol-heat-${m.id}`,
+        trigger: { type: "click", targetId: "heat-btn" },
+        actions: [
+          { type: "impulse", targetId: m.id, vx: m.heatVx, vy: m.heatVy },
+          { type: "setNode", targetId: m.id, props: { color: hot } },
+        ],
+      })),
+      {
+        id: "mol-cool",
+        trigger: { type: "click", targetId: "cool-btn" },
+        actions: [
+          {
+            type: "run",
+            actions: [
+              { type: "increment", key: "temp", amount: -300 },
+              { type: "setNode", targetId: "mol-hud", props: { text: hud } },
+            ],
+          },
+        ],
+      },
+      ...molecules.map((m) => ({
+        id: `mol-cool-${m.id}`,
+        trigger: { type: "click", targetId: "cool-btn" },
+        actions: [
+          { type: "impulse", targetId: m.id, vx: m.coolVx, vy: m.coolVy },
+          { type: "setNode", targetId: m.id, props: { color: cold } },
+        ],
+      })),
+      {
+        id: "mol-grab",
+        trigger: { type: "drag", targetId: "mol-3", phase: "move" },
+        actions: [{ type: "setNode", targetId: "mol-hint", props: { text: "grabbed — release to fling" } }],
+      },
+      {
+        id: "mol-fling",
+        trigger: { type: "drag", targetId: "mol-3", phase: "end" },
+        actions: [{ type: "feedback", text: "flung!", tone: "success" }],
+      },
+      ...molecules.slice(0, 8).map((m, index) => ({
+        id: `mol-bump-${index + 1}`,
+        trigger: { type: "collide", targetId: m.id },
+        actions: [{ type: "increment", key: "bumps", amount: 1 }],
+      })),
+      {
+        id: "mol-to-lesson",
+        trigger: { type: "timer", frame: 560 },
+        actions: [{ type: "goto", sceneId: "lesson" }],
+      },
+    ],
+    transition: { type: "fade", durationFrames: 16 },
+  }
+}
+
 export const arena: VideoComposition = {
   version: 1,
   id: "world-showcase",
   title: "DiveeOI interactive world — physics playground",
   stage: { width: 960, height: 540, fps: 30 },
-  initialState: { score: 0, bounces: 0 },
+  initialState: { score: 0, bounces: 0, temp: 0, bumps: 0 },
   scenes: [
     {
       id: "intro",
@@ -114,13 +260,14 @@ export const arena: VideoComposition = {
           ],
         },
         {
-          id: "to-lesson",
+          id: "to-molecules",
           trigger: { type: "timer", frame: 580 },
-          actions: [{ type: "goto", sceneId: "lesson" }],
+          actions: [{ type: "goto", sceneId: "molecules" }],
         },
       ],
       transition: { type: "slide-left", durationFrames: 16 },
     },
+    moleculesScene(),
     {
       id: "lesson",
       durationFrames: 480,

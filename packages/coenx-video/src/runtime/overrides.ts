@@ -26,5 +26,16 @@ export function applyNodeOverride<T extends VisualNode>(node: T, override: NodeO
   if (override.color !== undefined && "color" in node && typeof (node as { color?: unknown }).color === "string") {
     ;(next as unknown as { color: string }).color = String(override.color)
   }
+  // Shape nodes (rect/ellipse/button) carry their tint in `fill`, not `color`.
+  // A `color` override on a solid-fill shape restyles the fill so setNode can
+  // drive heat maps, highlights and state colors without keyframe gymnastics.
+  if (
+    override.color !== undefined &&
+    !("color" in node) &&
+    "fill" in node &&
+    typeof (node as { fill?: unknown }).fill === "string"
+  ) {
+    ;(next as unknown as { fill: string }).fill = String(override.color)
+  }
   return next
 }
