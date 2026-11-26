@@ -69,7 +69,21 @@ export class CanvasVideoRenderer {
     this.currentFrame = frame
     const { width, height } = options.composition.stage
     context.save()
-    context.setTransform(1, 0, 0, 1, 0, 0)
+    // Scale stage space (stage.width x stage.height) to the backing store.
+    // sizeCanvas() sizes the backing to the CSS box x devicePixelRatio and
+    // sets this transform; re-deriving it here (instead of resetting to
+    // identity) keeps the scene correct at any display size. With identity,
+    // a 960x540 stage drawn onto a smaller backing store clips everything
+    // beyond the top-left CSS-sized corner (ball, floor, right wall).
+    const backing = this.options.canvas
+    context.setTransform(
+      backing.width / width,
+      0,
+      0,
+      backing.height / height,
+      0,
+      0,
+    )
     context.fillStyle = scene.background ?? options.composition.stage.background ?? "#10131b"
     context.fillRect(0, 0, width, height)
     for (const node of applyComputedTexts(withGrainFrameSeeds(evaluateSceneAtFrame(scene, frame, hidden), frame))) {

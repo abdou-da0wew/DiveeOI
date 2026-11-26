@@ -7,7 +7,7 @@
 // standard file endpoint (GET /file, binary base64) and unpacked in the
 // browser with DecompressionStream - no server-side player needed.
 
-import { createEffect, createMemo, createResource, on, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, on, onCleanup, Show } from "solid-js"
 import { IconButton } from "@diveeoi/ui/icon-button"
 import { mountInteractivePlayer, type InteractivePlayerHandle } from "@diveeoi/coenx-video/runtime"
 import { readCoenxBrowser } from "@diveeoi/coenx-video/container-browser"
@@ -30,6 +30,31 @@ export function CoenxInteractivePanel(props: {
   const language = useLanguage()
   const sdk = useSDK()
   let container: HTMLDivElement | undefined
+  // Playback controls: the player mounts paused, so the header exposes
+  // play/pause/restart bound to the mounted player handle. Without these the
+  // world stays on its first frame and live physics never steps.
+  const [player, setPlayer] = createSignal<InteractivePlayerHandle>()
+  const [playing, setPlaying] = createSignal(false)
+
+  const togglePlayback = () => {
+    const handle = player()
+    if (!handle) return
+    if (playing()) {
+      handle.pause()
+      setPlaying(false)
+    } else {
+      handle.play()
+      setPlaying(true)
+    }
+  }
+
+  const restartPlayback = () => {
+    const handle = player()
+    if (!handle) return
+    handle.seek(0)
+    handle.play()
+    setPlaying(true)
+  }
 
   const [source] = createResource(
     () => props.path,
@@ -69,7 +94,12 @@ export function CoenxInteractivePanel(props: {
           container.textContent = error instanceof Error ? error.message : String(error)
           return
         }
-        onCleanup(() => handle?.destroy())
+        setPlayer(handle)
+        setPlaying(false)
+        onCleanup(() => {
+          handle?.destroy()
+          setPlayer(undefined)
+        })
       },
     ),
   )
@@ -88,6 +118,35 @@ export function CoenxInteractivePanel(props: {
         <div class="text-11-regular text-text-weak truncate max-w-40 hidden md:inline" title={language.t("video.interactive.hint")}>
           {language.t("video.interactive.hint")}
         </div>
+        <Show when={player()}>
+          <IconButton
+            icon="reset"
+            variant="ghost"
+            class="h-6 w-6"
+            onClick={restartPlayback}
+            aria-label={language.t("video.interactive.restart")}
+            title={language.t("video.interactive.restart")}
+          />
+          <button
+            type="button"
+            class="flex h-6 w-6 items-center justify-center text-text-weak hover:text-text-base"
+            onClick={togglePlayback}
+            aria-label={playing() ? language.t("video.interactive.pause") : language.t("video.interactive.play")}
+            title={playing() ? language.t("video.interactive.pause") : language.t("video.interactive.play")}
+          >
+            <svg viewBox="0 0 20 20" fill="none" class="h-3.5 w-3.5" aria-hidden="true">
+              <Show
+                when={playing()}
+                fallback={
+                  <path d="M6.5 4.5L15 10L6.5 15.5V4.5Z" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" />
+                }
+              >
+                <rect x="6" y="4.5" width="2.6" height="11" fill="currentColor" />
+                <rect x="11.4" y="4.5" width="2.6" height="11" fill="currentColor" />
+              </Show>
+            </svg>
+          </button>
+        </Show>
         <IconButton icon="close-small" variant="ghost" class="h-6 w-6" onClick={() => props.onClose?.()} aria-label={language.t("video.tab.close")} />
       </div>
 
