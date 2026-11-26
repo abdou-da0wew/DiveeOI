@@ -20,6 +20,7 @@ Start with `PROJECT_GUIDE.md` for the package/source map and `CONTEXT.md` for th
 - **`packages/script` is an internal build tool** — not an npm-published package. Only referenced as a dev dependency.
 - **Conditional imports** in `packages/db`: `#sqlite`, `#pty`, `#fff` resolve to Bun or Node implementations based on runtime. Add both implementations when adding platform-specific code.
 - **Self-reexport pattern**: `export * as Foo from "./foo"` at the bottom of each module file. Consumers do `import { Foo } from "@/foo/foo"`. See `packages/server/AGENTS.md` for full details.
+- **Tests must be host-agnostic (standing rule, 2026-11-26)** — never write tests that hardcode host-specific paths (e.g. `/home/z/...` or any absolute machine path), machine limits (CPU count, memory size, ports tied to a host) or environment-specific constraints. Derive paths from `import.meta.url` / `os.tmpdir()` / fixtures, discover limits from the system under test, and size assumptions from the thing being tested — so suites pass on any machine and in CI.
 - **Module shape**: flat top-level exports + self-reexport. No `export namespace`, no barrel `index.ts` in multi-sibling directories.
 - **`as never` casts at `LayerNode.make` call sites** — needed because Effect v4 beta.74 propagates `unknown` as RIn when layers with opaque RIn are composed via `Layer.provide`/`Layer.provideMerge`.
 - **`testEffect()`** from `test/lib/effect.ts` is the shared Effect test runner. All packages use it.

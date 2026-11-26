@@ -85,5 +85,8 @@ packages/app/dist/
 packages/mcp/built-in/opencode-db-reader/ocred
 packages/mcp/built-in/opencode-db-reader/ocread
 
+# Packed .coenx4 containers (regenerable via scripts/pack-showcase.ts)
+exports/
+
 # Rust build outputs
 **/target/

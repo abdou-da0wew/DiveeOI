@@ -1,9 +1,14 @@
 // Pack a test container with only the molecules scene for fast viewer testing.
 import { mkdir } from "node:fs/promises"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
 import { packCoenx, validateCoenx } from "../src/container/pack"
 import { arena } from "./world-showcase-composition"
 
-const outDir = "/home/z/my-project/DiveeOI/exports"
+// Repo root derived from this file's location; argv[2] overrides the output
+// directory so the script carries no host-specific paths.
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..")
+const outDir = process.argv[2] ?? path.join(repoRoot, "exports")
 await mkdir(outDir, { recursive: true })
 const moleculesFirst = {
   ...arena,
