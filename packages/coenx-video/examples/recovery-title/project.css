@@ -1,0 +1,70 @@
+.headline {
+  font-family: "Bebas Neue";
+  font-size: 160;
+  text-align: center;
+  color: #f8fafc;
+}
+
+.slice-cyan {
+  font-family: "Bebas Neue";
+  font-size: 160;
+  text-align: center;
+  color: #22d3ee;
+}
+
+.slice-violet {
+  font-family: "Bebas Neue";
+  font-size: 160;
+  text-align: center;
+  color: #a855f7;
+}
+
+.eyebrow {
+  font-family: "Space Mono";
+  font-size: 30;
+  text-align: center;
+  color: #7dd3fc;
+}
+
+.caption {
+  font-family: "JetBrains Mono";
+  font-size: 22;
+  text-align: center;
+  color: #64748b;
+}
+
+.section-title {
+  font-family: "Bebas Neue";
+  font-size: 72;
+  text-align: center;
+  color: #f8fafc;
+}
+
+.chip-label {
+  font-family: "Space Grotesk";
+  font-size: 30;
+  font-weight: 600;
+  text-align: center;
+  color: #dbe4f0;
+}
+
+.headline2 {
+  font-family: "Bebas Neue";
+  font-size: 96;
+  text-align: center;
+  color: #f8fafc;
+}
+
+.subtitle {
+  font-family: "Space Grotesk";
+  font-size: 32;
+  text-align: center;
+  color: #94a3b8;
+}
+
+.mono {
+  font-family: "JetBrains Mono";
+  font-size: 24;
+  text-align: center;
+  color: #22d3ee;
+}

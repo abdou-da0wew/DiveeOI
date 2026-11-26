@@ -1,0 +1,146 @@
+<coenx id="recovery-title" title="Coenx Video recovery title" width="1280" height="720" fps="30" background="#0a0f1e">
+
+  <scene id="hook" frames="150">
+    <defs>
+      <gradient id="glow-cyan" type="radial" center="0.5,0.5" radius="0.5">
+        <stop offset="0" color="#22d3ee" opacity="0.85" />
+        <stop offset="1" color="#22d3ee" opacity="0" />
+      </gradient>
+      <gradient id="glow-violet" type="radial" center="0.5,0.5" radius="0.5">
+        <stop offset="0" color="#a855f7" opacity="0.8" />
+        <stop offset="1" color="#a855f7" opacity="0" />
+      </gradient>
+      <gradient id="accent" type="linear" from="0,0.5" to="1,0.5">
+        <stop offset="0" color="#22d3ee" />
+        <stop offset="0.5" color="#818cf8" />
+        <stop offset="1" color="#a855f7" />
+      </gradient>
+      <path id="wave" d="M 0 50 Q 25 0 50 50 Q 75 100 100 50 Q 125 0 150 50 Q 175 100 200 50" viewBox="200x100" />
+      <clip id="waveclip" path="wave" />
+      <mask id="band-top" viewBox="100x100">
+        <rect x="0" y="22" width="100" height="20" rx="10" fill="#ffffff" />
+      </mask>
+      <mask id="band-mid" viewBox="100x100">
+        <rect x="0" y="54" width="100" height="20" rx="9" fill="#ffffff" />
+      </mask>
+    </defs>
+
+    <ellipse id="glow-a" fill="url(#glow-cyan)" filter="blur(28)" x="300" y="240" width="700" height="500">
+      <animate property="opacity" from="0.35" to="0.6" start="0" end="150" easing="linear" />
+      <animate property="x" from="300" to="430" start="0" end="150" easing="linear" />
+    </ellipse>
+    <ellipse id="glow-b" fill="url(#glow-violet)" filter="blur(34)" x="1010" y="500" width="780" height="560">
+      <animate property="opacity" from="0.3" to="0.55" start="0" end="150" easing="linear" />
+      <animate property="x" from="1010" to="880" start="0" end="150" easing="linear" />
+    </ellipse>
+
+    <path id="wave-line" path-ref="wave" fill="none" stroke="#1e3a5f" stroke-width="3" x="640" y="525" width="980" height="130">
+      <animate property="opacity" from="0" to="0.9" start="0" end="40" easing="ease-out" />
+      <animate property="x" from="640" to="600" start="0" end="150" easing="linear" />
+    </path>
+    <rect id="wave-ribbon" fill="url(#accent)" clip="waveclip" x="640" y="525" width="980" height="130">
+      <animate property="opacity" from="0" to="0.3" start="10" end="70" easing="ease-out" />
+      <animate property="x" from="640" to="600" start="0" end="150" easing="linear" />
+    </rect>
+
+    <text id="eyebrow" class="eyebrow" x="640" y="166" width="900" height="44">DIVEEOI MOTION ENGINE<animate property="opacity" from="0" to="1" start="8" end="28" easing="ease-out" /></text>
+    <text id="headline" class="headline" x="640" y="296" width="1200" height="210" filter="drop-shadow(0 12 26 #000000)">COENX VIDEO<animate property="opacity" from="0" to="1" start="0" end="18" easing="ease-out" /><animate property="y" from="336" to="296" start="0" end="30" easing="ease-out" /></text>
+    <text id="slice-top" class="slice-cyan" x="640" y="296" width="1200" height="210" mask="band-top">COENX VIDEO<animate property="opacity" from="0" to="0.85" start="20" end="30" easing="linear" /><animate property="x" from="640" to="656" start="20" end="80" easing="linear" /></text>
+    <text id="slice-mid" class="slice-violet" x="640" y="296" width="1200" height="210" mask="band-mid">COENX VIDEO<animate property="opacity" from="0" to="0.8" start="34" end="44" easing="linear" /><animate property="x" from="640" to="622" start="34" end="94" easing="linear" /></text>
+
+    <rect id="accent-bar" fill="url(#accent)" x="640" y="430" width="260" height="8" radius="4">
+      <animate property="scaleX" from="0.02" to="1" start="14" end="44" easing="ease-out" />
+      <animate property="opacity" from="0" to="1" start="14" end="26" easing="linear" />
+    </rect>
+    <text id="caption" class="caption" x="640" y="618" width="1240" height="36">recovered from a lost session - seven commits replayed and verified<animate property="opacity" from="0" to="0.9" start="54" end="78" easing="ease-out" /></text>
+  </scene>
+
+  <scene id="features" frames="150">
+    <defs>
+      <gradient id="accent" type="linear" from="0,0.5" to="1,0.5">
+        <stop offset="0" color="#22d3ee" />
+        <stop offset="0.5" color="#818cf8" />
+        <stop offset="1" color="#a855f7" />
+      </gradient>
+      <gradient id="strip" type="linear" from="0,0.5" to="0.125,0.5" spread="repeat">
+        <stop offset="0" color="#22d3ee" opacity="1" />
+        <stop offset="0.5" color="#22d3ee" opacity="0" />
+        <stop offset="1" color="#22d3ee" opacity="1" />
+      </gradient>
+      <path id="diamond" d="M 50 0 L 100 50 L 50 100 L 0 50 Z" viewBox="100x100" />
+      <mask id="capsule" viewBox="100x100">
+        <rect x="0" y="0" width="100" height="100" rx="50" fill="#ffffff" />
+      </mask>
+    </defs>
+
+    <path id="deco-diamond" path-ref="diamond" fill="url(#accent)" x="1150" y="140" width="60" height="60" opacity="0.9">
+      <animate property="rotation" from="0" to="240" start="0" end="150" easing="linear" />
+      <animate property="opacity" from="0" to="0.9" start="0" end="24" easing="ease-out" />
+    </path>
+    <text id="section-title" class="section-title" x="640" y="140" width="900" height="90">WHAT IS INSIDE<animate property="opacity" from="0" to="1" start="0" end="16" easing="ease-out" /><animate property="y" from="158" to="140" start="0" end="22" easing="ease-out" /></text>
+
+    <rect id="chip-1" fill="#131c31" stroke="#26355a" stroke-width="2" radius="20" filter="drop-shadow(0 8 14 #000000)" x="280" y="310" width="340" height="96">
+      <animate property="opacity" from="0" to="1" start="12" end="28" easing="ease-out" />
+      <animate property="scaleY" from="0.7" to="1" start="12" end="32" easing="ease-out" />
+    </rect>
+    <text id="chip-1-label" class="chip-label" x="280" y="310" width="340" height="96">alpha masks<animate property="opacity" from="0" to="1" start="18" end="34" easing="ease-out" /></text>
+    <rect id="chip-2" fill="#131c31" stroke="#26355a" stroke-width="2" radius="20" filter="drop-shadow(0 8 14 #000000)" x="640" y="310" width="340" height="96">
+      <animate property="opacity" from="0" to="1" start="21" end="37" easing="ease-out" />
+      <animate property="scaleY" from="0.7" to="1" start="21" end="41" easing="ease-out" />
+    </rect>
+    <text id="chip-2-label" class="chip-label" x="640" y="310" width="340" height="96">gradients<animate property="opacity" from="0" to="1" start="27" end="43" easing="ease-out" /></text>
+    <rect id="chip-3" fill="#131c31" stroke="#26355a" stroke-width="2" radius="20" filter="drop-shadow(0 8 14 #000000)" x="1000" y="310" width="340" height="96">
+      <animate property="opacity" from="0" to="1" start="30" end="46" easing="ease-out" />
+      <animate property="scaleY" from="0.7" to="1" start="30" end="50" easing="ease-out" />
+    </rect>
+    <text id="chip-3-label" class="chip-label" x="1000" y="310" width="340" height="96">effect chains<animate property="opacity" from="0" to="1" start="36" end="52" easing="ease-out" /></text>
+    <rect id="chip-4" fill="#131c31" stroke="#26355a" stroke-width="2" radius="20" filter="drop-shadow(0 8 14 #000000)" x="280" y="448" width="340" height="96">
+      <animate property="opacity" from="0" to="1" start="39" end="55" easing="ease-out" />
+      <animate property="scaleY" from="0.7" to="1" start="39" end="59" easing="ease-out" />
+    </rect>
+    <text id="chip-4-label" class="chip-label" x="280" y="448" width="340" height="96">vector paths<animate property="opacity" from="0" to="1" start="45" end="61" easing="ease-out" /></text>
+    <rect id="chip-5" fill="#131c31" stroke="#26355a" stroke-width="2" radius="20" filter="drop-shadow(0 8 14 #000000)" x="640" y="448" width="340" height="96">
+      <animate property="opacity" from="0" to="1" start="48" end="64" easing="ease-out" />
+      <animate property="scaleY" from="0.7" to="1" start="48" end="68" easing="ease-out" />
+    </rect>
+    <text id="chip-5-label" class="chip-label" x="640" y="448" width="340" height="96">cairo renderer<animate property="opacity" from="0" to="1" start="54" end="70" easing="ease-out" /></text>
+    <rect id="chip-6" fill="#131c31" stroke="#26355a" stroke-width="2" radius="20" filter="drop-shadow(0 8 14 #000000)" x="1000" y="448" width="340" height="96">
+      <animate property="opacity" from="0" to="1" start="57" end="73" easing="ease-out" />
+      <animate property="scaleY" from="0.7" to="1" start="57" end="77" easing="ease-out" />
+    </rect>
+    <text id="chip-6-label" class="chip-label" x="1000" y="448" width="340" height="96">planner codes<animate property="opacity" from="0" to="1" start="63" end="79" easing="ease-out" /></text>
+
+    <rect id="strip" fill="url(#strip)" mask="capsule" x="640" y="620" width="1160" height="26">
+      <animate property="opacity" from="0" to="0.9" start="28" end="64" easing="linear" />
+    </rect>
+    <text id="strip-label" class="caption" x="640" y="672" width="900" height="32">WP2 - WP7 replayed and verified<animate property="opacity" from="0" to="0.9" start="48" end="70" easing="ease-out" /></text>
+  </scene>
+
+  <scene id="outro" frames="105">
+    <defs>
+      <gradient id="glow-cyan" type="radial" center="0.5,0.5" radius="0.5">
+        <stop offset="0" color="#22d3ee" opacity="0.85" />
+        <stop offset="1" color="#22d3ee" opacity="0" />
+      </gradient>
+      <gradient id="accent" type="linear" from="0,0.5" to="1,0.5">
+        <stop offset="0" color="#22d3ee" />
+        <stop offset="0.5" color="#818cf8" />
+        <stop offset="1" color="#a855f7" />
+      </gradient>
+      <path id="diamond" d="M 50 0 L 100 50 L 50 100 L 0 50 Z" viewBox="100x100" />
+    </defs>
+
+    <ellipse id="glow-c" fill="url(#glow-cyan)" filter="blur(40)" x="640" y="330" width="940" height="620">
+      <animate property="opacity" from="0" to="0.4" start="0" end="36" easing="ease-out" />
+    </ellipse>
+    <path id="mark" path-ref="diamond" fill="url(#accent)" x="640" y="250" width="92" height="92">
+      <animate property="opacity" from="0" to="1" start="4" end="22" easing="ease-out" />
+      <animate property="rotation" from="-90" to="0" start="4" end="30" easing="ease-out" />
+      <animate property="scaleY" from="0.6" to="1" start="4" end="26" easing="ease-out" />
+    </path>
+    <text id="line2" class="headline2" x="640" y="390" width="1100" height="130">RECOVERED AND GREEN<animate property="opacity" from="0" to="1" start="18" end="40" easing="ease-out" /><animate property="y" from="412" to="390" start="18" end="44" easing="ease-out" /></text>
+    <text id="sub" class="subtitle" x="640" y="486" width="1200" height="44">renderer roadmap replayed - suite fully green<animate property="opacity" from="0" to="1" start="32" end="54" easing="ease-out" /></text>
+    <text id="hash" class="mono" x="640" y="556" width="640" height="34">dev @ d4d1c32 - 113 tests passing<animate property="opacity" from="0" to="0.9" start="44" end="62" easing="ease-out" /></text>
+  </scene>
+
+</coenx>
