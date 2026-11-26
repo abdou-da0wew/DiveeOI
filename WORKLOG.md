@@ -571,3 +571,17 @@ re-run the script when the free tier recovers.
 fixture and the effects MP4 smoke), Rust 16/16 + `cargo fmt --check` + clippy `-D warnings` + offline release build,
 DB coenx tool tests 17/17 (incl. the whole-catalogue parity test), coenx/db/app typechecks exit 0, oxlint clean
 coenx-wide, app pre-existing component-test failures unchanged (stash-verified identical 16 fail / 12 errors).
+
+## 2026-11-26 — interactive world verification sweep (sandbox)
+
+- Recovered the repo after a sandbox reset by fast-forwarding to origin/dev (19 commits) — all previous interactive-runtime work survived because it had been pushed.
+- Built the Rust sidecar on this machine (cargo 1.100.0 via rustup, `bun run build:native` in `packages/coenx-video`, 42.6s release build); native-video + live-physics suites pass 14/14 against the compiled binary, so the native/Cairo path is active.
+- Booted the real stack (server :4097 + app :3000), signed in, opened a session and played `exports/world-showcase.coenx4` in the `CoenxInteractivePanel` with agent-browser. Found and fixed three real bugs:
+  1. `CanvasVideoRenderer.draw()` reset the context transform to identity, discarding the stage->backing scale — at any display size other than the stage size the world clipped to the top-left corner (ball/floor/right wall invisible). `draw()` now re-derives the scale; the canvas smoke test probes through the mapping.
+  2. The panel mounted the player paused with no playback control — added restart + play/pause to the panel header (handle in a Solid signal, i18n keys in all 18 locales).
+  3. `setNode` color overrides ignored solid-fill shapes — `applyNodeOverride` now restyles `fill` on rect/ellipse/button as well as text color.
+- Live proof: click-kick runs the statement list (HUD "hits 1" via concat expression), kinematic drag tracks the pointer and release keeps the fling velocity, collide events increment the bounce counter, and the new molecules heat chamber heats 0->600 K (molecules turn orange, motion speeds up, "temperature 300 K · bumps 210" HUD) and cools back to blue.
+- New molecules heat-chamber scene in `scripts/world-showcase-composition.ts` (gravity-free gas, 24 bodies, per-molecule impulse+color interactions, collide bump counters); packed via `bun scripts/pack-showcase.ts`.
+- Updated all agent-facing instructions for the world model: interactive + physics skills (both `.agents/skills` and bundled copies), the coenx authoring-language reference, package AGENTS.md, root AGENTS.md, README, docs/coenx-video.md, CHANGELOG, TODO. Whole-catalogue skill parity test green (17/17).
+- Full coenx-video suite: 164/164.
+- Pushes: commits 14411d5, 4121117, a9e8c14 are local-only because the sandbox lost GitHub credentials in the snapshot reset — push `dev` from a machine with auth as the first action of the next session.
