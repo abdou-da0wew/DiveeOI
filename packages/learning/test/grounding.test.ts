@@ -156,9 +156,10 @@ describe("tool allowlist", () => {
   })
 
   test("allowlist contains exactly the expected tools + calculator", () => {
-    expect(TARGETED_SESSION_TOOL_ALLOWLIST.size).toBe(14)
+    expect(TARGETED_SESSION_TOOL_ALLOWLIST.size).toBe(15)
     expect(TARGETED_SESSION_TOOL_ALLOWLIST.has("book_outline")).toBe(true)
     expect(TARGETED_SESSION_TOOL_ALLOWLIST.has("calculator")).toBe(true)
+    expect(TARGETED_SESSION_TOOL_ALLOWLIST.has("coenx_video_lesson")).toBe(true)
   })
 })
 

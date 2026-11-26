@@ -28,6 +28,9 @@ function exportedPathFromMetadata(metadata: unknown): string | undefined {
   return candidate
 }
 
+/** Tools whose completion should auto-open a preview tab for the output file. */
+const VIDEO_TOOL_NAMES = new Set(["coenx_video_export", "coenx_video_pack", "coenx_video_lesson"])
+
 export function VideoSidePanelBridge() {
   const params = useParams()
   const { tabs, view } = useSessionLayout()
@@ -60,7 +63,7 @@ export function VideoSidePanelBridge() {
     for (const message of messages) {
       const parts = sync().data.part[message.id] ?? []
       for (const part of parts as ToolPartLike[]) {
-        if (part.type !== "tool" || part.tool !== "coenx_video_export" || part.state?.status !== "completed") continue
+        if (part.type !== "tool" || !VIDEO_TOOL_NAMES.has(part.tool ?? "") || part.state?.status !== "completed") continue
         const path = exportedPathFromMetadata(part.state.metadata)
         if (!path) continue
         const tab = tabForVideo(path)

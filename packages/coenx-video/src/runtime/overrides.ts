@@ -23,5 +23,8 @@ export function applyNodeOverride<T extends VisualNode>(node: T, override: NodeO
   if (override.text !== undefined && "text" in node && typeof (node as { text?: unknown }).text === "string") {
     ;(next as unknown as { text: string }).text = String(override.text)
   }
+  if (override.color !== undefined && "color" in node && typeof (node as { color?: unknown }).color === "string") {
+    ;(next as unknown as { color: string }).color = String(override.color)
+  }
   return next
 }

@@ -16,7 +16,9 @@
     "./export": "./src/export.ts",
     "./reference": "./src/reference.ts",
     "./planner": "./src/planner.ts",
-    "./container": "./src/container/pack.ts"
+    "./container": "./src/container/pack.ts",
+    "./learning": "./src/learning.ts",
+    "./container-browser": "./src/container/browser.ts"
   },
   "scripts": {
     "typecheck": "tsgo --noEmit",

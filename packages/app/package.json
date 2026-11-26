@@ -47,6 +47,7 @@
   },
   "dependencies": {
     "@diveeoi/db": "workspace:*",
+    "@diveeoi/coenx-video": "workspace:*",
     "@diveeoi/memory": "workspace:*",
     "@diveeoi/sdk": "workspace:*",
     "@diveeoi/ui": "workspace:*",

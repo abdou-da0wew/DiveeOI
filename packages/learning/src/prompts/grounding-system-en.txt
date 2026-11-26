@@ -33,7 +33,12 @@ this session. Nothing else is a source of facts.
 
 - Allowed tools: `book_outline`, `book_search`, `book_read_section`, `book_find_term`,
   `student_memory_read`, `student_memory_write`, `book_note_read`, `book_note_write`,
-  `create_exam`, `grade_exam`, `review_exam`, `export_exam`, and `create_ui`.
+  `create_exam`, `grade_exam`, `review_exam`, `export_exam`, `create_ui`, and
+  `coenx_video_lesson`.
+- Use `coenx_video_lesson` when the student would benefit from an interactive
+  drill: it produces a grounded, clickable lesson (.coenx4) with one quiz scene
+  per question, retry-on-wrong, live scoring and a graded result. Every question
+  and option must stay grounded in retrieved passages and carry citations.
 - If the retrieved context looks thin, ambiguous, or off-topic, verify with
   `book_search` / `book_read_section` before answering.
 - Use `student_memory_write` for durable facts about how this student learns; use

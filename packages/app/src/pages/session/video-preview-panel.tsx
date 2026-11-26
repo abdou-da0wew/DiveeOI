@@ -12,6 +12,7 @@
 
 import { createMemo, createResource, Show } from "solid-js"
 import { IconButton } from "@diveeoi/ui/icon-button"
+import { CoenxInteractivePanel } from "./coenx-interactive-panel"
 import { useLanguage } from "@/context/language"
 import { useSDK } from "@/context/sdk"
 
@@ -54,6 +55,7 @@ export function VideoPreviewPanel(props: {
   )
 
   const displayName = createMemo(() => props.title || props.path.split("/").pop() || props.path)
+  const isInteractive = createMemo(() => /\.coenx4$/i.test(props.path))
 
   return (
     <div class="size-full flex flex-col min-w-0">
@@ -65,42 +67,47 @@ export function VideoPreviewPanel(props: {
         <div class="text-12-regular text-text-weak truncate flex-1" title={props.path}>
           {displayName()}
         </div>
-        <div class="text-11-regular text-text-weak truncate max-w-30 hidden md:inline" title={language.t("video.preview.hint")}>
-          {language.t("video.preview.hint")}
+        <div class="text-11-regular text-text-weak truncate max-w-30 hidden md:inline" title={language.t(isInteractive() ? "video.interactive.hint" : "video.preview.hint")}>
+          {language.t(isInteractive() ? "video.interactive.hint" : "video.preview.hint")}
         </div>
         <IconButton icon="close-small" variant="ghost" class="h-6 w-6" onClick={() => props.onClose?.()} aria-label={language.t("video.tab.close")} />
       </div>
 
       <Show
-        when={!source.error}
-        fallback={
-          <div class="flex-1 flex items-center justify-center px-6 text-center text-12-regular text-text-weak">
-            {language.t("video.preview.error")}
-          </div>
-        }
+        when={!isInteractive()}
+        fallback={<CoenxInteractivePanel path={props.path} title={props.title} onClose={props.onClose} />}
       >
         <Show
-          when={source()}
+          when={!source.error}
           fallback={
             <div class="flex-1 flex items-center justify-center px-6 text-center text-12-regular text-text-weak">
-              {language.t("video.preview.loading")}
+              {language.t("video.preview.error")}
             </div>
           }
         >
-          <div class="flex-1 min-h-0 flex flex-col items-center justify-center gap-2 bg-background-stronger p-3">
-            <video
-              class="max-h-full max-w-full rounded-sm shadow-sm bg-black"
-              src={source()}
-              controls
-              autoplay
-              loop
-              playsinline
-              aria-label={displayName()}
-            />
-            <div class="text-11-regular text-text-weak truncate max-w-full" title={props.path}>
-              {props.path}
+          <Show
+            when={source()}
+            fallback={
+              <div class="flex-1 flex items-center justify-center px-6 text-center text-12-regular text-text-weak">
+                {language.t("video.preview.loading")}
+              </div>
+            }
+          >
+            <div class="flex-1 min-h-0 flex flex-col items-center justify-center gap-2 bg-background-stronger p-3">
+              <video
+                class="max-h-full max-w-full rounded-sm shadow-sm bg-black"
+                src={source()}
+                controls
+                autoplay
+                loop
+                playsinline
+                aria-label={displayName()}
+              />
+              <div class="text-11-regular text-text-weak truncate max-w-full" title={props.path}>
+                {props.path}
+              </div>
             </div>
-          </div>
+          </Show>
         </Show>
       </Show>
     </div>

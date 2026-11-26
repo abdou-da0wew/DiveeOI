@@ -56,6 +56,7 @@ export const TARGETED_SESSION_TOOL_ALLOWLIST = new Set<string>([
   "review_exam",
   "export_exam",
   "create_ui",
+  "coenx_video_lesson", // grounded interactive lessons (.coenx4)
   "student_memory_read",
   "student_memory_write",
   "book_note_read",

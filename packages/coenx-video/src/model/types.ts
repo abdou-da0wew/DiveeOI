@@ -393,6 +393,7 @@ export interface NodeOverrideProps {
   rotation?: Scalar | Expression
   opacity?: Scalar | Expression
   scale?: Scalar | Expression
+  color?: Scalar | Expression
 }
 
 export type InteractionAction =
