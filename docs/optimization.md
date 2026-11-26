@@ -4,6 +4,8 @@
 
 > **Historical verification note — 2026-10-29:** at that checkpoint, the resource targets below matched the source configuration. Benchmark and measurement claims are not fresh results for the current branch; Bun and workspace dependencies were unavailable then. See `CONTEXT.md` for current verification status.
 
+> **2026-11-27 low-end hardware pass:** the interactive player hot path was optimized for a specific reference machine (see "Low-end hardware target" below). One fresh measurement exists for that pass: the live-physics bench in `packages/coenx-video/scripts/bench-live-physics.ts` (44 bodies, collide-heavy, 900 steps) went from 0.0537 ms/step on the pre-pass code to 0.0392 ms/step after (-27%), producing an identical 366 collision events — determinism preserved. All other numbers in that section are structural counts or configured budgets, not benchmarks.
+
 This document explains **what was slow, what leaks were fixed, what was measured historically, and how the adaptive system works**. For the phase-by-phase plan, see `plans/Optimization_1.0/OPTIMIZATION_PLAN.md`; profiler design details are in `packages/profiler/DESIGN.md`. Historical benchmark claims are not fresh results for this branch.
 
 ---
@@ -174,3 +176,45 @@ Artifacts are `kind:"start|scope_done|proc|states|snapshot|stop"` lines appended
 - `packages/server/src/session/prompt.ts:1262 + 1290` stay `forkDetach`, not `yield*`.
 - `packages/server/src/main.ts` keeps its own `ManagedRuntime` GC fiber (do not move GC into `AppLayer` where a disposal races `process.exit`).
 - `packages/server/src/tool/registry.ts:node` deps include `Memory.node, SessionMemoryIntegration.node, MemoryScheduler.node`; `packages/server/src/server/routes/instance/httpapi/server.ts:createRoutes` supplies the two outside-group `provideMerge` connectors (duplicating `MemoryScheduler` elsewhere starts two daily schedulers).
+
+---
+
+## Low-end hardware target
+
+Reference machine the stack must stay comfortable on while running **everything at once** — DiveeOI server + app in a browser + Targeted-Learning retrieval + an interactive `.coenx4` video playing in the session panel:
+
+| Component | Spec |
+|---|---|
+| CPU | Intel i5, 10th gen (4C/8T mobile) |
+| RAM | 8 GB DDR4 |
+| Swap | 15 GB on NVMe SSD |
+| GPU | NVIDIA MX250 (2 GB) |
+
+### How the stack fits in 8 GB
+
+- **Server.** The adaptive system detects the host and lands on `balanced` (free RAM ≥ 1024 MB and ≥ 20%) or `constrained` (≥ 512 MB and ≥ 10%) once the browser and OS take their share. That bounds the process to roughly a 1.7–2.6 GB RSS budget, SQLite page cache 64–128 MB, bounded SSE/WS/stream queues, and GC scheduling on a 15–30 s interval. The server never hard-allocates the budget; queues and caches shrink under pressure.
+- **TL retrieval.** Embeddings run in-process via Transformers.js with the **int8** quantized model (default), batch size 16, and vectors stay in SQLite (`sqlite-vec` KNN with SQL-side book scoping) — the index is never fully resident. On 4 cores, ingest competes with the browser for CPU: if you ingest while playing an interactive video, cap `intraOpThreads` (settings → TL) at 2 to keep the player's frame time stable.
+- **Interactive player (browser).** Fixed caps, not machine-dependent: `maxFps 30` and `maxDevicePixelRatio 1.5` are passed by the app panel (higher values are clamped, not honored). At a ~700 px-wide panel the canvas backing store is ≈ 1050×590 — small enough that the MX250 / Skia rasterization stays cheap. The player also pauses automatically when the tab or panel scrolls out of view (IntersectionObserver), so background tabs cost nothing.
+- **Swap.** The 15 GB NVMe swap is a safety net for ingest spikes and LLM stream buffers, not a license to leak. The adaptive RSS targets above exist so the working set stays resident; if you see sustained swap-in of the server process, drop the profile by closing tabs or freeing RAM, not by raising budgets.
+
+### What the 2026-11-27 player pass changed (structural, per rendered frame)
+
+| Hot path | Before | After |
+|---|---|---|
+| Layout reads (`getBoundingClientRect`) | 2 per frame (render + sizeCanvas) | 1 per frame, shared |
+| Scene evaluation (`evaluateSceneAtFrame` + text/grain passes) | 2 per frame (hit-testing + drawing) | 1 per frame, shared by both consumers |
+| Physics step allocations | array + 2 Sets per step (up to 12 steps/render) | 0 (reused buffers, set ping-pong) |
+| Collision detection | `Math.hypot` per pair | squared-distance rejection; sqrt only on overlap |
+| Pose/override merge | Map + N objects per frame always | skipped entirely while the world is idle/settled (`overridesVersion` guard) |
+| Grain effect | 128×128 ImageData + pattern per grain node per frame (single-entry cache vs a per-frame seed = guaranteed miss) | 8 deterministic seed buckets; per-frame cost is a `fillRect` |
+| Control-node CSS writes | ~10 per control per frame | only when the value signature changes |
+| Transition style writes | 6 properties × 2 elements per frame | skipped when the transition signature is unchanged |
+
+Fresh measurement for this pass: 44-body collide-heavy physics bench, median **0.0537 → 0.0392 ms/step (−27%)**, identical collision events (366). Regenerate with `bun scripts/bench-live-physics.ts` inside `packages/coenx-video`.
+
+### Rules to keep it true on that machine
+
+- Never raise the app-panel player caps (`maxFps`, `maxDevicePixelRatio`) "temporarily" — they are the MX250 budget.
+- `canvas` renderer stays the default for the session panel; the SVG backend rebuilds the DOM every frame and is for exports/edge cases only.
+- The physics step cap (`MAX_PHYSICS_STEPS_PER_RENDER = 12`) stays; raising it reintroduces worst-case stalls after tab throttling.
+- Keep collisions deterministic: reuse buffers only inside `LivePhysicsWorld`; the public `poses()` API still returns owned snapshots (tests hold them across steps).

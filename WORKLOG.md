@@ -585,3 +585,17 @@ coenx-wide, app pre-existing component-test failures unchanged (stash-verified i
 - Updated all agent-facing instructions for the world model: interactive + physics skills (both `.agents/skills` and bundled copies), the coenx authoring-language reference, package AGENTS.md, root AGENTS.md, README, docs/coenx-video.md, CHANGELOG, TODO. Whole-catalogue skill parity test green (17/17).
 - Full coenx-video suite: 164/164.
 - Pushes: commits 14411d5, 4121117, a9e8c14 are local-only because the sandbox lost GitHub credentials in the snapshot reset — push `dev` from a machine with auth as the first action of the next session.
+
+## 2026-11-27 — low-end machine pass on the interactive player (sandbox)
+
+- Question driving the pass: does the whole stack (server + browser + TL retrieval + interactive coenx4 playback) run well on the reference low-end machine — 8GB DDR4 / i5-10th gen / MX250 / 15GB NVMe swap?
+- Audit result: server + TL were already bounded (adaptive profiles land balanced/constrained on 8GB, SQLite cache 64-128MB, sqlite-vec KNN keeps vectors on disk, embeddings int8 batch 16); the app panel already caps the player at maxFps 30 / DPR 1.5. The player hot path itself had real waste; fixed in commit 8c6219f:
+  1. Two forced layout reads per frame (render + sizeCanvas) -> one shared read.
+  2. Scene evaluated twice per frame (hit-testing + drawing) -> one shared evaluation (canvas + svg draw() take optional pre-evaluated nodes).
+  3. Per-step physics allocations (array + 2 Sets per step, up to 12 steps/render) -> zero (reused buffers, overlapping-set ping-pong, squared-distance rejection before the sqrt).
+  4. Pose/override merge rebuilt every frame -> skipped while idle/settled via new InteractiveEngine.overridesVersion guard; posesInto() pooled API added (poses() still returns owned snapshots - impulse test caught the aliasing, semantics preserved).
+  5. Grain tile cache guaranteed a miss every frame (per-frame seed vs single-entry cache): 64KB ImageData + pattern per grain node per frame -> 8 deterministic seed buckets.
+  6. Controls + transition CSS rewritten every frame -> value-signature dirty checks (state/value syncs stay unconditional).
+- Fresh measurement: packages/coenx-video/scripts/bench-live-physics.ts (44 bodies, collide-heavy): median 0.0537 -> 0.0392 ms/step (-27%), identical 366 collision events. Suite: 161 pass / 0 fail; typecheck back to the 2 pre-existing script errors (scripts/pack-molecules-test.ts, scripts/world-showcase-composition.ts, stash-verified pre-existing).
+- Docs: new "Low-end hardware target" section in docs/optimization.md (machine table, stack budget, before/after table, rules to not regress).
+- Pushes: 8c6219f + the docs commit are local-only - this sandbox has no GitHub credentials (same as the 2026-11-26 note). Push dev from a machine with auth first thing next session; full-history bundle at download/DiveeOI-dev-backup-20261127b.bundle.
