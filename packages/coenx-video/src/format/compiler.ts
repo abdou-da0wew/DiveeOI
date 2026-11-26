@@ -79,6 +79,7 @@ function animationChildren(element: CmlElement): NodeAnimation[] {
     "scaleY",
     "opacity",
     "fontSize",
+    "textProgress",
   ])
   return childElements(element, "animate").map((animation) => {
     const property = animation.attributes.property as NodeAnimation["property"]
@@ -229,6 +230,19 @@ function nodeFromElement(element: CmlElement, rules: CmlStyleRule[], source: str
         color: color(values, ["color", "fill"], "#ffffff"),
         align: (value(values, "text-align", "align") as TextNode["align"]) ?? "center",
         lineHeight: numeric(values, ["line-height", "lineHeight"], 0),
+        ...(values["count-to"] !== undefined || values.countTo !== undefined
+          ? {
+              countFrom: numeric(values, ["count-from", "countFrom"], 0),
+              countTo: numeric(values, ["count-to", "countTo"], 0),
+              countDecimals: numeric(values, ["count-decimals", "countDecimals"], 0),
+              ...(values["count-prefix"] !== undefined || values.countPrefix !== undefined
+                ? { countPrefix: values["count-prefix"] ?? values.countPrefix }
+                : {}),
+              ...(values["count-suffix"] !== undefined || values.countSuffix !== undefined
+                ? { countSuffix: values["count-suffix"] ?? values.countSuffix }
+                : {}),
+            }
+          : {}),
         animations,
       } satisfies TextNode
     }
@@ -262,18 +276,21 @@ function nodeFromElement(element: CmlElement, rules: CmlStyleRule[], source: str
         playbackRate,
       } satisfies VideoNode
     }
-    case "button":
+    case "button": {
+      const fillValue = color(values, ["fill", "background"], "#315fe8")
+      const buttonFill = paintFromAttribute(fillValue) ?? fillValue
       return {
         kind: "button",
         ...base,
         ...filterExtras,
         text: elementText(element) || value(values, "text") || "",
-        fill: color(values, ["fill", "background"], "#315fe8"),
+        fill: buttonFill,
         color: color(values, ["color"], "#ffffff"),
         borderColor: color(values, ["stroke", "border-color"], "none"),
         radius,
         disabled: values.disabled === "true",
       } satisfies ButtonNode
+    }
     case "input":
       if (!values.bind) throw new Error("Coenx <input> requires bind")
       return {

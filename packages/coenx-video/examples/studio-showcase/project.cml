@@ -1,0 +1,184 @@
+<coenx id="studio-showcase" title="Coenx Studio Showcase" width="1920" height="1080" fps="30" background="#0b0e14">
+
+  <font family="Unbounded" src="assets/fonts/Unbounded.ttf" weight="700" />
+  <asset id="logo" src="assets/logo.svg" />
+  <asset id="photo" src="assets/photo.png" />
+  <asset id="spinner" src="assets/spinner.gif" />
+  <asset id="broll" src="assets/broll.mp4" />
+  <audio id="whoosh-open" src="assets/sfx-whoosh.wav" kind="sfx" start="0" duration="0.5s" volume="0.85" />
+  <audio id="pop-stats" src="assets/sfx-pop.wav" kind="sfx" start="128" duration="0.18s" volume="0.9" />
+  <audio id="thud-broll" src="assets/sfx-thud.wav" kind="sfx" start="270" duration="0.35s" volume="0.9" />
+  <audio id="whoosh-outro" src="assets/sfx-whoosh.wav" kind="sfx" start="390" duration="0.5s" volume="0.7" />
+
+  <scene id="title" frames="120" transition="zoom,18">
+
+    <defs>
+      <gradient id="glow-cyan" type="radial" center="0.5,0.5" radius="0.5">
+        <stop offset="0" color="#22d3ee" opacity="0.55" />
+        <stop offset="1" color="#22d3ee" opacity="0" />
+      </gradient>
+      <gradient id="glow-violet" type="radial" center="0.5,0.5" radius="0.5">
+        <stop offset="0" color="#a855f7" opacity="0.5" />
+        <stop offset="1" color="#a855f7" opacity="0" />
+      </gradient>
+      <gradient id="accent" type="linear" from="0,0.5" to="1,0.5">
+        <stop offset="0" color="#22d3ee" />
+        <stop offset="0.5" color="#818cf8" />
+        <stop offset="1" color="#a855f7" />
+      </gradient>
+    </defs>
+
+    <ellipse id="glow-a" fill="url(#glow-cyan)" filter="blur(30)" x="560" y="460" width="900" height="640">
+      <animate property="opacity" from="0" to="0.85" start="0" end="40" easing="expo-out" />
+      <animate property="x" from="560" to="700" start="0" end="120" easing="ease-in-out" />
+      <animate property="scaleX" from="0.8" to="1.08" start="0" end="120" easing="ease-in-out" />
+    </ellipse>
+    <ellipse id="glow-b" fill="url(#glow-violet)" filter="blur(36)" x="1420" y="620" width="960" height="700">
+      <animate property="opacity" from="0" to="0.7" start="6" end="46" easing="expo-out" />
+      <animate property="x" from="1420" to="1280" start="0" end="120" easing="ease-in-out" />
+      <animate property="scaleY" from="0.85" to="1.1" start="0" end="120" easing="ease-in-out" />
+    </ellipse>
+
+    <image id="spinner" asset="spinner" fit="contain" x="1790" y="105" width="96" height="96" opacity="0.9">
+      <animate property="opacity" from="0" to="0.9" start="30" end="44" easing="back-out" />
+      <animate property="scaleX" from="0.4" to="1" start="30" end="48" easing="back-out" />
+      <animate property="scaleY" from="0.4" to="1" start="30" end="48" easing="back-out" />
+    </image>
+
+    <image id="logo" asset="logo" fit="contain" x="960" y="240" width="170" height="170" filter="drop-shadow(0 16 28 #020617)">
+      <animate property="opacity" from="0" to="1" start="4" end="22" easing="back-out" />
+      <animate property="scaleX" from="0.45" to="1" start="4" end="26" easing="back-out" />
+      <animate property="scaleY" from="0.45" to="1" start="4" end="26" easing="back-out" />
+      <animate property="rotation" from="-14" to="0" start="4" end="26" easing="back-out" />
+    </image>
+
+    <text id="head-1" class="headline" x="960" y="470" width="1800" height="140" filter="drop-shadow(0 18 30 #020617)">MOTION,<animate property="opacity" from="0" to="1" start="18" end="34" easing="expo-out" /><animate property="y" from="530" to="470" start="18" end="40" easing="expo-out" /><animate property="scaleX" from="0.92" to="1" start="18" end="44" easing="back-out" /><animate property="scaleY" from="0.92" to="1" start="18" end="44" easing="back-out" /></text>
+    <text id="head-2" class="headline" x="960" y="600" width="1800" height="140" filter="drop-shadow(0 18 30 #020617)">ENGINEERED.<animate property="opacity" from="0" to="1" start="26" end="42" easing="expo-out" /><animate property="y" from="660" to="600" start="26" end="48" easing="expo-out" /><animate property="scaleX" from="0.92" to="1" start="26" end="52" easing="back-out" /><animate property="scaleY" from="0.92" to="1" start="26" end="52" easing="back-out" /></text>
+
+    <rect id="accent-bar" fill="url(#accent)" x="960" y="700" width="320" height="10" radius="5">
+      <animate property="scaleX" from="0.02" to="1" start="14" end="46" easing="expo-out" />
+      <animate property="opacity" from="0" to="1" start="14" end="24" easing="ease-out" />
+    </rect>
+
+    <text id="subtitle" class="sub" x="960" y="790" width="1800" height="60">stills, footage, gifs, vector art - one composition<animate property="opacity" from="0" to="0.95" start="40" end="62" easing="expo-out" /><animate property="y" from="826" to="790" start="40" end="66" easing="expo-out" /></text>
+    <text id="eyebrow" class="eyebrow" x="960" y="886" width="900" height="40">COENX VIDEO - STUDIO SHOWCASE<animate property="opacity" from="0" to="0.85" start="56" end="76" easing="expo-out" /></text>
+
+    <rect id="title-finish" fill="none" x="960" y="540" width="1920" height="1080" filter="grain(0.16 2) vignette(0.55 0.6)" />
+  </scene>
+
+  <scene id="stats" frames="150" transition="fade,20">
+
+    <defs>
+      <gradient id="glass" type="linear" from="0,0" to="0,1">
+        <stop offset="0" color="#17233b" opacity="0.96" />
+        <stop offset="1" color="#101828" opacity="0.96" />
+      </gradient>
+      <gradient id="accent" type="linear" from="0,0.5" to="1,0.5">
+        <stop offset="0" color="#22d3ee" />
+        <stop offset="1" color="#a855f7" />
+      </gradient>
+    </defs>
+
+    <text id="stats-title" class="section-title" x="960" y="170" width="1700" height="100">SHIP NUMBERS, NOT SLIDES<animate property="opacity" from="0" to="1" start="2" end="20" easing="expo-out" /><animate property="y" from="206" to="170" start="2" end="24" easing="expo-out" /></text>
+
+    <rect id="card-1" fill="url(#glass)" stroke="#2c3c5f" stroke-width="2" radius="26" filter="drop-shadow(0 22 30 #020617)" x="370" y="470" width="480" height="320">
+      <animate property="opacity" from="0" to="1" start="8" end="22" easing="expo-out" />
+      <animate property="scaleX" from="0.7" to="1" start="8" end="30" easing="back-out" />
+      <animate property="scaleY" from="0.7" to="1" start="8" end="30" easing="back-out" />
+    </rect>
+    <text id="stat-1" class="stat-num" x="370" y="448" width="480" height="110" count-from="0" count-to="12500" count-decimals="0" count-prefix="$">$12,500<animate property="textProgress" from="0" to="1" start="24" end="70" easing="expo-out" /></text>
+    <text id="stat-1-label" class="stat-label" x="370" y="565" width="480" height="40">rendered in one session<animate property="opacity" from="0" to="0.95" start="34" end="50" easing="expo-out" /></text>
+
+    <rect id="card-2" fill="url(#glass)" stroke="#2c3c5f" stroke-width="2" radius="26" filter="drop-shadow(0 22 30 #020617)" x="960" y="470" width="480" height="320">
+      <animate property="opacity" from="0" to="1" start="16" end="30" easing="expo-out" />
+      <animate property="scaleX" from="0.7" to="1" start="16" end="38" easing="back-out" />
+      <animate property="scaleY" from="0.7" to="1" start="16" end="38" easing="back-out" />
+    </rect>
+    <text id="stat-2" class="stat-num" x="960" y="448" width="480" height="110" count-from="0" count-to="98.6" count-decimals="1" count-suffix="%">98.6%<animate property="textProgress" from="0" to="1" start="36" end="82" easing="expo-out" /></text>
+    <text id="stat-2-label" class="stat-label" x="960" y="565" width="480" height="40">frame parity across backends<animate property="opacity" from="0" to="0.95" start="46" end="62" easing="expo-out" /></text>
+
+    <rect id="card-3" fill="url(#glass)" stroke="#2c3c5f" stroke-width="2" radius="26" filter="drop-shadow(0 22 30 #020617)" x="1550" y="470" width="480" height="320">
+      <animate property="opacity" from="0" to="1" start="24" end="38" easing="expo-out" />
+      <animate property="scaleX" from="0.7" to="1" start="24" end="46" easing="back-out" />
+      <animate property="scaleY" from="0.7" to="1" start="24" end="46" easing="back-out" />
+    </rect>
+    <text id="stat-3" class="stat-num" x="1550" y="448" width="480" height="110" count-from="0" count-to="240" count-decimals="0" count-suffix=" fps">240 fps<animate property="textProgress" from="0" to="1" start="48" end="94" easing="expo-out" /></text>
+    <text id="stat-3-label" class="stat-label" x="1550" y="565" width="480" height="40">peak preview throughput<animate property="opacity" from="0" to="0.95" start="58" end="74" easing="expo-out" /></text>
+
+    <rect id="stats-strip" fill="url(#accent)" x="960" y="760" width="420" height="8" radius="4">
+      <animate property="scaleX" from="0.02" to="1" start="30" end="60" easing="expo-out" />
+      <animate property="opacity" from="0" to="0.9" start="30" end="40" easing="ease-out" />
+    </rect>
+    <text id="stats-cap" class="cap" x="960" y="830" width="1600" height="36">staggered entrances settle on expo curves - nothing fades alone<animate property="opacity" from="0" to="0.9" start="64" end="84" easing="expo-out" /></text>
+
+    <rect id="stats-finish" fill="none" x="960" y="540" width="1920" height="1080" filter="grain(0.13 2) vignette(0.5 0.62)" />
+  </scene>
+
+  <scene id="broll" frames="120" transition="slide-left,18">
+
+    <text id="broll-cap" class="section-title" x="620" y="180" width="1300" height="90">FOOTAGE IN THE MIX<animate property="opacity" from="0" to="1" start="4" end="22" easing="expo-out" /><animate property="y" from="214" to="180" start="4" end="26" easing="expo-out" /></text>
+
+    <video id="broll-video" asset="broll" fit="cover" x="620" y="560" width="980" height="560" radius="0" filter="drop-shadow(0 26 30 #020617)">
+      <animate property="opacity" from="0" to="1" start="6" end="26" easing="expo-out" />
+      <animate property="scaleX" from="0.9" to="1" start="6" end="34" easing="back-out" />
+      <animate property="scaleY" from="0.9" to="1" start="6" end="34" easing="back-out" />
+    </video>
+
+    <image id="photo-card" asset="photo" fit="cover" x="1530" y="600" width="620" height="420" filter="drop-shadow(0 26 30 #020617)">
+      <animate property="opacity" from="0" to="1" start="18" end="36" easing="expo-out" />
+      <animate property="scaleX" from="1" to="1.08" start="0" end="120" easing="ease-in-out" />
+      <animate property="scaleY" from="1" to="1.08" start="0" end="120" easing="ease-in-out" />
+      <animate property="x" from="1530" to="1508" start="0" end="120" easing="ease-in-out" />
+      <animate property="y" from="600" to="588" start="0" end="120" easing="ease-in-out" />
+    </image>
+
+    <rect id="lower-third" fill="#101828" stroke="#2c3c5f" stroke-width="2" radius="18" x="620" y="920" width="640" height="120">
+      <animate property="opacity" from="0" to="1" start="30" end="44" easing="expo-out" />
+      <animate property="x" from="360" to="620" start="30" end="52" easing="expo-out" />
+    </rect>
+    <text id="lower-name" class="lower-name" x="620" y="872" width="600" height="44">Coenx Video<animate property="opacity" from="0" to="1" start="36" end="50" easing="expo-out" /><animate property="x" from="400" to="660" start="36" end="56" easing="expo-out" /></text>
+    <text id="lower-role" class="lower-role" x="620" y="930" width="620" height="36">static MP4 + interactive .coenx4<animate property="opacity" from="0" to="1" start="42" end="56" easing="expo-out" /><animate property="x" from="400" to="660" start="42" end="58" easing="expo-out" /></text>
+
+    <rect id="broll-finish" fill="none" x="960" y="540" width="1920" height="1080" filter="grain(0.14 2) vignette(0.5 0.62)" />
+  </scene>
+
+  <scene id="outro" frames="150" transition="fade,20">
+
+    <defs>
+      <gradient id="glow-cyan" type="radial" center="0.5,0.5" radius="0.5">
+        <stop offset="0" color="#22d3ee" opacity="0.5" />
+        <stop offset="1" color="#22d3ee" opacity="0" />
+      </gradient>
+      <gradient id="accent" type="linear" from="0,0.5" to="1,0.5">
+        <stop offset="0" color="#22d3ee" />
+        <stop offset="1" color="#a855f7" />
+      </gradient>
+    </defs>
+
+    <ellipse id="glow-c" fill="url(#glow-cyan)" filter="blur(40)" x="960" y="400" width="1100" height="700">
+      <animate property="opacity" from="0" to="0.55" start="0" end="40" easing="expo-out" />
+    </ellipse>
+
+    <image id="outro-logo" asset="logo" fit="contain" x="960" y="230" width="130" height="130">
+      <animate property="opacity" from="0" to="1" start="4" end="20" easing="back-out" />
+      <animate property="scaleX" from="0.5" to="1" start="4" end="24" easing="back-out" />
+      <animate property="scaleY" from="0.5" to="1" start="4" end="24" easing="back-out" />
+      <animate property="rotation" from="-12" to="0" start="4" end="24" easing="back-out" />
+    </image>
+
+    <text id="outro-title" class="section-title" x="960" y="390" width="1750" height="100">YOUR TURN. PICK A PATH<animate property="opacity" from="0" to="1" start="16" end="36" easing="expo-out" /><animate property="y" from="424" to="390" start="16" end="40" easing="expo-out" /></text>
+
+    <button id="btn-correct" class="btn" x="640" y="625" width="460" height="110" radius="22" fill="url(#accent)" text="Native Cairo">Native Cairo<animate property="opacity" from="0" to="1" start="34" end="48" easing="back-out" /><animate property="scaleX" from="0.7" to="1" start="34" end="54" easing="back-out" /><animate property="scaleY" from="0.7" to="1" start="34" end="54" easing="back-out" /></button>
+    <button id="btn-wrong" class="btn" x="1280" y="625" width="460" height="110" radius="22" fill="#17233b" stroke="#2c3c5f" text="ImageMagick">ImageMagick<animate property="opacity" from="0" to="1" start="42" end="56" easing="back-out" /><animate property="scaleX" from="0.7" to="1" start="42" end="62" easing="back-out" /><animate property="scaleY" from="0.7" to="1" start="42" end="62" easing="back-out" /></button>
+
+    <text id="quiz-question" class="sub" x="960" y="505" width="1750" height="52">quiz: which backend paints the native MP4?<animate property="opacity" from="0" to="0.95" start="28" end="46" easing="expo-out" /></text>
+
+    <button id="btn-replay" class="btn" x="760" y="795" width="380" height="92" radius="20" fill="#17233b" stroke="#2c3c5f" text="Replay intro">Replay intro<animate property="opacity" from="0" to="1" start="56" end="70" easing="back-out" /><animate property="scaleX" from="0.8" to="1" start="56" end="74" easing="back-out" /><animate property="scaleY" from="0.8" to="1" start="56" end="74" easing="back-out" /></button>
+    <button id="btn-stats" class="btn" x="1160" y="795" width="380" height="92" radius="20" fill="#17233b" stroke="#2c3c5f" text="Replay stats">Replay stats<animate property="opacity" from="0" to="1" start="62" end="76" easing="back-out" /><animate property="scaleX" from="0.8" to="1" start="62" end="80" easing="back-out" /><animate property="scaleY" from="0.8" to="1" start="62" end="80" easing="back-out" /></button>
+
+    <text id="outro-cap" class="cap" x="960" y="940" width="1750" height="36">buttons jump scenes in the .coenx4 interactive player - the MP4 renders the same frames<animate property="opacity" from="0" to="0.9" start="80" end="100" easing="expo-out" /></text>
+
+    <rect id="outro-finish" fill="none" x="960" y="540" width="1920" height="1080" filter="grain(0.16 2) vignette(0.55 0.6)" />
+  </scene>
+
+</coenx>

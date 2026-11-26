@@ -72,6 +72,36 @@ DiveeOI registers 19 Coenx video skills through the built-in resource registry i
 
 The workspace-facing mirror is in .agents/skills/. Bundled resources include the full 17-style prompt library, style capability map, authoring reference, example project, font manifest, local WOFF2 files and their individual license notices.
 
+## Motion design layer, external media and containers (2026-11 additions)
+
+- **Motion presets** (`@diveeoi/coenx-video` exports): `entrance`, `popIn`,
+  `slideIn`, `stagger`, `kenBurns`, `breathe`, `countUp`, `exit` - authoring
+  helpers that encode motion-design craft (multi-property entrances, 3-6 frame
+  staggers, exits faster than entrances, sine idle breathing, Ken Burns on
+  stills). New easings: `back-out`, `back-in-out`, `expo-out`, `expo-in-out`,
+  `elastic-out`, `bounce-out`, shared by every backend.
+- **Count-up text**: text nodes accept `countFrom/countTo/countDecimals/
+  countPrefix/countSuffix` and animate `textProgress`; all renderers draw the
+  eased, formatted number.
+- **Finishing effects**: `grain` (deterministic per-frame noise) and
+  `vignette` (radial edge darkening) join the bounded effect chain on native
+  Cairo, static/interactive SVG and Canvas.
+- **External media**: image nodes accept animated GIFs (frame-by-frame), video
+  nodes composite mp4/webm/mov/mkv footage frame-accurately; sources may be
+  project-relative files, `tmp:` paths, absolute temp-directory paths or
+  embedded `data:` URIs; remote URLs stay rejected and decoders sniff real
+  formats from magic bytes (a JPEG in a .png file still decodes).
+- **Custom fonts**: `composition.fonts` / CML `<font family src>` load ttf /
+  otf / woff / woff2 from files, `tmp:` paths or `data:font` URIs next to the
+  16 bundled families; WOFF2 converts to TTF best-effort and the interactive
+  player embeds generated `@font-face` rules.
+- **Interactive `.coenx4` containers**: `packCoenx` / `unpackCoenx` /
+  `validateCoenx` (and CLI `pack | unpack | validate-container`) produce a
+  portable zip holding an embedded composition (media + fonts as data URIs),
+  a self-contained offline `player.html`, raw media and a manifest; the AI
+  tool surface gains `coenx_video_pack`. `examples/studio-showcase` is the
+  full reference project.
+
 ## Validation
 
 Run the package checks from the workspace:

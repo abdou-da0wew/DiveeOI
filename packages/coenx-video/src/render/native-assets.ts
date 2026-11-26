@@ -67,6 +67,29 @@ async function isBoundedPng(file: string) {
   }
 }
 
+/**
+ * Sniffs the real raster format from magic bytes so a mislabeled extension
+ * (e.g. JPEG bytes in a .png file) still decodes through the right coder.
+ */
+async function sniffImageFormat(file: string): Promise<string | undefined> {
+  const handle = await open(file, "r")
+  try {
+    const head = Buffer.alloc(16)
+    const { bytesRead } = await handle.read(head, 0, head.length, 0)
+    const bytes = head.subarray(0, bytesRead)
+    if (bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return "PNG"
+    if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "JPEG"
+    if (bytes.subarray(0, 4).toString("latin1") === "GIF8") return "GIF"
+    if (bytes.subarray(0, 4).toString("latin1") === "RIFF" && bytes.subarray(8, 12).toString("latin1") === "WEBP") return "WEBP"
+    if (bytes.subarray(0, 2).toString("latin1") === "BM") return "BMP"
+    const text = bytes.toString("latin1").trimStart().toLowerCase()
+    if (text.startsWith("<?xml") || text.startsWith("<svg")) return "SVG"
+    return undefined
+  } finally {
+    await handle.close()
+  }
+}
+
 async function validateSvgAsset(source: ImageSource) {
   if (source.extension !== ".svg") return
   const markup = await readFile(source.path, "utf8")
@@ -98,7 +121,8 @@ async function validateSvgAsset(source: ImageSource) {
 async function decodeWithImageMagick(source: ImageSource, output: string, signal?: AbortSignal) {
   await validateSvgAsset(source)
   const runtime = await resolveImageMagickRuntime()
-  const format = IMAGE_FORMATS[source.extension]
+  const sniffed = await sniffImageFormat(source.path)
+  const format = sniffed ?? IMAGE_FORMATS[source.extension]
   if (!format) throw new Error(`Unsupported native image file format: ${source.extension}`)
   await runBuffer(
     runtime.binary,
@@ -119,6 +143,8 @@ async function decodeWithImageMagick(source: ImageSource, output: string, signal
       "jpeg:size=4096x4096",
       `${format}:${source.path}[0]`,
       "-auto-orient",
+      "-background",
+      "none",
       "-strip",
       "-resize",
       "4096x4096>",

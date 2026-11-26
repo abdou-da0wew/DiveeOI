@@ -1,0 +1,62 @@
+.headline {
+  font-family: "Unbounded";
+  font-size: 118px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+.sub {
+  font-family: "Space Grotesk";
+  font-size: 40px;
+  font-weight: 500;
+  color: #cbd5e1;
+}
+.eyebrow {
+  font-family: "Space Mono";
+  font-size: 28px;
+  color: #22d3ee;
+}
+.section-title {
+  font-family: "Unbounded";
+  font-size: 72px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+.stat-num {
+  font-family: "JetBrains Mono";
+  font-size: 64px;
+  font-weight: 700;
+  color: #22d3ee;
+}
+.stat-label {
+  font-family: "Space Grotesk";
+  font-size: 28px;
+  color: #94a3b8;
+}
+.card-title {
+  font-family: "Space Grotesk";
+  font-size: 30px;
+  font-weight: 600;
+  color: #f1f5f9;
+}
+.lower-name {
+  font-family: "Unbounded";
+  font-size: 34px;
+  font-weight: 600;
+  color: #f8fafc;
+}
+.lower-role {
+  font-family: "Space Grotesk";
+  font-size: 24px;
+  color: #cbd5e1;
+}
+.cap {
+  font-family: "Space Mono";
+  font-size: 26px;
+  color: #8b95a5;
+}
+.btn {
+  font-family: "Geist";
+  font-size: 34px;
+  font-weight: 600;
+  color: #f8fafc;
+}
