@@ -5,6 +5,16 @@ Notable changes to DiveeOI are recorded here. Unreleased work remains under **Un
 ## Unreleased
 
 ### Added
+- Interactive world showcase grew a molecules heat chamber: a gravity-free gas of 24 live 2D physics molecules with elastic walls; one Heat button fans out into per-molecule `impulse` + `setNode` color interactions plus a statement list that raises a temperature state and rewrites the HUD through a `concat` expression; Cool reverses both; `collide` triggers count molecular bumps into the HUD. This is the "heating the molecules" physics-explainer reference (`scripts/world-showcase-composition.ts`), packed through `bun scripts/pack-showcase.ts` and verified live in the session viewer.
+- `setNode` color overrides now restyle `fill` on solid-fill shape nodes (rect/ellipse/button) in addition to text color, so state colors and heat maps work without keyframes (`src/runtime/overrides.ts`).
+- `CoenxInteractivePanel` (the session `.coenx4` viewer) gained restart + play/pause controls in the panel header bound to the player handle; the player mounts paused, so interactive worlds and live physics previously could not start at all in the app.
+- Authoring skills and agent instructions now teach the full world model: the interactive and physics skills (`.agents/skills/coenx-video-interactive`, `coenx-video-physics`, bundled copies) cover hover/drag/collide triggers, run/gotoFrame/setNode/impulse statements, arithmetic/concat expressions and live 2D physics with when-to-use/when-not rules; the coenx authoring-language reference and package AGENTS.md documents were extended to match.
+
+### Fixed
+- Fixed the interactive canvas renderer clipping the world to the top-left corner at any display size other than the stage size: `CanvasVideoRenderer.draw()` reset the context transform to identity, discarding the stage-to-backing scale from `sizeCanvas()`. On the 960x540 showcase at the panel's 630px width, the ball, floor, right wall and hint were invisible while the HUD still drew. `draw()` now re-derives the scale from the canvas backing store; the canvas browser smoke test probes pixels through the same mapping.
+- The Rust native sidecar was built and verified on this machine (`cargo 1.100`, `bun run build:native` in `packages/coenx-video`): the native/Cairo MP4 path is active, native-video and live-physics suites pass 14/14 against the compiled binary.
+
+### Added
 - `GET /targeted-learning/health` reports `booksNeedingReingest` — a read-only count of books ingested under a `NORMALIZER_VERSION` older than the running code. Detection is automatic; the re-ingest itself stays a deliberate operator step (delete + re-upload per affected book, documented in the deployment guide) so a version bump can no longer silently diverge the FTS index.
 - `bun run test:isolated` in the server package runs the suite with `bun test --isolate` (fresh global per test file), for combined multi-file runs.
 - The memory scheduler now runs daily graph consolidation maintenance (duplicate merge, link strengthening, orphan decay) right after the daily extraction pass, gated on `consolidation.enabled`.

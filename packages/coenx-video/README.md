@@ -118,15 +118,25 @@ statements, logic and physics:
   pointer coordinates (`event.x` / `event.y`).
 - **Actions**: `run` (depth-bounded statement lists), `gotoFrame`,
   `setNode` (text/x/y/rotation/opacity/scale/color overrides that beat
-  keyframes, snapshot-restored per scene) and `impulse`.
+  keyframes, snapshot-restored per scene; on solid-fill shapes `color`
+  restyles `fill`) and `impulse`.
 - **Live 2D physics** (`src/physics/live.ts`): scenes with `physics` run a
   frame-stepped world in the player — gravity, mass/restitution, circle/box
   collisions, kinematic drags that keep a fling velocity on release, and
   once-per-overlap collision events feeding `collide` interactions. The
   pre-batched static simulation still drives MP4/SVG renders.
+- **Physics-explainer scene**: the world-showcase carries a molecules heat
+  chamber — a gravity-free gas of 24 live 2D bodies with elastic walls; the
+  Heat button fans out into per-molecule `impulse` + `setNode` color
+  interactions plus a statement list that raises a temperature state and
+  rewrites the HUD through a `concat` expression; Cool reverses both and
+  `collide` triggers count molecular bumps. Packed with
+  `bun scripts/pack-showcase.ts` into `exports/world-showcase.coenx4`.
 - **App viewer**: the DiveeOI session side panel plays `.coenx4` files with
   the bundled player (`CoenxInteractivePanel`), auto-opening tabs for
-  `coenx_video_export`, `coenx_video_pack` and `coenx_video_lesson`.
+  `coenx_video_export`, `coenx_video_pack` and `coenx_video_lesson`. The
+  panel mounts the player paused and exposes restart + play/pause in the
+  panel header, so worlds start on the viewer's action.
 - **Targeted Learning**: `createInteractiveLesson` (`@diveeoi/coenx-video/learning`)
   generates grounded quiz lessons (retry-on-wrong, live score, `tl:*` emits,
   graded results with replay) and the `coenx_video_lesson` tool is on the

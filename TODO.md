@@ -157,6 +157,16 @@ Authoritative sources: `docs/handoffs/coenx-video-renderer-handoff-2026-11-21.md
       The final hop fails at OpenCode Zen upstream ("Model is unavailable" for every anonymous free model, verified with
       direct API probes — issue I-006). Re-run when the free tier recovers.
 - [ ] **WP8 GPU 3D — DEFERRED (I-004).** Explicitly do not start.
+- [x] **DONE 2026-11-26 (sandbox)** **Interactive world verified end to end in the app viewer** — Rust sidecar built
+      (`cargo 1.100`, `bun run build:native`, native-video + live-physics suites 14/14 against the compiled binary);
+      world-demo e2e (clicks/hovers/drags/live physics/collisions) green in headless Chromium; live session-viewer run
+      drove the full showcase (click-kick `run` statement + HUD `concat`, kinematic drag with fling velocity, collide
+      bump counters, and the new molecules heat chamber: heat 0→600 K turns molecules orange with thermal impulses,
+      cool returns them to blue). Three real bugs found and fixed: `CanvasVideoRenderer.draw()` reset the
+      stage→backing transform (world clipped to the top-left corner at any display size ≠ stage size), the
+      `CoenxInteractivePanel` mounted the player paused with no way to start playback (restart + play/pause header
+      controls added, i18n in 18 locales), and `setNode` color overrides ignored solid-fill shapes (now restyle
+      `fill`). Full coenx-video suite 164/164. Push pending: sandbox has no GitHub credentials (commits 14411d5 + this one local).
 
 ## 4. Targeted Learning / Retrieval V2
 

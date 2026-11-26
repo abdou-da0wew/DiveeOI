@@ -55,6 +55,18 @@ The .js file is a JavaScript-like data module, not executable JavaScript. It is 
       ]
     }
 
-Supported triggers: click, submit, change, key, and timer. Supported actions: set, increment, goto, show, hide, feedback, playAudio, and emit. when accepts only the expression AST: literal, state, event, eq, neq, gt, gte, lt, lte, and, or, not, and contains. Use nested data objects for expressions. All actions and expressions are validated before the composition is created.
+## World model: triggers, statements, expressions and live physics
 
-Never add JavaScript evaluation or make the compiler execute source strings. Never put server secrets, private grading state, model credentials, filesystem paths, or untrusted HTML into a learner project.
+Interactive scenes can behave like small worlds. On top of the base triggers (click, submit, change, key, timer) the world model adds three pointer/physics triggers:
+
+- `hover` with `phase: "enter" | "leave"` - restyle targets on pointer enter/leave.
+- `drag` with `phase: "start" | "move" | "end"` - fired after a 4px movement threshold with grab-offset tracking so grabbed bodies do not jump. Dragging a node that owns a physics body makes the body kinematic; on release it keeps the fling velocity.
+- `collide` with optional `withId` - fired by the live physics step once per new overlap pair.
+
+Statement actions: the base set (`set`, `increment`, `goto`, `show`, `hide`, `feedback`, `playAudio`, `emit`) plus `run` (nested statement list, at most 8 levels deep and 24 actions per interaction), `gotoFrame` (scene-local seek), `setNode` (override `text`, `x`, `y`, `rotation`, `opacity`, `scale` or `color` of one node; overrides beat keyframes, are snapshotted per scene and restored on navigation; on solid-fill shapes `color` restyles `fill`) and `impulse` (add vx/vy to a live physics body).
+
+Expressions are a validated AST. Beyond the boolean set (`eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `and`, `or`, `not`, `contains`) the world model adds arithmetic and helpers: `add`, `sub`, `mul`, `div`, `mod`, `concat`, `min`, `max`, `abs`, `round`, `floor`, `ceil`, `clamp`, bounded `random` and the ternary `if`. Pointer triggers carry `event.x` / `event.y` stage coordinates, so actions can react to where the viewer clicked or dragged.
+
+A scene can declare `physics`: `gravity` as `[gx, gy]` and `bodies` bound to node ids with `mass`, `velocity`, `size`, optional `isStatic`, `restitution` and `position`. While the world plays, the player steps this physics live: bodies move, collisions fire `collide` interactions and dragged bodies follow the pointer. The static MP4/SVG render path keeps using the pre-batched deterministic simulation, so both outputs derive from one scene definition. Validation bounds the model: at most 500 2D bodies per scene, 24 actions per interaction, 8 nested `run` levels and expression depth 16.
+
+Use the world model when the viewer must manipulate, throw, collide or observe cause and effect; keep flat MP4 for cinematic playback. Never add JavaScript evaluation or make the compiler execute source strings. Never put server secrets, private grading state, model credentials, filesystem paths, or untrusted HTML into a learner project.
