@@ -10,6 +10,7 @@ import { buildAudioGraph } from "./audio"
 import { prepareRenderFonts } from "./fonts"
 import { NativeRendererSession } from "./native"
 import { prepareNativeImageAssets } from "./native-assets"
+import { MediaFrameCache } from "./media-frames"
 import { runBuffer, waitForExit, writeWithBackpressure } from "./process"
 
 const FFMPEG = process.env.COENX_VIDEO_FFMPEG ?? "ffmpeg"
@@ -96,10 +97,12 @@ export async function renderNativeVideo(composition: VideoComposition, options: 
   let fontConfig: Awaited<ReturnType<typeof prepareRenderFonts>>
   let audio: Awaited<ReturnType<typeof buildAudioGraph>>
   let imageAssets: Awaited<ReturnType<typeof prepareNativeImageAssets>>
+  let media: MediaFrameCache | undefined
   try {
     fontConfig = await prepareRenderFonts(composition, tempRoot)
     audio = await buildAudioGraph(composition, projectRoot)
     imageAssets = await prepareNativeImageAssets(composition, projectRoot, tempRoot, options.signal)
+    media = await MediaFrameCache.prepare(composition, projectRoot, tempRoot, options.signal)
   } catch (error) {
     await rm(tempRoot, { recursive: true, force: true })
     throw error
@@ -192,13 +195,15 @@ export async function renderNativeVideo(composition: VideoComposition, options: 
             }),
           )
         : undefined
+      const sceneImageAssets: Record<string, string> = { ...(imageAssets.get(located.scene.id) ?? {}) }
+      if (media) Object.assign(sceneImageAssets, (await media.sceneFrameOverrides(located.scene, located.localFrame, fps)).paths)
       await native.renderFrame({
         composition,
         scene: located.scene,
         frame: located.localFrame,
         outputPath: framePath,
         physics3d,
-        imageAssets: imageAssets.get(located.scene.id),
+        imageAssets: sceneImageAssets,
       })
       const png = await readFile(framePath)
       await writeWithBackpressure(ffmpeg, png)

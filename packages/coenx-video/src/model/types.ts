@@ -267,6 +267,18 @@ export interface ImageNode extends NodeBase {
   alt?: string
 }
 
+export interface VideoNode extends NodeBase {
+  kind: "video"
+  /** Composition asset key resolving to a local file, tmp: path or data:video URI. */
+  asset: string
+  fit?: "contain" | "cover" | "fill"
+  /** Source media seek offset in seconds (bounded to the clip duration). */
+  sourceStartSeconds?: number
+  /** Playback speed multiplier (0.1..4). */
+  playbackRate?: number
+  alt?: string
+}
+
 export interface ButtonNode extends NodeBase {
   kind: "button"
   text: string
@@ -341,6 +353,7 @@ export type VisualNode =
   | LineNode
   | TextNode
   | ImageNode
+  | VideoNode
   | ButtonNode
   | InputNode
   | SelectNode

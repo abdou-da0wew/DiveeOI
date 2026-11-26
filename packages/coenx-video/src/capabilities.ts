@@ -150,6 +150,47 @@ export const COENX_VIDEO_CAPABILITIES = {
   ] satisfies RendererCapability[],
   features: [
     {
+      id: "video-nodes",
+      support: {
+        "static-svg": "supported",
+        "native-cairo": "supported",
+        "interactive-canvas": "supported",
+        "interactive-svg": "unsupported",
+      },
+      notes: [
+        "Video nodes composite external footage (mp4/webm/mov/mkv local files, tmp: files, absolute temp-directory paths or embedded data:video URIs) frame-accurately against the composition clock.",
+        "Static SVG and native Cairo decode each sampled frame through ffmpeg into a bounded cached PNG (64 MB source cap, 1h duration cap, playbackRate 0.1..4).",
+        "Interactive Canvas drives a muted, looping <video> element seeked to the master clock; browsers gate unmuted playback, so video nodes render silent and audio should be authored as composition audio clips.",
+        "Interactive SVG stages do not support video nodes yet (explicit unsupported capability).",
+      ],
+    },
+    {
+      id: "animated-gif",
+      support: {
+        "static-svg": "supported",
+        "native-cairo": "supported",
+        "interactive-canvas": "supported",
+        "interactive-svg": "supported",
+      },
+      notes: [
+        "Image nodes whose asset is an animated GIF render frame-by-frame against the local clock (bounded to 240 decoded frames, constant-delay assumption from the first frame).",
+        "Static GIF images still decode once; the interactive Canvas backend lets the browser animate the <img> natively.",
+      ],
+    },
+    {
+      id: "external-media-sources",
+      support: {
+        "static-svg": "supported",
+        "native-cairo": "supported",
+        "interactive-canvas": "supported",
+        "interactive-svg": "supported",
+      },
+      notes: [
+        "Media assets accept project-relative files, `tmp:` paths under the OS temp directory, absolute paths inside the project root or temp directory, and embedded base64 data URIs (image and video).",
+        "Remote URLs are rejected everywhere; SVG media is validated against active/external content before rasterization.",
+      ],
+    },
+    {
       id: "reusable-paths",
       support: {
         "static-svg": "supported",

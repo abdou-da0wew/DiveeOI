@@ -1,4 +1,5 @@
 import path from "node:path"
+import { tmpdir } from "node:os"
 import { isBundledFontFamily } from "../fonts/catalog"
 import type { Paint, VisualNode } from "./types"
 
@@ -8,6 +9,20 @@ function add(issues: string[], condition: boolean, message: string) {
 
 const ID = /^[A-Za-z][A-Za-z0-9_-]{0,79}$/
 const SAFE_ASSET = /^(?![a-z]+:\/\/)(?!\/)(?![A-Za-z]:\\)[^\0]+$/i
+
+/**
+ * Permitted asset reference forms: embedded data URIs (image/video/audio/font),
+ * `tmp:` prefixed files under the OS temp directory, project-relative paths,
+ * and absolute paths under the temp directory (resolved and re-checked at
+ * render time by the media pipeline).
+ */
+function isPermittedAssetReference(value: string) {
+  if (/^data:(image|video|audio|font)\//i.test(value)) return true
+  if (value.startsWith("tmp:")) return value.length > 4
+  if (SAFE_ASSET.test(value) && !path.normalize(value).startsWith("..")) return true
+  const osTmp = tmpdir()
+  return path.isAbsolute(value) && value.startsWith(osTmp + path.sep)
+}
 
 function validatePaint(paint: Paint | undefined, nodeId: string, issues: string[]) {
   if (paint === undefined || typeof paint === "string") return
@@ -130,11 +145,28 @@ export function validateNode(node: VisualNode, issues: string[], sceneId: string
   if (node.kind === "text") add(issues, node.text.length <= 12_000, `text node ${node.id} is too long`)
   if (node.kind === "image") {
     const assetPath = assets[node.asset] ?? node.asset
-    add(
-      issues,
-      SAFE_ASSET.test(assetPath) && !path.normalize(assetPath).startsWith(".."),
-      `image node ${node.id} has an unsafe asset path`,
-    )
+    add(issues, isPermittedAssetReference(assetPath), `image node ${node.id} has an unsafe asset path`)
+  }
+  if (node.kind === "video") {
+    const assetPath = assets[node.asset] ?? node.asset
+    add(issues, isPermittedAssetReference(assetPath), `video node ${node.id} has an unsafe asset path`)
+    if (node.sourceStartSeconds !== undefined) {
+      add(
+        issues,
+        Number.isFinite(node.sourceStartSeconds) && node.sourceStartSeconds >= 0 && node.sourceStartSeconds <= 3600,
+        `video node ${node.id} sourceStartSeconds must be between 0 and 3600`,
+      )
+    }
+    if (node.playbackRate !== undefined) {
+      add(
+        issues,
+        Number.isFinite(node.playbackRate) && node.playbackRate >= 0.1 && node.playbackRate <= 4,
+        `video node ${node.id} playbackRate must be between 0.1 and 4`,
+      )
+    }
+    if (node.fit !== undefined) {
+      add(issues, node.fit === "contain" || node.fit === "cover" || node.fit === "fill", `video node ${node.id} fit must be contain, cover or fill`)
+    }
   }
   if (node.kind === "mesh3d") {
     const validVector = (value: readonly number[]) => value.length === 3 && value.every(Number.isFinite)

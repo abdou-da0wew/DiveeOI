@@ -50,7 +50,7 @@ describe("native image preparation", () => {
     const { projectRoot, tempRoot } = await fixture()
     await expect(
       prepareNativeImageAssets(imageComposition("https://example.invalid/image.png"), projectRoot, tempRoot),
-    ).rejects.toThrow("local project files")
+    ).rejects.toThrow("Remote media assets are not supported")
   })
 
   it("rejects embedded SVG references to remote resources and executable content", async () => {
@@ -101,10 +101,10 @@ describe("native image preparation", () => {
     await symlink(outside, path.join(projectRoot, "escape.png"))
 
     await expect(prepareNativeImageAssets(imageComposition("../outside.png"), projectRoot, tempRoot)).rejects.toThrow(
-      "escapes the project root",
+      "could not be resolved to a local file inside the project root",
     )
     await expect(prepareNativeImageAssets(imageComposition("escape.png"), projectRoot, tempRoot)).rejects.toThrow(
-      "escapes the project root",
+      "could not be resolved to a local file inside the project root",
     )
   })
 

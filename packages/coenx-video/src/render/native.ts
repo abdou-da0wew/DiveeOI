@@ -102,6 +102,14 @@ function supportedNodes(
       output.push({ ...renderNode, assetPath })
       continue
     }
+    if (node.kind === "video") {
+      // Video nodes are pre-resolved per frame by the media pipeline into a
+      // decoded PNG; the native renderer just paints the bitmap.
+      const assetPath = imageAssets?.[node.id]
+      if (!assetPath) throw new Error(`Native renderer could not resolve video asset: ${node.asset}`)
+      output.push({ ...renderNode, kind: "image", assetPath })
+      continue
+    }
     if (node.kind !== "mesh3d") {
       output.push(renderNode)
       continue

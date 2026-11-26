@@ -1,11 +1,10 @@
-import { createHash } from "node:crypto"
-import { copyFile, mkdir, open, readFile, realpath, stat, writeFile } from "node:fs/promises"
+import { mkdir, open, readFile, realpath, stat } from "node:fs/promises"
 import path from "node:path"
 import type { VideoComposition } from "../model/types"
 import { resolveImageMagickRuntime } from "./rasterizer"
 import { runBuffer } from "./process"
+import { resolveMediaSource } from "./media-frames"
 
-const MAX_SOURCE_BYTES = 64 * 1024 * 1024
 const MAX_DECODED_PIXELS = 16_777_216
 const MAX_OUTPUT_BYTES = 96 * 1024 * 1024
 const MAX_IMAGE_EDGE = 8192
@@ -33,32 +32,6 @@ interface ImageSource {
   extension: string
 }
 
-function inside(root: string, candidate: string) {
-  const relative = path.relative(root, candidate)
-  return relative !== "" && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
-}
-
-function extensionForMime(mime: string) {
-  const extensions: Record<string, string> = {
-    "image/png": ".png",
-    "image/apng": ".apng",
-    "image/jpeg": ".jpg",
-    "image/webp": ".webp",
-    "image/jxl": ".jxl",
-    "image/gif": ".gif",
-    "image/svg+xml": ".svg",
-    "image/tiff": ".tiff",
-    "image/avif": ".avif",
-    "image/heic": ".heic",
-    "image/bmp": ".bmp",
-    "image/x-icon": ".ico",
-    "image/vnd.microsoft.icon": ".ico",
-  }
-  const extension = extensions[mime.toLowerCase()]
-  if (!extension) throw new Error(`Unsupported native image MIME type: ${mime}`)
-  return extension
-}
-
 async function imageSource(
   asset: string,
   configured: string | undefined,
@@ -66,48 +39,10 @@ async function imageSource(
   tempRoot: string,
   sourceFiles: Map<string, string>,
 ): Promise<ImageSource> {
-  const value = configured ?? asset
-  const data = /^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=\r\n]+)$/i.exec(value)
-  if (data) {
-    const mime = data[1].toLowerCase()
-    const extension = extensionForMime(mime)
-    const bytes = Buffer.from(data[2].replaceAll(/\s/g, ""), "base64")
-    if (!bytes.length || bytes.byteLength > MAX_SOURCE_BYTES) {
-      throw new Error(`Native image asset ${asset} exceeds the 64 MB source limit`)
-    }
-    const identity = createHash("sha256").update(mime).update(bytes).digest("hex")
-    let sourcePath = sourceFiles.get(identity)
-    if (!sourcePath) {
-      sourcePath = path.join(tempRoot, `source-${identity}${extension}`)
-      await writeFile(sourcePath, bytes)
-      sourceFiles.set(identity, sourcePath)
-    }
-    return { identity, path: sourcePath, extension }
-  }
-
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value) || path.isAbsolute(value)) {
-    throw new Error(`Native image assets must be local project files: ${asset}`)
-  }
-  const candidate = path.resolve(projectRoot, value)
-  const resolved = await realpath(candidate)
-  if (!inside(projectRoot, resolved)) {
-    throw new Error(`Native image asset escapes the project root: ${asset}`)
-  }
-  const extension = path.extname(resolved).toLowerCase()
-  if (!IMAGE_FORMATS[extension]) throw new Error(`Unsupported native image file format: ${extension || "unknown"}`)
-  const info = await stat(resolved)
-  if (!info.isFile()) throw new Error(`Native image asset is not a file: ${asset}`)
-  if (info.size <= 0 || info.size > MAX_SOURCE_BYTES) {
-    throw new Error(`Native image asset must be between 1 byte and 64 MB: ${asset}`)
-  }
-  const identity = createHash("sha256").update(`${resolved}: ${info.size}: ${info.mtimeMs}`).digest("hex")
-  let sourcePath = sourceFiles.get(identity)
-  if (!sourcePath) {
-    sourcePath = path.join(tempRoot, `source-${identity}${extension}`)
-    await copyFile(resolved, sourcePath)
-    sourceFiles.set(identity, sourcePath)
-  }
-  return { identity, path: sourcePath, extension }
+  // Shared media source rules: data URIs, tmp: files, absolute paths inside
+  // the project root or the OS temp directory, and project-relative files.
+  const resolved = await resolveMediaSource(asset, configured, projectRoot, tempRoot, sourceFiles)
+  return { identity: resolved.identity, path: resolved.path, extension: resolved.extension }
 }
 
 async function isBoundedPng(file: string) {

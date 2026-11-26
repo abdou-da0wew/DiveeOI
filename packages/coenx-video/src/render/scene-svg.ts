@@ -24,6 +24,8 @@ export interface SvgFrameOptions {
   hiddenNodes?: ReadonlySet<string>
   physics?: Record<string, { x: number; y: number }>
   physics3d?: Record<string, { position: Vec3; rotation: Vec3 }>
+  /** Per-frame decoded media (video nodes and animated GIF frames): nodeId -> PNG file. */
+  mediaFrames?: Record<string, string>
 }
 
 function escapeXml(value: string) {
@@ -35,16 +37,6 @@ function escapeXml(value: string) {
     .replaceAll("'", "&apos;")
 }
 
-function mimeType(file: string) {
-  const extension = path.extname(file).toLowerCase()
-  if (extension === ".png") return "image/png"
-  if (extension === ".jpg" || extension === ".jpeg") return "image/jpeg"
-  if (extension === ".webp") return "image/webp"
-  if (extension === ".gif") return "image/gif"
-  if (extension === ".svg") return "image/svg+xml"
-  return "application/octet-stream"
-}
-
 async function imageData(node: ImageNode, composition: VideoComposition, projectRoot: string) {
   const configured = composition.assets?.[node.asset] ?? node.asset
   if (configured.startsWith("data:image/")) return configured
@@ -53,9 +45,13 @@ async function imageData(node: ImageNode, composition: VideoComposition, project
   const root = path.resolve(projectRoot)
   const resolved = path.resolve(root, configured)
   if (!resolved.startsWith(root + path.sep)) throw new Error(`Media asset escapes project root: ${node.asset}`)
-  const bytes = await readFile(resolved)
-  if (bytes.byteLength > 64 * 1024 * 1024) throw new Error(`Media asset exceeds 64 MB: ${node.asset}`)
-  return `data:${mimeType(resolved)};base64,${bytes.toString("base64")}`
+  return fileDataUri(resolved)
+}
+
+async function fileDataUri(file: string) {
+  const bytes = await readFile(file)
+  if (bytes.byteLength > 64 * 1024 * 1024) throw new Error(`Media frame exceeds 64 MB: ${file}`)
+  return `data:image/png;base64,${bytes.toString("base64")}`
 }
 
 function nodeTransform(node: VisualNode, extraX = 0, extraY = 0) {
@@ -177,9 +173,17 @@ async function renderNode(
       body = renderText(node)
       break
     case "image": {
-      const source = await imageData(node, composition, options.projectRoot)
+      const override = options.mediaFrames?.[node.id]
+      const source = override ? await fileDataUri(override) : await imageData(node, composition, options.projectRoot)
       const preserve = node.fit === "fill" ? "none" : node.fit === "cover" ? "xMidYMid slice" : "xMidYMid meet"
       body = `<image href="${source}" x="${-width / 2}" y="${-height / 2}" width="${width}" height="${height}" preserveAspectRatio="${preserve}"/>`
+      break
+    }
+    case "video": {
+      const override = options.mediaFrames?.[node.id]
+      if (!override) throw new Error(`Video node ${node.id} has no decoded frame for the SVG backend`)
+      const preserve = node.fit === "fill" ? "none" : node.fit === "cover" ? "xMidYMid slice" : "xMidYMid meet"
+      body = `<image href="${await fileDataUri(override)}" x="${-width / 2}" y="${-height / 2}" width="${width}" height="${height}" preserveAspectRatio="${preserve}"/>`
       break
     }
     case "button": {

@@ -64,6 +64,7 @@ export class CanvasVideoRenderer {
     physics3d?: Record<string, { position: Vec3; rotation: Vec3 }>,
   ) {
     const { context, options } = this
+    this.currentFrame = frame
     const { width, height } = options.composition.stage
     context.save()
     context.setTransform(1, 0, 0, 1, 0, 0)
@@ -315,6 +316,9 @@ export class CanvasVideoRenderer {
       case "image":
         this.drawImage(node)
         break
+      case "video":
+        this.drawVideo(node)
+        break
       case "button":
         context.fillStyle = node.disabled ? "#666666" : canvasPaint(context, width, height, resolvePaint(node.fill, scene), "#315fe8")
         this.roundRect(-width / 2, -height / 2, width, height, node.radius ?? 12, true, false)
@@ -466,8 +470,73 @@ export class CanvasVideoRenderer {
     this.context.restore()
   }
 
+  private videoElements = new Map<string, HTMLVideoElement>()
+  private failedVideos = new Set<string>()
+  private currentFrame = 0
+
+  /**
+   * Interactive video nodes: a hidden, muted <video> element is kept per
+   * node and seeked to the composition's master clock (local frame + source
+   * offset x rate). Browsers gate unmuted autoplay, so video nodes render
+   * silent; audio must be authored as composition audio clips.
+   */
+  private drawVideo(node: Extract<VisualNode, { kind: "video" }>) {
+    const configured = this.options.composition.assets?.[node.asset]
+    const source = this.options.resolveAsset?.(node.asset, configured) ?? configured ?? node.asset
+    if (this.failedVideos.has(node.asset)) return
+    let video = this.videoElements.get(node.asset)
+    if (!video) {
+      video = document.createElement("video")
+      video.muted = true
+      video.playsInline = true
+      video.preload = "auto"
+      video.loop = true
+      video.onerror = () => this.failedVideos.add(node.asset)
+      video.onloadeddata = () => this.options.canvas.dispatchEvent(new Event("coenx:asset-ready"))
+      video.src = source
+      video.play().catch(() => undefined)
+      this.videoElements.set(node.asset, video)
+    }
+    if (!video.videoWidth || !video.videoHeight) return
+    const fps = this.options.composition.stage.fps
+    const frame = this.currentFrame
+    const target = Math.max(0, (node.sourceStartSeconds ?? 0) + (frame / fps) * (node.playbackRate ?? 1))
+    if (Number.isFinite(video.duration) && video.duration > 0) {
+      const clamped = target % video.duration
+      if (Math.abs(video.currentTime - clamped) > 0.12) {
+        try {
+          video.currentTime = clamped
+        } catch {
+          // Seek before metadata: ignore, retried next frame.
+        }
+      }
+    }
+    const width = node.width
+    const height = node.height
+    const fit = node.fit ?? "contain"
+    const scale =
+      fit === "fill"
+        ? [width / video.videoWidth, height / video.videoHeight]
+        : [
+            (fit === "cover" ? Math.max : Math.min)(width / video.videoWidth, height / video.videoHeight),
+            (fit === "cover" ? Math.max : Math.min)(width / video.videoWidth, height / video.videoHeight),
+          ]
+    const drawWidth = video.videoWidth * scale[0]
+    const drawHeight = video.videoHeight * scale[1]
+    const context = this.context
+    context.save()
+    context.beginPath()
+    context.rect(-width / 2, -height / 2, width, height)
+    context.clip()
+    context.drawImage(video, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight)
+    context.restore()
+  }
+
   destroy() {
     this.images.clear()
     this.failedImages.clear()
+    for (const video of this.videoElements.values()) video.pause()
+    this.videoElements.clear()
+    this.failedVideos.clear()
   }
 }

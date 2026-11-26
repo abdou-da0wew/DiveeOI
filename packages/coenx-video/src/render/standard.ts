@@ -11,6 +11,7 @@ import type { PhysicsFrame } from "../physics/world"
 import { renderSceneSvg } from "./scene-svg"
 import { buildAudioGraph } from "./audio"
 import { prepareRenderFonts } from "./fonts"
+import { MediaFrameCache } from "./media-frames"
 import { renderNativeVideo } from "./native-video"
 import { resolveImageMagickRuntime } from "./rasterizer"
 import { runBuffer, waitForExit, writeWithBackpressure } from "./process"
@@ -158,6 +159,14 @@ export async function renderStandardVideo(
   const partialPath = path.join(realOutputDir, path.basename(outputPath) + ".partial.mp4")
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "coenx-video-"))
   activeRenders++
+  let media: MediaFrameCache | undefined
+  try {
+    media = await MediaFrameCache.prepare(composition, projectRoot, tempRoot)
+  } catch (error) {
+    await rm(tempRoot, { recursive: true, force: true }).catch(() => undefined)
+    activeRenders--
+    throw error
+  }
   let fontConfig: Awaited<ReturnType<typeof prepareRenderFonts>>
   try {
     fontConfig = await prepareRenderFonts(composition, tempRoot)
@@ -273,6 +282,7 @@ export async function renderStandardVideo(
           projectRoot,
           physics: positions,
           physics3d: positions3d,
+          mediaFrames: media ? (await media.sceneFrameOverrides(located.scene, located.localFrame, composition.stage.fps)).paths : undefined,
         })
         const file = path.join(batchDir, "frame-" + String(frame).padStart(8, "0") + ".svg")
         await writeFile(file, svg)

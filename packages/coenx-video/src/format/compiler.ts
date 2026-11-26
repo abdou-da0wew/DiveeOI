@@ -7,6 +7,7 @@ import type {
   ClipPathDefinition,
   EllipseNode,
   ImageNode,
+  VideoNode,
   MaskDefinition,
   NodeAnimation,
   LineNode,
@@ -240,6 +241,24 @@ function nodeFromElement(element: CmlElement, rules: CmlStyleRule[], source: str
         alt: values.alt,
         fit: (values.fit ?? "contain") as ImageNode["fit"],
       } satisfies ImageNode
+    }
+    case "video": {
+      const asset = value(values, "asset", "src")
+      if (!asset) throw new Error("Coenx <video> requires asset or src")
+      const sourceStart = numeric(values, ["source-start", "sourceStart"], 0)
+      const playbackRate = numeric(values, ["playback-rate", "playbackRate"], 1)
+      if (sourceStart < 0) throw new Error(`Coenx <video> source-start must be >= 0${where}`)
+      if (playbackRate <= 0 || playbackRate > 4) throw new Error(`Coenx <video> playback-rate must be in 0.1..4${where}`)
+      return {
+        kind: "video",
+        ...base,
+        ...filterExtras,
+        asset,
+        alt: values.alt,
+        fit: (values.fit ?? "contain") as VideoNode["fit"],
+        sourceStartSeconds: sourceStart,
+        playbackRate,
+      } satisfies VideoNode
     }
     case "button":
       return {
