@@ -628,3 +628,13 @@ coenx-wide, app pre-existing component-test failures unchanged (stash-verified i
 - Tests: new estimate.test.ts (8 pass). Green: compaction 52/0, prompt integration 55/0, memory 2/0, retry+message-v2+system 70/0, composer+free-tier 52/0, TL httpapi 27/0. httpapi-listen timeouts + full-suite OOM reproduce on clean base (stash-verified; environment-bound, not regressions). Server package tsgo typecheck still SIGKILLs in this sandbox (known).
 - Forensics note: prompt.ts:141 looked syntax-corrupted in some reads this session ("sgssgs"); verified against GitHub raw + git cat-file + repeated sha256 — the committed file is healthy, the corruption was display/transport-layer flakiness in this sandbox, not repo content.
 - Open follow-ups (not done this round): scheduler re-extraction quota gating (hash exists but active sessions with any new messages re-extract daily), applyTokenWindow system/tools overhead (tool schemas still uncounted — tools are built after the window cut), ContextBudget tier unit tests.
+
+## 2026-11-27 (night) — truncated shell outputs -> tmp .output files + targeted-access guidance (sandbox)
+
+- User ask: truncate long shell/bash outputs, persist the full output to a tmp `.output` file, and tell the agent it can access the full content at that path with targeted grepping (lines, matching text, ranges).
+- Was already half-there: Truncate.output existed (app-data dir, no extension, two divergent hint texts; shell used its own terse "Full output saved to:"). This round (commit 185324d5, PUSHED):
+  1. TRUNCATION_DIR -> os.tmpdir()/diveeoi-tool-output; files named tool_<id>.output. Cleanup (7-day retention) unaffected (Identifier.timestamp slices 5-17); agent read permission auto-follows Truncate.GLOB.
+  2. Shared Truncate.accessHint(): states "output was too long — N <unit> truncated", the full path, and concrete access commands: grep -n "pattern" (matching text + line numbers), sed -n '100,150p' (line range), head/tail -50, wc -l. Task-tool agents also get the delegate-to-explore guidance.
+  3. Shell reports what actually bound: bytes when the raw payload exceeded the byte cap, else lines.
+- No content loss by design: model sees bounded preview, disk keeps the full output, agent re-enters via targeted commands or Read offset/limit.
+- Tests: truncation 19/0 (extension, tmp location, round-trip, hint patterns, task variants), shell 23/0 (end-to-end), read 39/0, task+question+acp 28/0.
