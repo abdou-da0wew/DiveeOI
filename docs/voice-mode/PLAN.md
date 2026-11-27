@@ -141,9 +141,10 @@ Real measured numbers land in `docs/voice-mode/BENCH.md`.
 ## 8. Repo layout (this branch)
 
 ```
-docs/voice-mode/PLAN.md (this file) · BENCH.md · shots/*.png
+docs/voice-mode/PLAN.md (this file) · shots/*.png
 packages/voice/
   src/server.ts         gateway: WS hub, engine router, static, metrics
+  src/native.ts         adapter: one divee-voice sidecar ↔ three worker interfaces
   src/chunker.ts        EN/AR sentence chunker (unit-tested)
   src/autocorrect.ts    fuzzy + Arabic-orthography corrector (unit-tested)
   src/glossary.ts       TL domain lexicon seed (EN + AR words + phrases)
@@ -152,10 +153,18 @@ packages/voice/
   python/stt_cloud_worker.py  OpenAI-compatible cloud STT + mock provider
   python/tts_worker.py        supertonic-3 queue worker, PCM slices
   python/warmup_tts.py        supertonic bootstrap + RTF check
-  web/                 demo UI (RTL-aware, voice pill, engine selector, HUD)
-  scripts/fetch-models.sh   vosk model downloader (resumable)
-  scripts/bench-voice.ts    TTS RTF sweep + STT accuracy + chunker stats
-  models/ voices/ .venv/    gitignored
+  web/                  demo UI: index.html · styles.css · app.js (RTL-aware,
+                        voice pill, engine selector, simulate bar, latency HUD)
+  scripts/fetch-models.sh    vosk models + libvosk.so + supertonic-3 (resumable)
+  scripts/sidecar-probe.ts   sidecar round-trip: EN/AR STT + TTS + cloud mock
+  scripts/smoke-gateway.ts   full gateway smoke (native backend) incl. real audio
+  models/ assets/cache/      gitignored
+packages/learning/native/voice/   divee-voice — Rust sidecar (production path)
+  src/main.rs           NDJSON serve protocol (mirrors divee-retrieval)
+  src/stt.rs            LocalStt (vosk, streaming) + CloudStt (OpenAI-compat + mock)
+  src/tts.rs + tts_helper.rs   supertonic-3 on ort 2.0.0-rc.15, chunked PCM out
+  build.rs              vendored libvosk.so link + $ORIGIN rpath
+  scripts/fetch-models.sh
 ```
 
 M1 integration points (not touched in M0): `prompt-input.tsx` voice pill;
@@ -163,12 +172,12 @@ gateway mounted as server route `/voice/*`; `voice.*` settings keys.
 
 ## 9. Phases
 
-- **M0 (this branch)** — standalone demo + bench + shots: proves the full
+- **M0 (this branch)** — standalone demo + probe/smoke + shots: proves the full
   EN+AR loop (mic/simulate → STT → correct → teacher stream → TTS → speaker),
-  streaming TTS, correction, engine switching, HUD. Runs on the 4 GB sandbox
-  with the AR-small STT model; the MSA vosk model is downloaded for the 8 GB
-  machine; cloud engine verified against the mock provider (real cloud needs a
-  key from the student's machine).
+  streaming TTS, correction, engine switching, HUD. Production backend is the
+  Rust sidecar `divee-voice` (`VOICE_BACKEND=native|python|auto`); the python
+  workers remain as a fallback. Cloud engine verified against the mock provider
+  (real cloud needs a key from the student's machine).
 - **M1** — real TL wiring: voice pill in the prompt input, `/voice/*` route,
   teacher stream → TTS hook in the session processor, settings keys, vosk
   grammar boost from the actual book glossary.
@@ -189,3 +198,67 @@ gateway mounted as server route `/voice/*`; `voice.*` settings keys.
 | API key leakage | key read from env var name at runtime; never written to disk/logs/git |
 | browser autoplay policy | voice toggle is an explicit user gesture → AudioContext resume is legitimate |
 | OpenRAIL-M obligations | no cloning of real people; attribution in README; disclosure note in UI |
+
+## 11. M0 as-built — measured results (2026-11-27)
+
+### Gateway backends
+
+| `VOICE_BACKEND` | Processes | Notes |
+| --- | --- | --- |
+| `native` (default when binary exists) | Bun gateway + `divee-voice` sidecar | vosk STT + cloud STT + supertonic-3 TTS in ONE Rust process; protocol adapter in `src/native.ts` |
+| `python` | Bun gateway + 3 python workers | fallback for hosts without a built binary |
+
+STT engine is orthogonal and hot-switchable: `local` (vosk on-device, streaming
+partials, en+ar) vs `cloud` (any OpenAI-compatible `/audio/transcriptions`
+endpoint, or the built-in `mock` for CI). Cloud errors fall back to local
+automatically (`kind: "cloud-fallback"`); the API key VALUE never crosses the
+protocol — the sidecar reads the env var NAME at call time.
+
+### Measured (sandbox, release build, steps=5)
+
+| Check | Result |
+| --- | --- |
+| sidecar probe — TTS EN 3.3s utterance | wall 4466 ms, RTF 1.34, 36 streaming frames |
+| sidecar probe — TTS AR 4.0s utterance | wall 4727 ms, RTF 1.20, 43 frames |
+| sidecar probe — STT EN round-trip | "what is photosynthesis and why is it important", conf 0.98 |
+| sidecar probe — STT AR round-trip | "ما هو البناء الضوئي ولماذا هو مهم", conf 0.999 |
+| sidecar probe — cloud mock final | 191 ms (no network) |
+| gateway smoke — inject → teacher chunks → TTS | first audio **2.6 s** (scripted 90 ms/token pacing included) |
+| gateway smoke — real 16k wav → vosk → final | exact transcript, streaming partials |
+| browser HUD (native backend) | STT partial 2.1 s (cold) / final 3.0 s / **first audio 1.3 s** / TTS chunk 1.4–2.3 s / RTF 0.25–0.49 |
+| bun test | 18 pass / 0 fail (chunker + autocorrect) |
+
+The 1.3 s browser first-audio (STT final → first TTS sample) is inside the
+§7 budget; with the real LLM replacing the scripted 90 ms/token stream the
+remaining work is chunk dispatch + first-chunk synthesis.
+
+### Demo shots (`docs/voice-mode/shots/`)
+
+| File | Shows |
+| --- | --- |
+| `01-idle.png` | idle UI: engine badges, settings bar, prompt bar with mic pill |
+| `02-en-teacher.png` | EN voice → vosk STT (conf 100%) → streamed teacher chunks, HUD live |
+| `03-ar-teacher.png` | AR voice → vosk AR → RTL transcript, autocorrect chip (ولماذا → لماذا), Arabic TTS reply |
+| `04-barge-in.png` | barge-in mid-speech: playback cancelled, state reset |
+| `05-cloud-engine.png` | engine = Cloud API (mock provider): badge shows fallback policy, cloud transcript |
+
+### Run
+
+```bash
+# build sidecar + fetch models (once)
+export CARGO_HOME=/home/z/my-project/toolchain/cargo RUSTUP_HOME=/home/z/my-project/toolchain/rustup
+packages/learning/native/voice/scripts/fetch-models.sh && (cd packages/learning/native/voice && cargo build --release)
+# gateway (auto-selects native)
+cd packages/voice && bun src/server.ts   # http://localhost:4747
+# probes
+bun scripts/sidecar-probe.ts             # sidecar round-trip, writes 16k fixtures
+bun scripts/smoke-gateway.ts             # full gateway smoke (gateway must be up)
+bun test                                 # chunker + autocorrect unit tests
+```
+
+### Fixes landed with M0
+
+- `build.rs`: bake `$ORIGIN/../../lib` rpath so `libvosk.so` resolves without LD_LIBRARY_PATH.
+- `main.rs`: ONNX Runtime dylib scan now covers pip `site-packages/capi` layouts; missing dylib degrades TTS to "not configured" (clean `tts.error` + `tts.config` error) instead of panicking — STT keeps working.
+- `fetch-models.sh`: corrected the doubled `onnx/onnx/` HF path (saved "Entry not found" bodies as weights); `curl --fail` + size guard for ONNX files.
+- gateway `VOICE_BACKEND=native|python|auto` + protocol adapter with response correlation and cloud-ready synthesis; AR model candidate list picks the best installed MSA model.
