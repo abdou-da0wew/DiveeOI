@@ -95,3 +95,5 @@ exports/
 packages/voice/models/
 packages/voice/.venv/
 packages/voice/assets/cache/
+packages/learning/native/voice/models/
+packages/learning/native/voice/lib/
