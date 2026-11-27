@@ -13,15 +13,20 @@
  *
  * The STT engine is a runtime setting (sttEngine: "local" | "cloud"). Cloud
  * errors fall back to the local engine for the session automatically.
- * Teacher streaming is scripted here for the demo; M1 hooks the real session
- * stream from packages/server/src/session/processor.ts into the same
- * dispatchChunk path.
+ *
+ * M1: a client can attach the gateway to a real app session with
+ * `session-listen` (sessionId + lang). In that mode a recognized transcript is
+ * forwarded to the app as `session-student` (the prompt input submits it) and
+ * the scripted teacher stays silent — the real reply text arrives from the
+ * session bridge via `POST /voice/say`, which feeds the same dispatchChunk →
+ * TTS path. The demo script is still used when no session is attached.
  *
  * Run: bun src/server.ts
  * Env: VOICE_PORT, VOICE_BACKEND (native|python|auto, default auto),
  *      VOICE_PYTHON, VOICE_STT_MODELS,
  *      VOICE_CLOUD_STT_PROVIDER, VOICE_CLOUD_STT_BASE_URL, VOICE_CLOUD_STT_MODEL,
- *      VOICE_CLOUD_STT_API_KEY_ENV (key value itself never handled here)
+ *      VOICE_CLOUD_STT_API_KEY_ENV (key value itself never handled here),
+ *      VOICE_BRIDGE_TOKEN (shared secret for /voice/say; unset = localhost open)
  */
 import { spawnNativeBackend } from "./native";
 import { StreamingChunker } from "./chunker";
@@ -131,6 +136,11 @@ let nextTtsId = 1;
 const activeTts = new Map<number, { startedAt: number; meta: any }>();
 let turn: { t0: number; firstAudioMs: number | null } | null = null;
 const logLines: string[] = [];
+// M1 session attachment: set by a `session-listen` WS message from the app's
+// voice pill. While attached, transcripts go to the real session instead of
+// the scripted teacher, and teacher audio arrives via POST /voice/say.
+let sessionMode: { sessionId: string; lang: "en" | "ar" } | null = null;
+const BRIDGE_TOKEN = process.env.VOICE_BRIDGE_TOKEN ?? "";
 
 function log(...parts: unknown[]) {
   const line = `${new Date().toISOString().slice(11, 19)} ${parts.map(String).join(" ")}`;
@@ -283,6 +293,21 @@ function acceptTranscript(
     confidence,
     engine,
   });
+  if (sessionMode) {
+    // Attached to a real app session: hand the transcript to the voice pill
+    // (which submits it into the prompt input); no scripted teacher here.
+    turn = { t0: Date.now(), firstAudioMs: null };
+    setState("thinking");
+    sendToAll({
+      type: "session-student",
+      sessionId: sessionMode.sessionId,
+      text: corrected.corrected,
+      raw,
+      lang,
+    });
+    log(`student → session ${sessionMode.sessionId} (${lang}): ${corrected.corrected.slice(0, 60)}`);
+    return;
+  }
   handleStudent(corrected.corrected, lang, engine === "cloud" ? "stt-cloud" : "stt");
 }
 
@@ -475,13 +500,42 @@ Bun.serve({
       if (ok) return new Response(null, { status: 101 });
       return new Response("upgrade failed", { status: 400 });
     }
-    if (url.pathname === "/healthz") return new Response("ok");
+    if (url.pathname === "/healthz" || url.pathname === "/voice/healthz") return new Response("ok");
+    if (url.pathname === "/voice/say" && req.method === "POST") {
+      // Session bridge ingest: the main server forwards completed teacher
+      // sentences here so the real LLM reply is spoken by the same TTS path.
+      if (BRIDGE_TOKEN && req.headers.get("x-voice-bridge") !== BRIDGE_TOKEN) {
+        return new Response("bridge token mismatch", { status: 401 });
+      }
+      const body = (await req.json().catch(() => null)) as
+        | { text?: unknown; lang?: unknown; sessionId?: unknown }
+        | null;
+      const text = typeof body?.text === "string" ? body.text.trim() : "";
+      const lang = body?.lang === "ar" ? "ar" : "en";
+      if (!text) return new Response("text required", { status: 400 });
+      if (body?.sessionId && sessionMode && body.sessionId !== sessionMode.sessionId) {
+        // A session the pill is not listening to spoke — never speak it.
+        return Response.json({ ok: false, reason: "session not attached" }, { status: 409 });
+      }
+      ensureTts();
+      setState("speaking");
+      dispatchChunk(text, lang);
+      return Response.json({ ok: true, lang });
+    }
     if (url.pathname.startsWith("/cache/")) {
       const name = url.pathname.slice("/cache/".length).replace(/[^a-zA-Z0-9.-]/g, "");
       return serveFile(`${CACHE_DIR}/${name}`) ?? new Response("not cached yet", { status: 404 });
     }
     if (url.pathname === "/" || url.pathname === "/index.html") {
       return serveFile(`${PKG}/web/index.html`) ?? new Response("missing web/index.html", { status: 500 });
+    }
+    // Demo UI under the /voice/* mount (main-server proxy keeps this prefix).
+    if (url.pathname === "/voice" || url.pathname === "/voice/" || url.pathname === "/voice/index.html") {
+      return serveFile(`${PKG}/web/index.html`) ?? new Response("missing web/index.html", { status: 500 });
+    }
+    if (url.pathname.startsWith("/voice/")) {
+      const file = serveFile(`${PKG}/web${url.pathname.slice("/voice".length)}`);
+      if (file) return file;
     }
     const file = serveFile(`${PKG}/web${url.pathname}`);
     if (file) return file;
@@ -546,6 +600,19 @@ Bun.serve({
           // Perfect-STT simulation (no mic): text enters as if recognized.
           const lang = (m.lang ?? "en") as "en" | "ar";
           acceptTranscript(String(m.text), lang, 1, config.sttEngine);
+          break;
+        }
+        case "session-listen": {
+          const lang = m.lang === "ar" ? "ar" : "en";
+          sessionMode = { sessionId: String(m.sessionId ?? ""), lang };
+          sendToAll({ type: "session-listening", sessionId: sessionMode.sessionId, lang });
+          log(`session mode ON: ${sessionMode.sessionId} (${lang}) — scripted teacher disabled`);
+          break;
+        }
+        case "session-listen-off": {
+          sessionMode = null;
+          sendToAll({ type: "session-listening", sessionId: null });
+          log("session mode OFF — scripted teacher restored");
           break;
         }
         case "student-final":

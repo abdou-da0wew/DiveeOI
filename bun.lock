@@ -408,6 +408,7 @@
         "@diveeoi/profiler": "workspace:*",
         "@diveeoi/script": "workspace:*",
         "@diveeoi/sdk": "workspace:*",
+        "@diveeoi/voice": "workspace:*",
         "@effect/opentelemetry": "catalog:",
         "@effect/platform-node": "catalog:",
         "@ff-labs/fff-bun": "0.9.4",
@@ -550,6 +551,10 @@
         "vite-plugin-icons-spritesheet": "3.0.1",
         "vite-plugin-solid": "catalog:",
       },
+    },
+    "packages/voice": {
+      "name": "@diveeoi/voice",
+      "version": "0.1.0",
     },
   },
   "trustedDependencies": [
@@ -873,6 +878,8 @@
     "@diveeoi/server": ["@diveeoi/server@workspace:packages/server"],
 
     "@diveeoi/ui": ["@diveeoi/ui@workspace:packages/ui"],
+
+    "@diveeoi/voice": ["@diveeoi/voice@workspace:packages/voice"],
 
     "@drizzle-team/brocli": ["@drizzle-team/brocli@0.11.0", "", {}, "sha512-hD3pekGiPg0WPCCGAZmusBBJsDqGUR66Y452YgQsZOnkdQ7ViEPKuyP4huUGEZQefp8g34RRodXYmJ2TbCH+tg=="],
 

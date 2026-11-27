@@ -1,8 +1,14 @@
 {
-  "name": "voice",
+  "name": "@diveeoi/voice",
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./package.json": "./package.json",
+    "./chunker": "./src/chunker.ts",
+    "./glossary": "./src/glossary.ts",
+    "./autocorrect": "./src/autocorrect.ts"
+  },
   "scripts": {
     "dev": "bun src/server.ts",
     "bench": "bun scripts/bench-voice.ts",

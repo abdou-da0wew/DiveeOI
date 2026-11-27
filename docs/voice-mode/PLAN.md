@@ -262,3 +262,74 @@ bun test                                 # chunker + autocorrect unit tests
 - `main.rs`: ONNX Runtime dylib scan now covers pip `site-packages/capi` layouts; missing dylib degrades TTS to "not configured" (clean `tts.error` + `tts.config` error) instead of panicking — STT keeps working.
 - `fetch-models.sh`: corrected the doubled `onnx/onnx/` HF path (saved "Entry not found" bodies as weights); `curl --fail` + size guard for ONNX files.
 - gateway `VOICE_BACKEND=native|python|auto` + protocol adapter with response correlation and cloud-ready synthesis; AR model candidate list picks the best installed MSA model.
+
+## 12. M1 as-built — real-app integration (2026-11-27)
+
+M1 wires the M0 demo into the real product: the voice gateway is reachable
+under the main server, the prompt input carries the voice pill, and assistant
+text streams feed TTS.
+
+### What landed
+
+- **Gateway mount** (`packages/server/src/server/routes/instance/httpapi/handlers/voice.ts`):
+  - `POST /voice/listen` (authed): registers a session with the bridge and
+    returns a one-time WS ticket (pty ticket pattern — browsers cannot send
+    Authorization headers on WebSocket upgrades). Empty `sessionID` is a valid
+    "pending" registration for new-session pages; the pill re-registers when
+    the first prompt creates the session.
+  - `GET /voice/ws`: ticket-validated WS, byte-piped to the gateway
+    (`HttpApiProxy.websocket`).
+  - `* /voice/*`: authed HTTP proxy (demo UI now also served at `/voice/`,
+    cached wav audio, healthz). Auth is the repo-standard router middleware;
+    `DIVEEOI_DISABLE_FEATURES=voice` kills the routes (`features.ts`).
+- **Voice bridge** (`packages/server/src/voice/bridge.ts`): plain module over
+  the process-global `GlobalBus` (repo callback-boundary rule). Subscribes to
+  `message.part.updated` / `message.part.delta` / `message.part.removed` /
+  `session.idle`; tracks part types so only assistant **text** parts are
+  spoken (reasoning/tool deltas stay silent); splits text with the shared
+  `StreamingChunker`; POSTs each sentence to the gateway's new
+  `POST /voice/say` (token-checked). The gateway is spawned lazily as a child
+  (`bun packages/voice/src/server.ts`, per-boot bridge token) or attached via
+  `VOICE_GATEWAY_URL`.
+- **Gateway session mode** (`packages/voice/src/server.ts`): a WS
+  `session-listen` message disables the scripted teacher; transcripts come
+  back as `session-student` for the pill to submit, and TTS language is
+  detected per sentence (EN/AR) by the bridge, not by the STT language.
+- **App** (`packages/app`): voice settings (`voice.sttEngine|sttLang|autoSend|autoCorrect`),
+  `mic`/`mic-active` icons, EN+AR i18n, and the voice pill in
+  `prompt-input.tsx` (state strip: idle → listening → thinking → speaking,
+  live partial transcript, barge-in by tapping the mic while the teacher
+  speaks, transcript inserted through the same editor path as paste and
+  auto-submitted through the normal submit flow). Dev-only `window.__voice`
+  QA hook exposes `toggle()`/`injectTranscript()` for browser automation.
+- **Vite**: `/voice` added to the dev proxy list (`ws: true`).
+
+### Verified in the sandbox (4 GB RAM box, EN model only)
+
+- `bun test` packages/voice: 18/18 (chunker + autocorrect); new server test
+  `src/voice/bridge.test.ts` proves over real HTTP: listening-session text
+  deltas → sentence chunks to `POST /voice/say`, reasoning/foreign sessions
+  silent, part-end flush, single-use tickets.
+- Server entry boots with the new layers (Effect wiring verified by boot per
+  repo rule; full `tsgo` typecheck OOMs on this 4 GB sandbox — the repo
+  convention runs heavy typechecks on the Colab session, so a full typecheck
+  pass is still owed there).
+- Live server (isolated XDG dirs, port 4197): login → `POST /voice/listen`
+  returns a ticket (200) and spawns the gateway child; demo UI served at
+  `/voice/` (200); `/voice/say` rejects foreign callers with 401 token
+  mismatch.
+
+### Not finished here (honest list)
+
+- Browser QA screenshots of the pill inside the real app: the mic-capture
+  loop and the full LLM round trip need a logged-in app session with a
+  configured model; the sandbox has no LLM provider key, and the step budget
+  ended before the agent-browser pass. The dev hook (`window.__voice`) and
+  the mock cloud STT path are in place for that pass on the next session.
+- Sidecar rebuild was interrupted (rustup toolchain churn); the binary is
+  gitignored, the M0 sidecar verification stands, and `cargo build --release`
+  in `packages/learning/native/voice` restores it.
+- Vosk grammar boost from the TL book glossary (PLAN §9 M1 item): the Rust
+  sidecar does not expose a grammar/phrase-list API yet — deferred to M2 with
+  the sidecar work; the autocorrect lexicon (stage 2) already covers the
+  domain terms.

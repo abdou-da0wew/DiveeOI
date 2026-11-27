@@ -83,6 +83,7 @@
     "@diveeoi/profiler": "workspace:*",
     "@diveeoi/script": "workspace:*",
     "@diveeoi/sdk": "workspace:*",
+    "@diveeoi/voice": "workspace:*",
     "@effect/opentelemetry": "catalog:",
     "@effect/platform-node": "catalog:",
     "@ff-labs/fff-bun": "0.9.4",

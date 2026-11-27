@@ -52,6 +52,7 @@ import { memoryExtractRoute } from "./handlers/memory"
 import { remoteProbeRoute } from "./handlers/remote"
 import { syncHandlers } from "./handlers/sync"
 import { themeRoute as rawThemeRoute } from "./handlers/themes"
+import { voiceListenRoute, voiceProxyRoute, voiceWsRoute } from "./handlers/voice"
 import { tuiHandlers } from "./handlers/tui"
 import { workspaceHandlers } from "./handlers/workspace"
 import { handlers } from "@diveeoi/api/handlers"
@@ -163,6 +164,11 @@ const uiRoute = HttpRouter.use((router) =>
 
 const themeRoute = rawThemeRoute.pipe(Layer.provide(authOnlyRouterLayer))
 
+// Voice gateway mount (packages/voice): authed listen + HTTP proxy, and the
+// ticket-validated WS route (browsers cannot send auth headers on upgrade).
+const voiceListenRouteLive = voiceListenRoute.pipe(Layer.provide(authOnlyRouterLayer))
+const voiceProxyRouteLive = voiceProxyRoute.pipe(Layer.provide(authOnlyRouterLayer))
+
 type RouteRequirements =
   | HttpRouter.HttpRouter
   | HttpRouter.Request<"Error", unknown>
@@ -192,6 +198,9 @@ return Layer.mergeAll(
     themeRoute,
     memoryExtractRoute,
     remoteProbeRoute,
+    voiceListenRouteLive,
+    voiceWsRoute,
+    voiceProxyRouteLive,
     uiRoute,
   ).pipe(
     Layer.provide([

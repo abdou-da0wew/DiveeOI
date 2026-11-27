@@ -27,7 +27,7 @@ const apiPaths = [
   "api", "global", "session", "project", "provider", "agent", "model", "command", "file", "path", "vcs",
   "pty", "mcp", "lsp", "formatter", "instance", "permission", "question", "event", "workspace", "sync", "tui",
   "experimental", "config", "targeted-learning", "memory", "remote", "_opencode", "doc", "control", "skill", "task",
-  "openapi.json",
+  "voice", "openapi.json",
 ].join("|")
 
 export default defineConfig({

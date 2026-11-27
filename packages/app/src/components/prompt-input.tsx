@@ -49,6 +49,7 @@ import { Persist, persisted } from "@/utils/persist"
 import { serializeUsrQuotation, type UsrQuotation } from "@/utils/usr-quotations"
 import { usePermission } from "@/context/permission"
 import { useLanguage } from "@/context/language"
+import { useSettings } from "@/context/settings"
 import { usePlatform } from "@/context/platform"
 import { createSessionTabs } from "@/pages/session/helpers"
 import { createTextFragment, getCursorPosition, setCursorPosition, setRangeEdge } from "./prompt-input/editor-dom"
@@ -70,6 +71,7 @@ import { PromptContextItems } from "./prompt-input/context-items"
 import { PromptImageAttachments } from "./prompt-input/image-attachments"
 import { PromptDragOverlay } from "./prompt-input/drag-overlay"
 import { promptPlaceholder } from "./prompt-input/placeholder"
+import { createVoiceClient } from "./prompt-input/voice"
 import { showToast } from "@/utils/toast"
 import { ImagePreview } from "@diveeoi/ui/image-preview"
 import { pathKey } from "@/utils/path-key"
@@ -221,6 +223,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const command = useCommand()
   const permission = usePermission()
   const language = useLanguage()
+  const settings = useSettings()
   const platform = usePlatform()
   const tabs = () => props.controls.session.tabs
   let editorRef!: HTMLDivElement
@@ -1292,6 +1295,54 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       onSubmit: props.onSubmit,
     })
 
+  // ------------------------------------------------------------- voice mode ---
+  // Insert a recognized transcript at the end of the editor (same text path
+  // as paste), optionally auto-submitting it through the normal submit flow.
+  const insertVoiceTranscript = (text: string) => {
+    editorRef.focus()
+    setCursorPosition(editorRef, promptLength(prompt.current()))
+    const inserted =
+      typeof document.execCommand === "function" && document.execCommand("insertText", false, text)
+    if (!inserted) {
+      editorRef.appendChild(createTextFragment(text))
+      handleInput()
+    }
+  }
+
+  const voice = createVoiceClient({
+    sessionID: () => props.controls.session.id,
+    sttEngine: () => settings.voice.sttEngine(),
+    sttLang: () => settings.voice.sttLang(),
+    onFinal: (text) => {
+      insertVoiceTranscript(text)
+      if (!settings.voice.autoSend()) return
+      // Let the input event (prompt state sync) settle before submitting.
+      requestAnimationFrame(() => void handleSubmit(new Event("submit")))
+    },
+  })
+
+  const voiceLabel = createMemo(() => {
+    switch (voice.store.status) {
+      case "connecting":
+        return language.t("prompt.voice.connecting")
+      case "listening":
+        return language.t("prompt.voice.listening")
+      case "thinking":
+        return language.t("prompt.voice.thinking")
+      case "speaking":
+        return language.t("prompt.voice.speaking")
+      case "error":
+        return voice.store.notice ?? language.t("prompt.voice.micDenied")
+      default:
+        return language.t("prompt.voice.on")
+    }
+  })
+
+  if (import.meta.env.DEV) {
+    // QA hook: browser automation drives the voice loop without a mic.
+    ;(window as any).__voice = voice
+  }
+
   const handleKeyDown = (event: KeyboardEvent) => {
     if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "u") {
       event.preventDefault()
@@ -1679,6 +1730,26 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   </div>
                 </div>
               </div>
+              <Show when={voice.store.status !== "off"}>
+                <div
+                  data-component="prompt-voice-status"
+                  class="flex items-center gap-2 px-4 pb-1 text-[12px] leading-4 text-v2-text-text-faint"
+                >
+                  <span
+                    class="size-1.5 shrink-0 rounded-full bg-v2-icon-icon-accent"
+                    classList={{ "animate-pulse": voice.store.status === "listening" || voice.store.status === "speaking" }}
+                  />
+                  <span class="shrink-0">{voiceLabel()}</span>
+                  <Show when={voice.store.partial}>
+                    <span
+                      class="min-w-0 truncate italic opacity-80"
+                      dir={voice.store.partialLang === "ar" ? "rtl" : "ltr"}
+                    >
+                      {voice.store.partial}
+                    </span>
+                  </Show>
+                </div>
+              </Show>
               <div class="flex h-11 items-center px-2">
                 <div class="flex min-w-0 flex-1 items-center gap-0">
                   {fileAttachmentInput()}
@@ -1698,6 +1769,27 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                       disabled={store.mode !== "normal"}
                       tabIndex={store.mode === "normal" ? undefined : -1}
                       aria-label={language.t("prompt.action.attachFile")}
+                    />
+                  </TooltipKeybind>
+                  <TooltipKeybind
+                    placement="top"
+                    title={language.t("prompt.action.voiceMode")}
+                  >
+                    <IconButton
+                      data-action="prompt-voice"
+                      type="button"
+                      icon={voice.store.status === "off" ? "mic" : "mic-active"}
+                      variant="ghost"
+                      class="size-7 rounded-md p-[6px]"
+                      classList={{
+                        "text-v2-icon-icon-muted": voice.store.status === "off",
+                        "text-v2-icon-icon-accent": voice.store.status !== "off",
+                      }}
+                      style={buttons()}
+                      onClick={() => voice.toggle()}
+                      disabled={store.mode !== "normal"}
+                      tabIndex={store.mode === "normal" ? undefined : -1}
+                      aria-label={language.t("prompt.action.voiceMode")}
                     />
                   </TooltipKeybind>
                   <Show when={showAgentControl()}>

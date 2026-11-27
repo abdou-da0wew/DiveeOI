@@ -638,3 +638,10 @@ coenx-wide, app pre-existing component-test failures unchanged (stash-verified i
   3. Shell reports what actually bound: bytes when the raw payload exceeded the byte cap, else lines.
 - No content loss by design: model sees bounded preview, disk keeps the full output, agent re-enters via targeted commands or Read offset/limit.
 - Tests: truncation 19/0 (extension, tmp location, round-trip, hint patterns, task variants), shell 23/0 (end-to-end), read 39/0, task+question+acp 28/0.
+
+## 2026-11-27 — voice mode M1: gateway mounted, session stream → TTS, prompt-input voice pill
+
+- `feature/voice-mode` on top of the M0 branch: `/voice/*` routes in the main server (authed listen + ticket-validated WS proxy + HTTP proxy), lazy gateway spawn in `packages/server/src/voice/bridge.ts`, `POST /voice/say` ingest + session mode in the gateway, voice pill + settings keys + EN/AR i18n + mic icons in the app, `/voice` vite proxy.
+- Bridge speaks only assistant **text** parts (part-type tracking filters reasoning/tool deltas), sentence-chunks via the shared chunker, TTS language detected per sentence.
+- Verified: bridge unit test over real HTTP (silent reasoning/foreign sessions, flush semantics, single-use tickets); server boot with the new layers; live authed flow (listen → ticket → gateway spawn; demo UI at `/voice/`; say-token guard). Voice tests 18/18.
+- Owed: full tsgo typecheck (OOMs on the 4 GB sandbox — run on the Colab session), agent-browser QA screenshots of the pill (needs an LLM-configured app session), sidecar binary rebuild, vosk grammar boost (M2, needs a sidecar grammar API).

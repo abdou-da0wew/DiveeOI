@@ -18,6 +18,17 @@ export interface SoundSettings {
   errors: string
 }
 
+export interface VoiceSettings {
+  /** STT engine: on-device vosk or a cloud transcription API. */
+  sttEngine: "local" | "cloud"
+  /** Recognizer language ("auto" lets the gateway worker decide). */
+  sttLang: "auto" | "en" | "ar"
+  /** Submit the recognized transcript automatically on endpointing. */
+  autoSend: boolean
+  /** Domain auto-correction of recognized text (never silent, chip shown). */
+  autoCorrect: boolean
+}
+
 export interface Settings {
   general: {
     autoSave: boolean
@@ -47,6 +58,7 @@ export interface Settings {
   }
   notifications: NotificationSettings
   sounds: SoundSettings
+  voice: VoiceSettings
 }
 
 export const monoDefault = "System Mono"
@@ -141,6 +153,12 @@ const defaultSettings: Settings = {
     permissions: "staplebops-02",
     errorsEnabled: true,
     errors: "nope-03",
+  },
+  voice: {
+    sttEngine: "local",
+    sttLang: "auto",
+    autoSend: true,
+    autoCorrect: true,
   },
 }
 
@@ -342,6 +360,24 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         errors: withFallback(() => store.sounds?.errors, defaultSettings.sounds.errors),
         setErrors(value: string) {
           setStore("sounds", "errors", value)
+        },
+      },
+      voice: {
+        sttEngine: withFallback(() => store.voice?.sttEngine, defaultSettings.voice.sttEngine),
+        setSttEngine(value: "local" | "cloud") {
+          setStore("voice", "sttEngine", value)
+        },
+        sttLang: withFallback(() => store.voice?.sttLang, defaultSettings.voice.sttLang),
+        setSttLang(value: "auto" | "en" | "ar") {
+          setStore("voice", "sttLang", value)
+        },
+        autoSend: withFallback(() => store.voice?.autoSend, defaultSettings.voice.autoSend),
+        setAutoSend(value: boolean) {
+          setStore("voice", "autoSend", value)
+        },
+        autoCorrect: withFallback(() => store.voice?.autoCorrect, defaultSettings.voice.autoCorrect),
+        setAutoCorrect(value: boolean) {
+          setStore("voice", "autoCorrect", value)
         },
       },
     }

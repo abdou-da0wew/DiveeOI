@@ -45,6 +45,11 @@ export interface FeatureFlags {
    * and pins every answer to retrieved passages.
    */
   readonly learning: boolean
+  /**
+   * Voice mode: the prompt-input voice pill, the `/voice/*` voice-gateway
+   * mount (packages/voice), and the session stream → TTS bridge.
+   */
+  readonly voice: boolean
 }
 
 const DEFAULTS: FeatureFlags = {
@@ -54,9 +59,10 @@ const DEFAULTS: FeatureFlags = {
   lsp: true,
   profiler: true,
   learning: true,
+  voice: true,
 }
 
-const KNOWN: ReadonlyArray<keyof FeatureFlags> = ["memory", "anchor", "mcp", "lsp", "profiler", "learning"]
+const KNOWN: ReadonlyArray<keyof FeatureFlags> = ["memory", "anchor", "mcp", "lsp", "profiler", "learning", "voice"]
 
 const globalConfigCandidates = (): string[] => {
   const home = process.env.HOME || process.env.USERPROFILE || ""
