@@ -1,0 +1,11 @@
+{
+  "name": "voice",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun src/server.ts",
+    "bench": "bun scripts/bench-voice.ts",
+    "test": "bun test"
+  }
+}
