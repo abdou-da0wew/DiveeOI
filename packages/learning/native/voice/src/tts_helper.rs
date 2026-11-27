@@ -596,18 +596,18 @@ impl TextToSpeech {
             Array::from_shape_vec(text_ids_shape, flat)?
         };
 
-        let text_ids_value = Tensor::from_array(text_ids_array)?;
-        let text_mask_value = Tensor::from_array(text_mask.clone())?;
-        let style_dp_value = Tensor::from_array(style.dp.clone())?;
+        let text_ids_value = Tensor::from_array(text_ids_array).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let text_mask_value = Tensor::from_array(text_mask.clone()).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let style_dp_value = Tensor::from_array(style.dp.clone()).map_err(|e| anyhow::anyhow!("{e}"))?;
 
         // Predict duration
         let dp_outputs = self.dp_ort.run(ort::inputs!{
             "text_ids" => &text_ids_value,
             "style_dp" => &style_dp_value,
             "text_mask" => &text_mask_value
-        })?;
+        }).map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        let (_, duration_data) = dp_outputs["duration"].try_extract_tensor::<f32>()?;
+        let (_, duration_data) = dp_outputs["duration"].try_extract_tensor::<f32>().map_err(|e| anyhow::anyhow!("{e}"))?;
         let mut duration: Vec<f32> = duration_data.to_vec();
         
         // Apply speed factor to duration
@@ -616,14 +616,14 @@ impl TextToSpeech {
         }
 
         // Encode text
-        let style_ttl_value = Tensor::from_array(style.ttl.clone())?;
+        let style_ttl_value = Tensor::from_array(style.ttl.clone()).map_err(|e| anyhow::anyhow!("{e}"))?;
         let text_enc_outputs = self.text_enc_ort.run(ort::inputs!{
             "text_ids" => &text_ids_value,
             "style_ttl" => &style_ttl_value,
             "text_mask" => &text_mask_value
-        })?;
+        }).map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        let (text_emb_shape, text_emb_data) = text_enc_outputs["text_emb"].try_extract_tensor::<f32>()?;
+        let (text_emb_shape, text_emb_data) = text_enc_outputs["text_emb"].try_extract_tensor::<f32>().map_err(|e| anyhow::anyhow!("{e}"))?;
         let text_emb = Array3::from_shape_vec(
             (text_emb_shape[0] as usize, text_emb_shape[1] as usize, text_emb_shape[2] as usize),
             text_emb_data.to_vec()
@@ -645,12 +645,12 @@ impl TextToSpeech {
         for step in 0..total_step {
             let current_step_array = Array::from_elem(bsz, step as f32);
 
-            let xt_value = Tensor::from_array(xt.clone())?;
-            let text_emb_value = Tensor::from_array(text_emb.clone())?;
-            let latent_mask_value = Tensor::from_array(latent_mask.clone())?;
-            let text_mask_value2 = Tensor::from_array(text_mask.clone())?;
-            let current_step_value = Tensor::from_array(current_step_array)?;
-            let total_step_value = Tensor::from_array(total_step_array.clone())?;
+            let xt_value = Tensor::from_array(xt.clone()).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let text_emb_value = Tensor::from_array(text_emb.clone()).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let latent_mask_value = Tensor::from_array(latent_mask.clone()).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let text_mask_value2 = Tensor::from_array(text_mask.clone()).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let current_step_value = Tensor::from_array(current_step_array).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let total_step_value = Tensor::from_array(total_step_array.clone()).map_err(|e| anyhow::anyhow!("{e}"))?;
 
             let vector_est_outputs = self.vector_est_ort.run(ort::inputs!{
                 "noisy_latent" => &xt_value,
@@ -660,9 +660,9 @@ impl TextToSpeech {
                 "text_mask" => &text_mask_value2,
                 "current_step" => &current_step_value,
                 "total_step" => &total_step_value
-            })?;
+            }).map_err(|e| anyhow::anyhow!("{e}"))?;
 
-            let (denoised_shape, denoised_data) = vector_est_outputs["denoised_latent"].try_extract_tensor::<f32>()?;
+            let (denoised_shape, denoised_data) = vector_est_outputs["denoised_latent"].try_extract_tensor::<f32>().map_err(|e| anyhow::anyhow!("{e}"))?;
             xt = Array3::from_shape_vec(
                 (denoised_shape[0] as usize, denoised_shape[1] as usize, denoised_shape[2] as usize),
                 denoised_data.to_vec()
@@ -670,12 +670,12 @@ impl TextToSpeech {
         }
 
         // Generate waveform
-        let final_latent_value = Tensor::from_array(xt)?;
+        let final_latent_value = Tensor::from_array(xt).map_err(|e| anyhow::anyhow!("{e}"))?;
         let vocoder_outputs = self.vocoder_ort.run(ort::inputs!{
             "latent" => &final_latent_value
-        })?;
+        }).map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        let (_, wav_data) = vocoder_outputs["wav_tts"].try_extract_tensor::<f32>()?;
+        let (_, wav_data) = vocoder_outputs["wav_tts"].try_extract_tensor::<f32>().map_err(|e| anyhow::anyhow!("{e}"))?;
         let wav: Vec<f32> = wav_data.to_vec();
 
         Ok((wav, duration))
@@ -817,18 +817,18 @@ pub fn load_text_to_speech(
     let vector_est_path = format!("{}/vector_estimator.onnx", onnx_dir);
     let vocoder_path = format!("{}/vocoder.onnx", onnx_dir);
 
-    let dp_ort = Session::builder(environment)?
-        .with_intra_threads(intra_threads)?
-        .commit_from_file(&dp_path)?;
-    let text_enc_ort = Session::builder(environment)?
-        .with_intra_threads(intra_threads)?
-        .commit_from_file(&text_enc_path)?;
-    let vector_est_ort = Session::builder(environment)?
-        .with_intra_threads(intra_threads)?
-        .commit_from_file(&vector_est_path)?;
-    let vocoder_ort = Session::builder(environment)?
-        .with_intra_threads(intra_threads)?
-        .commit_from_file(&vocoder_path)?;
+    let dp_ort = Session::builder(environment).map_err(|e| anyhow::anyhow!("{e}"))?
+        .with_intra_threads(intra_threads).map_err(|e| anyhow::anyhow!("{e}"))?
+        .commit_from_file(&dp_path).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let text_enc_ort = Session::builder(environment).map_err(|e| anyhow::anyhow!("{e}"))?
+        .with_intra_threads(intra_threads).map_err(|e| anyhow::anyhow!("{e}"))?
+        .commit_from_file(&text_enc_path).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let vector_est_ort = Session::builder(environment).map_err(|e| anyhow::anyhow!("{e}"))?
+        .with_intra_threads(intra_threads).map_err(|e| anyhow::anyhow!("{e}"))?
+        .commit_from_file(&vector_est_path).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let vocoder_ort = Session::builder(environment).map_err(|e| anyhow::anyhow!("{e}"))?
+        .with_intra_threads(intra_threads).map_err(|e| anyhow::anyhow!("{e}"))?
+        .commit_from_file(&vocoder_path).map_err(|e| anyhow::anyhow!("{e}"))?;
 
     let unicode_indexer_path = format!("{}/unicode_indexer.json", onnx_dir);
     let text_processor = UnicodeProcessor::new(&unicode_indexer_path)?;

@@ -10,23 +10,24 @@ MODELS_DIR="$BASE/models"
 LIB_DIR="$BASE/lib"
 mkdir -p "$MODELS_DIR" "$LIB_DIR"
 
-fetch() { # fetch <url> <dest>
+fetch() { # fetch <url> <dest> — --fail so HTTP errors never save response bodies
   local url="$1" dest="$2"
-  if [ -f "$dest" ]; then echo "SKIP $(basename "$dest")"; return 0; fi
+  if [ -f "$dest" ] && ! head -c 60 "$dest" | grep -q "Entry not found"; then echo "SKIP $(basename "$dest")"; return 0; fi
+  rm -f "$dest"
   echo "FETCH $(basename "$dest")"
-  curl -sL --retry 3 -C - -o "$dest" "$url"
+  curl -fsSL --retry 3 -C - -o "$dest" "$url" || { rm -f "$dest"; echo "FETCH FAILED $(basename "$dest")"; return 1; }
 }
 
 # --- vosk models -------------------------------------------------------------
-for name in vosk-model-small-en-us-0.15 vosk-model-ar-0.22 vosk-model-small-ar-tn-0.1-linto; do
+for name in vosk-model-small-en-us-0.15 vosk-model-ar-0.22-linto-1.1.0 vosk-model-small-ar-tn-0.1-linto; do
   if [ -d "$MODELS_DIR/$name" ]; then echo "SKIP $name"; continue; fi
   zip="$MODELS_DIR/$name.zip"
   curl -sL --retry 3 -C - -o "$zip" "https://alphacephei.com/vosk/models/$name.zip" || true
   if ! unzip -q -o "$zip" -d "$MODELS_DIR"; then
     echo "UNZIP FAILED $name — full redownload"
     rm -f "$zip"
-    curl -sL --retry 3 -o "$zip" "https://alphacephei.com/vosk/models/$name.zip"
-    unzip -q -o "$zip" -d "$MODELS_DIR"
+    curl -sL --retry 3 -o "$zip" "https://alphacephei.com/vosk/models/$name.zip" || true
+    unzip -q -o "$zip" -d "$MODELS_DIR" || echo "FAILED-AGAIN $name (continuing)"
   fi
   rm -f "$zip"
   echo "DONE $name"
@@ -47,7 +48,12 @@ ST_DIR="$MODELS_DIR/supertonic3"
 mkdir -p "$ST_DIR/onnx" "$ST_DIR/voice_styles"
 HF="https://huggingface.co/Supertone/supertonic-3/resolve/main"
 for f in duration_predictor.onnx text_encoder.onnx vector_estimator.onnx vocoder.onnx tts.json unicode_indexer.json; do
-  fetch "$HF/onnx/onnx/$f" "$ST_DIR/onnx/$f"
+  fetch "$HF/onnx/$f" "$ST_DIR/onnx/$f"
+  # guard against stub/pointer bodies masquerading as weights
+  if [ -f "$ST_DIR/onnx/$f" ] && [ "${f##*.}" = "onnx" ] && [ "$(stat -c%s "$ST_DIR/onnx/$f")" -lt 1000000 ]; then
+    echo "SUSPICIOUS SIZE $(basename "$f") ($(stat -c%s "$ST_DIR/onnx/$f") bytes) — deleting"
+    rm -f "$ST_DIR/onnx/$f"
+  fi
 done
 for v in M1 M2 M3 M4 M5 F1 F2 F3 F4 F5; do
   fetch "$HF/voice_styles/$v.json" "$ST_DIR/voice_styles/$v.json"

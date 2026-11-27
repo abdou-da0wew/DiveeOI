@@ -55,14 +55,17 @@ fn dylib_candidates() -> Vec<PathBuf> {
     ] {
         out.push(PathBuf::from(dir).join("libonnxruntime.so"));
     }
-    // pip installs (user venvs) — scan the common capi layout
+    // pip installs (user venvs) — scan the common capi layouts, with and
+    // without the site-packages component
     for base in ["/usr/lib/python3/dist-packages", "/usr/local/lib/python3.12", "/home/z/.venv/lib/python3.12"] {
-        let capi = PathBuf::from(base).join("onnxruntime/capi");
-        if let Ok(entries) = std::fs::read_dir(&capi) {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().into_owned();
-                if name.starts_with("libonnxruntime.so") {
-                    out.push(entry.path());
+        for sub in ["onnxruntime/capi", "site-packages/onnxruntime/capi"] {
+            let capi = PathBuf::from(base).join(sub);
+            if let Ok(entries) = std::fs::read_dir(&capi) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    if name.starts_with("libonnxruntime.so") {
+                        out.push(entry.path());
+                    }
                 }
             }
         }
@@ -76,8 +79,11 @@ fn init_ort() -> Result<Arc<ort::environment::Environment>, String> {
         .find(|p| p.exists())
         .ok_or("no onnxruntime shared library found (set ORT_DYLIB_PATH or install onnxruntime)")?;
     ort::environment::init_from(&dylib)
-        .map(|env| Arc::new(env))
-        .map_err(|error| format!("onnxruntime init failed from {}: {error}", dylib.display()))
+        .map_err(|error| format!("cannot load onnxruntime from {}: {error}", dylib.display()))?
+        .with_name("divee-voice")
+        .build()
+        .map(|env| std::sync::Arc::new(env))
+        .map_err(|error| format!("onnxruntime init failed: {error}"))
 }
 
 // ---------------------------------------------------------------------------
@@ -131,20 +137,19 @@ fn main() {
         .unwrap_or(2)
         .clamp(1, 4);
 
-    vosk::set_log_level(vosk::LogLevel::Warnings);
+    vosk::set_log_level(vosk::LogLevel::Warn);
 
     let mut local = LocalStt::new();
     let mut cloud = CloudStt::new();
     let mut tts_engine: Option<TtsEngine> = None;
-    let environment: Arc<ort::environment::Environment> = match init_ort() {
-        Ok(env) => env,
+    // STT never needs ONNX Runtime; when the dylib is missing, TTS degrades to
+    // "not configured" (tts.error + clean error on tts.config) instead of
+    // taking the whole sidecar down.
+    let environment: Option<Arc<ort::environment::Environment>> = match init_ort() {
+        Ok(env) => Some(env),
         Err(err) => {
-            // The TTS engine degrades to "not configured"; STT keeps working.
             emit(&json!({ "event": "tts.error", "message": err }));
-            Arc::new(
-                ort::environment::init_from("libonnxruntime.so")
-                    .expect("onnxruntime must be loadable by name for STT-free operation"),
-            )
+            None
         }
     };
 
@@ -173,7 +178,7 @@ fn main() {
         let id = msg.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
         let op = msg.get("op").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
-        let result: Result<Value, String> = (|| {
+        let result: Result<Value, anyhow::Error> = (|| {
             match op.as_str() {
                 "stt.config" => {
                     let models: std::collections::HashMap<String, String> = msg
@@ -191,7 +196,7 @@ fn main() {
                     let b64 = msg
                         .get("b64")
                         .and_then(|v| v.as_str())
-                        .ok_or("stt.audio missing b64")?;
+                        .ok_or_else(|| anyhow::anyhow!("stt.audio missing b64"))?;
                     let lang = msg.get("lang").and_then(|v| v.as_str()).unwrap_or("en");
                     let engine = msg.get("engine").and_then(|v| v.as_str()).unwrap_or("local");
                     match engine {
@@ -199,7 +204,7 @@ fn main() {
                         _ => {
                             let pcm = base64::engine::general_purpose::STANDARD
                                 .decode(b64)
-                                .map_err(|e| format!("bad audio base64: {e}"))?;
+                                .map_err(|e| anyhow::anyhow!("bad audio base64: {e}"))?;
                             let samples: Vec<i16> = pcm
                                 .chunks_exact(2)
                                 .map(|c| i16::from_le_bytes([c[0], c[1]]))
@@ -214,7 +219,7 @@ fn main() {
                             if failures.is_empty() {
                                 Ok(json!({}))
                             } else {
-                                Err(failures.join("; "))
+                                Err(anyhow::anyhow!("{}", failures.join("; ")))
                             }
                         }
                     }
@@ -246,14 +251,16 @@ fn main() {
                         .map(|v| v as usize)
                         .unwrap_or(default_threads)
                         .clamp(1, 8);
+                    let environment = environment
+                        .as_ref()
+                        .ok_or_else(|| anyhow::anyhow!("onnxruntime not available — TTS disabled"))?;
                     let engine = TtsEngine::load(
-                        &environment,
+                        environment,
                         &supertonic_onnx.to_string_lossy(),
                         &supertonic_styles.to_string_lossy(),
                         &voice,
                         threads,
-                    )
-                    .map_err(|e| format!("{e:#}"))?;
+                    )?;
                     let sample_rate = engine.sample_rate();
                     emit(&tts::ready_payload(sample_rate, &voice));
                     tts_engine = Some(engine);
@@ -262,12 +269,12 @@ fn main() {
                 "tts.synth" => {
                     let engine = tts_engine
                         .as_mut()
-                        .ok_or("tts.synth before tts.config")?;
+                        .ok_or_else(|| anyhow::anyhow!("tts.synth before tts.config"))?;
                     let sid = msg.get("sid").and_then(|v| v.as_u64()).unwrap_or(0);
                     let text = msg
                         .get("text")
                         .and_then(|v| v.as_str())
-                        .ok_or("tts.synth missing text")?;
+                        .ok_or_else(|| anyhow::anyhow!("tts.synth missing text"))?;
                     let lang = msg.get("lang").and_then(|v| v.as_str()).unwrap_or("en");
                     let steps = msg.get("steps").and_then(|v| v.as_u64()).unwrap_or(5) as usize;
                     let speed = msg.get("speed").and_then(|v| v.as_f64()).unwrap_or(1.05) as f32;
@@ -323,7 +330,7 @@ fn main() {
                             emit(&json!({ "event": "tts.cancelled", "sid": sid }));
                             Ok(json!({ "cancelled": true }))
                         }
-                        Err(err) => Err(format!("{err:#}")),
+                        Err(err) => Err(anyhow::anyhow!("{err:#}")),
                     }
                 }
                 "tts.cancel" => {
@@ -333,10 +340,10 @@ fn main() {
                     Ok(json!({}))
                 }
                 "shutdown" => Ok(json!({ "bye": true })),
-                other => Err(format!("unknown op: {other}")),
+                other => Err(anyhow::anyhow!("unknown op: {other}")),
             }
         })();
-        respond(id, result);
+        respond(id, result.map_err(|e| format!("{e:#}")));
         if op == "shutdown" {
             break;
         }

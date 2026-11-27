@@ -1,10 +1,14 @@
 /**
- * DiveeOI voice gateway (M0 demo): static UI + WebSocket hub + python workers.
+ * DiveeOI voice gateway (M0 demo): static UI + WebSocket hub + voice workers.
  *
  * Browser ⇄ WS ⇄ {
- *   stt_worker.py         engine "local"  (vosk, streaming partials)
- *   stt_cloud_worker.py   engine "cloud"  (OpenAI-compatible / mock, finals)
- *   tts_worker.py         supertonic-3 chunked streaming
+ *   python backend (VOICE_BACKEND=python):
+ *     stt_worker.py         engine "local"  (vosk, streaming partials)
+ *     stt_cloud_worker.py   engine "cloud"  (OpenAI-compatible / mock, finals)
+ *     tts_worker.py         supertonic-3 chunked streaming
+ *   native backend (VOICE_BACKEND=native | auto-detect):
+ *     divee-voice           one Rust sidecar serving local+cloud STT and TTS
+ *                           over the same three interfaces (see src/native.ts)
  * }
  *
  * The STT engine is a runtime setting (sttEngine: "local" | "cloud"). Cloud
@@ -14,10 +18,12 @@
  * dispatchChunk path.
  *
  * Run: bun src/server.ts
- * Env: VOICE_PORT, VOICE_PYTHON, VOICE_STT_MODELS,
+ * Env: VOICE_PORT, VOICE_BACKEND (native|python|auto, default auto),
+ *      VOICE_PYTHON, VOICE_STT_MODELS,
  *      VOICE_CLOUD_STT_PROVIDER, VOICE_CLOUD_STT_BASE_URL, VOICE_CLOUD_STT_MODEL,
  *      VOICE_CLOUD_STT_API_KEY_ENV (key value itself never handled here)
  */
+import { spawnNativeBackend } from "./native";
 import { StreamingChunker } from "./chunker";
 import { correctTranscript } from "./autocorrect";
 import { speakableForm } from "./glossary";
@@ -28,6 +34,15 @@ const PKG = import.meta.dir.replace(/\/src$/, "");
 const PYTHON = process.env.VOICE_PYTHON ?? `${PKG}/.venv/bin/python`;
 const MODELS_DIR = `${PKG}/models`;
 const CACHE_DIR = `${PKG}/assets/cache`;
+
+// Backend selection: the Rust sidecar (packages/learning/native/voice) is the
+// production path; the python workers remain as a fallback for environments
+// without a built binary. "auto" prefers native when the binary exists.
+const BACKEND = (process.env.VOICE_BACKEND ?? "auto") as "native" | "python" | "auto";
+const NATIVE_DIR = `${PKG}/../learning/native/voice`;
+const NATIVE_BIN = `${NATIVE_DIR}/target/release/divee-voice`;
+const NATIVE_MODELS = `${NATIVE_DIR}/models`;
+const useNative = BACKEND === "native" || (BACKEND === "auto" && exists(NATIVE_BIN));
 
 const cloudCfg = {
   provider: process.env.VOICE_CLOUD_STT_PROVIDER ?? "groq",
@@ -149,6 +164,7 @@ function exists(path: string): boolean {
 function ensureStt() {
   if (stt) return;
   const models: Record<string, string> = {};
+  const modelsDir = useNative ? NATIVE_MODELS : MODELS_DIR;
   const envSpec = process.env.VOICE_STT_MODELS;
   if (envSpec) {
     for (const pair of envSpec.split(",")) {
@@ -156,16 +172,45 @@ function ensureStt() {
       if (lang && path) models[lang] = path;
     }
   } else {
-    const en = `${MODELS_DIR}/vosk-model-small-en-us-0.15`;
-    const arBig = `${MODELS_DIR}/vosk-model-ar-0.22`;
-    const arSmall = `${MODELS_DIR}/vosk-model-small-ar-tn-0.1-linto`;
+    const en = `${modelsDir}/vosk-model-small-en-us-0.15`;
+    // Full MSA models first (quality), Tunisian small model as fallback (RAM).
+    const arCandidates = [
+      "vosk-model-ar-0.22",
+      "vosk-model-ar-0.22-linto-1.1.0",
+      "vosk-model-small-ar-tn-0.1-linto",
+    ];
     if (exists(en)) models.en = en;
-    const ar = exists(arBig) ? arBig : exists(arSmall) ? arSmall : null;
+    const ar = arCandidates.map((n) => `${modelsDir}/${n}`).find((p) => exists(p));
     if (ar) models.ar = ar;
   }
-  stt = spawnJsonLineWorker(`${PKG}/python/stt_worker.py`, onSttMessage);
+  if (useNative) {
+    ensureNative();
+    stt = native!.stt;
+  } else {
+    stt = spawnJsonLineWorker(`${PKG}/python/stt_worker.py`, onSttMessage);
+  }
   stt.send({ type: "config", models });
-  log("stt local worker spawned, models:", Object.keys(models).join(",") || "none");
+  log(`stt local worker ready (${useNative ? "native" : "python"}), models:`, Object.keys(models).join(",") || "none");
+}
+
+// -------------------------------------------------------- native backend ----
+let native: ReturnType<typeof spawnNativeBackend> | null = null;
+
+function ensureNative() {
+  if (native) return;
+  native = spawnNativeBackend({
+    binary: NATIVE_BIN,
+    modelsDir: NATIVE_MODELS,
+    supertonicOnnx: `${NATIVE_MODELS}/supertonic3/onnx`,
+    supertonicStyles: `${NATIVE_MODELS}/supertonic3/voice_styles`,
+    cloudCfg,
+    voice: config.voice,
+    log,
+    onStt: onSttMessage,
+    onCloud: onCloudMessage,
+    onTts: onTtsMessage,
+  });
+  log(`native sidecar spawned: ${NATIVE_BIN}`);
 }
 
 function onSttMessage(m: Record<string, any>) {
@@ -185,9 +230,14 @@ function onSttMessage(m: Record<string, any>) {
 // ----------------------------------------------------------- cloud engine ---
 function ensureCloudStt() {
   if (cloud) return;
-  cloud = spawnJsonLineWorker(`${PKG}/python/stt_cloud_worker.py`, onCloudMessage);
+  if (useNative) {
+    ensureNative();
+    cloud = native!.cloud;
+  } else {
+    cloud = spawnJsonLineWorker(`${PKG}/python/stt_cloud_worker.py`, onCloudMessage);
+  }
   cloud.send({ type: "config", ...cloudCfg, hasKey: Boolean(process.env[cloudCfg.apiKeyEnv]) });
-  log(`stt cloud worker spawned (${cloudCfg.provider} / ${cloudCfg.model})`);
+  log(`stt cloud worker ready (${useNative ? "native" : "python"}; ${cloudCfg.provider} / ${cloudCfg.model})`);
 }
 
 function onCloudMessage(m: Record<string, any>) {
@@ -274,9 +324,14 @@ let tts: JsonLineWorker | null = null;
 
 function ensureTts() {
   if (tts) return;
-  tts = spawnJsonLineWorker(`${PKG}/python/tts_worker.py`, onTtsMessage);
+  if (useNative) {
+    ensureNative();
+    tts = native!.tts;
+  } else {
+    tts = spawnJsonLineWorker(`${PKG}/python/tts_worker.py`, onTtsMessage);
+  }
   tts.send({ type: "config", voice: config.voice });
-  log("tts worker spawned (supertonic-3)");
+  log(`tts worker ready (${useNative ? "native" : "python"}; supertonic-3)`);
 }
 
 function onTtsMessage(m: Record<string, any>) {
@@ -509,4 +564,4 @@ Bun.serve({
   },
 });
 
-log(`voice gateway on http://localhost:${PORT} (M0 demo, STT engine=${config.sttEngine})`);
+log(`voice gateway on http://localhost:${PORT} (M0 demo, backend=${useNative ? "native" : "python"}, STT engine=${config.sttEngine})`);

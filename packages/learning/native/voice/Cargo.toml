@@ -10,7 +10,7 @@ serde_json = "1.0"
 anyhow = "1.0"
 # ONNX Runtime loaded dynamically (same pattern as divee-retrieval: ORT_DYLIB_PATH
 # or a pip/system onnxruntime provides the dylib; CUDA EP registered when present).
-ort = { version = "2.0.0-rc.15", default-features = false, features = ["load-dynamic", "cuda"] }
+ort = { version = "2.0.0-rc.15", default-features = false, features = ["load-dynamic", "cuda", "ndarray"] }
 # Local STT (vosk) — links vendored libvosk.so from lib/ (see build.rs).
 vosk = "0.3.1"
 # Cloud STT (OpenAI-compatible /audio/transcriptions) — sync client, no async runtime.

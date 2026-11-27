@@ -35,11 +35,7 @@ fn complete_to_parts(res: &CompleteResult) -> Option<(String, f32)> {
         CompleteResult::Multiple(multi) => multi
             .alternatives
             .first()
-            .map(|alt| {
-                let text = alt.text.trim().to_string();
-                let conf = if alt.result.is_empty() { 0.6 } else { word_confidence(&alt.result) };
-                (text, conf)
-            })
+            .map(|alt| (alt.text.trim().to_string(), 0.6f32))
             .filter(|(text, _)| !text.is_empty()),
     }
 }
@@ -95,7 +91,7 @@ impl LocalStt {
     fn ensure_rec(&mut self, lang: &str, emit: &mut dyn FnMut(Value)) -> Result<&mut Recognizer> {
         if !self.recs.contains_key(lang) {
             let model = self.load(lang, emit)?;
-            let rec = Recognizer::new(model, SAMPLE_RATE)
+            let mut rec = Recognizer::new(model, SAMPLE_RATE)
                 .ok_or_else(|| anyhow!("recognizer creation failed for lang={lang}"))?;
             rec.set_words(true);
             self.recs.insert(lang.to_string(), rec);
@@ -145,8 +141,8 @@ impl LocalStt {
                 let winner = loaded
                     .iter()
                     .max_by(|a, b| {
-                        let ca = self.pending_finals.get(a).map(|x| x.1).unwrap_or(-1.0);
-                        let cb = self.pending_finals.get(b).map(|x| x.1).unwrap_or(-1.0);
+                        let ca = self.pending_finals.get(*a).map(|x| x.1).unwrap_or(-1.0);
+                        let cb = self.pending_finals.get(*b).map(|x| x.1).unwrap_or(-1.0);
                         ca.total_cmp(&cb)
                     })
                     .cloned();
