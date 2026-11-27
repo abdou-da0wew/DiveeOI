@@ -90,3 +90,8 @@ exports/
 
 # Rust build outputs
 **/target/
+
+# voice-mode local assets (never commit weights or venvs)
+packages/voice/models/
+packages/voice/.venv/
+packages/voice/assets/cache/
