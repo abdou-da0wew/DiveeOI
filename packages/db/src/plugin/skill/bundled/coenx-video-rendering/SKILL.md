@@ -48,3 +48,12 @@ Input:
 The tool compiles and validates the composition, but never renders or executes user code. It returns `valid`, structured diagnostics and, when valid, stage dimensions, frame rate, scene count, node count and total frames. The combined source is limited to 2 MiB. JSON input must not include CML companion files.
 
 Preview/export/inspect tools are separate future additions. Do not call or promise tool names that are absent from the active tool catalogue.
+
+## Native sidecar: build state and when it helps
+
+The Rust sidecar (`packages/coenx-video/native/coenx-video-native`, built with `bun run build:native` or `cargo build --release --manifest-path native/coenx-video-native/Cargo.toml`) was built and verified 2026-11-27 with Rust 1.100.0 (607 KB binary linking system cairo/glib/pango). It serves the headless export path only: `simulate` batches physics and `render_frame` rasterizes through cairo in one process. It never participates in interactive playback — the browser cannot spawn children and a per-frame JSON round-trip would regress the player hot path, which stays on the in-process JS `LivePhysicsWorld` (measured 0.0389 ms/step on the 44-body bench, vs 0.083 ms/step end-to-end for the sidecar on the same 900-step batch where spawn + serialization of 901 frames x 44 poses dominate).
+
+Rules for agents:
+- After changing the Rust sidecar or the physics hot path, re-run BOTH benches: `bun scripts/bench-live-physics.ts` and `bun scripts/bench-native-physics.ts` (inside `packages/coenx-video`). Report both numbers; the sidecar bench includes spawn + JSON overhead by design.
+- Do not claim the native path is active unless `native/coenx-video-native/target/release/coenx-video-native` (or `$COENX_VIDEO_NATIVE`) exists; otherwise `simulatePhysics` falls back to TypeScript silently and `renderNativeFrame` fails fast.
+- On a machine without cargo, say the native path needs a build step; never fake a binary or claim renderer parity without the build.

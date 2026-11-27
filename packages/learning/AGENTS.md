@@ -31,4 +31,6 @@ cargo test --offline
 cargo clippy --offline -- -D warnings
 ```
 
+After changing `native/retrieval`, also run the end-to-end proof: `bun scripts/verify-native-retrieval.ts` — it builds a books.db with the production schema, queries the real binary (BM25 + dense + RRF), and prints `NATIVE-RETRIEVAL-OK` with the expected top chunk. The binary was last built + verified 2026-11-27 (Rust 1.100.0, 4.0 MB, links system SQLite; one-shot + `--serve` both exercised).
+
 For Python changes, use the local training requirements and run `python -m py_compile` on changed scripts plus the relevant CPU smoke/dataset checks. Do not claim the student is production-ready from toy smoke tests; promotion is driven by held-out retrieval evaluation and the generated manifest.

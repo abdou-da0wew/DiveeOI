@@ -599,3 +599,14 @@ coenx-wide, app pre-existing component-test failures unchanged (stash-verified i
 - Fresh measurement: packages/coenx-video/scripts/bench-live-physics.ts (44 bodies, collide-heavy): median 0.0537 -> 0.0392 ms/step (-27%), identical 366 collision events. Suite: 161 pass / 0 fail; typecheck back to the 2 pre-existing script errors (scripts/pack-molecules-test.ts, scripts/world-showcase-composition.ts, stash-verified pre-existing).
 - Docs: new "Low-end hardware target" section in docs/optimization.md (machine table, stack budget, before/after table, rules to not regress).
 - Pushes: 8c6219f + the docs commit are local-only - this sandbox has no GitHub credentials (same as the 2026-11-26 note). Push dev from a machine with auth first thing next session; full-history bundle at download/DiveeOI-dev-backup-20261127b.bundle.
+
+## 2026-11-27 (later) — native sidecars built + verified; low-end runbook completed (sandbox)
+
+- Context: previous entry left 8c6219f + docs local-only (no git credentials in recycled sandbox; bundle at download/DiveeOI-dev-backup-20261127b.bundle). This session restored `dev` to ee0d2ce (fast-forward of origin/dev 0abc0b1 + the two local commits) from that bundle before touching anything; tree was clean at start.
+- Rust toolchain installed in-sandbox (rustup stable 1.100.0 under /home/z/my-project/toolchain, persisted outside the repo). System libs cairo/glib-2.0/pango present.
+- Built BOTH sidecars and proved them end-to-end:
+  - `coenx-video-native`: `cargo build --release` 38 s, 607 KB. `simulate` bounce test: ball settles exactly on the static floor with restitution 0.6, statics hold position. New bench `scripts/bench-native-physics.ts`: 900-step 44-body batch = 0.083 ms/step end-to-end (spawn + JSON of 901 frames x 44 poses included) vs in-process JS 0.0389 ms/step — confirms the architecture split (interactive stays JS in-browser; native amortizes in the headless export batch + cairo render_frame).
+  - `divee-retrieval`: `cargo build --release` 78 s, 4.0 MB. New verify script `scripts/verify-native-retrieval.ts`: builds a books.db with the production schema, one-shot `--query photosynthesis --vector-base64 ...` returns bio-c1 top with dense 0.998 / fused 0.033 — BM25+dense+RRF fusion working through the real binary.
+- Suites after the installs: coenx-video 164 tests 0 fail (3 skip); learning native-engine 12/0; learning hybrid 14/0.
+- Docs: new "Native sidecars on the low-end machine" subsection in docs/optimization.md (sidecar table, fresh side-by-side numbers, the three architecture rules, toolchain prereqs for the 8 GB laptop).
+- Next session: paste the GitHub PAT again (the sandbox recycle loses it every time — it is never written to disk) and push `dev` immediately — the tree must go to GitHub before any further work.

@@ -218,3 +218,20 @@ Fresh measurement for this pass: 44-body collide-heavy physics bench, median **0
 - `canvas` renderer stays the default for the session panel; the SVG backend rebuilds the DOM every frame and is for exports/edge cases only.
 - The physics step cap (`MAX_PHYSICS_STEPS_PER_RENDER = 12`) stays; raising it reintroduces worst-case stalls after tab throttling.
 - Keep collisions deterministic: reuse buffers only inside `LivePhysicsWorld`; the public `poses()` API still returns owned snapshots (tests hold them across steps).
+
+### Native sidecars on the low-end machine (built + verified 2026-11-27)
+
+Two Rust sidecars ship in the repo. Both were **built with Rust 1.100.0 and verified working** on this date; each lands at the exact path the TypeScript discovery logic probes, so a plain `cargo build --release` (or `bun run build:native`) activates the native path with no config.
+
+| Sidecar | Source | Binary | Used by | Verified |
+|---|---|---|---|---|
+| `coenx-video-native` | `packages/coenx-video/native/coenx-video-native` (`bun run build:native`) | `target/release/coenx-video-native` (607 KB, links system cairo/glib/pango) | headless export pipeline (`simulatePhysics` native-preferred + `render_frame` cairo rasterization in one process); **never the interactive player** | `simulate` 120-step bounce settles the ball on the floor with correct restitution; 900-step 44-body batch answers in 75 ms end-to-end |
+| `divee-retrieval` | `packages/learning/native/retrieval` (`cargo build --release` from that dir) | `target/release/divee-retrieval` (4.0 MB, links system SQLite) | TL retrieval when `targetedLearning.retrieval.engine = auto` (default) or `native`; `--serve` keeps one long-lived read-only-DB child per learning runtime | one-shot query against a schema-built books.db returns the expected top chunk with cosine 0.998 (BM25 + dense + RRF fusion) |
+
+Fresh side-by-side on the 44-body collide-heavy bench (both scripts committed): the in-process JS world steps at **0.0389 ms/step**, while the native sidecar answers the same 900-step batch at **0.083 ms/step end-to-end** — the JSON round-trip of 901 frames × 44 poses plus process spawn dominates, exactly as designed. This is why the split is not an accident:
+
+- **Interactive playback stays in-process JS.** The browser cannot spawn children, and a per-frame round-trip would be a regression. The player hot path is the JS `LivePhysicsWorld` optimized above; the sidecar plays no role there.
+- **Native amortizes in batch/headless work.** Video export evaluates one `simulate` + one `render_frame` per frame batch through a single process — the round-trip cost disappears and the cairo rasterization moves off the Node main thread. Re-measure with `bun scripts/bench-native-physics.ts` (coenx-video) after touching either side.
+- **Retrieval native is a memory swap, not a copy.** `divee-retrieval --serve` is one small resident child (read-only DB handle, no model loaded unless a student runtime dir exists) doing FTS5/BM25 + cosine + RRF that would otherwise run inside the ~2 GB-bounded server process. On the 8 GB machine this shifts work out of the biggest process; if the child dies, `auto` falls back to the TypeScript pipeline for that request and the next request re-spawns.
+
+On the 8 GB laptop the only new requirement is a Rust toolchain (`rustup`, stable) plus the system libs the sidecars link (`libcairo2-dev`, `libglib2.0-dev`, `libpango1.0-dev`, `libsqlite3-dev`). Both verification scripts are committed: `packages/coenx-video/scripts/bench-native-physics.ts` and `packages/learning/scripts/verify-native-retrieval.ts` — run them after any sidecar change; both print an explicit OK/expectation line.
