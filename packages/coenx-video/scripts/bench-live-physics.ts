@@ -11,10 +11,10 @@ const MOLECULES = 40
 function makeSettings(): PhysicsSettings {
   const bodies: PhysicsSettings["bodies"] = [
     // Static chamber walls (thick, mass 0).
-    { nodeId: "wall-left", mass: 0, isStatic: true, size: [20, H], position: [10, H / 2] },
-    { nodeId: "wall-right", mass: 0, isStatic: true, size: [20, H], position: [W - 10, H / 2] },
-    { nodeId: "wall-top", mass: 0, isStatic: true, size: [W, 20], position: [W / 2, 10] },
-    { nodeId: "floor", mass: 0, isStatic: true, size: [W, 20], position: [W / 2, H - 10] },
+    { nodeId: "wall-left", mass: 0, isStatic: true, size: [20, H], position: [10, H / 2], velocity: [0, 0] },
+    { nodeId: "wall-right", mass: 0, isStatic: true, size: [20, H], position: [W - 10, H / 2], velocity: [0, 0] },
+    { nodeId: "wall-top", mass: 0, isStatic: true, size: [W, 20], position: [W / 2, 10], velocity: [0, 0] },
+    { nodeId: "floor", mass: 0, isStatic: true, size: [W, 20], position: [W / 2, H - 10], velocity: [0, 0] },
   ]
   // Packed dynamic molecules: dense enough that collisions fire every step.
   let index = 0
