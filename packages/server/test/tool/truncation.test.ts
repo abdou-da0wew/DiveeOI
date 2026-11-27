@@ -1,4 +1,5 @@
 import { describe, test, expect } from "bun:test"
+import os from "os"
 import { ConfigV1 } from "@diveeoi/db/v1/config/config"
 import { NodeFileSystem } from "@effect/platform-node"
 import { FSUtil } from "@diveeoi/db/fs-util"
@@ -175,18 +176,25 @@ describe("Truncate", () => {
       }),
     )
 
-    it.live("writes full output to file when truncated", () =>
+    it.live("writes full output to .output file with targeted-access hint", () =>
       Effect.gen(function* () {
         const svc = yield* Truncate.Service
         const lines = Array.from({ length: 100 }, (_, i) => `line${i}`).join("\n")
         const result = yield* svc.output(lines, { maxLines: 10 })
 
         expect(result.truncated).toBe(true)
-        expect(result.content).toContain("The tool call succeeded but the output was truncated")
-        expect(result.content).toContain("Grep")
+        expect(result.content).toContain("output was too long")
+        expect(result.content).toContain("Full output saved to:")
+        expect(result.content).toContain("grep -n")
+        expect(result.content).toContain("sed -n")
+        expect(result.content).toContain("wc -l")
+        expect(result.content).toContain("head -50")
+        expect(result.content).toContain("tail -50")
         if (!result.truncated) throw new Error("expected truncated")
         expect(result.outputPath).toBeDefined()
         expect(result.outputPath).toContain("tool_")
+        expect(result.outputPath).toEndWith(Truncate.OUTPUT_EXTENSION)
+        expect(result.outputPath).toContain(os.tmpdir())
 
         const fsys = yield* FSUtil.Service
         const written = yield* fsys.readFileString(result.outputPath!)
@@ -215,7 +223,7 @@ describe("Truncate", () => {
         const result = yield* svc.output(lines, { maxLines: 10 }, agent as any)
 
         expect(result.truncated).toBe(true)
-        expect(result.content).toContain("Grep")
+        expect(result.content).toContain("grep -n")
         expect(result.content).not.toContain("Task tool")
       }),
     )

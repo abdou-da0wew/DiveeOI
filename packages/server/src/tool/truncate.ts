@@ -19,6 +19,34 @@ export const GLOB = path.join(TRUNCATION_DIR, "*")
 
 export type Result = { content: string; truncated: false } | { content: string; truncated: true; outputPath: string }
 
+/** Extension for persisted full-output files (tool_<id>.output). */
+export const OUTPUT_EXTENSION = ".output"
+
+/**
+ * Agent-facing guidance attached to truncated output. Tells the agent the output was
+ * too long, where the full content lives, and HOW to access it with targeted commands
+ * (grep -n for matching text with line numbers, sed -n for line ranges, head/tail,
+ * wc -l) instead of pulling the whole file back into context.
+ */
+export function accessHint(file: string, removed: number, unit: string, agent?: Agent.Info): string {
+  const opener = `The tool call succeeded but the output was too long — ${removed} ${unit} were truncated. Full output saved to: ${file}`
+  const patterns = [
+    `Access the full content with targeted commands instead of reading it whole:`,
+    `- grep -n "pattern" "${file}"   # lines matching text, with line numbers`,
+    `- sed -n '100,150p' "${file}"   # print a specific line range`,
+    `- head -50 "${file}" / tail -50 "${file}"   # first/last lines`,
+    `- wc -l "${file}"   # total line count, to size up further reads`,
+  ]
+  if (hasTaskTool(agent)) {
+    return [
+      opener,
+      `Prefer delegating: use the Task tool to have explore agent process this file with Grep and Read (with offset/limit) — do NOT read the full file yourself, it defeats the truncation.`,
+      ...patterns,
+    ].join("\n")
+  }
+  return [opener, ...patterns].join("\n")
+}
+
 export interface Options {
   maxLines?: number
   maxBytes?: number
@@ -66,7 +94,7 @@ export const layer = Layer.effect(
     })
 
     const write = Effect.fn("Truncate.write")(function* (text: string) {
-      const file = path.join(TRUNCATION_DIR, ToolID.ascending())
+      const file = path.join(TRUNCATION_DIR, ToolID.ascending() + OUTPUT_EXTENSION)
       yield* fs.ensureDir(TRUNCATION_DIR).pipe(Effect.orDie)
       yield* fs.writeFileString(file, text).pipe(Effect.orDie)
       return file
@@ -125,10 +153,7 @@ export const layer = Layer.effect(
       const unit = hitBytes ? "bytes" : "lines"
       const preview = out.join("\n")
       const file = yield* write(text)
-
-      const hint = hasTaskTool(agent)
-        ? `The tool call succeeded but the output was truncated. Full output saved to: ${file}\nUse the Task tool to have explore agent process this file with Grep and Read (with offset/limit). Do NOT read the full file yourself - delegate to save context.`
-        : `The tool call succeeded but the output was truncated. Full output saved to: ${file}\nUse Grep to search the full content or Read with offset/limit to view specific sections.`
+      const hint = accessHint(file, removed, unit, agent)
 
       return {
         content:

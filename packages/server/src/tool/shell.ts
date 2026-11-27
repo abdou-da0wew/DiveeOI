@@ -17,6 +17,7 @@ import { Shell } from "@diveeoi/db/shell"
 import { ShellID } from "./shell/id"
 
 import * as Truncate from "./truncate"
+import { Agent } from "@/agent/agent"
 import { StreamLimiter } from "./stream-limiter"
 import { Plugin } from "@/plugin"
 import { ChildProcess } from "effect/unstable/process"
@@ -353,6 +354,7 @@ export const ShellTool = Tool.define(
     const remoteSession = Option.getOrUndefined(yield* Effect.serviceOption(RemoteSession.Service))
     const fs = yield* FSUtil.Service
     const trunc = yield* Truncate.Service
+    const agents = yield* Agent.Service
     const plugin = yield* Plugin.Service
     const flags = yield* RuntimeFlags.Service
     const defaultTimeoutMs = flags.bashDefaultTimeoutMs ?? 2 * 60 * 1000
@@ -740,11 +742,22 @@ export const ShellTool = Tool.define(
         file = yield* trunc.write(raw)
       }
 
+      // What actually bound: bytes when the raw payload exceeded the byte cap
+      // (tail stops adding lines once bytes overflow), otherwise line count.
+      const rawBytes = Buffer.byteLength(raw, "utf-8")
+      const outBytes = Buffer.byteLength(end.text, "utf-8")
+      const removedBytes = Math.max(0, rawBytes - outBytes)
+      const removedLines = Math.max(0, raw.split("\n").length - (end.text === "" ? 0 : end.text.split("\n").length))
+      const hitBytes = rawBytes > limits.maxBytes
+      const removed = hitBytes ? removedBytes : removedLines
+      const unit = hitBytes ? "bytes" : "lines"
+
       let output = end.text
       if (!output) output = "(no output)"
 
       if (cut && file) {
-        output = `...output truncated...\n\nFull output saved to: ${file}\n\n` + output
+        const agentInfo = yield* agents.get(ctx.agent).pipe(Effect.catch(() => Effect.succeed(undefined)))
+        output = `...output truncated...\n\n${Truncate.accessHint(file, removed, unit, agentInfo)}\n\n` + output
       }
 
       if (meta.length > 0) {
