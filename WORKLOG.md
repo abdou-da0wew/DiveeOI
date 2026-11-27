@@ -610,3 +610,5 @@ coenx-wide, app pre-existing component-test failures unchanged (stash-verified i
 - Suites after the installs: coenx-video 164 tests 0 fail (3 skip); learning native-engine 12/0; learning hybrid 14/0.
 - Docs: new "Native sidecars on the low-end machine" subsection in docs/optimization.md (sidecar table, fresh side-by-side numbers, the three architecture rules, toolchain prereqs for the 8 GB laptop).
 - Next session: paste the GitHub PAT again (the sandbox recycle loses it every time — it is never written to disk) and push `dev` immediately — the tree must go to GitHub before any further work.
+
+- PUSHED: origin/dev 0abc0b11..8231687e (4 commits: 8c6219f low-end player perf, ee0d2ce low-end docs, 7a3a977 bench typecheck fix, 8231687 native sidecar verification). Tree clean; nothing left local.
