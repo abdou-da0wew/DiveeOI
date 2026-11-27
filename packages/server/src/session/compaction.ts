@@ -5,6 +5,7 @@ import { Session } from "./session"
 import { SessionID, MessageID, PartID } from "./schema"
 import { Provider } from "@/provider/provider"
 import { MessageV2 } from "./message-v2"
+import { estimateHistoryTokens } from "./estimate"
 import { Token } from "@/util/token"
 import { SessionProcessor } from "./processor"
 import { Agent } from "@/agent/agent"
@@ -195,8 +196,12 @@ export const layer = Layer.effect(
       messages: SessionV1.WithParts[]
       model: Provider.Model
     }) {
-      const msgs = yield* MessageV2.toModelMessagesEffect(input.messages, input.model)
-      return Token.estimate(JSON.stringify(msgs))
+      // Parts-based instead of JSON.stringify over converted model messages: the
+      // JSON form charged syntax/escaping overhead to every turn, which shrank the
+      // tail budget and preserved fewer real turns than the same token allowance
+      // can hold. The shared estimator measures actual payload text (4 chars/token)
+      // plus conservative media costs — closer to what the provider bills.
+      return estimateHistoryTokens(input.messages)
     })
 
     const select = Effect.fn("SessionCompaction.select")(function* (input: {

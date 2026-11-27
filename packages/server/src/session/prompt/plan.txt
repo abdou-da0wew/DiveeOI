@@ -1,4 +1,3 @@
-<budget:token_budget>{tier}:{remaining}</budget:token_budget>
 
 <system-reminder>
 <plan_mode active="true">

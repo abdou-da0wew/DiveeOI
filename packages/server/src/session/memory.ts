@@ -28,6 +28,37 @@ export interface MemoryMessage {
 const MAX_PROMPT_MEMORY_NODES = 8
 const MAX_PROMPT_MEMORY_CONTENT_CHARS = 1_800
 
+/**
+ * Cut memory content at a meaningful boundary instead of mid-word/mid-record.
+ * Tries the last sentence end (. ! ? followed by space/EOL, or Arabic full stop .),
+ * then the last line break, then the last space, within the cap. Only falls back
+ * to the hard cut when none of those exist in the window (e.g. one giant token).
+ * Preserves more usable context per emitted character than a blind slice.
+ */
+/** Exported for tests: boundary-aware truncation of memory content. */
+export function truncateAtBoundary(content: string, cap: number): { text: string; truncated: boolean } {
+  if (content.length <= cap) return { text: content, truncated: false }
+  const window = content.slice(0, cap)
+  const sentenceRe = /[.!؟?][\s"')\]]|\.[\s"')\]]/g
+  let cut = -1
+  for (const match of window.matchAll(sentenceRe)) {
+    if (match.index !== undefined && match.index > cap * 0.5) {
+      cut = match.index + match[0].length - 1
+      break
+    }
+  }
+  if (cut < 0) {
+    const nl = window.lastIndexOf("\n")
+    if (nl > cap * 0.5) cut = nl
+  }
+  if (cut < 0) {
+    const sp = window.lastIndexOf(" ")
+    if (sp > cap * 0.5) cut = sp
+  }
+  if (cut < 0) cut = cap
+  return { text: content.slice(0, cut).trimEnd(), truncated: true }
+}
+
 const escapeXml = (value: string): string => value
   .replace(/&/g, "&amp;")
   .replace(/</g, "&lt;")
@@ -86,8 +117,8 @@ const makeSessionMemoryIntegration = Effect.gen(function* () {
       if (nodes.length === 0) return ""
 
       const memorySections = nodes.map((node, index) => {
-        const content = node.content.slice(0, MAX_PROMPT_MEMORY_CONTENT_CHARS)
-        const truncated = content.length < node.content.length ? "\n[content truncated]" : ""
+        const { text: content, truncated } = truncateAtBoundary(node.content, MAX_PROMPT_MEMORY_CONTENT_CHARS)
+        const truncatedNote = truncated ? "\n[content truncated]" : ""
         const score = result.scores[node.id] ?? 0
         const confidence = Number.isFinite(node.confidence) ? node.confidence : 0
         const rankScore = Number.isFinite(score) ? score : 0
@@ -95,7 +126,7 @@ const makeSessionMemoryIntegration = Effect.gen(function* () {
           `<memory rank="${index + 1}" type="${node.type}" confidence="${confidence.toFixed(2)}" score="${rankScore.toFixed(2)}">`,
           `  <title>${escapeXml(node.title)}</title>`,
           `  <tags>${escapeXml(node.tags.join(", "))}</tags>`,
-          `  <content>${escapeXml(content)}${truncated}</content>`,
+          `  <content>${escapeXml(content)}${truncatedNote}</content>`,
           "</memory>",
         ].join("\n")
       }).join("\n")

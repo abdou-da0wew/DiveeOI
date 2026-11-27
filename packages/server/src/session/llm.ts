@@ -44,6 +44,10 @@ export type StreamInput = {
   agent: Agent.Info
   permission?: PermissionV1.Ruleset
   system: string[]
+  /** Per-step volatile system blocks (budget hint, reminders, todos, memory context, TL blocks).
+   *  Emitted as a trailing system message WITHOUT a cache breakpoint so the stable
+   *  `system` prefix stays cacheable across provider calls. */
+  systemVolatile?: string[]
   messages: ModelMessage[]
   small?: boolean
   tools: Record<string, Tool>

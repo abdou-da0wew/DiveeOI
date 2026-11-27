@@ -7,6 +7,7 @@ import { SessionID, MessageID, PartID } from "./schema"
 import { MessageV2 } from "./message-v2"
 import { SessionRevert } from "./revert"
 import { Session } from "./session"
+import { estimateHistoryTokens, estimateMessageTokens } from "./estimate"
 import { Agent } from "../agent/agent"
 import { Provider } from "@/provider/provider"
 import { Composer } from "@/provider/composer"
@@ -102,21 +103,6 @@ function isOrphanedInterruptedTool(part: SessionV1.ToolPart) {
   // cleanup() marks abandoned tool_use blocks this way after retries/aborts.
   // They are not pending work and must not trigger an assistant-prefill request.
   return part.state.status === "error" && part.state.metadata?.interrupted === true
-}
-
-function estimateMessageTokens(msg: SessionV1.WithParts): number {
-  let chars = 0
-  for (const part of msg.parts) {
-    if (part.type === "text" || part.type === "reasoning") chars += part.text.length
-    else if (part.type === "tool") {
-      chars += part.tool.length
-      const st = part.state
-      if (st.status === "completed") chars += st.output.length
-      else if (st.status === "error") chars += st.error.length
-      else if (st.status === "pending") chars += st.raw.length
-    }
-  }
-  return Math.max(1, Math.round(chars / 4))
 }
 
 function applyTokenWindow(msgs: SessionV1.WithParts[], maxTokens: number): SessionV1.WithParts[] {
@@ -738,7 +724,12 @@ export const layer = Layer.effect(
         .findMessage(sessionID, (message) => message.info.role === "assistant" && (message.info.tokens?.input ?? 0) > 0)
         .pipe(Effect.orDie)
       const latestAssistantInfo = Option.isSome(latestAssistant) ? latestAssistant.value.info : undefined
-      const contextUsageTokens = latestAssistantInfo?.role === "assistant" ? (latestAssistantInfo.tokens.input ?? 0) : 0
+      // Fit against what the next provider will actually receive: the stored `input`
+      // excludes cache read/write tokens, but the real prompt includes the cached
+      // prefix. Fitting on the non-cached figure routed sessions to models whose
+      // window could not hold the true context (guaranteed 413 + compaction churn).
+      const usage = latestAssistantInfo?.role === "assistant" ? latestAssistantInfo.tokens : undefined
+      const contextUsageTokens = usage ? (usage.input ?? 0) + (usage.cache?.read ?? 0) + (usage.cache?.write ?? 0) : 0
       const exit = yield* provider.getModel(providerID, modelID, contextUsageTokens).pipe(Effect.exit)
       if (Exit.isSuccess(exit)) return exit.value
       const err = Cause.squash(exit.cause)
@@ -1559,7 +1550,23 @@ export const layer = Layer.effect(
 
         const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
         const cfg = yield* config.get()
-        msgs = applyTokenWindow(msgs, overflow.usable({ cfg, model }))
+        const usableTokens = overflow.usable({ cfg, model })
+        // Prefer lossless compaction over the silent oldest-turn slice in
+        // applyTokenWindow: when the history estimate exceeds the usable window
+        // and the last finished step is not already a compaction summary, create
+        // a compaction (summary + Anchor index preserved) instead of dropping
+        // turns. applyTokenWindow below stays as the hard safety net for the
+        // case where compaction is disabled, fails, or just ran and the tail is
+        // still too large.
+        if (
+          estimateHistoryTokens(msgs) > usableTokens &&
+          lastFinished &&
+          lastFinished.summary !== true
+        ) {
+          yield* compaction.create({ sessionID, agent: lastUser.agent, model: lastUser.model, auto: true })
+          continue
+        }
+        msgs = applyTokenWindow(msgs, usableTokens)
         const task = tasks.pop()
 
         if (task?.type === "subtask") {
@@ -1683,8 +1690,17 @@ export const layer = Layer.effect(
             parts: m.parts.map((p) => ({ text: "text" in p ? p.text : undefined })),
           }))
 
+          // Real, inclusive context estimate for the budget tier gates: prefer the
+          // last finished step's reported usage (input + cache read/write — the
+          // full prompt the provider actually saw), fall back to the parts-based
+          // history estimate when no step has finished yet.
+          const lastUsage = lastFinished?.tokens
+          const currentTokenEstimate = lastUsage
+            ? (lastUsage.input ?? 0) + (lastUsage.cache?.read ?? 0) + (lastUsage.cache?.write ?? 0)
+            : estimateHistoryTokens(msgs)
+
           const [assembly, instructions, modelMsgs] = yield* Effect.all([
-            sys.system(model, agent, legacyMsgs, sessionID),
+            sys.system(model, agent, legacyMsgs, sessionID, currentTokenEstimate),
             instruction.system().pipe(Effect.orDie),
             MessageV2.toModelMessagesEffect(msgs, model),
           ])
@@ -1694,7 +1710,18 @@ export const layer = Layer.effect(
           // context and can change approach.
           const watchdogReminder = watchdogDiagnosis.get(sessionID)
           if (watchdogReminder) watchdogDiagnosis.delete(sessionID)
-          const system = [...assembly.parts, ...instructions, ...(watchdogReminder ? [watchdogReminder] : [])]
+          // Cache-stable split: the stable blocks (env, base prompt, identity, skills,
+          // anchors) go into `system`; everything that can change per step (budget
+          // hint, reminders, todos, memory context, TL blocks, nudges) goes into
+          // `systemVolatile`, which LLMRequestPrep emits as a trailing system message
+          // without a cache breakpoint. Provider prefix caches on the stable message
+          // therefore survive reminder/todo/memory churn instead of being busted
+          // every step.
+          const system = [...assembly.stableParts, ...instructions]
+          const systemVolatile: string[] = [
+            ...assembly.volatileParts,
+            ...(watchdogReminder ? [watchdogReminder] : []),
+          ]
 
           // Targeted Learning: retrieve from the attached books and apply the gate BEFORE the
           // model is called. A refused gate answers with the hardcoded message and no LLM call.
@@ -1763,13 +1790,13 @@ export const layer = Layer.effect(
               yield* sessions.updateMessage(msg)
               return "break" as const
             }
-            system.push(...turn.system)
+            systemVolatile.push(...turn.system)
           }
           const format = lastUser.format ?? { type: "text" as const }
-          if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
+          if (format.type === "json_schema") systemVolatile.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
           const isToon = (cfg.llm?.format ?? cfg.tool?.format ?? "toon") !== "json"
           if (isToon) {
-            system.push(`When calling tools, format tool call arguments in TOON format:
+            systemVolatile.push(`When calling tools, format tool call arguments in TOON format:
 Tool: {name}
   Args:
     | {key}: {value}`)
@@ -1789,7 +1816,7 @@ Tool: {name}
               strikes: loopStrikes,
             })
             if (loopStrikes >= LOOP_FATAL_AFTER) {
-              system.push(loopMessage(diagnosis), LOOP_STOP_NOTICE)
+              systemVolatile.push(loopMessage(diagnosis), LOOP_STOP_NOTICE)
               yield* events.publish(Session.Event.Error, {
                 sessionID,
                 error: new NamedError.Unknown({
@@ -1798,7 +1825,7 @@ Tool: {name}
               })
               return "break" as const
             }
-            system.push(loopMessage(diagnosis))
+            systemVolatile.push(loopMessage(diagnosis))
           }
 
           // P9 in-turn todo nudge: every `todoReminderEveryToolCalls` (tier-scaled
@@ -1828,7 +1855,7 @@ Tool: {name}
               if (lastTodoNudgeKey !== lastNudgeKey) {
                 lastTodoNudgeKey = lastNudgeKey
                 const lines = pending.map((t) => `  ${t.status === "in_progress" ? "[~]" : "[ ]"} ${t.content}`)
-                system.push(
+                systemVolatile.push(
                   `<system-reminder>Reminder: ${pending.length} todo${pending.length === 1 ? "" : "s"} still pending:\n${lines.join("\n")}\nComplete, cancel with a stated reason, or explicitly defer before finishing.</system-reminder>`,
                 )
               }
@@ -1836,7 +1863,7 @@ Tool: {name}
           }
 
           if (groundingRetryPrompt) {
-            system.push(`<grounding-retry>\n${groundingRetryPrompt}\n</grounding-retry>`)
+            systemVolatile.push(`<grounding-retry>\n${groundingRetryPrompt}\n</grounding-retry>`)
             groundingRetryPrompt = undefined
           }
 
@@ -1847,6 +1874,7 @@ Tool: {name}
             sessionID,
             parentSessionID: session.parentID,
             system,
+            systemVolatile,
             messages: [...modelMsgs, ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS }] : [])],
             tools,
             model,

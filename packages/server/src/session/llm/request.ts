@@ -29,6 +29,8 @@ type PrepareInput = {
   readonly agent: Agent.Info
   readonly permission?: PermissionV1.Ruleset
   readonly system: string[]
+  /** Volatile system blocks emitted as a trailing, non-cache-breakpointed system message. */
+  readonly systemVolatile?: string[]
   readonly messages: ModelMessage[]
   readonly small?: boolean
   readonly tools: Record<string, Tool>
@@ -64,6 +66,11 @@ const mergeOptions = (target: Record<string, any>, source: Record<string, any> |
 
 export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: PrepareInput) {
   const isOpenaiOauth = input.provider.id === "openai" && input.auth?.type === "oauth"
+  // system[0] carries the cache-stable prefix (provider base prompt + static blocks);
+  // system[1] (when present) carries the per-step volatile blocks as a TRAILING system
+  // message. ProviderTransform.applyCaching marks the first two system messages with
+  // a cache breakpoint, so the stable prefix survives reminder/todo/memory churn:
+  // a change invalidates only the volatile tail, never the cached stable head.
   const system = [
     [
       ...(input.agent.prompt ? [input.agent.prompt] : SystemPrompt.provider(input.model)),
@@ -73,6 +80,8 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
       .filter((x) => x)
       .join("\n"),
   ]
+  const volatileJoined = (input.systemVolatile ?? []).filter((x) => x).join("\n")
+  if (volatileJoined) system.push(volatileJoined)
 
   const header = system[0]
   yield* input.plugin.trigger(

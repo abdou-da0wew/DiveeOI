@@ -57,7 +57,13 @@ export function provider(model: Provider.Model) {
 }
 
 export interface SystemAssembly {
+  /** Concatenation of stableParts + volatileParts (legacy single-array view). */
   readonly parts: string[]
+  /** Blocks that change at most per session (env, base prompts, identity, skills, anchors). Cache-prefix safe. */
+  readonly stableParts: string[]
+  /** Blocks that can change every step (budget hint, reminders, todos, memory context). Always emitted LAST so
+   *  provider prefix caches on the stable system message survive their changes. */
+  readonly volatileParts: string[]
   readonly btwDetected: boolean
   readonly mentionedSkills: string[]
 }
@@ -68,6 +74,7 @@ export interface Interface {
     agent: Agent.Info,
     msgs: ReadonlyArray<{ info: { role: string }; parts?: ReadonlyArray<{ text?: string }> }>,
     sessionID: SessionID,
+    currentTokenEstimate?: number,
   ) => Effect.Effect<SystemAssembly, MemoryError | PlatformError, any>
 }
 
@@ -91,10 +98,14 @@ export const layer = Layer.effect(
         agent: Agent.Info,
         msgs: ReadonlyArray<{ info: { role: string }; parts?: ReadonlyArray<{ text?: string }> }>,
         sessionID: SessionID,
+        currentTokenEstimate?: number,
       ) {
         const ctx = yield* InstanceState.context
 
-        const budgetInfo = ContextBudget.compute({ model, currentTokenEstimate: 0 })
+        // Real usage (inclusive of cache read/write) makes the tier gates meaningful:
+        // with a hardcoded 0 the tier was always "unlimited" and the graceful
+        // degradation of identity/skills/reminders/memory never fired.
+        const budgetInfo = ContextBudget.compute({ model, currentTokenEstimate: currentTokenEstimate ?? 0 })
         const tier = budgetInfo.tier
 
         const lastUserMsg = [...msgs].reverse().find((m) => m.info.role === "user")
@@ -218,25 +229,34 @@ export const layer = Layer.effect(
 
         const btwBlock = btwResult.found ? BtwCommand.formatForSystem(btwResult.command) : undefined
 
-        const parts: string[] = [
-          budgetHint,
+        // Stable first, volatile last. LLMRequestPrep emits these as separate
+        // system messages so provider prefix caching (e.g. Anthropic cache_control
+        // breakpoints on the first N system messages) survives reminder/todo/memory
+        // churn: the volatile tail invalidates only itself.
+        const stableParts: string[] = [
           ...envParts,
           PROMPT_DIVEEOI,
           ...(identityBlock ? [identityBlock] : []),
-          ...(remindersBlock ? [remindersBlock] : []),
-          ...(todosBlock ? [todosBlock] : []),
           ...(skillsBlock ? [skillsBlock] : []),
-          ...(btwBlock ? [btwBlock] : []),
-          ...(memoryContext ? [memoryContext] : []),
           PROMPT_EXCELLENCE,
           PROMPT_CALIBRATION,
           ...(anchorBlock ? [anchorBlock] : []),
           ...(autonomyBlock ? [autonomyBlock] : []),
           ...(tasksBlock ? [tasksBlock] : []),
         ]
+        const volatileParts: string[] = [
+          budgetHint,
+          ...(remindersBlock ? [remindersBlock] : []),
+          ...(todosBlock ? [todosBlock] : []),
+          ...(btwBlock ? [btwBlock] : []),
+          ...(memoryContext ? [memoryContext] : []),
+        ]
+        const parts: string[] = [...stableParts, ...volatileParts]
 
         return {
           parts,
+          stableParts,
+          volatileParts,
           btwDetected: btwResult.found,
           mentionedSkills: mentionResult.mentions.map((m) => m.name),
         }

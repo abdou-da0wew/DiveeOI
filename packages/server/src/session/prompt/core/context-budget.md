@@ -1,4 +1,3 @@
-<budget:token_budget>{tier}:{remaining}</budget:token_budget>
 
 <context_budget>
   Your context window is limited to {total} tokens.
