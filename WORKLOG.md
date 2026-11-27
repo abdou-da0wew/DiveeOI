@@ -612,3 +612,19 @@ coenx-wide, app pre-existing component-test failures unchanged (stash-verified i
 - Next session: paste the GitHub PAT again (the sandbox recycle loses it every time — it is never written to disk) and push `dev` immediately — the tree must go to GitHub before any further work.
 
 - PUSHED: origin/dev 0abc0b11..8231687e (4 commits: 8c6219f low-end player perf, ee0d2ce low-end docs, 7a3a977 bench typecheck fix, 8231687 native sidecar verification). Tree clean; nothing left local.
+
+## 2026-11-27 (evening) — context/token efficiency round, no information loss (sandbox)
+
+- User ask: "improve the context window and token quota usage in diveeoi? without losing any context?" Explored agent mapped the whole prompt/context/quota architecture (8 waste sites); this round fixes all of them.
+- Root changes (commit adafb2b8, PUSHED):
+  1. Compaction-first window: estimate > usable() now creates a compaction (summary + Anchor preserved) instead of the silent oldest-turn slice; applyTokenWindow demoted to safety net.
+  2. Cache-stable system split: system() -> stableParts/volatileParts; run loop routes every per-step block into systemVolatile; LLMRequestPrep emits it trailing. Prefix caches on the stable head survive reminder/todo/memory churn (Anthropic cache_control marks the first 2 system messages; the volatile tail invalidates only itself).
+  3. Real budget tier: ContextBudget.compute gets last finished step's inclusive usage (input + cache.read + cache.write), parts-based fallback; tier gates + budget hint were dead at 0.
+  4. Routing fit on inclusive tokens: composer context-fit sees the true prompt size; non-cached fit could route to windows that cannot hold the real prompt (413 -> compaction churn).
+  5. session/estimate.ts: file/image/pdf parts counted (image 1600, pdf 2000, file 1000 conservative constants); previously 0 — window cut fired far too late on image-heavy sessions.
+  6. Compaction tail estimate parts-based (was JSON.stringify: syntax overhead shrank the preserved tail).
+  7. Memory-context boundary cut: sentence/line/space boundaries instead of blind 1800-char slice.
+  8. Dead `<budget:token_budget>{tier}:{remaining}` line stripped from 9 base prompts + core/context-budget.md (unsubstituted literal on every call).
+- Tests: new estimate.test.ts (8 pass). Green: compaction 52/0, prompt integration 55/0, memory 2/0, retry+message-v2+system 70/0, composer+free-tier 52/0, TL httpapi 27/0. httpapi-listen timeouts + full-suite OOM reproduce on clean base (stash-verified; environment-bound, not regressions). Server package tsgo typecheck still SIGKILLs in this sandbox (known).
+- Forensics note: prompt.ts:141 looked syntax-corrupted in some reads this session ("sgssgs"); verified against GitHub raw + git cat-file + repeated sha256 — the committed file is healthy, the corruption was display/transport-layer flakiness in this sandbox, not repo content.
+- Open follow-ups (not done this round): scheduler re-extraction quota gating (hash exists but active sessions with any new messages re-extract daily), applyTokenWindow system/tools overhead (tool schemas still uncounted — tools are built after the window cut), ContextBudget tier unit tests.
